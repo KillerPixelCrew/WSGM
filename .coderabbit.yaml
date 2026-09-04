@@ -1,0 +1,109 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+tone_instructions: >-
+  Be concise and evidence-first. Report only actionable defects introduced or materially worsened by
+  the pull request, with a concrete trigger, impact, and smallest safe correction. Omit praise,
+  style nitpicks, and generic security advice.
+
+reviews:
+  profile: chill
+  request_changes_workflow: true
+  high_level_summary: true
+  review_status: true
+  changed_files_summary: false
+  sequence_diagrams: false
+  estimate_code_review_effort: false
+  related_issues: false
+  related_prs: false
+  suggested_labels: false
+  suggested_reviewers: false
+  in_progress_fortune: false
+  poem: false
+  enable_prompt_for_ai_agents: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+    - "!**/bin/**"
+    - "!**/obj/**"
+    - "!publish/**"
+    - "!**/TestResults/**"
+    - "!src/WSGM/Native/**"
+    - "!src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js"
+    - "!third_party/LoadingIndicators.Avalonia/LoadingIndicators.Avalonia/**"
+    - "package-lock.json"
+    - "src/WSGM/Assets/Glyphs/**"
+    - "third_party/controller/**"
+  path_instructions:
+    - path: "src/WSGM/Core/**"
+      instructions: |
+        Trace configuration, package, Steam, RTSS, AutoTDP, and CEF changes through callers,
+        failure paths, cleanup, and recovery. Preserve strict fresh-state mutations, atomic writes,
+        recovery before normal initialization, the one trusted plugin slot, and fully useful
+        device-independent operation when integration is disabled. Never retry an uncertain hardware
+        write automatically. AutoTDP remains frametime-driven and RTSS remains useful without a
+        device plugin. Keep CEF access loopback-only, literal-module based, and JSON-escaped. Steam
+        asset changes must keep toolkit source, generated bootstrap, and catalog hash aligned.
+    - path: "src/WSGM/Shell/**"
+      instructions: |
+        Review shell transitions and the device cycle as serialized state machines. Every failure
+        must leave a usable desktop, and CEF readiness must not block independent recovery. Disabling
+        integration must finish make-safe before disposal and must not allow a manager to recreate it.
+        Check cancellation, subscriptions, handles, dispatcher ownership, and truthful uncertain
+        results. Preserve contentId-based card ownership, fresh physical-target verification before
+        every destructive disk operation, the staged format sequence, and atomic Steam VDF updates.
+    - path: "src/WSGM/{Input,Overlay,Settings,Controls,Themes}/**"
+      instructions: |
+        Preserve paired acquire/release behavior for input claims, capture, focus, cursor, overlay
+        handoff, and settings saves. UI-observable state belongs on the Avalonia dispatcher; async
+        results require cancellation or generations. Keep stable persisted IDs, deterministic source
+        switching, integration-disabled management UI, controller/touch/keyboard accessibility, and
+        allocation-light high-rate input paths. Device-specific policy must not leak into main input
+        or presentation code.
+    - path: "src/WSGM/Assets/Glyphs/**"
+      instructions: |
+        Keep the fallback controller-family names, resolver expectations, packaged files, and CREDITS
+        attribution synchronized. Do not confuse these built-in fallback assets with hash-addressed
+        glyph evidence owned by a device package.
+    - path: "{src/WSGM.Launch/**,src/WSGM.LogonService/**,src/WSGM/Interop/**}"
+      instructions: |
+        Preserve exact token, session, pipe-ACL, quoting, job-tree, watchdog, and one-shot recovery
+        boundaries. Only the de-elevation route promises a medium-integrity child; other launch modes
+        retain their documented integrity behavior. Validate the boot manifest as untrusted input and
+        clean up tasks, pipes, handles, leases, and temporary files exactly once. Native declarations
+        require exact layouts, error propagation, and explicit resource ownership.
+    - path: "{.gitmodules,external/**,native/SteamInput,third_party/controller/**,eng/**,installer/**,build.ps1,.github/**}"
+      instructions: |
+        For gitlink changes, verify the child commit is the intended pushed revision and preserve the
+        leaf-first SDK -> DeviceLab -> Claw -> WSGM dependency order, including nested SDK pins. Do
+        not duplicate child source into WSGM. Keep controller locks, patches, licenses, staging, and
+        installer payloads coherent. Preserve the csproj version as the release source and preserve
+        update, repair, rollback, uninstall, and output-ownership rules. VIIPER source replacement and
+        dev-deploy remain explicitly attended operations. Workflows require pinned actions, minimal
+        permissions, bounded jobs, and parity with the repository gate.
+    - path: "{tools/WsgmLibTest/**,.mcp.json,.codex/config.toml}"
+      instructions: |
+        Treat these as attended tools connected to the user's live Steam session. Preserve explicit
+        loopback and known-module targeting, JSON escaping, and bounded operations. File evaluation
+        may remain available for an explicitly attended probe, but must never become an automatic
+        registry sweep, unknown-export invocation, or supposedly harmless validation step.
+    - path: "package-lock.json"
+      instructions: |
+        Require a matching intentional package.json change and flag unrelated transitive churn,
+        unexpected registry sources, or dependency movement that bypasses the pinned build toolchain.
+    - path: "tests/**"
+      instructions: |
+        Require regression coverage for changed success, rejection, cancellation, repetition,
+        partial-failure, and cleanup paths. Tests must use explicit temporary seams and never touch
+        the real WSGM profile, Steam session, shell, services, hardware, display state, or global
+        input. Do not turn software-only coverage into a hardware-validation claim.
+    - path: "{AGENTS.md,**/AGENTS.md,CLAUDE.md,**/CLAUDE.md,README.md,docs/**,_plan/**,.agents/skills/**,.claude/skills/**}"
+      instructions: |
+        Keep operational claims, commands, architecture, progress status, READMEs, AGENTS guidance,
+        plans, and present or future skills synchronized with behavior. CLAUDE aliases must remain
+        relative symlinks to their canonical guidance. Never describe historical evidence as a fresh
+        live or device pass.
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
