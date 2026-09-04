@@ -35,7 +35,8 @@ internal sealed record AutoTdpStatus(
     double? FrametimeMs,
     double? TargetFrametimeMs,
     string? ApplicationId,
-    string Detail);
+    string Detail,
+    AutoTdpAction? Action = null);
 
 /// <summary>
 /// The one AutoTDP session service.
@@ -107,6 +108,9 @@ internal sealed class AutoTdpService : IAsyncDisposable
         null,
         null,
         "AutoTDP is off.");
+
+    /// <summary>Whether automatic control is currently enabled for this session.</summary>
+    internal bool Enabled => Volatile.Read(ref _enabled);
 
     /// <summary>Enables or disables automatic control.</summary>
     /// <param name="enabled">Whether AutoTDP should run.</param>
@@ -400,7 +404,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
             frametime.MeanFrametimeMs,
             target,
             running?.ApplicationId,
-            decision.Reason);
+            decision.Reason,
+            decision.Action);
     }
 
     /// <summary>Writes one power limit and reports whether it reached the hardware.</summary>
@@ -607,8 +612,9 @@ internal sealed class AutoTdpService : IAsyncDisposable
         int? watts,
         double? frametimeMs,
         double? targetFrametimeMs,
-        string detail) =>
-        Publish(state, watts, frametimeMs, targetFrametimeMs, Status.ApplicationId, detail);
+        string detail,
+        AutoTdpAction? action = null) =>
+        Publish(state, watts, frametimeMs, targetFrametimeMs, Status.ApplicationId, detail, action);
 
     private void Publish(
         AutoTdpState state,
@@ -616,7 +622,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
         double? frametimeMs,
         double? targetFrametimeMs,
         string? applicationId,
-        string detail)
+        string detail,
+        AutoTdpAction? action = null)
     {
         AutoTdpStatus status = new(
             state,
@@ -624,7 +631,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
             frametimeMs,
             targetFrametimeMs,
             applicationId,
-            detail);
+            detail,
+            action);
         if (status == Status)
         {
             return;

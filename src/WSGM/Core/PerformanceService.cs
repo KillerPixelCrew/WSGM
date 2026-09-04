@@ -208,6 +208,14 @@ internal sealed class PerformanceService : IAsyncDisposable
         _adapter.ApplyOsdCustomization(settings);
     }
 
+    /// <summary>Hands the current power and AutoTDP projection to the OSD renderer.</summary>
+    /// <param name="status">The cached session projection.</param>
+    internal void ApplyOsdPowerStatus(RtssOsdPowerStatus status)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _adapter.ApplyOsdPowerStatus(status);
+    }
+
     internal IDisposable AcquireObservation()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

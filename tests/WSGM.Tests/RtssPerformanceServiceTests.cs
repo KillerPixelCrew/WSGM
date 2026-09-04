@@ -690,6 +690,11 @@ public sealed class PerformanceServiceTests
             // The fake has no renderer; the service only forwards.
         }
 
+        public void ApplyOsdPowerStatus(RtssOsdPowerStatus status)
+        {
+            // The fake has no renderer; the service only forwards.
+        }
+
         public static readonly RtssProbe ReadyProbe = new(
             RtssAvailability.Ready,
             "7.3.7",

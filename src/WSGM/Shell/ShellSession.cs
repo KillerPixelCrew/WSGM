@@ -435,6 +435,7 @@ public sealed class ShellSession : IAsyncDisposable
             _performance,
             () => _refreshPairing?.FrameLimitRange());
         _performance.ApplyOsdCustomization(RtssOsdCustomSettings.FromConfig(_config.Performance));
+        AttachOsdPowerStatus();
         if (_overlayTestOnly)
         {
             // The per-application workflow must be inspectable in the safe UI mode: pretend one
@@ -1925,6 +1926,7 @@ public sealed class ShellSession : IAsyncDisposable
         // through that coordinator's capability path, so disposing it afterwards issued the restore
         // into an already-disconnected runtime and left the handheld on the last automatically
         // selected wattage on every exit, update, uninstall and session end.
+        DetachOsdPowerStatus();
         if (_autoTdp is not null)
         {
             try
@@ -2601,6 +2603,97 @@ public sealed class ShellSession : IAsyncDisposable
             view.Descriptor.Role is CapabilityRole.PowerSustainedLimit
             && view.Descriptor.SupportsWrite
             && view.Descriptor.ValueKind is CapabilityValueKind.Integer);
+
+    private void AttachOsdPowerStatus()
+    {
+        if (_deviceCoordinator is { } coordinator)
+        {
+            coordinator.Capabilities.Changed += OnOsdPowerCapabilitiesChanged;
+            coordinator.ConfigurationChanged += OnOsdPowerConfigurationChanged;
+        }
+        if (_autoTdp is { } autoTdp)
+        {
+            autoTdp.StatusChanged += OnOsdAutoTdpStatusChanged;
+        }
+
+        UpdateOsdPowerStatus();
+    }
+
+    private void DetachOsdPowerStatus()
+    {
+        if (_deviceCoordinator is { } coordinator)
+        {
+            coordinator.Capabilities.Changed -= OnOsdPowerCapabilitiesChanged;
+            coordinator.ConfigurationChanged -= OnOsdPowerConfigurationChanged;
+        }
+        if (_autoTdp is { } autoTdp)
+        {
+            autoTdp.StatusChanged -= OnOsdAutoTdpStatusChanged;
+        }
+    }
+
+    private void OnOsdPowerCapabilitiesChanged(IReadOnlyList<DeviceCapabilityView> views) =>
+        UpdateOsdPowerStatus();
+
+    private void OnOsdPowerConfigurationChanged() => UpdateOsdPowerStatus();
+
+    private void OnOsdAutoTdpStatusChanged(AutoTdpStatus status) => UpdateOsdPowerStatus();
+
+    private void UpdateOsdPowerStatus()
+    {
+        PerformanceService? performance = _performance;
+        DeviceCoordinator? coordinator = _deviceCoordinator;
+        if (performance is null || coordinator is null)
+        {
+            return;
+        }
+
+        NativeQamTdpState tdp = DeviceCoordinatorNativeQamTdpService
+            .Project(coordinator.Capabilities.Snapshot()).State;
+        AutoTdpStatus? autoTdp = _autoTdp?.Status;
+        bool enabled = _autoTdp?.Enabled ?? false;
+        int? reportedTdpWatts = tdp.Available
+            ? tdp.ObservedWatts ?? tdp.DesiredWatts
+            : null;
+        int? tdpWatts = enabled && autoTdp?.Watts is int automaticWatts
+            ? automaticWatts
+            : reportedTdpWatts;
+        performance.ApplyOsdPowerStatus(new RtssOsdPowerStatus(
+            tdpWatts,
+            enabled,
+            enabled ? autoTdp?.Watts : null,
+            AutoTdpActivity(enabled, autoTdp)));
+    }
+
+    internal static string AutoTdpActivity(bool enabled, AutoTdpStatus? status)
+    {
+        if (!enabled)
+        {
+            return string.Empty;
+        }
+        if (status is null || status.State is AutoTdpState.Off)
+        {
+            return "Starting";
+        }
+
+        return status.State switch
+        {
+            AutoTdpState.Unavailable => "Unavailable",
+            AutoTdpState.Idle => "Waiting",
+            AutoTdpState.Paused => "Paused",
+            AutoTdpState.Controlling when status.Detail is "settling" or "settling-headroom" =>
+                "Settling",
+            AutoTdpState.Controlling when status.Detail is "probe-pending" => "Testing",
+            AutoTdpState.Controlling => status.Action switch
+            {
+                AutoTdpAction.Raise => "Raising",
+                AutoTdpAction.Probe => "Lowering",
+                AutoTdpAction.Restore => "Restoring",
+                _ => "Holding",
+            },
+            _ => "Starting",
+        };
+    }
 
     private DeviceCapabilityView? FindVariableRefreshCapability() =>
         _deviceCoordinator?.Capabilities.Snapshot().FirstOrDefault(view =>
