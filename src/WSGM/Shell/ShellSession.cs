@@ -130,6 +130,9 @@ public sealed class ShellSession : IAsyncDisposable
     private PerformanceOverlayBridge? _performanceOverlay;
     private PersistentSteamUiTransport? _steamUiTransport;
     private RunningApplicationMonitor? _runningApplications;
+
+    /// <summary>The rendering set that proves which foreground process is the game.</summary>
+    private RtssFrametimeReader? _pairingFrametimes;
     private ForegroundWindowWatcher? _foregroundWindows;
     private AutoTdpService? _autoTdp;
     private RunningApplicationCoordinator? _runningApplicationTargets;
@@ -463,9 +466,14 @@ public sealed class ShellSession : IAsyncDisposable
             SteamUiTransportSession.Attach(_steamUiTransport);
             _transportGateWork = Task.Run(() =>
                 RunSteamUiTransportGateAsync(_shutdownCancellation.Token));
+            // Its own reader rather than AutoTDP's: RtssFrametimeReader is not thread-safe, and
+            // these two poll on different threads at different cadences. The mapping is read-only,
+            // so a second view of it costs a handle and nothing else.
+            _pairingFrametimes = new RtssFrametimeReader();
             _runningApplications = new RunningApplicationMonitor(
                 new SteamRunningApplicationProbe(_steamUiTransport),
-                _config.Cef.Enabled);
+                _config.Cef.Enabled,
+                _pairingFrametimes.ReadLive);
 
             // The second identity source. It feeds the same monitor rather than driving policy on
             // its own, so per-application settings also work on the desktop and for titles Steam
@@ -1482,13 +1490,14 @@ public sealed class ShellSession : IAsyncDisposable
     /// <summary>Hands a foreground application change to the running-application monitor.</summary>
     /// <param name="executable">Foreground executable file name.</param>
     /// <param name="imagePath">Its full image path, or null when the process could not be opened.</param>
+    /// <param name="processId">Its process identifier, or zero when it could not be read.</param>
     /// <remarks>
     /// Straight through, with no policy of its own: the monitor's projection decides whether this
     /// identity is used at all, so the precedence between Steam and the foreground stays in the one
     /// pure function that can be tested.
     /// </remarks>
-    private void OnForegroundApplicationChanged(string executable, string? imagePath)
-        => _runningApplications?.ReportForeground(executable, imagePath);
+    private void OnForegroundApplicationChanged(string executable, string? imagePath, uint processId)
+        => _runningApplications?.ReportForeground(executable, imagePath, processId);
 
     /// <summary>Turns variable refresh rate on or off through the device plugin.</summary>
     /// <param name="enabled">The requested state.</param>
@@ -2035,6 +2044,9 @@ public sealed class ShellSession : IAsyncDisposable
                 await _runningApplications.DisposeAsync().ConfigureAwait(false);
                 _runningApplications = null;
             }
+            // After the monitor, which is the only thing that reads it.
+            _pairingFrametimes?.Dispose();
+            _pairingFrametimes = null;
             await _cefMasterGate.WaitAsync().ConfigureAwait(false);
             try
             {

@@ -78,6 +78,11 @@ internal sealed record SteamRunningAppProfile(
 /// Full image path of the same process, when it could be read. The projection needs it to prove a
 /// candidate actually runs from a Steam title's install folder before pairing the two.
 /// </param>
+/// <param name="ProcessId">
+/// The same process's identifier, or zero when it could not be read. It is what the RTSS rendering
+/// proof matches on: comparing identifiers is exact, where comparing an image path against whatever
+/// RTSS recorded in its own table is a guess about that table's format.
+/// </param>
 /// <remarks>
 /// This is the second identity source, and it exists so per-application policy works outside a
 /// Steam game: on the desktop, for a title launched from another launcher, or for anything the user
@@ -86,7 +91,8 @@ internal sealed record SteamRunningAppProfile(
 /// </remarks>
 internal sealed record ForegroundApplicationObservation(
     string? ExecutableName,
-    string? ExecutablePath = null)
+    string? ExecutablePath = null,
+    uint ProcessId = 0)
 {
     /// <summary>Nothing usable in the foreground.</summary>
     internal static ForegroundApplicationObservation None { get; } = new((string?)null);
@@ -108,15 +114,25 @@ internal sealed record ForegroundApplicationObservation(
 /// </remarks>
 internal static class RunningApplicationTargetProjection
 {
+    /// <param name="current">The snapshot in force.</param>
+    /// <param name="observation">What Steam reports.</param>
+    /// <param name="profile">Steam's executable/install-folder resolution for the named AppID.</param>
+    /// <param name="observedAt">Observation time.</param>
+    /// <param name="foreground">What the user has in front of them.</param>
+    /// <param name="rendering">
+    /// The applications RTSS has hooked and is currently drawing frames for. The second, independent
+    /// proof that a foreground process is the game — see <see cref="ValidatedGameExecutable"/>.
+    /// </param>
     internal static RunningApplicationTargetSnapshot Apply(
         RunningApplicationTargetSnapshot current,
         SteamRunningAppObservation observation,
         SteamRunningAppProfile? profile,
         DateTimeOffset observedAt,
-        ForegroundApplicationObservation? foreground = null)
+        ForegroundApplicationObservation? foreground = null,
+        IReadOnlyList<RtssFrametimeSample>? rendering = null)
     {
         RunningApplicationTargetSnapshot candidate = Project(observation, profile, observedAt);
-        candidate = ApplyForeground(current, candidate, profile, foreground);
+        candidate = ApplyForeground(current, candidate, profile, foreground, rendering);
         if (Equivalent(current, candidate))
         {
             return current with { ObservedAt = observedAt };
@@ -132,7 +148,8 @@ internal static class RunningApplicationTargetProjection
         RunningApplicationTargetSnapshot current,
         RunningApplicationTargetSnapshot steam,
         SteamRunningAppProfile? profile,
-        ForegroundApplicationObservation? foreground)
+        ForegroundApplicationObservation? foreground,
+        IReadOnlyList<RtssFrametimeSample>? rendering)
     {
         if (steam.State is RunningApplicationTargetState.IdentityOnly
             && current.State is RunningApplicationTargetState.Active
@@ -145,7 +162,7 @@ internal static class RunningApplicationTargetProjection
             // not the game whose per-application policy is active. A DIFFERENT executable proven to
             // run from the game's own install folder may still take the pairing over: that is a
             // launcher handing off to the real game process.
-            if (ValidatedGameExecutable(profile, foreground) is { } handoff
+            if (ValidatedGameExecutable(profile, foreground, rendering) is { } handoff
                 && !string.Equals(
                     handoff.Name,
                     current.RtssProfileName,
@@ -199,7 +216,7 @@ internal static class RunningApplicationTargetProjection
             if (steam.SteamAppId is { } appId
                 && !SteamRunningApplicationProbe.IsShortcutAppId(appId))
             {
-                if (ValidatedGameExecutable(profile, foreground) is not { } game)
+                if (ValidatedGameExecutable(profile, foreground, rendering) is not { } game)
                 {
                     return steam;
                 }
@@ -234,14 +251,41 @@ internal static class RunningApplicationTargetProjection
     }
 
     /// <summary>
-    /// The foreground executable, if and only if it provably runs from the game's install folder.
+    /// The foreground executable, if and only if something proves it is the game.
     /// </summary>
+    /// <param name="profile">Steam's resolution for the running AppID.</param>
+    /// <param name="foreground">The process the user has in front of them.</param>
+    /// <param name="rendering">Applications RTSS is currently drawing frames for.</param>
+    /// <returns>The proven executable, or null when nothing proves one.</returns>
+    /// <remarks>
+    /// Two independent proofs, either of which is enough, because a bare foreground NAME is not one:
+    /// that pairing is sticky for the whole run, and <c>WindowsTerminal.exe</c> captured HITMAN 3's
+    /// frame limit exactly that way (Claw, 2026-09-02).
+    /// <para>
+    /// The first is Steam's own install folder — see <see cref="SteamRunningAppProfile.InstallFolder"/>.
+    /// It covers every title Steam installed and is checked first because it costs nothing.
+    /// </para>
+    /// <para>
+    /// The second is RTSS: the process is one the limiter has hooked and is currently drawing frames
+    /// for. That is the only evidence available for a title Steam names but does not manage — Skyrim
+    /// SE launched through Mod Organizer reports an empty install folder, empty launch options and no
+    /// local content, so the folder proof can never be satisfied and its per-application profile
+    /// could never be written (Claw, 2026-09-04). It is also the more meaningful of the two here: an
+    /// RTSS profile for a process RTSS is not rendering would do nothing whatever, so this proof
+    /// admits exactly the processes the feature can act on. Waterfox, Mod Organizer, GameBar and
+    /// RustDesk all held focus during that run and none of them is hooked.
+    /// </para>
+    /// <para>
+    /// Matched on process id. RTSS records its own name for an entry and this must not depend on
+    /// what format that is.
+    /// </para>
+    /// </remarks>
     private static (string Name, string Path)? ValidatedGameExecutable(
         SteamRunningAppProfile? profile,
-        ForegroundApplicationObservation? foreground)
+        ForegroundApplicationObservation? foreground,
+        IReadOnlyList<RtssFrametimeSample>? rendering)
     {
-        if (profile?.InstallFolder is not { Length: > 0 } folder
-            || foreground?.ExecutablePath is not { Length: > 0 } path)
+        if (foreground?.ExecutablePath is not { Length: > 0 } path)
         {
             return null;
         }
@@ -255,14 +299,9 @@ internal static class RunningApplicationTargetProjection
         }
 
         string fullPath;
-        string prefix;
         try
         {
             fullPath = Path.GetFullPath(path);
-            string fullFolder = Path.GetFullPath(folder);
-            prefix = fullFolder.EndsWith(Path.DirectorySeparatorChar)
-                ? fullFolder
-                : fullFolder + Path.DirectorySeparatorChar;
         }
         catch (Exception)
         {
@@ -270,9 +309,52 @@ internal static class RunningApplicationTargetProjection
             return null;
         }
 
-        return fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+        return RunsFromInstallFolder(profile, fullPath) || IsRenderingUnderRtss(foreground, rendering)
             ? (name, fullPath)
             : null;
+    }
+
+    /// <summary>Whether the candidate runs from inside the install folder Steam named.</summary>
+    private static bool RunsFromInstallFolder(SteamRunningAppProfile? profile, string fullPath)
+    {
+        if (profile?.InstallFolder is not { Length: > 0 } folder)
+        {
+            return false;
+        }
+
+        try
+        {
+            string fullFolder = Path.GetFullPath(folder);
+            string prefix = fullFolder.EndsWith(Path.DirectorySeparatorChar)
+                ? fullFolder
+                : fullFolder + Path.DirectorySeparatorChar;
+            return fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Whether RTSS is currently drawing frames for the candidate process.</summary>
+    private static bool IsRenderingUnderRtss(
+        ForegroundApplicationObservation foreground,
+        IReadOnlyList<RtssFrametimeSample>? rendering)
+    {
+        if (foreground.ProcessId == 0 || rendering is not { Count: > 0 })
+        {
+            return false;
+        }
+
+        foreach (RtssFrametimeSample sample in rendering)
+        {
+            if (sample.ProcessId == foreground.ProcessId)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static RunningApplicationTargetSnapshot Project(
@@ -670,6 +752,7 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ProfileRetryInterval = TimeSpan.FromSeconds(10);
     private readonly SteamRunningApplicationProbe _probe;
+    private readonly Func<IReadOnlyList<RtssFrametimeSample>> _rendering;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SemaphoreSlim _observerSignal = new(0, 1);
     private readonly object _stateGate = new();
@@ -685,12 +768,20 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
     private volatile bool _steamEnabled;
     private bool _disposed;
 
+    /// <param name="probe">The Steam running-application observer.</param>
+    /// <param name="steamEnabled">Whether Steam-backed identity is switched on.</param>
+    /// <param name="rendering">
+    /// The applications RTSS is currently drawing frames for, read fresh at each projection. The
+    /// second proof a foreground process is the game; null leaves only Steam's install folder.
+    /// </param>
     internal RunningApplicationMonitor(
         SteamRunningApplicationProbe probe,
-        bool steamEnabled)
+        bool steamEnabled,
+        Func<IReadOnlyList<RtssFrametimeSample>>? rendering = null)
     {
         _probe = probe ?? throw new ArgumentNullException(nameof(probe));
         _steamEnabled = steamEnabled;
+        _rendering = rendering ?? (static () => []);
         _current = RunningApplicationTargetSnapshot.Initial(DateTimeOffset.UtcNow);
         _loop = Task.Run(ObserveLoopAsync);
     }
@@ -711,6 +802,7 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
     /// <summary>Reports the application the user brought to the foreground.</summary>
     /// <param name="executableName">Foreground executable file name, or null for none.</param>
     /// <param name="executablePath">Full image path of the same process, when readable.</param>
+    /// <param name="processId">Its process identifier, or zero when it could not be read.</param>
     /// <remarks>
     /// Still one monitor and one projection: the foreground is an input to the same projection, not
     /// a second observer publishing its own answer. It republishes against the last Steam
@@ -718,7 +810,10 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
     /// second CEF poll this class exists to avoid — and it would run on whatever thread the window
     /// hook fired on.
     /// </remarks>
-    internal void ReportForeground(string? executableName, string? executablePath = null)
+    internal void ReportForeground(
+        string? executableName,
+        string? executablePath = null,
+        uint processId = 0)
     {
         SteamRunningAppObservation? observation;
         lock (_stateGate)
@@ -728,7 +823,7 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
                 return;
             }
 
-            ForegroundApplicationObservation next = new(executableName, executablePath);
+            ForegroundApplicationObservation next = new(executableName, executablePath, processId);
             if (string.Equals(
                     _foreground.ExecutableName,
                     next.ExecutableName,
@@ -736,7 +831,8 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
                 && string.Equals(
                     _foreground.ExecutablePath,
                     next.ExecutablePath,
-                    StringComparison.OrdinalIgnoreCase))
+                    StringComparison.OrdinalIgnoreCase)
+                && _foreground.ProcessId == next.ProcessId)
             {
                 return;
             }
@@ -936,6 +1032,27 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
             ? string.IsNullOrWhiteSpace(profile?.RtssProfileName)
             : string.IsNullOrWhiteSpace(profile?.InstallFolder);
 
+    /// <summary>The RTSS rendering set, or none when reading it fails.</summary>
+    /// <remarks>
+    /// RTSS is optional and its absence is ordinary, so a failure here costs the second proof and
+    /// nothing else — never the running-application identity itself.
+    /// </remarks>
+    private IReadOnlyList<RtssFrametimeSample> ReadRendering()
+    {
+        try
+        {
+            return _rendering();
+        }
+        catch (Exception ex)
+        {
+            Log.Change(
+                "running-apps.rendering",
+                $"RTSS rendering set unavailable for application pairing: {ex.Message}",
+                LogLevel.Warn);
+            return [];
+        }
+    }
+
     private void Publish(
         SteamRunningAppObservation observation,
         SteamRunningAppProfile? profile)
@@ -943,6 +1060,9 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
         RunningApplicationTargetSnapshot next;
         bool changed;
         string? foregroundName;
+        // Outside the lock: this reads RTSS's shared mapping, and the state gate is held by the
+        // window-hook thread as well as this one.
+        IReadOnlyList<RtssFrametimeSample> rendering = ReadRendering();
         lock (_stateGate)
         {
             _lastObservation = observation;
@@ -952,7 +1072,8 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
                 observation,
                 profile,
                 DateTimeOffset.UtcNow,
-                _foreground);
+                _foreground,
+                rendering);
             changed = next.Generation != _current.Generation;
             _current = next;
         }
@@ -1000,9 +1121,16 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
                     + $"RTSS profile {target.RtssProfileName}.");
                 break;
             case RunningApplicationTargetState.IdentityOnly:
+                // The reason is the whole content of this line. Without it "executable profile
+                // unavailable" is indistinguishable between Steam naming no install folder, naming
+                // one that is gone, and naming one the foreground process simply is not inside —
+                // three different faults with three different answers. Diagnosing which one kept
+                // Skyrim's per-application profile from ever being written took a live AppDetails
+                // read that this line already had the answer to (Claw, 2026-09-04).
                 Log.Info(
                     $"Running application started: Steam AppID {target.SteamAppId}; "
-                    + "executable profile unavailable, global RTSS policy remains active.");
+                    + "executable profile unavailable, global RTSS policy remains active: "
+                    + (target.Diagnostic ?? "no reason was recorded."));
                 break;
             case RunningApplicationTargetState.Global:
                 Log.Info("Running application exited; global application policy is active.");

@@ -69,7 +69,7 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
     /// Only for a window classified as an application. A restricted foreground leaves the last
     /// application in force, so no event is raised and the running game keeps its profile.
     /// </remarks>
-    internal event Action<string, string?>? ApplicationChanged;
+    internal event Action<string, string?, uint>? ApplicationChanged;
 
     /// <summary>How often the safety-net poll runs.</summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
@@ -167,7 +167,7 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
             _lastWindow = window;
         }
 
-        (string executable, string? imagePath) = ResolveExecutable(window);
+        (string executable, string? imagePath, uint processId) = ResolveExecutable(window);
         if (ForegroundApplicationFilter.Classify(executable)
             is not ForegroundApplicationKind.Application)
         {
@@ -185,7 +185,7 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
         }
 
         Log.Info($"Foreground application: {executable}.");
-        ApplicationChanged?.Invoke(executable, imagePath);
+        ApplicationChanged?.Invoke(executable, imagePath, processId);
     }
 
     /// <remarks>
@@ -195,12 +195,12 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
     /// walk needs no new dependency. Without it every UWP application reports as the host and they
     /// would all share one profile.
     /// </remarks>
-    private static (string Name, string? Path) ResolveExecutable(nint window)
+    private static (string Name, string? Path, uint ProcessId) ResolveExecutable(nint window)
     {
         _ = NativeMethods.GetWindowThreadProcessId(window, out uint processId);
         if (processId == 0)
         {
-            return (string.Empty, null);
+            return (string.Empty, null, 0);
         }
 
         if (string.Equals(
@@ -253,10 +253,11 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
 
     // An unreadable process is ordinary for an elevated or protected target; the filter treats an
     // empty name as restricted, so an unreadable foreground keeps the previous application.
-    private static (string Name, string? Path) ExecutableIdentity(uint processId)
+    // The identifier travels with the path because the RTSS rendering proof matches on it.
+    private static (string Name, string? Path, uint ProcessId) ExecutableIdentity(uint processId)
         => NativeShellProcess.TryGetImagePath(processId) is { } path
-            ? (System.IO.Path.GetFileName(path), path)
-            : (string.Empty, null);
+            ? (System.IO.Path.GetFileName(path), path, processId)
+            : (string.Empty, null, 0);
 
     private delegate void WinEventProc(
         nint hook,

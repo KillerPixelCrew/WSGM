@@ -826,6 +826,29 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       slider the bookend fix had just restored). The term is in the vocabulary now, and
       `EveryCommandPhaseProjectsToAProgressTermTheInjectedRowAccepts` enumerates every phase against
       the list parsed out of the built asset, so a future phase cannot be added without one.
+- [x] **Enabling the per-application profile for Skyrim created policy that could never reach
+      RTSS:** Steam names AppID 489830 as running through the steam_api handshake and knows nothing
+      else about it — `strInstallFolder ""`, `strLaunchOptions ""`, `iInstallFolder -1`,
+      `bHasAnyLocalContent false` — because the copy is launched from Mod Organizer and Steam never
+      installed it. The install-folder proof gate therefore could not be satisfied by any process,
+      the target stayed `IdentityOnly` for the whole run, and every write reported `Deferred` on a
+      promise that would never come true. `GetLaunchOptionsForApp` was checked as an alternative and
+      names no executable for any title, installed or not.
+- [x] **RTSS's own rendering set is the second proof.** A foreground process that appears in the
+      `RTSSSharedMemoryV2` application table as currently delivering frames, matched on process id,
+      may pair with the AppID even when Steam names no folder. It is the proof that matters for this
+      feature — a profile for something RTSS is not rendering does nothing — and it holds the
+      `WindowsTerminal.exe` line, because nothing that is not hooked can pair. The monitor reads the
+      table through its own `RtssFrametimeReader`; AutoTDP's cannot be shared, that class is not
+      thread-safe.
+- [x] **`IdentityOnly` logs why.** It reported "executable profile unavailable" and dropped the
+      diagnostic that already said which of the three possible faults it was; recovering that took a
+      live AppDetails read.
+- [ ] Attended after deployment: with Skyrim running through Mod Organizer, confirm the log names
+      the reason on any remaining `IdentityOnly`, that the target reaches `Active` with
+      `RTSS profile SkyrimSE.exe` once the game is drawing, that enabling the per-application
+      profile now writes a real RTSS profile for it, and that alt-tabbing to Waterfox or Mod
+      Organizer does not move the pairing.
 - [ ] Attended after deployment: on the Claw, confirm the Quick Access frame-limit slider is back
       with the stored 12 FPS cap visible on it and draggable up into the normal range; that the
       overlay slider will not produce a cap between 1 and 29 and reads "Off" there; that the row

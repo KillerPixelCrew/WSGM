@@ -67,6 +67,36 @@ override the global write. Everything else goes to the global profile.
 Preferences persist against the AppID and report `Deferred` instead of being misapplied to the
 global profile; they apply when foreground enrichment arrives.
 
+### Two proofs pair a foreground process with a Steam AppID, and RTSS is the second
+
+A bare foreground name is never enough — that is the `WindowsTerminal.exe` rule above. Either of two
+proofs is:
+
+1. **Steam's install folder.** The process runs from inside `strInstallFolder`. Covers every title
+   Steam installed, and costs nothing, so it is checked first.
+2. **RTSS is rendering it.** The process appears in the `RTSSSharedMemoryV2` application table as
+   currently delivering frames, matched on process id — the same table `RtssFrametimeReader` already
+   parses for AutoTDP, read through a second reader of its own because that class is not
+   thread-safe.
+
+The second exists because Steam can name a running AppID and know nothing else about it. Skyrim SE
+launched through Mod Organizer reports `strInstallFolder ""`, `strLaunchOptions ""`,
+`iInstallFolder -1` and `bHasAnyLocalContent false`: the title runs, Steam sees the AppID through
+the steam_api handshake, and there is no folder to prove anything against. Enabling the
+per-application profile created WSGM policy that could never reach RTSS — every write reported
+`Deferred` against a foreground executable that would never be accepted (Claw, 2026-09-04).
+
+`GetLaunchOptionsForApp` is not a third source. It returns
+`{nIndex, strDescription, strGameName, eType, VR flags}` and names no executable for **any** title,
+installed or not — checked against HITMAN, Death Stranding and Metal Gear Solid on the reference
+Claw. It is the launch-picker display list.
+
+The RTSS proof is also the more meaningful one here: an RTSS profile for a process RTSS is not
+rendering does nothing at all, so this admits exactly the processes the feature can act on. During
+that Skyrim run the foreground passed through `ModOrganizer.exe`, `GameBar.exe`, `rustdesk.exe`,
+`RTSS.exe` and `waterfox.exe`; none is hooked, so none could take the pairing. A process id of zero
+means "could not be read" and never matches.
+
 ### Every poll cross-checks the readback against what WSGM asked for
 
 An RTSS profile is a file its own UI, another overlay tool or a game's installer can rewrite, and

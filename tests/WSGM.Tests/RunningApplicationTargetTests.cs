@@ -1,3 +1,4 @@
+using WSGM.Core;
 using WSGM.Shell;
 
 namespace WSGM.Tests;
@@ -278,6 +279,75 @@ public sealed class RunningApplicationTargetTests : IDisposable
             new SteamRunningAppProfile(null, null, "Install folder still resolving."),
             now,
             new ForegroundApplicationObservation("game.exe", @"D:\Games\game.exe"));
+
+        Assert.Equal(RunningApplicationTargetState.IdentityOnly, target.State);
+        Assert.Null(target.RtssProfileName);
+    }
+
+    [Fact]
+    public void RtssRenderingProvesTheGameWhenSteamKnowsNoInstallFolder()
+    {
+        // Skyrim SE through Mod Organizer: Steam names AppID 489830 as running and knows nothing
+        // else about it — empty install folder, empty launch options, no local content — so the
+        // folder proof can never be satisfied and its per-application profile was never written
+        // (Claw, 2026-09-04). RTSS hooking and drawing the process is the proof that remains, and
+        // it is the one that matters: a profile for something RTSS does not render does nothing.
+        DateTimeOffset now = DateTimeOffset.Parse("2026-09-04T12:00:00Z");
+
+        RunningApplicationTargetSnapshot target = RunningApplicationTargetProjection.Apply(
+            RunningApplicationTargetSnapshot.Initial(now),
+            new SteamRunningAppObservation(true, [489830], 2, null),
+            new SteamRunningAppProfile(null, null, "Steam did not report the install folder."),
+            now,
+            new ForegroundApplicationObservation(
+                "SkyrimSE.exe",
+                @"D:\Modding\Skyrim\SkyrimSE.exe",
+                4321),
+            [new RtssFrametimeSample(4321, @"D:\Modding\Skyrim\SkyrimSE.exe", 8.3, 120, 40)]);
+
+        Assert.Equal(RunningApplicationTargetState.Active, target.State);
+        Assert.Equal("steam:489830", target.ApplicationId);
+        Assert.Equal("SkyrimSE.exe", target.RtssProfileName);
+        Assert.Equal(@"D:\Modding\Skyrim\SkyrimSE.exe", target.ExecutablePath);
+    }
+
+    [Fact]
+    public void AFocusedApplicationRtssIsNotRenderingIsStillNotTheGame()
+    {
+        // The other half of the same run: Waterfox, Mod Organizer, GameBar and RustDesk all held
+        // focus while Skyrim was up. None is hooked, so none may take the pairing — the rendering
+        // set is proof, not a second bare name.
+        DateTimeOffset now = DateTimeOffset.Parse("2026-09-04T12:00:00Z");
+
+        RunningApplicationTargetSnapshot target = RunningApplicationTargetProjection.Apply(
+            RunningApplicationTargetSnapshot.Initial(now),
+            new SteamRunningAppObservation(true, [489830], 2, null),
+            new SteamRunningAppProfile(null, null, "Steam did not report the install folder."),
+            now,
+            new ForegroundApplicationObservation(
+                "waterfox.exe",
+                @"C:\Program Files\Waterfox\waterfox.exe",
+                777),
+            [new RtssFrametimeSample(4321, @"D:\Modding\Skyrim\SkyrimSE.exe", 8.3, 120, 40)]);
+
+        Assert.Equal(RunningApplicationTargetState.IdentityOnly, target.State);
+        Assert.Null(target.RtssProfileName);
+    }
+
+    [Fact]
+    public void AnUnreadableForegroundProcessIdNeverMatchesTheRenderingSet()
+    {
+        // Zero is "could not be read", not a process. Matching it against an entry would pair the
+        // game with whatever RTSS happened to list first.
+        DateTimeOffset now = DateTimeOffset.Parse("2026-09-04T12:00:00Z");
+
+        RunningApplicationTargetSnapshot target = RunningApplicationTargetProjection.Apply(
+            RunningApplicationTargetSnapshot.Initial(now),
+            new SteamRunningAppObservation(true, [489830], 2, null),
+            new SteamRunningAppProfile(null, null, "Steam did not report the install folder."),
+            now,
+            new ForegroundApplicationObservation("game.exe", @"D:\Games\game.exe"),
+            [new RtssFrametimeSample(0, @"D:\Games\other.exe", 8.3, 120, 40)]);
 
         Assert.Equal(RunningApplicationTargetState.IdentityOnly, target.State);
         Assert.Null(target.RtssProfileName);
