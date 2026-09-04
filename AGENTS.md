@@ -42,6 +42,8 @@ when the guidance conflicts.
   rewrite user work to make a task easier.
 - Work on the checked-out branch. Do not create branches, tags, releases, or compatibility layers
   unless the maintainer asks for them.
+- Write documentation, command examples, issues, commit messages, and pull requests in natural,
+  concise language. Avoid canned AI phrasing, filler, and em dashes.
 - Prefer the smallest direct design that preserves established behavior. Remove dead paths instead
   of keeping speculative abstractions.
 - Keep nullable analysis, build-time code-style checks, and public XML documentation clean. Avoid
