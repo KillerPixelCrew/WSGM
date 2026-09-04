@@ -818,10 +818,20 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       disagreement — a writer that takes the profile back between polls is reported, not fought.
       The command outcome line now names its origin, because this cap could not be attributed to a
       surface from the log at all.
+- [x] **The row still vanished the moment the slider was touched, for a second reason:** the
+      injected validator's `progress` vocabulary mirrors `PerformanceCommandPhase` term by term and
+      `deferred` was never in it. A cap set while Steam has named a running game whose executable
+      Windows has not exposed reports `Deferred` — the correct, documented outcome — and the row
+      read that as a malformed state and rendered nothing (Claw, 2026-09-04, found by dragging the
+      slider the bookend fix had just restored). The term is in the vocabulary now, and
+      `EveryCommandPhaseProjectsToAProgressTermTheInjectedRowAccepts` enumerates every phase against
+      the list parsed out of the built asset, so a future phase cannot be added without one.
 - [ ] Attended after deployment: on the Claw, confirm the Quick Access frame-limit slider is back
       with the stored 12 FPS cap visible on it and draggable up into the normal range; that the
-      overlay slider will not produce a cap between 1 and 29 and reads "Off" there; that a cap set
-      in either surface reads the same in the other and in RTSS's own profile view; and that editing
+      overlay slider will not produce a cap between 1 and 29 and reads "Off" there; that the row
+      survives being dragged while a game is starting, which is when the write reports `Deferred`;
+      that a cap set in either surface reads the same in the other and in RTSS's own profile view;
+      and that editing
       `FramerateLimit` by hand in RTSS produces one `RTSS drifted from what WSGM set` line followed
       by one repair, not a write every two seconds.
 

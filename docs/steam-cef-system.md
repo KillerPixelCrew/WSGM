@@ -360,9 +360,18 @@ field; a component that cannot mount reports why in `renderOutcomes`.
 
 `state received but rejected by validation` is the outcome to look for when a row that used to draw
 stops drawing: the host published something the injected half refused, so the control returns null
-and the row vanishes with no other symptom. It is what a 12 FPS frame cap under a 30 FPS bookend
-produced (Claw, 2026-09-03) before that row learned to stretch its bookends instead of rejecting the
-value — see `docs\rtss.md`.
+and the row vanishes with no other symptom. It has now caused three separate disappearances of the
+frame-limit row, all with that one line as the only evidence: enum fields no state carried after a
+simplification (2026-09-02), a 12 FPS cap under a 30 FPS bookend (2026-09-03), and a `deferred`
+progress term the vocabulary did not list (2026-09-04).
+
+**A validator's closed vocabulary is a contract, and every host outcome has to be in it.** The
+frame-limit row's `progress` list mirrors `PerformanceCommandPhase` one term at a time; `Deferred`
+was simply left out when it was written, so a cap saved against a game Steam had named but Windows
+had not exposed took the row down the moment the user touched the slider.
+`EveryCommandPhaseProjectsToAProgressTermTheInjectedRowAccepts` now enumerates the phases and reads
+the vocabulary out of the built asset — a restated copy would agree with itself while disagreeing
+with the script that runs. A validator gaining a field or a term needs the same treatment.
 
 ### Performance state
 

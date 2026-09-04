@@ -2143,6 +2143,14 @@
         "idle",
         "queued",
         "applying",
+        // A write the host accepted and stored but has not made yet, because what it applies to
+        // is not addressable right now — WSGM reports it when Steam has named a running game
+        // whose executable Windows has not exposed, so the cap is saved against the game rather
+        // than sprayed onto the global profile. It was missing from this list, and a settled
+        // outcome the host can legitimately report was therefore rejected as malformed: adjusting
+        // the frame-limit slider while a game was starting deleted the row the user had just
+        // touched (Claw, 2026-09-04). Not busy — the value is stored, and the row stays live.
+        "deferred",
         "succeeded-verified",
         "applied-unverified",
         "rejected",

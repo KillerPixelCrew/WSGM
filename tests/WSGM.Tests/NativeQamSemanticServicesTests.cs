@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
@@ -183,6 +184,57 @@ public sealed class NativeQamSemanticServicesTests
             PerformanceServiceNativeQamAdapter.ProjectFrameLimit(state, enabled: true);
         Assert.Equal("timed-out", frame.Progress);
         Assert.Equal("RTSS readback timed out.", frame.Fault);
+    }
+
+    /// <remarks>
+    /// The injected row treats a progress term it does not know as a malformed state and renders
+    /// nothing, so a phase missing from its vocabulary deletes the whole control. `Deferred` was
+    /// missing, and adjusting the frame-limit slider while Steam had named a game whose executable
+    /// Windows had not exposed took the row away mid-drag (Claw, 2026-09-04). The vocabulary is
+    /// read out of the built asset rather than restated here: a copy would agree with itself while
+    /// disagreeing with the script that actually runs.
+    /// </remarks>
+    [Fact]
+    public void EveryCommandPhaseProjectsToAProgressTermTheInjectedRowAccepts()
+    {
+        IReadOnlyList<string> accepted = InjectedProgressVocabulary();
+
+        foreach (PerformanceCommandPhase phase in Enum.GetValues<PerformanceCommandPhase>())
+        {
+            PerformanceState state = PerformanceStateFixture(
+                new HashSet<int> { 0, 1 },
+                new PerformanceCommandState(
+                    1,
+                    "native-qam",
+                    "correlation",
+                    PerformanceControl.FrameLimit,
+                    60,
+                    phase,
+                    null));
+
+            SteamFrameLimitState frame =
+                PerformanceServiceNativeQamAdapter.ProjectFrameLimit(state, enabled: true);
+
+            Assert.Contains(frame.Progress, accepted);
+        }
+    }
+
+    /// <summary>The progress terms the injected frame-limit row will accept, from the built asset.</summary>
+    private static IReadOnlyList<string> InjectedProgressVocabulary()
+    {
+        string source = SteamUiAssetCatalog.LoadNativeQamBootstrap();
+        const string Marker = "validEnum(value.progress, [";
+        int start = source.IndexOf(Marker, StringComparison.Ordinal);
+        Assert.True(start >= 0, "The injected asset no longer validates a progress vocabulary.");
+        start += Marker.Length;
+        int end = source.IndexOf("])", start, StringComparison.Ordinal);
+        Assert.True(end > start, "The progress vocabulary in the injected asset is unterminated.");
+
+        string[] terms = [.. Regex
+            .Matches(source[start..end], "\"([a-z-]+)\"")
+            .Select(match => match.Groups[1].Value)];
+        Assert.NotEmpty(terms);
+        return terms;
     }
 
     private static PerformanceState PerformanceStateFixture(
