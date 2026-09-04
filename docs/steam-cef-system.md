@@ -452,19 +452,23 @@ Steam.
 `tools\WsgmLibTest` attaches to the same debug port and requires Steam started with the flag. It
 runs no WSGM code and touches no configuration.
 
-| Script                                                                      | Purpose                                                                                                          | Safety                                                                                                                            |
-| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `run-file.mjs <file.js>`                                                    | evaluate a file in SharedJSContext, 20 s                                                                         | as safe as the file                                                                                                               |
-| `run-file-target.mjs <title> <file.js>`                                     | the same for any target                                                                                          | as safe as the file                                                                                                               |
-| `qam-harness.mjs status\|install\|publish <json>\|remove\|screenshot [png]` | plays host for the shipped asset: injects, installs six gates and eleven kinds, publishes fixture state, removes | `install` and `publish` mutate the live client and must be followed by `remove`; page requests are acknowledged but not performed |
-| `cdp-eval.mjs raw\|add\|remove\|list`                                       | install-folder operations                                                                                        | `add` and `remove` mutate                                                                                                         |
-| `run-prod-sort.mjs [enable\|disable]`                                       | the download-sort resident extracted from the C#                                                                 | mutating                                                                                                                          |
-| `art-test.mjs`                                                              | SteamGridDB apply                                                                                                | mutating, needs `SGDB_KEY`                                                                                                        |
-| `probe-*.js`                                                                | read-only probes by literal module id                                                                            | read-only                                                                                                                         |
+| Script                                                                      | Purpose                                                                                                          | Safety                                                                                                                                                   |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run-file.mjs <file.js>`                                                    | evaluate a file in SharedJSContext, 20 s                                                                         | as safe as the file                                                                                                                                      |
+| `run-file-target.mjs <title> <file.js>`                                     | the same for any target                                                                                          | as safe as the file                                                                                                                                      |
+| `qam-harness.mjs status\|install\|publish <json>\|remove\|screenshot [png]` | plays host for the shipped asset: injects, installs six gates and eleven kinds, publishes fixture state, removes | attended only; every non-screenshot command adds a runtime binding, `install` and `publish` mutate the client, and `remove` does not remove that binding |
+| `cdp-eval.mjs raw\|add\|remove\|list`                                       | install-folder operations                                                                                        | `add` and `remove` mutate                                                                                                                                |
+| `run-prod-sort.mjs [enable\|disable]`                                       | the download-sort resident extracted from the C#                                                                 | mutating                                                                                                                                                 |
+| `art-test.mjs`                                                              | SteamGridDB apply                                                                                                | mutating, needs `SGDB_KEY`                                                                                                                               |
+| `probe-*.js`                                                                | historical focused experiments                                                                                   | mixed; inspect the file first because several click, change settings, install gates, or call obsolete bridge APIs                                        |
 
 The `.mcp.json` server `steam-cef` is `chrome-devtools-mcp` attached to the existing endpoint;
 listing targets and bounded read-only evaluation are observation, and `close_page` closes Steam's
-real window. Neither the harness nor the MCP relaxes the literal-module rule.
+real window. The raw helpers do not all prove that port 8080 belongs to Steam, and `run-file*.mjs`
+does not turn JavaScript `exceptionDetails` into a failing exit code. Verify the listener owner and
+loopback websocket target before attaching, inspect output rather than trusting exit zero, and do
+not treat `qam-harness.mjs status` as pure observation. Neither the harness nor the MCP relaxes the
+literal-module rule.
 
 ## 12. Verification boundary
 
@@ -478,11 +482,13 @@ running client and recorded in `docs\steam-cef.md`.
 
 ## 13. Known gaps
 
-- `tools\WsgmLibTest\tabs-prod.js`, `unpatch.js` and three `probe-*.js` scripts sweep the webpack
-  registry calling every module, which the repository rules forbid; `probe-register*.js` target a
-  bridge API shape that no longer exists. Read `probe-token-exists.js` for the safe shape.
+- `tools\WsgmLibTest\tabs-prod.js` and `unpatch.js` sweep the webpack registry calling every module,
+  which the repository rules forbid. `probe-click.js`, `probe-settings-change.js`,
+  `probe-perf-shim.js`, `probe-audio-install.js`, `probe-tdp-rpc.js`, and `probe-register*.js` are
+  mutating or obsolete despite their names. Read `probe-token-exists.js` for the safe shape.
 - The QAM harness acknowledges every page request without performing it, so it cannot validate a
-  write path; it proves rendering and publication only.
+  write path. It proves rendering and publication only, and its `remove` command does not remove the
+  runtime binding installed when the harness connected.
 - Library tabs and the card badge remain legacy resident scripts outside the patch manager until
   their attended migrations land.
 - The Extensions tab the toolkit's host was built for is not mounted yet.

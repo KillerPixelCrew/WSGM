@@ -9,7 +9,10 @@
 # Agent working directories: session state and local machine paths, never committed.
 # AGENTS.md and every CLAUDE.md symlink beside one ARE tracked on purpose — they are
 # the instructions a contributor's AI reads, so they have to ship with the repo.
-.claude/
+# Project skill aliases under .claude/skills are likewise tracked and point to the
+# canonical .agents/skills tree shared by Codex and Claude Code.
+.claude/*
+!.claude/skills/
 # Excluded per-entry rather than as a directory: git cannot re-include a file inside an excluded
 # directory, and config.toml below has to stay tracked.
 .codex/*
