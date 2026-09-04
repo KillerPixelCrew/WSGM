@@ -19,7 +19,7 @@ namespace WSGM.Shell;
 /// </remarks>
 internal sealed class RunningApplicationCoordinator : IAsyncDisposable
 {
-    private readonly RunningApplicationMonitor _monitor;
+    private readonly IRunningApplicationTargetSource _monitor;
     private readonly Func<PerformanceApplicationTarget?, CancellationToken, Task> _setTargetAsync;
     private readonly Func<RunningApplicationTargetSnapshot, CancellationToken, Task>?
         _setControllerTargetAsync;
@@ -28,12 +28,13 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
     private IDisposable? _observation;
     private RunningApplicationTargetSnapshot? _pending;
     private Task _worker = Task.CompletedTask;
+    private CancellationTokenSource? _activeApply;
     private long _latestGeneration = -1;
     private bool _workerRunning;
     private bool _disposed;
 
     internal RunningApplicationCoordinator(
-        RunningApplicationMonitor monitor,
+        IRunningApplicationTargetSource monitor,
         Func<PerformanceApplicationTarget?, CancellationToken, Task> setTargetAsync,
         Func<RunningApplicationTargetSnapshot, CancellationToken, Task>? setControllerTargetAsync = null)
     {
@@ -58,6 +59,7 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         Task worker;
+        CancellationTokenSource? activeApply;
         lock (_gate)
         {
             if (_disposed)
@@ -68,12 +70,14 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
             _disposed = true;
             _pending = null;
             worker = _worker;
+            activeApply = _activeApply;
         }
 
         _monitor.Changed -= OnTargetChanged;
         _observation?.Dispose();
         _observation = null;
         _shutdown.Cancel();
+        TryCancel(activeApply);
         try
         {
             await worker.ConfigureAwait(false);
@@ -102,13 +106,14 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
     private async Task ApplyAsync(
         Func<CancellationToken, Task> applyAsync,
         string consumer,
-        RunningApplicationTargetSnapshot snapshot)
+        RunningApplicationTargetSnapshot snapshot,
+        CancellationToken cancellationToken)
     {
         try
         {
-            await applyAsync(_shutdown.Token).ConfigureAwait(false);
+            await applyAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
         catch (Exception ex)
@@ -138,6 +143,7 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
 
     private void Queue(RunningApplicationTargetSnapshot snapshot)
     {
+        CancellationTokenSource? activeApply;
         lock (_gate)
         {
             if (_disposed)
@@ -155,20 +161,60 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
 
             _latestGeneration = snapshot.Generation;
             _pending = snapshot;
+            activeApply = _activeApply;
             if (!_workerRunning)
             {
                 _workerRunning = true;
                 _worker = Task.Run(ApplyPendingAsync);
             }
         }
+
+        // Cancel outside the gate because cancellation callbacks are external code. The pending
+        // snapshot was installed while holding the gate, so the worker can no longer start an old
+        // controller dispatch even if this cancellation races its async continuation.
+        TryCancel(activeApply);
     }
 
-    /// <summary>Whether a newer snapshot is already waiting.</summary>
-    private bool Superseded()
+    /// <summary>
+    /// Starts controller and power reconciliation only while this snapshot is still current.
+    /// </summary>
+    /// <remarks>
+    /// The check and delegate invocation share the queue gate. This gives queueing, disposal, and
+    /// controller dispatch one ordering point instead of leaving a race between a separate
+    /// supersession check and the call. The delegate's later async work carries the per-snapshot
+    /// cancellation token and is retired as soon as a newer snapshot is queued.
+    /// </remarks>
+    private Task? StartControllerApply(
+        RunningApplicationTargetSnapshot snapshot,
+        CancellationTokenSource applyCancellation)
     {
         lock (_gate)
         {
-            return _pending is not null || _disposed;
+            if (_pending is not null || _disposed || applyCancellation.IsCancellationRequested)
+            {
+                return null;
+            }
+
+            return _setControllerTargetAsync is { } applyController
+                ? ApplyAsync(
+                    token => applyController(snapshot, token),
+                    "Controller",
+                    snapshot,
+                    applyCancellation.Token)
+                : Task.CompletedTask;
+        }
+    }
+
+    private static void TryCancel(CancellationTokenSource? cancellation)
+    {
+        try
+        {
+            cancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The worker completed and released this retired generation between the queue update
+            // and cancellation. There is no work left for it to stop.
         }
     }
 
@@ -177,6 +223,7 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
         while (true)
         {
             RunningApplicationTargetSnapshot? snapshot;
+            CancellationTokenSource applyCancellation;
             lock (_gate)
             {
                 snapshot = _pending;
@@ -186,32 +233,43 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
                     _workerRunning = false;
                     return;
                 }
+
+                applyCancellation = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+                _activeApply = applyCancellation;
             }
 
-            // Each consumer is applied independently: an RTSS failure must not leave the
-            // controller on the previous application's target, and the reverse.
-            await ApplyAsync(
-                token => _setTargetAsync(Project(snapshot), token),
-                "RTSS",
-                snapshot).ConfigureAwait(false);
-            // Rechecked between consumers. A slow RTSS apply for one application could otherwise be
-            // followed by replacing the managed controller with that application's target after it
-            // had already exited and the next one was published — a target swap during a launch,
-            // and the opposite of the latest-identity coalescing this class exists to provide.
-            if (Superseded())
+            try
             {
-                Log.Info(
-                    $"Running-application apply for {snapshot.ApplicationId ?? "(none)"} stopped "
-                    + "before the controller target: a newer snapshot is already queued.");
-                continue;
-            }
-
-            if (_setControllerTargetAsync is { } applyController)
-            {
+                // Each consumer is applied independently: an RTSS failure must not leave the
+                // controller on the previous application's target, and the reverse. A newer queue
+                // cancels this RTSS apply so it cannot hold up the authoritative snapshot behind it.
                 await ApplyAsync(
-                    token => applyController(snapshot, token),
-                    "Controller",
-                    snapshot).ConfigureAwait(false);
+                    token => _setTargetAsync(Project(snapshot), token),
+                    "RTSS",
+                    snapshot,
+                    applyCancellation.Token).ConfigureAwait(false);
+
+                Task? controllerApply = StartControllerApply(snapshot, applyCancellation);
+                if (controllerApply is null)
+                {
+                    Log.Info(
+                        $"Running-application apply for {snapshot.ApplicationId ?? "(none)"} stopped "
+                        + "before the controller target: a newer snapshot is queued or shutdown began.");
+                    continue;
+                }
+
+                await controllerApply.ConfigureAwait(false);
+            }
+            finally
+            {
+                lock (_gate)
+                {
+                    if (ReferenceEquals(_activeApply, applyCancellation))
+                    {
+                        _activeApply = null;
+                    }
+                }
+                applyCancellation.Dispose();
             }
         }
     }

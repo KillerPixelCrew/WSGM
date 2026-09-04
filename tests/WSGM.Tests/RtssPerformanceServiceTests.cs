@@ -211,8 +211,8 @@ public sealed class PerformanceServiceTests
     {
         await using var adapter = new FakeRtssAdapter();
         PerformanceService service = CreateService(adapter);
-        var first = new RtssOsdPowerStatus(18, false, null, string.Empty);
-        var second = new RtssOsdPowerStatus(17, true, 17, "Holding");
+        var first = new RtssOsdPowerStatus(18, false, false, null, string.Empty);
+        var second = new RtssOsdPowerStatus(17, true, true, 17, "Holding");
 
         service.ApplyOsdPowerStatus(first);
         service.ApplyOsdPowerStatus(second);

@@ -423,15 +423,17 @@ internal sealed record RtssOsdMetrics(
 /// <summary>What the richer OSD levels show about the sustained power limit and AutoTDP.</summary>
 /// <param name="TdpWatts">The current sustained power limit, when the device reports one.</param>
 /// <param name="AutoTdpEnabled">Whether AutoTDP is switched on.</param>
+/// <param name="AutoTdpRunning">Whether AutoTDP is actively controlling the limit.</param>
 /// <param name="AutoTdpWatts">The limit AutoTDP currently holds or is moving toward.</param>
 /// <param name="AutoTdpActivity">Short, display-ready text describing what AutoTDP is doing.</param>
 internal sealed record RtssOsdPowerStatus(
     int? TdpWatts,
     bool AutoTdpEnabled,
+    bool AutoTdpRunning,
     int? AutoTdpWatts,
     string AutoTdpActivity)
 {
-    internal static readonly RtssOsdPowerStatus Empty = new(null, false, null, string.Empty);
+    internal static readonly RtssOsdPowerStatus Empty = new(null, false, false, null, string.Empty);
 }
 
 /// <summary>The custom overlay's configuration — selector level 4, HandheldCompanion's Custom
@@ -1122,7 +1124,7 @@ internal static class RtssOsdContent
 
     private static string? AutoTdpEntry(RtssOsdPowerStatus status, bool indent)
     {
-        if (!status.AutoTdpEnabled)
+        if (!status.AutoTdpEnabled || !status.AutoTdpRunning)
         {
             return null;
         }

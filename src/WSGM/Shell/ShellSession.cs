@@ -2653,6 +2653,7 @@ public sealed class ShellSession : IAsyncDisposable
             .Project(coordinator.Capabilities.Snapshot()).State;
         AutoTdpStatus? autoTdp = _autoTdp?.Status;
         bool enabled = _autoTdp?.Enabled ?? false;
+        bool running = enabled && autoTdp?.State is AutoTdpState.Controlling;
         int? reportedTdpWatts = tdp.Available
             ? tdp.ObservedWatts ?? tdp.DesiredWatts
             : null;
@@ -2662,8 +2663,9 @@ public sealed class ShellSession : IAsyncDisposable
         performance.ApplyOsdPowerStatus(new RtssOsdPowerStatus(
             tdpWatts,
             enabled,
-            enabled ? autoTdp?.Watts : null,
-            AutoTdpActivity(enabled, autoTdp)));
+            running,
+            running ? autoTdp?.Watts : null,
+            running ? AutoTdpActivity(enabled, autoTdp) : string.Empty));
     }
 
     internal static string AutoTdpActivity(bool enabled, AutoTdpStatus? status)

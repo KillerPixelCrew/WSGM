@@ -43,7 +43,7 @@ public sealed class RtssOsdContentTests
     [Fact]
     public void Minimal_DoesNotShowPowerStatus()
     {
-        var power = new RtssOsdPowerStatus(18, true, 17, "Raising");
+        var power = new RtssOsdPowerStatus(18, true, true, 17, "Raising");
 
         string text = RtssOsdContent.Build(1, FullMetrics, power);
 
@@ -56,7 +56,7 @@ public sealed class RtssOsdContentTests
     [InlineData(3)]
     public void RichLevels_ShowTdpAndLiveAutoTdpActivity(int level)
     {
-        var power = new RtssOsdPowerStatus(18, true, 17, "Raising");
+        var power = new RtssOsdPowerStatus(18, true, true, 17, "Raising");
 
         string text = RtssOsdContent.Build(level, FullMetrics, power);
 
@@ -70,7 +70,18 @@ public sealed class RtssOsdContentTests
     [Fact]
     public void AutoTdpIndicator_IsHiddenWhileAutoTdpIsOff()
     {
-        var power = new RtssOsdPowerStatus(18, false, null, string.Empty);
+        var power = new RtssOsdPowerStatus(18, false, false, null, string.Empty);
+
+        string text = RtssOsdContent.Build(2, FullMetrics, power);
+
+        Assert.Contains("TDP", text);
+        Assert.DoesNotContain("AUTO TDP", text);
+    }
+
+    [Fact]
+    public void AutoTdpIndicator_IsHiddenUntilAutoTdpIsActivelyControlling()
+    {
+        var power = new RtssOsdPowerStatus(18, true, false, null, string.Empty);
 
         string text = RtssOsdContent.Build(2, FullMetrics, power);
 
@@ -279,7 +290,7 @@ public sealed class RtssOsdCustomTests
     [Fact]
     public void BuildCustom_PrependsPowerStatus()
     {
-        var power = new RtssOsdPowerStatus(18, true, 17, "Lowering");
+        var power = new RtssOsdPowerStatus(18, true, true, 17, "Lowering");
 
         string text = RtssOsdContent.BuildCustom(
             RtssOsdCustomSettings.Default,

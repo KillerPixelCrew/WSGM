@@ -747,7 +747,16 @@ internal sealed class SteamRunningApplicationProbe
 /// Session-owned, consumer-aware running-application monitor. It polls only the event-maintained
 /// bounded snapshot while observed and publishes global/unknown immediately on exit or failure.
 /// </summary>
-internal sealed class RunningApplicationMonitor : IAsyncDisposable
+internal interface IRunningApplicationTargetSource
+{
+    event Action<RunningApplicationTargetSnapshot>? Changed;
+
+    RunningApplicationTargetSnapshot Current { get; }
+
+    IDisposable AcquireObservation();
+}
+
+internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSource, IAsyncDisposable
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ProfileRetryInterval = TimeSpan.FromSeconds(10);
@@ -786,9 +795,9 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
         _loop = Task.Run(ObserveLoopAsync);
     }
 
-    internal event Action<RunningApplicationTargetSnapshot>? Changed;
+    public event Action<RunningApplicationTargetSnapshot>? Changed;
 
-    internal RunningApplicationTargetSnapshot Current
+    public RunningApplicationTargetSnapshot Current
     {
         get
         {
@@ -854,7 +863,7 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
         Publish(observation, _profile);
     }
 
-    internal IDisposable AcquireObservation()
+    public IDisposable AcquireObservation()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (Interlocked.Increment(ref _observerCount) == 1)
