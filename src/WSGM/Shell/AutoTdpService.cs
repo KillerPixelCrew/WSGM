@@ -170,9 +170,28 @@ internal sealed class AutoTdpService : IAsyncDisposable
     internal void ApplyRunningApplication(RunningApplicationTargetSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
+        bool enabled;
+        int? watts;
         lock (_gate)
         {
             _running = snapshot;
+            enabled = _enabled;
+            watts = Status.Watts;
+        }
+
+        if (enabled)
+        {
+            // Retire the previous application's visible status immediately. A tick may still be
+            // awaiting its device write, but its generation guard below prevents that older result
+            // from replacing this one when the write completes.
+            Publish(
+                AutoTdpState.Idle,
+                watts,
+                null,
+                null,
+                snapshot.ApplicationId,
+                "context-changed",
+                expectedRunningGeneration: snapshot.Generation);
         }
     }
 
@@ -322,9 +341,24 @@ internal sealed class AutoTdpService : IAsyncDisposable
             return;
         }
 
+        RunningApplicationTargetSnapshot? running;
+        long runningGeneration;
+        lock (_gate)
+        {
+            running = _running;
+            runningGeneration = running?.Generation ?? -1;
+        }
+
         if (FindPowerCapability() is not { } power)
         {
-            Publish(AutoTdpState.Unavailable, null, null, null, "No primary power limit is available.");
+            Publish(
+                AutoTdpState.Unavailable,
+                null,
+                null,
+                null,
+                running?.ApplicationId,
+                "No primary power limit is available.",
+                expectedRunningGeneration: runningGeneration);
             return;
         }
 
@@ -334,19 +368,27 @@ internal sealed class AutoTdpService : IAsyncDisposable
             power.Descriptor.Step ?? 0);
         if (!limits.IsUsable || power.Projection.State.ObservedValue?.IntegerValue is not { } current)
         {
-            Publish(AutoTdpState.Unavailable, null, null, null, "The power limit reports no usable range.");
+            Publish(
+                AutoTdpState.Unavailable,
+                null,
+                null,
+                null,
+                running?.ApplicationId,
+                "The power limit reports no usable range.",
+                expectedRunningGeneration: runningGeneration);
             return;
-        }
-
-        RunningApplicationTargetSnapshot? running;
-        lock (_gate)
-        {
-            running = _running;
         }
 
         if (SelectSample(running) is not { } frametime)
         {
-            Publish(AutoTdpState.Idle, current, null, null, "No application is rendering.");
+            Publish(
+                AutoTdpState.Idle,
+                current,
+                null,
+                null,
+                running?.ApplicationId,
+                "No application is rendering.",
+                expectedRunningGeneration: runningGeneration);
             return;
         }
 
@@ -393,7 +435,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
                     frametime.MeanFrametimeMs,
                     target,
                     running?.ApplicationId,
-                    "The power limit did not accept the last write; control holds for one window.");
+                    "The power limit did not accept the last write; control holds for one window.",
+                    expectedRunningGeneration: runningGeneration);
                 return;
             }
         }
@@ -405,7 +448,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
             target,
             running?.ApplicationId,
             decision.Reason,
-            decision.Action);
+            decision.Action,
+            runningGeneration);
     }
 
     /// <summary>Writes one power limit and reports whether it reached the hardware.</summary>
@@ -613,8 +657,16 @@ internal sealed class AutoTdpService : IAsyncDisposable
         double? frametimeMs,
         double? targetFrametimeMs,
         string detail,
-        AutoTdpAction? action = null) =>
-        Publish(state, watts, frametimeMs, targetFrametimeMs, Status.ApplicationId, detail, action);
+        AutoTdpAction? action = null)
+    {
+        string? applicationId;
+        lock (_gate)
+        {
+            applicationId = Status.ApplicationId;
+        }
+
+        Publish(state, watts, frametimeMs, targetFrametimeMs, applicationId, detail, action);
+    }
 
     private void Publish(
         AutoTdpState state,
@@ -623,7 +675,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
         double? targetFrametimeMs,
         string? applicationId,
         string detail,
-        AutoTdpAction? action = null)
+        AutoTdpAction? action = null,
+        long? expectedRunningGeneration = null)
     {
         AutoTdpStatus status = new(
             state,
@@ -633,12 +686,21 @@ internal sealed class AutoTdpService : IAsyncDisposable
             applicationId,
             detail,
             action);
-        if (status == Status)
+        lock (_gate)
         {
-            return;
+            if (expectedRunningGeneration is long expected
+                && (_running?.Generation ?? -1) != expected)
+            {
+                return;
+            }
+            if (status == Status)
+            {
+                return;
+            }
+
+            Status = status;
         }
 
-        Status = status;
         StatusChanged?.Invoke(status);
     }
 

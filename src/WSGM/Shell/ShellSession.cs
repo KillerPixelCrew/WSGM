@@ -2621,6 +2621,7 @@ public sealed class ShellSession : IAsyncDisposable
 
     private void DetachOsdPowerStatus()
     {
+        _performance?.ApplyOsdPowerStatus(RtssOsdPowerStatus.Empty);
         if (_deviceCoordinator is { } coordinator)
         {
             coordinator.Capabilities.Changed -= OnOsdPowerCapabilitiesChanged;

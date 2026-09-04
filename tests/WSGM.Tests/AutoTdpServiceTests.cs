@@ -108,6 +108,40 @@ public sealed class AutoTdpServiceTests
     }
 
     [Fact]
+    public async Task AnInFlightTickCannotPublishStatusForThePreviousApplication()
+    {
+        Harness harness = new();
+        harness.Service.Apply(enabled: true);
+        harness.Service.ApplyRunningApplication(Running(GameExecutable));
+        harness.Frametimes.Live = [Rendering(22.0)];
+        for (int tick = 1; tick < AutoTdpController.SustainedMisses; tick++)
+        {
+            await harness.Service.TickAsync(CancellationToken.None);
+        }
+
+        harness.PendingWrite = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task previousTick = harness.Service.TickAsync(CancellationToken.None);
+        await WaitForWriteCountAsync(harness, 1);
+
+        harness.Service.ApplyRunningApplication(Running(
+            @"C:\Games\other.exe",
+            generation: 2,
+            applicationId: "steam:71"));
+        harness.PendingWrite.SetResult(new CapabilityCommandResult
+        {
+            CommandId = Guid.NewGuid(),
+            Outcome = CommandOutcome.AppliedVerified,
+            CompletedAt = DateTimeOffset.UtcNow,
+        });
+        await previousTick;
+
+        Assert.Equal("steam:71", harness.Service.Status.ApplicationId);
+        Assert.Equal(AutoTdpState.Idle, harness.Service.Status.State);
+        Assert.Equal("context-changed", harness.Service.Status.Detail);
+        await harness.Service.DisposeAsync();
+    }
+
+    [Fact]
     public async Task AManualChangePausesControlAndStopsFurtherWrites()
     {
         Harness harness = new();
@@ -251,11 +285,14 @@ public sealed class AutoTdpServiceTests
         uint processId = 1) =>
         new(processId, executable, frametimeMs, 60, 100);
 
-    private static RunningApplicationTargetSnapshot Running(string executable) => new(
-        1,
+    private static RunningApplicationTargetSnapshot Running(
+        string executable,
+        long generation = 1,
+        string applicationId = "steam:70") => new(
+        generation,
         1,
         RunningApplicationTargetState.Active,
-        "steam:70",
+        applicationId,
         70,
         executable,
         "game",
@@ -282,6 +319,11 @@ public sealed class AutoTdpServiceTests
                 (capabilityId, instanceId, value, _) =>
                 {
                     Writes.Add(new Write(capabilityId, instanceId, value));
+                    if (PendingWrite is { } pending)
+                    {
+                        return pending.Task;
+                    }
+
                     return Task.FromResult(new CapabilityCommandResult
                     {
                         CommandId = Guid.NewGuid(),
@@ -297,6 +339,8 @@ public sealed class AutoTdpServiceTests
 
         /// <summary>What the capability layer reports for the next write.</summary>
         internal CommandOutcome Outcome { get; set; } = CommandOutcome.AppliedVerified;
+
+        internal TaskCompletionSource<CapabilityCommandResult>? PendingWrite { get; set; }
 
         internal List<Write> Writes { get; } = [];
 

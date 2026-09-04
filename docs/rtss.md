@@ -195,11 +195,12 @@ notification). "OSD slot claimed and updating" proves half the feature; the prof
 be open.
 
 Levels 2–4 also show the current sustained `TDP` limit from the device capability readback. While
-AutoTDP is switched on, a separate `AUTO TDP` entry shows the controller's current watts and a short
-live activity such as `HOLDING`, `RAISING`, `LOWERING`, `TESTING`, `RESTORING`, or `SETTLING`.
-Waiting, paused, startup, and unavailable states remain visible too. The entry disappears entirely
-when AutoTDP is off. The session pushes this projection only when device or AutoTDP state changes;
-the 100 ms renderer does not poll the device capability router.
+AutoTDP is switched on and has an accepted current wattage, that controller value takes precedence
+until device readback catches up. A separate `AUTO TDP` entry shows the controller's current watts
+and a short live activity such as `HOLDING`, `RAISING`, `LOWERING`, `TESTING`, `RESTORING`, or
+`SETTLING`. Waiting, paused, startup, and unavailable states remain visible too. The entry
+disappears entirely when AutoTDP is off. The session pushes this projection only when device or
+AutoTDP state changes; the 100 ms renderer does not poll the device capability router.
 
 ### EnableOSD is a one-way gate
 

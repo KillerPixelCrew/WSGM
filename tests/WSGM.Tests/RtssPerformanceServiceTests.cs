@@ -207,6 +207,24 @@ public sealed class PerformancePolicyResolverTests
 public sealed class PerformanceServiceTests
 {
     [Fact]
+    public async Task PowerStatusIsForwardedUntilTheServiceIsDisposed()
+    {
+        await using var adapter = new FakeRtssAdapter();
+        PerformanceService service = CreateService(adapter);
+        var first = new RtssOsdPowerStatus(18, false, null, string.Empty);
+        var second = new RtssOsdPowerStatus(17, true, 17, "Holding");
+
+        service.ApplyOsdPowerStatus(first);
+        service.ApplyOsdPowerStatus(second);
+
+        Assert.Equal([first, second], adapter.PowerStatuses);
+
+        await service.DisposeAsync();
+
+        Assert.Throws<ObjectDisposedException>(() => service.ApplyOsdPowerStatus(first));
+    }
+
+    [Fact]
     public void NonzeroOverlayOpensBothCurrentAndGlobalRtssPresentationGates()
     {
         Assert.Equal(
@@ -692,8 +710,10 @@ public sealed class PerformanceServiceTests
 
         public void ApplyOsdPowerStatus(RtssOsdPowerStatus status)
         {
-            // The fake has no renderer; the service only forwards.
+            PowerStatuses.Add(status);
         }
+
+        public List<RtssOsdPowerStatus> PowerStatuses { get; } = [];
 
         public static readonly RtssProbe ReadyProbe = new(
             RtssAvailability.Ready,
