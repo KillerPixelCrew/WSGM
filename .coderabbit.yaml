@@ -33,9 +33,6 @@ reviews:
     - "!src/WSGM/Native/**"
     - "!src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js"
     - "!third_party/LoadingIndicators.Avalonia/LoadingIndicators.Avalonia/**"
-    - "package-lock.json"
-    - "src/WSGM/Assets/Glyphs/**"
-    - "third_party/controller/**"
   path_instructions:
     - path: "src/WSGM/Core/**"
       instructions: |
