@@ -73,6 +73,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     private Task _worker = Task.CompletedTask;
     private Task<bool> _lastStop = Task.FromResult(true);
     private CancellationTokenSource? _generation;
+    private CancellationTokenSource _applicationWrites = new();
     private RunningApplicationTargetSnapshot? _running;
     private int? _restoreTo;
     private bool _controllerStarted;
@@ -126,6 +127,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         Task worker;
         Task<bool> stop;
         CancellationTokenSource? generation;
+        CancellationTokenSource applicationWrites;
         lock (_gate)
         {
             if (_disposed || _enabled == enabled)
@@ -158,10 +160,14 @@ internal sealed class AutoTdpService : IAsyncDisposable
             generation = _generation;
             _worker = Task.CompletedTask;
             _generation = null;
+            applicationWrites = _applicationWrites;
+            _applicationWrites = new CancellationTokenSource();
             stop = StopGenerationAsync(worker, generation);
             _lastStop = stop;
         }
 
+        applicationWrites.Cancel();
+        applicationWrites.Dispose();
         Log.Observe(stop, "AutoTDP stop");
     }
 
@@ -172,13 +178,27 @@ internal sealed class AutoTdpService : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(snapshot);
         bool enabled;
         int? watts;
+        CancellationTokenSource? previousApplicationWrites = null;
         lock (_gate)
         {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (_running?.Generation != snapshot.Generation)
+            {
+                previousApplicationWrites = _applicationWrites;
+                _applicationWrites = new CancellationTokenSource();
+            }
+
             _running = snapshot;
             enabled = _enabled;
             watts = Status.Watts;
         }
 
+        previousApplicationWrites?.Cancel();
+        previousApplicationWrites?.Dispose();
         if (enabled)
         {
             // Retire the previous application's visible status immediately. A tick may still be
@@ -244,6 +264,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         Task worker;
         Task<bool> lastStop;
         CancellationTokenSource? generation;
+        CancellationTokenSource applicationWrites;
         lock (_gate)
         {
             if (_disposed)
@@ -258,7 +279,10 @@ internal sealed class AutoTdpService : IAsyncDisposable
             generation = _generation;
             _worker = Task.CompletedTask;
             _generation = null;
+            applicationWrites = _applicationWrites;
         }
+
+        applicationWrites.Cancel();
 
         // A disable may already be restoring the previous value. Let that finish before stopping a
         // newer generation or disposing the shared write gate; otherwise its late write would race
@@ -277,6 +301,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             unrestored = _restoreTo;
         }
         (_frametimes as IDisposable)?.Dispose();
+        applicationWrites.Dispose();
         _write.Dispose();
         _shutdown.Dispose();
         if (unrestored is { } watts)
@@ -343,11 +368,41 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
         RunningApplicationTargetSnapshot? running;
         long runningGeneration;
+        CancellationTokenSource writeCancellation;
         lock (_gate)
         {
+            if (!_enabled)
+            {
+                return;
+            }
+
             running = _running;
             runningGeneration = running?.Generation ?? -1;
+            writeCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                _applicationWrites.Token);
         }
+        using (writeCancellation)
+        {
+            await TickForApplicationAsync(
+                running,
+                runningGeneration,
+                writeCancellation,
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Runs one tick against a captured application and its cancellation lifetime.</summary>
+    /// <param name="running">The application snapshot captured for this tick.</param>
+    /// <param name="runningGeneration">The snapshot generation that may publish its result.</param>
+    /// <param name="writeCancellation">Cancels the write when this application is retired.</param>
+    /// <param name="cancellationToken">Cancels the AutoTDP worker or caller.</param>
+    private async Task TickForApplicationAsync(
+        RunningApplicationTargetSnapshot? running,
+        long runningGeneration,
+        CancellationTokenSource writeCancellation,
+        CancellationToken cancellationToken)
+    {
 
         if (FindPowerCapability() is not { } power)
         {
@@ -427,7 +482,20 @@ internal sealed class AutoTdpService : IAsyncDisposable
             {
                 _restoreTo ??= current;
             }
-            if (!await WriteAsync(power, decision, cancellationToken).ConfigureAwait(false))
+            bool applied;
+            try
+            {
+                applied = await WriteAsync(power, decision, writeCancellation.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (
+                writeCancellation.IsCancellationRequested
+                && !cancellationToken.IsCancellationRequested)
+            {
+                MarkWriteUnapplied();
+                return;
+            }
+
+            if (!applied)
             {
                 Publish(
                     AutoTdpState.Unavailable,
@@ -480,6 +548,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             CapabilityCommandResult result = await _writeAsync(
                 power.Descriptor.CapabilityId,
                 power.Descriptor.InstanceId,
@@ -689,7 +758,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         lock (_gate)
         {
             if (expectedRunningGeneration is long expected
-                && (_running?.Generation ?? -1) != expected)
+                && ((_running?.Generation ?? -1) != expected || !_enabled))
             {
                 return;
             }
