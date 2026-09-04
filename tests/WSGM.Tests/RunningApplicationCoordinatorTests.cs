@@ -64,6 +64,28 @@ public sealed class RunningApplicationCoordinatorTests
         Assert.Null(RunningApplicationCoordinator.Project(snapshot));
     }
 
+    [Theory]
+    [InlineData(3, 2, true)]
+    [InlineData(3, 3, false)]
+    [InlineData(3, 4, false)]
+    public void SnapshotOrderingRejectsOnlyRegressingGenerations(
+        long latestGeneration,
+        long candidateGeneration,
+        bool expected)
+    {
+        RunningApplicationTargetSnapshot snapshot = Snapshot(
+            RunningApplicationTargetState.Active,
+            "steam:42",
+            "game.exe") with
+        {
+            Generation = candidateGeneration,
+        };
+
+        Assert.Equal(
+            expected,
+            RunningApplicationCoordinator.IsOlder(latestGeneration, snapshot));
+    }
+
     private static RunningApplicationTargetSnapshot Snapshot(
         RunningApplicationTargetState state,
         string? applicationId,

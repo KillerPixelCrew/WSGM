@@ -181,7 +181,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         CancellationTokenSource? previousApplicationWrites = null;
         lock (_gate)
         {
-            if (_disposed)
+            if (_disposed || _running?.Generation > snapshot.Generation)
             {
                 return;
             }
@@ -226,6 +226,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
     {
         lock (_gate)
         {
+            if (!_enabled)
+            {
+                return;
+            }
+
             _controller.PauseForManualChange(watts);
         }
 
@@ -453,6 +458,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
         bool rebased;
         lock (_gate)
         {
+            if (!_enabled || (_running?.Generation ?? -1) != runningGeneration)
+            {
+                return;
+            }
+
             rebased = _resync && _controllerStarted;
             if (!_controllerStarted || _resync)
             {
@@ -478,14 +488,15 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
         if (decision.RequiresWrite)
         {
-            lock (_gate)
-            {
-                _restoreTo ??= current;
-            }
             bool applied;
             try
             {
-                applied = await WriteAsync(power, decision, writeCancellation.Token).ConfigureAwait(false);
+                applied = await WriteAsync(
+                    power,
+                    decision,
+                    writeCancellation.Token,
+                    runningGeneration,
+                    current).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (
                 writeCancellation.IsCancellationRequested
@@ -524,6 +535,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// <param name="power">The primary power-limit capability.</param>
     /// <param name="decision">The decision being applied.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
+    /// <param name="expectedRunningGeneration">The application generation allowed to dispatch.</param>
+    /// <param name="restoreFrom">The user's prior limit to capture when the write is admitted.</param>
     /// <returns><see langword="true"/> when the device accepted the value.</returns>
     /// <remarks>
     /// The outcome is acted on, not merely logged. <see cref="AutoTdpController"/> has already moved
@@ -534,7 +547,9 @@ internal sealed class AutoTdpService : IAsyncDisposable
     private async Task<bool> WriteAsync(
         DeviceCapabilityView power,
         AutoTdpDecision decision,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        long? expectedRunningGeneration = null,
+        int? restoreFrom = null)
     {
         // One power command at a time. An overlapping write would leave the controller unable to say
         // which value the hardware actually ended up with, and an uncertain hardware write is never
@@ -548,16 +563,38 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
         try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            CapabilityCommandResult result = await _writeAsync(
-                power.Descriptor.CapabilityId,
-                power.Descriptor.InstanceId,
-                new CapabilityValue
+            Task<CapabilityCommandResult> command;
+            lock (_gate)
+            {
+                if (expectedRunningGeneration is long expected
+                    && (!_enabled || (_running?.Generation ?? -1) != expected))
                 {
-                    Kind = CapabilityValueKind.Integer,
-                    IntegerValue = decision.Watts,
-                },
-                cancellationToken).ConfigureAwait(false);
+                    _resync = true;
+                    return false;
+                }
+
+                // Application changes take this same gate before retiring their write token. The
+                // final generation check and admission into the capability router are therefore
+                // one operation: an old application can be cancelled before or after dispatch,
+                // but never in the gap between them.
+                cancellationToken.ThrowIfCancellationRequested();
+                if (restoreFrom is int watts)
+                {
+                    _restoreTo ??= watts;
+                }
+
+                command = _writeAsync(
+                    power.Descriptor.CapabilityId,
+                    power.Descriptor.InstanceId,
+                    new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Integer,
+                        IntegerValue = decision.Watts,
+                    },
+                    cancellationToken);
+            }
+
+            CapabilityCommandResult result = await command.ConfigureAwait(false);
             bool applied = IsApplied(result.Outcome);
             lock (_gate)
             {
@@ -757,8 +794,10 @@ internal sealed class AutoTdpService : IAsyncDisposable
             action);
         lock (_gate)
         {
-            if (expectedRunningGeneration is long expected
-                && ((_running?.Generation ?? -1) != expected || !_enabled))
+            bool stateMatchesEnabled = state is AutoTdpState.Off ? !_enabled : _enabled;
+            if (!stateMatchesEnabled
+                || (expectedRunningGeneration is long expected
+                    && (_running?.Generation ?? -1) != expected))
             {
                 return;
             }

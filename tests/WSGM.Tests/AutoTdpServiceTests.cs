@@ -182,6 +182,41 @@ public sealed class AutoTdpServiceTests
     }
 
     [Fact]
+    public async Task AnApplicationChangeBeforeDispatchPreventsTheOldPowerWrite()
+    {
+        Harness harness = new();
+        harness.Service.Apply(enabled: true);
+        harness.Service.ApplyRunningApplication(Running(GameExecutable));
+        harness.Frametimes.Live = [Rendering(22.0)];
+        for (int tick = 1; tick < AutoTdpController.SustainedMisses; tick++)
+        {
+            await harness.Service.TickAsync(CancellationToken.None);
+        }
+
+        using ManualResetEventSlim capabilitiesEntered = new();
+        using ManualResetEventSlim continueCapabilities = new();
+        harness.BeforeCapabilitiesRead = () =>
+        {
+            capabilitiesEntered.Set();
+            Assert.True(continueCapabilities.Wait(TimeSpan.FromSeconds(2)));
+        };
+        Task previousTick = Task.Run(() => harness.Service.TickAsync(CancellationToken.None));
+        Assert.True(capabilitiesEntered.Wait(TimeSpan.FromSeconds(2)));
+
+        harness.Service.ApplyRunningApplication(Running(
+            @"C:\Games\other.exe",
+            generation: 2,
+            applicationId: "steam:71"));
+        continueCapabilities.Set();
+        await previousTick;
+
+        Assert.Empty(harness.Writes);
+        Assert.Equal("steam:71", harness.Service.Status.ApplicationId);
+        Assert.Equal("context-changed", harness.Service.Status.Detail);
+        await harness.Service.DisposeAsync();
+    }
+
+    [Fact]
     public async Task AnInFlightTickCannotRestoreStatusAfterAutoTdpIsDisabled()
     {
         Harness harness = new();
@@ -238,6 +273,27 @@ public sealed class AutoTdpServiceTests
     }
 
     [Fact]
+    public async Task AnOlderApplicationSnapshotCannotReplaceTheNewestOne()
+    {
+        Harness harness = new();
+        harness.Service.Apply(enabled: true);
+        harness.Service.ApplyRunningApplication(Running(
+            @"C:\Games\newest.exe",
+            generation: 3,
+            applicationId: "steam:72"));
+
+        harness.Service.ApplyRunningApplication(Running(
+            @"C:\Games\older.exe",
+            generation: 2,
+            applicationId: "steam:71"));
+
+        Assert.Equal("steam:72", harness.Service.Status.ApplicationId);
+        Assert.Equal(AutoTdpState.Idle, harness.Service.Status.State);
+        Assert.Equal("context-changed", harness.Service.Status.Detail);
+        await harness.Service.DisposeAsync();
+    }
+
+    [Fact]
     public async Task AManualChangePausesControlAndStopsFurtherWrites()
     {
         Harness harness = new();
@@ -253,6 +309,18 @@ public sealed class AutoTdpServiceTests
 
         Assert.Empty(harness.Writes);
         Assert.Equal(AutoTdpState.Paused, harness.Service.Status.State);
+        await harness.Service.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AManualChangeWhileDisabledKeepsTheServiceOff()
+    {
+        Harness harness = new();
+
+        harness.Service.NoteManualChange(24);
+
+        Assert.Equal(AutoTdpState.Off, harness.Service.Status.State);
+        Assert.Null(harness.Service.Status.Watts);
         await harness.Service.DisposeAsync();
     }
 

@@ -28,6 +28,7 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
     private IDisposable? _observation;
     private RunningApplicationTargetSnapshot? _pending;
     private Task _worker = Task.CompletedTask;
+    private long _latestGeneration = -1;
     private bool _workerRunning;
     private bool _disposed;
 
@@ -129,6 +130,10 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
                     snapshot.RtssProfileName)
                 : null;
 
+    /// <summary>Whether a delivered snapshot predates the newest one already accepted.</summary>
+    internal static bool IsOlder(long latestGeneration, RunningApplicationTargetSnapshot snapshot) =>
+        snapshot.Generation < latestGeneration;
+
     private void OnTargetChanged(RunningApplicationTargetSnapshot snapshot) => Queue(snapshot);
 
     private void Queue(RunningApplicationTargetSnapshot snapshot)
@@ -140,6 +145,15 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
                 return;
             }
 
+            if (IsOlder(_latestGeneration, snapshot))
+            {
+                Log.Info(
+                    $"Running-application generation {snapshot.Generation} was ignored because "
+                    + $"generation {_latestGeneration} is already queued or applying.");
+                return;
+            }
+
+            _latestGeneration = snapshot.Generation;
             _pending = snapshot;
             if (!_workerRunning)
             {
