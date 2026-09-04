@@ -844,11 +844,8 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
 - [x] **`IdentityOnly` logs why.** It reported "executable profile unavailable" and dropped the
       diagnostic that already said which of the three possible faults it was; recovering that took a
       live AppDetails read.
-- [ ] Attended after deployment: with Skyrim running through Mod Organizer, confirm the log names
-      the reason on any remaining `IdentityOnly`, that the target reaches `Active` with
-      `RTSS profile SkyrimSE.exe` once the game is drawing, that enabling the per-application
-      profile now writes a real RTSS profile for it, and that alt-tabbing to Waterfox or Mod
-      Organizer does not move the pairing.
+- [x] **Attended, confirmed on the Claw 2026-09-04:** Skyrim SE through Mod Organizer pairs with
+      AppID 489830 off the RTSS rendering set, and its per-application profile now reaches RTSS.
 - [ ] Attended after deployment: on the Claw, confirm the Quick Access frame-limit slider is back
       with the stored 12 FPS cap visible on it and draggable up into the normal range; that the
       overlay slider will not produce a cap between 1 and 29 and reads "Off" there; that the row
