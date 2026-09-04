@@ -55,7 +55,7 @@ QuickDevicePage.xaml and QuickPerformancePage.xaml are the exemplars.
   ControllerAndMotion/Glyphs split. Target: one **Power** (limits + thermals + fans via Categories)
   and one **Controller** (target + motion + glyphs via Categories). Use `CapabilityCategory` for
   sub-grouping within a section rather than separate pages. This is a submodule change → commit in
-  `external/WSGM.Device.Msi.Claw8A2Vm` first, bump pin. Package apiVersion already 2, v1.2.0.
+  `external/WSGM.Device.Msi.Claw8A2Vm` first, bump pin. Package apiVersion already 3, v1.2.0.
 
 ## Layout
 - Card list flows into MULTIPLE COLUMNS across the wide overlay (sheet is 1280 DIP) instead of one

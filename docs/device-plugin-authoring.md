@@ -40,13 +40,14 @@ descriptors, state, input and diagnostics through `IPluginHostAdapter`; vendor a
 handles and recovery state stay inside the plugin.
 
 A plugin owns its Device-tab layout by declaring overlay sections inside every
-`CapabilityDescriptorSet` (API version 2): up to 16 `CapabilitySection` entries with bounded
-categories, each titled by a `SettingSectionKey` or bounded custom text and iconed from the closed
-`SectionIcon` vocabulary, with `SectionId`, `CategoryId` and `SortOrder` on each descriptor placing
-it. Any role may be placed in a declared section; the layout ships atomically with the capabilities
-it lays out. An unplaced capability keeps the semantic home WSGM derives from its role, and a
-semantic role naming an undeclared section rejects the whole set. Layout is grouping only: WSGM
-still owns every title string, icon geometry and control shape it renders.
+`CapabilityDescriptorSet` (introduced in API version 2; the current exact API gate is 3): up to 16
+`CapabilitySection` entries with bounded categories, each titled by a `SettingSectionKey` or bounded
+custom text and iconed from the closed `SectionIcon` vocabulary, with `SectionId`, `CategoryId` and
+`SortOrder` on each descriptor placing it. Any role may be placed in a declared section; the layout
+ships atomically with the capabilities it lays out. An unplaced capability keeps the semantic home
+WSGM derives from its role, and a semantic role naming an undeclared section rejects the whole set.
+Layout is grouping only: WSGM still owns every title string, icon geometry and control shape it
+renders.
 
 Every hardware write must recheck current identity and bounds, serialize its real transport, read
 back when the hardware supports it, and restore the captured original state on failure or stop.

@@ -591,7 +591,7 @@ make the architecture smaller.
       `CapabilityCategory` (closed `SettingSectionKey` titles, `SectionIcon` icons, bounded custom
       text) to the descriptor set, with `SectionId`/`CategoryId`/`SortOrder` placement on every
       descriptor; the Claw package declares power/cooling/lighting/input/display and ships as
-      1.2.0 apiVersion 2 (SDK, Device Lab and Claw pins move in lockstep). The shell validates
+      1.2.0 apiVersion 3 (SDK, Device Lab and Claw pins move in lockstep). The shell validates
       layout references set-atomically, renders declared sections as leading menu tiles and
       category-grouped pages (`OverlayPage.DevicePluginSection` carries the id in the route), and
       keeps role-derived homes for unplaced rows. `DeviceColorView` became a full-spectrum editor
