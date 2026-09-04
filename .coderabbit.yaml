@@ -1,0 +1,109 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+tone_instructions: >-
+  Be concise and evidence-first. Report only actionable defects with a concrete trigger, impact, and
+  smallest safe correction; omit praise, style nitpicks, and generic security advice.
+
+reviews:
+  profile: chill
+  request_changes_workflow: true
+  high_level_summary: true
+  review_status: true
+  changed_files_summary: false
+  sequence_diagrams: false
+  estimate_code_review_effort: false
+  related_issues: false
+  related_prs: false
+  suggested_labels: false
+  suggested_reviewers: false
+  in_progress_fortune: false
+  poem: false
+  enable_prompt_for_ai_agents: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+    - "!**/bin/**"
+    - "!**/obj/**"
+    - "!publish/**"
+    - "!**/TestResults/**"
+    - "!src/WSGM/Native/**"
+    - "package-lock.json"
+    - "native/**/Cargo.lock"
+    - "src/WSGM/Assets/Glyphs/**"
+  path_instructions:
+    - path: "src/WSGM/Core/**"
+      instructions: |
+        Trace configuration, Explorer, Steam, boot-manifest, launch, and CEF changes through their
+        callers, failure paths, cleanup, and recovery. Preserve atomic user-state writes and the
+        recovery-first startup path that works before logging or Avalonia. Treat elevation, Steam
+        injection, and native helpers as deliberate architecture; flag only a concrete trust-boundary,
+        ownership, escaping, or session-recovery defect.
+    - path: "src/WSGM/Shell/**"
+      instructions: |
+        Review session transitions as a serialized state machine. Verify Explorer restoration,
+        cancellation, dispatcher ownership, subscription and handle disposal, and useful remote-device
+        diagnostics on every failure path. SD formatting and other hardware writes require exact live
+        identity checks, explicit intent, bounded work, and a safe rollback or truthful uncertain result.
+    - path: "src/WSGM/{Input,Overlay,Settings,Controls,Themes}/**"
+      instructions: |
+        Preserve paired acquire/release behavior for input capture, focus, overlays, and settings
+        commits. UI-observable state must stay on the Avalonia dispatcher, high-rate input paths must
+        remain allocation-light, and configuration reloads must not discard controller-owned runtime
+        state. Check shared theme and control changes against every consuming surface.
+    - path: "src/WSGM/{Interop,SteamInterop}/**"
+      instructions: |
+        Treat native signatures, structure layout, calling conventions, handles, callbacks, and buffer
+        ownership as ABI contracts. Keep NativeAOT-compatible blittable LibraryImport boundaries and
+        explicit lifetimes. Steam Input binding changes must remain synchronized with the Rust ABI,
+        public header, linked launch-wrapper copies, callers, and ABI version.
+    - path: "src/WSGM.{Launch,LogonService}/**"
+      instructions: |
+        Preserve the privilege and lifetime boundaries: --deelevate must create a medium-integrity
+        child, while plain and input-lease launches retain their intended integrity. Keep job and Steam
+        Input lease containment correct, and allow the SYSTEM service to launch only the intended
+        user-session executable. Check token, watchdog, cancellation, boot-manifest, crash-loop, and
+        recovery behavior, including partial startup and process-exit races.
+    - path: "native/SteamInput/**"
+      instructions: |
+        Review loader-lock safety, hook pinning, required versus optional exports, fixed proxy exports,
+        authenticated local IPC, bounded waits, and fail-closed recovery evidence. Never permit a Rust
+        panic or invalid ownership across the C ABI. Require synchronized Rust, header, .NET binding,
+        WSGM mirror, caller, and ABI-version changes.
+    - path: "native/Radio/**"
+      instructions: |
+        Preserve exact Windows device identities, Wi-Fi profile fields and reason codes, callback and
+        COM lifetimes, bounded enumeration, and rollback semantics. Keep WinRT and COM behind the flat
+        native ABI; do not turn watcher snapshots, heuristic matches, or software-only tests into live
+        hardware claims.
+    - path: "native/VolumeControl/**"
+      instructions: |
+        Treat the native exports and managed declarations as one ABI. Verify calling conventions,
+        structure and scalar widths, COM initialization, endpoint and session identity, callback and
+        string ownership, cleanup, and error propagation across every changed call path.
+    - path: "{eng/**,build.ps1,installer/**,.github/**}"
+      instructions: |
+        Check restore-before-mutation ordering, exact output ownership, version and artifact alignment,
+        required .NET and Rust gates, and cleanup on partial failure. Scripts that alter shell, service,
+        registry, install, or live Steam state must remain attended and recovery-safe. Workflows need
+        least-privilege permissions, pinned actions, bounded jobs, and no unattended hardware actions.
+    - path: "tools/WsgmLibTest/**"
+      instructions: |
+        Treat these as attended live-Steam tools, not harmless tests. Require literal known-module
+        targeting, escaped data, bounded operations, and explicit documentation of mutations. File
+        evaluation is allowed only as an explicit attended action; reject automatic registry-wide
+        module sweeps, unknown export invocation, or silent evaluation during probes.
+    - path: "tests/**"
+      instructions: |
+        Require focused regression coverage for changed normal, failure, cleanup, and recovery paths.
+        Tests must use explicit temporary seams, remain deterministic and hardware-free, and never touch
+        the real local WSGM state, Explorer shell registration, services, hardware, or live Steam.
+    - path: "{AGENTS.md,**/AGENTS.md,CLAUDE.md,**/CLAUDE.md,README.md,TODO_AND_PLANNED.md,docs/**,.agents/skills/**,.claude/skills/**}"
+      instructions: |
+        Keep operational claims, commands, architecture, and device-validation status synchronized with
+        the code. CLAUDE.md files must remain relative symlinks to adjacent AGENTS.md files. Do not claim
+        a fresh hardware or live-Steam pass without named evidence from the changed behavior.
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
