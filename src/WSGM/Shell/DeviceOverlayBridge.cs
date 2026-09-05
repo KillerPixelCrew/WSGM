@@ -977,8 +977,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         CapabilityProjection projection = view.Projection;
         CapabilityState state = projection.State;
         CapabilityValue? displayed = projection.PendingValue
-            ?? projection.DesiredValue
-            ?? state.ObservedValue;
+            ?? state.ObservedValue
+            ?? projection.DesiredValue;
         bool actionOnlyReady = state.Available
             && state.Reason is null
             && descriptor.SupportsAction
