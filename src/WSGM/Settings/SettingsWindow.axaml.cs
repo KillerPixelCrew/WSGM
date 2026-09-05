@@ -19,14 +19,16 @@ namespace WSGM.Settings;
 /// visibility so their state survives switching) and a bottom status strip.</summary>
 public partial class SettingsWindow : Window
 {
-    private readonly SettingsViewModel _viewModel = new();
-    private readonly GamepadService _gamepad = new();
+    private readonly SettingsViewModel _viewModel;
+    private readonly SettingsWindowServices _services;
+    private readonly GamepadService _gamepad;
     private readonly Control[] _pages;
     private GamepadNavigation? _navigation;
     private OverlayController? _testOverlay;
     private BootSplashWindow? _splashPreview;
     private Window? _keyboardDialog;
     private bool _closed;
+    private IDisposable? _handoffFallback;
 
     // When Settings is the on-screen surface in game mode it must hold the Steam
     // Input lease, exactly like the overlay: without it Steam's desktop profile
@@ -68,7 +70,16 @@ public partial class SettingsWindow : Window
     /// game mode (from the overlay), which makes the window hold a Steam Input
     /// lease for its lifetime. The desktop settings paths leave it false.</param>
     public SettingsWindow(bool gameModeSurface = false)
+        : this(new SettingsViewModel(), gameModeSurface) { }
+
+    private SettingsWindow(SettingsViewModel viewModel, bool gameModeSurface)
+        : this(viewModel, SettingsWindowServices.Create(viewModel), gameModeSurface) { }
+
+    internal SettingsWindow(SettingsViewModel viewModel, SettingsWindowServices services, bool gameModeSurface = false)
     {
+        _viewModel = viewModel;
+        _services = services;
+        _gamepad = services.Gamepad;
         _gameModeSurface = gameModeSurface;
         _leaseHandoffPending = gameModeSurface;
         InitializeComponent();
@@ -130,15 +141,17 @@ public partial class SettingsWindow : Window
         Opened += (_, _) =>
         {
             _navigation = CreateWindowNavigation();
-            _gamepad.Start();
+            _services.StartInput();
             InheritSteamInputLease();
             // Normally OverlayController acknowledges the handoff when its 150 ms
             // deferred close finishes. If that close was cancelled or its callback
             // was otherwise lost, never let the temporary focus exemption become a
             // permanent owner claim.
-            Avalonia.Threading.DispatcherTimer.RunOnce(
-                CompleteSteamInputLeaseHandoff,
-                System.TimeSpan.FromSeconds(1));
+            if (_gameModeSurface)
+            {
+                _handoffFallback = Avalonia.Threading.DispatcherTimer.RunOnce(
+                    CompleteSteamInputLeaseHandoff, System.TimeSpan.FromSeconds(1));
+            }
             if (_gameModeSurface)
             {
                 _switchableHwnd = TryGetPlatformHandle()?.Handle ?? 0;
@@ -151,15 +164,17 @@ public partial class SettingsWindow : Window
             // the session also sweeps orphans left by earlier sessions. Paired with
             // Opened (not the constructor) so a window that is built but never shown
             // cannot leave a session — and therefore a pinned directory — behind.
-            SplashTheme.BeginImportSession();
-            _ = _viewModel.RefreshDeviceOwnerStatusAsync();
+            _services.BeginImportSession();
+            _ = _services.RefreshDeviceOwner();
             MaybeShowQuickSetup();
         };
         Closed += (_, _) =>
         {
             _closed = true;
+            _handoffFallback?.Dispose();
+            _handoffFallback = null;
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
-            _gamepad.Stop();
+            _services.StopInput();
             WindowFinder.ExcludeOwnWindow(_switchableHwnd);
             // _closed makes the lease unwanted; the reconciler releases it.
             UpdateLeaseDesired();
@@ -184,7 +199,7 @@ public partial class SettingsWindow : Window
             if (Avalonia.Application.Current is { } app)
             {
                 Themes.AccentPalette.Apply(
-                    app, Themes.AccentPalette.Parse(ConfigStore.Load().AccentColor));
+                    app, Themes.AccentPalette.Parse(_services.ReadSavedAccent()));
             }
             // Recorder disposal keeps its historical slot and order (key recorder
             // first, chord second) so the hooks are gone on every close path.
@@ -198,7 +213,7 @@ public partial class SettingsWindow : Window
             // images per import that used to stay pinned until the shell process
             // exited. Counted, so a second settings window's unsaved import (and any
             // other process's) survives this.
-            SplashTheme.EndImportSession();
+            _services.EndImportSession();
         };
     }
 

@@ -24,5 +24,6 @@
     <Project Path="external/WSGM.Device.Sdk/tests/WSGM.Device.Sdk.Tests/WSGM.Device.Sdk.Tests.csproj" />
     <Project Path="external/WSGM.DeviceLab/tests/WSGM.DeviceLab.Tests/WSGM.DeviceLab.Tests.csproj" />
     <Project Path="tests/WSGM.Tests/WSGM.Tests.csproj" />
+    <Project Path="tests/WSGM.UiTests/WSGM.UiTests.csproj" />
   </Folder>
 </Solution>

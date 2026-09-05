@@ -46,6 +46,45 @@ Avalonia's `Shape` scales `Stretch=Uniform` geometry and aligns it at the geomet
 than centering the unused space, so a wide, short glyph in a square path box sits at the top. Give
 such paths only their dominant dimension and let the containing layout size the other axis.
 
+## Headless regression tests
+
+`tests/WSGM.UiTests` exercises the actual Overlay and Settings windows using Avalonia Headless, Skia
+and xUnit v3. It loads the production themes without starting an application session. Window
+lifetime and save dependencies are explicit; fixture stores, device rows and Windows power schemes
+are synthetic. The existing xUnit v2 suite still covers pure policy and native seams.
+
+Run it from the repository root:
+
+```powershell
+dotnet test tests/WSGM.UiTests/WSGM.UiTests.csproj
+```
+
+Interaction checks cover keyboard/pointer navigation, focus and scrolling, pins, nested Back,
+integration-disabled controls, staged power selection, Settings saves and window cleanup. Binding
+warnings fail the suite. Headless tests do not prove native window activation, global input hooks,
+Steam Input handoffs or device behavior.
+
+Twelve PNG baselines cover Quick Access, Core Device, synthetic Device rows, and Settings System,
+Quick Access and Appearance. Overlay captures use 1280×800 and 1920×1080 screens with the normal
+sheet-height fraction. Settings uses 1024×700 (its supported minimum width) and 1280×800 client
+sizes. Culture, dark theme, accent, scale and embedded Inter fonts are fixed; transitions, focus and
+pointer hover are removed before capture. Focus behavior is covered by interaction tests.
+Comparisons use decoded pixels with no tolerance.
+
+Missing or changed baselines fail `eng/verify.ps1`. Each case writes `actual.png` and, when
+available, `expected.png` and `diff.png` under `TestResults/ui/<case-name>`, included in the CI test
+artifact. For an intentional visual change, run the suite, inspect those images, and promote only
+the named cases:
+
+```powershell
+./eng/update-ui-baselines.ps1 -Case settings-system-1024,settings-system-1280
+dotnet test tests/WSGM.UiTests/WSGM.UiTests.csproj
+```
+
+Tests and verification never update baselines, including with `-Fix`. A font, theme or renderer
+upgrade requires the same image review. Initial baselines must repeat across three fresh test
+processes and the Windows CI runner before delivery.
+
 ## Splash engine
 
 The splash is a customization engine over `SplashConfig`, `SplashStyle`, `SplashPresets`,

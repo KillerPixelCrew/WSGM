@@ -16,7 +16,7 @@ before you trust the change.
 | `elevation.md`         | why WSGM runs elevated, how it de-elevates, and the per-game launch wrapper                           |
 | `steam-input.md`       | how the overlay takes the controller away from Steam and gives it back                                |
 | `overlay-and-input.md` | the quick access sheet, gamepad navigation, touch edge swipes                                         |
-| `ui.md`                | Avalonia styling rules and the splash engine                                                          |
+| `ui.md`                | Avalonia styling, headless UI tests and the splash engine                                             |
 | `decisions.md`         | standing product decisions in one page                                                                |
 
 ## Steam

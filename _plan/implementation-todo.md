@@ -263,9 +263,14 @@ architecture smaller.
       non-configurable gamescope gate and is not a viable revival.
 - [ ] Add WASAPI session/per-app volume and multichannel speaker configuration/reapply. The Claw's
       stereo endpoint cannot establish the multichannel contract.
-- [ ] Add Avalonia headless interaction tests, deterministic render capture and selective visual
-      baselines. The overlay redesign they were meant to precede shipped without them, so they now
-      guard the next one.
+- [x] **Avalonia headless interaction tests and visual baselines.** Overlay and Settings now run
+      against explicit fixture services with their real XAML, bindings and themes. The 27-test suite
+      covers navigation, focus/scrolling, pins, staged power selection, Settings saves and cleanup;
+      twelve exact-pixel baselines cover six states at two sizes. Binding errors and visual changes
+      fail verification. Baseline promotion is an explicit case-filtered command, never a test or
+      `-Fix` side effect. Three fresh Release test processes reproduced the images; the full gate
+      passed with 2,548 managed tests and a warning-clean build. No live validation or deployment
+      was performed. `docs\ui.md`.
 
 ### Maintainer choice
 
