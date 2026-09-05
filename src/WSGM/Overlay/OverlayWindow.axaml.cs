@@ -51,6 +51,7 @@ public partial class OverlayWindow : Window
     private const int DeviceLiveRefresh = 1;
     private const int PerformanceLiveRefresh = 2;
     private PowerSchemeSelection? _powerSchemeSelection;
+    private bool _performanceDetailsExpanded;
 
     internal void AttachPowerPresets(DevicePowerPresetSelection selection) => DevicePowerPresetHost.Attach(selection);
 
@@ -434,15 +435,35 @@ public partial class OverlayWindow : Window
         }
 
         int refreshes = Interlocked.Exchange(ref _pendingLiveRefreshes, 0);
-        if ((refreshes & PerformanceLiveRefresh) != 0)
+        Vector offset = ContentScroller.Offset;
+        OverlayPage page = _navigation.Page;
+        string? sectionId = _navigation.SectionId;
+        void KeepViewport(object? sender, RequestBringIntoViewEventArgs args) => args.Handled = true;
+        PanelDevice.AddHandler(Control.RequestBringIntoViewEvent, KeepViewport);
+        PanelSystem.AddHandler(Control.RequestBringIntoViewEvent, KeepViewport);
+        try
         {
-            RefreshPerformancePanel();
+            if ((refreshes & PerformanceLiveRefresh) != 0)
+            {
+                RefreshPerformancePanel();
+            }
+            if ((refreshes & DeviceLiveRefresh) != 0
+                || (refreshes & PerformanceLiveRefresh) != 0
+                    && _navigation.IsVisible(OverlayDestination.Device))
+            {
+                RefreshDevicePanel();
+            }
+
+            // Replacing the anchor/focused row is an observation update, not navigation. Complete
+            // layout before restoring the offset so its temporary shorter extent cannot clamp it.
+            ContentScroller.UpdateLayout();
+            if (page == _navigation.Page && sectionId == _navigation.SectionId)
+            { ContentScroller.Offset = offset; }
         }
-        if ((refreshes & DeviceLiveRefresh) != 0
-            || (refreshes & PerformanceLiveRefresh) != 0
-                && _navigation.IsVisible(OverlayDestination.Device))
+        finally
         {
-            RefreshDevicePanel();
+            PanelDevice.RemoveHandler(Control.RequestBringIntoViewEvent, KeepViewport);
+            PanelSystem.RemoveHandler(Control.RequestBringIntoViewEvent, KeepViewport);
         }
 
         if (Volatile.Read(ref _pendingLiveRefreshes) != 0)
@@ -488,8 +509,16 @@ public partial class OverlayWindow : Window
         PerformanceOverlaySnapshot? performance = _performanceSource?.Snapshot();
         RefreshNavigationHints();
         ConfigureTabs(snapshot.Visible);
-        DevicePowerSchemeHost.IsVisible = _navigation.Page == OverlayPage.Device;
-        DevicePowerPresetContainer.IsVisible = _navigation.Page == OverlayPage.Device;
+        bool powerPage = _navigation.Page == OverlayPage.DevicePowerAndThermals
+            || (_navigation.Page == OverlayPage.DevicePluginSection
+                && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, _navigation.SectionId ?? string.Empty)
+                    == DeviceOverlaySection.PowerAndThermals);
+        DevicePowerSchemeHost.IsVisible = powerPage;
+        DevicePowerPresetContainer.IsVisible = powerPage;
+        DevicePowerOverview.IsVisible = powerPage;
+        if (powerPage && !DeviceWindowsPower.IsVisible && !snapshot.Visible) { DeviceWindowsPower.IsExpanded = true; }
+        DeviceWindowsPower.IsVisible = powerPage;
+        DeviceStatusTitle.IsVisible = DeviceStatusDetail.IsVisible = _navigation.Page == OverlayPage.Device;
         DeviceStatusTitle.Text = snapshot.Status;
         DeviceStatusDetail.Text = snapshot.Detail;
 
@@ -522,12 +551,7 @@ public partial class OverlayWindow : Window
             return;
         }
 
-        // Every row on a section page spans the sheet, one per line (maintainer-directed
-        // 2026-09-03). The page used to cap its column at 720 and pair the compact rows two to a
-        // line, which put three different content widths on the merged Power page — a full-bleed
-        // performance slider, a capped device slider, and half-width pairs of each — and no reading
-        // of it made those look deliberate. Nothing here sets MaxWidth or an alignment now, so the
-        // list keeps Avalonia's stretch and the performance section beside it matches by default.
+        // Shared sections group related controls into cards; fallback sections keep their own renderer.
         DeviceOverlaySection? openSection = DeviceOverlaySectionPages.SectionFor(_navigation.Page);
         string? openPluginSection = _navigation.Page is OverlayPage.DevicePluginSection
             ? _navigation.SectionId
@@ -598,7 +622,7 @@ public partial class OverlayWindow : Window
 
         // A grid of tile cards rather than a stretched stack: the sheet is wide, and
         // a full-width row per section read as the old sidebar scaled up.
-        var grid = new Avalonia.Controls.Primitives.UniformGrid { Columns = 3 };
+        var grid = new Avalonia.Controls.Primitives.UniformGrid { Columns = 2 };
         foreach (DeviceOverlaySectionEntry entry in DeviceOverlaySectionPages.Build(
             snapshot,
             performance))
@@ -672,67 +696,72 @@ public partial class OverlayWindow : Window
         }
 
         DescriptorStatusRow? restoreFocus = null;
-        TextBlock sectionHeading = new()
+        var columns = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 16, Margin = new Thickness(0, 12, 0, 0) };
+        StackPanel[] stacks = [new() { Spacing = 16 }, new() { Spacing = 16 }];
+        for (int i = 0; i < stacks.Length; i++) { Grid.SetColumn(stacks[i], i); columns.Children.Add(stacks[i]); }
+        DeviceCapabilityList.Children.Add(columns);
+        int groupIndex = 0;
+        StackPanel Group(string title)
         {
-            Text = pluginSection.Title.ToUpperInvariant(),
-            Margin = new Thickness(2, 2, 2, 2),
-        };
-        sectionHeading.Classes.Add("eyebrow");
-        DeviceCapabilityList.Children.Add(sectionHeading);
-
-        void AddRows(IEnumerable<DeviceOverlayCapability> rows)
+            var content = new StackPanel { Spacing = 14 };
+            content.Children.Add(new TextBlock { Text = title, Classes = { "setting-title" }, Margin = new Thickness(2, 0, 2, 6) });
+            stacks[groupIndex++ % 2].Children.Add(new Border { Classes = { "device-group" }, Child = content });
+            return content;
+        }
+        void AddRows(IEnumerable<DeviceOverlayCapability> rows, Panel target)
         {
             foreach (DeviceOverlayCapability capability in rows)
             {
+                var presentation = capability with
+                {
+                    Title = capability.Role == CapabilityRole.ScenarioMode ? "Firmware power mode" : capability.Title,
+                    Description = capability.Status == DescriptorStatus.Available
+                        && (capability.Description.StartsWith("Observed ·", StringComparison.Ordinal)
+                            || capability.Description.StartsWith("Verified ·", StringComparison.Ordinal))
+                        ? string.Empty : capability.Description,
+                };
                 string key = capability.InstanceId is { Length: > 0 }
-                    ? $"{capability.CapabilityId}#{capability.InstanceId}"
-                    : capability.CapabilityId;
-                if (TryCreateDeviceControl(capability, key) is { } control)
-                {
-                    DeviceCapabilityList.Children.Add(control);
-                    continue;
-                }
-
-                DescriptorStatusRow button = CreateDeviceCapabilityRow(capability, key);
-                DeviceCapabilityList.Children.Add(button);
-                if (string.Equals(key, focusedKey, StringComparison.Ordinal))
-                {
-                    restoreFocus = button;
-                }
+                    ? $"{capability.CapabilityId}#{capability.InstanceId}" : capability.CapabilityId;
+                if (TryCreateDeviceControl(presentation, key) is { } control)
+                { ToolTip.SetTip(control, capability.Description); target.Children.Add(control); continue; }
+                DescriptorStatusRow button = CreateDeviceCapabilityRow(presentation, key);
+                ToolTip.SetTip(button, capability.Description);
+                target.Children.Add(button);
+                if (string.Equals(key, focusedKey, StringComparison.Ordinal)) { restoreFocus = button; }
             }
         }
-
-        AddRows(capabilities.Where(capability => capability.CategoryId is null));
-        foreach (DeviceOverlayCategory category in pluginSection.Categories)
+        bool power = absorbed == DeviceOverlaySection.PowerAndThermals;
+        var lead = capabilities.Where(capability => capability.CategoryId is null
+            || (power && capability.Role is CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit))
+            .OrderBy(capability => power ? capability.Role switch
+            {
+                CapabilityRole.ScenarioMode => 0,
+                CapabilityRole.PowerSustainedLimit => 1,
+                CapabilityRole.PowerSlowLimit => 2,
+                _ => 3,
+            } : capability.SortOrder).ToArray();
+        if (lead.Length > 0) { AddRows(lead, Group(power ? "Manual power and display" : pluginSection.Title)); }
+        var categories = power
+            ? pluginSection.Categories.OrderBy(category => capabilities.Any(capability => capability.CategoryId == category.Id
+                && capability.Role is CapabilityRole.FanMode or CapabilityRole.FanCurve) ? 0 : 1)
+            : pluginSection.Categories.AsEnumerable();
+        foreach (DeviceOverlayCategory category in categories)
         {
-            List<DeviceOverlayCapability> rows = capabilities
-                .Where(capability => string.Equals(
-                    capability.CategoryId,
-                    category.Id,
-                    StringComparison.Ordinal))
-                .ToList();
-            if (rows.Count == 0)
-            {
-                continue;
-            }
-
-            TextBlock label = new()
-            {
-                Text = category.Title.ToUpperInvariant(),
-                Margin = new Thickness(2, 8, 2, 2),
-            };
-            label.Classes.Add("eyebrow");
-            DeviceCapabilityList.Children.Add(label);
-            AddRows(rows);
+            var rows = capabilities.Where(capability => capability.CategoryId == category.Id && !lead.Contains(capability)).ToArray();
+            if (rows.Length > 0) { AddRows(rows, Group(category.Title)); }
         }
-
-        // The WSGM-owned rows for the subject this section claims, drawn after the device's own so
-        // the page reads device first, then what WSGM layers on top of it.
         if (absorbed is { } owned)
         {
-            return RenderOwnedDeviceRows(snapshot, owned, focusedKey) ?? restoreFocus;
+            int firstOwned = DeviceCapabilityList.Children.Count;
+            restoreFocus = RenderOwnedDeviceRows(snapshot, owned, focusedKey) ?? restoreFocus;
+            Control[] ownedControls = DeviceCapabilityList.Children.Skip(firstOwned).ToArray();
+            if (ownedControls.Length > 0)
+            {
+                var group = Group(power ? "Automatic control and saved profiles" : "Configuration");
+                foreach (var control in ownedControls) { DeviceCapabilityList.Children.Remove(control); group.Children.Add(control); }
+            }
         }
-
+        if (groupIndex == 1) { Grid.SetColumnSpan(stacks[0], 2); }
         return restoreFocus;
     }
 
@@ -1540,6 +1569,7 @@ public partial class OverlayWindow : Window
         PlacePerformanceSection(_navigation.IsVisible(OverlayDestination.Device));
         PerformanceOverlaySnapshot? snapshot = _performanceSource?.Snapshot();
         PerformanceSection.IsVisible = snapshot?.Visible is true && PerformanceBelongsOnCurrentPage();
+        DevicePerformanceCard.IsVisible = PerformanceSection.IsVisible && _navigation.IsVisible(OverlayDestination.Device);
         if (snapshot is not { Visible: true })
         {
             PerformanceRows.Children.Clear();
@@ -1574,21 +1604,39 @@ public partial class OverlayWindow : Window
                 .Concat(snapshot.Rows)
             : snapshot.ProfileRows.Concat(snapshot.Rows);
 
+        StackPanel details = new() { Spacing = 4 };
+
         foreach (DescriptorRow descriptor in descriptors)
         {
+            Panel target = onDevice && snapshot.ProfileRows.Contains(descriptor) ? details : PerformanceRows;
             string key = $"performance.{descriptor.Id}";
             if (TryCreatePerformanceControl(descriptor, key) is { } control)
             {
-                PerformanceRows.Children.Add(control);
+                target.Children.Add(control);
                 continue;
             }
 
             DescriptorStatusRow button = CreatePerformanceRow(descriptor, key);
-            PerformanceRows.Children.Add(button);
+            target.Children.Add(button);
             if (string.Equals(button.Tag as string, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = button;
             }
+        }
+
+        if (details.Children.Count > 0)
+        {
+            Expander more = new()
+            {
+                Header = "Profile details and reset",
+                Content = details,
+                IsExpanded = _performanceDetailsExpanded,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+            };
+            more.PropertyChanged += (_, change) =>
+            { if (change.Property == Expander.IsExpandedProperty) { _performanceDetailsExpanded = more.IsExpanded; } };
+            PerformanceRows.Children.Add(more);
         }
 
         restoreFocus?.Focus(NavigationMethod.Directional);
@@ -1745,11 +1793,11 @@ public partial class OverlayWindow : Window
     /// </remarks>
     private void PlacePerformanceSection(bool deviceVisible)
     {
-        StackPanel target = deviceVisible ? PanelDevice : SystemPrimaryColumn;
-        int targetIndex = deviceVisible ? 4 : 3;
+        StackPanel target = deviceVisible ? DevicePerformanceColumn : SystemPrimaryColumn;
+        int targetIndex = deviceVisible ? 0 : 3;
         if (!target.Children.Contains(PerformanceSection))
         {
-            PanelDevice.Children.Remove(PerformanceSection);
+            DevicePerformanceColumn.Children.Remove(PerformanceSection);
             SystemPrimaryColumn.Children.Remove(PerformanceSection);
             target.Children.Insert(Math.Min(targetIndex, target.Children.Count), PerformanceSection);
         }
@@ -1777,7 +1825,8 @@ public partial class OverlayWindow : Window
 
         return _navigation.Page is OverlayPage.DevicePluginSection
             && _navigation.SectionId is { } sectionId
-            && _deviceBridge?.Snapshot() is { } snapshot
+            && (_deviceBridge?.Snapshot()
+                ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, null, [])) is { } snapshot
             && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, sectionId)
                 is DeviceOverlaySection.PowerAndThermals;
     }

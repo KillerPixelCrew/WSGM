@@ -8,8 +8,8 @@ itself in `docs\rtss.md`.
 
 ## Windows power schemes
 
-Disabling Device Integration while a plugin section is open returns the overlay to the Device root
-and releases the nested page, keeping the Windows power-profile picker reachable.
+Disabling Device Integration releases plugin-only pages. Shared Power stays open, keeping the
+Windows power-profile picker reachable.
 
 The Core backend in `PowerSchemes` enumerates installed schemes and reads the active GUID through
 `powrprof`. GUIDs identify schemes; localized friendly names are display text only. An empty name
@@ -21,13 +21,14 @@ A manual selection calls `PowerSetActiveScheme` once, then verifies the GUID wit
 does not trigger another write or rollback. Windows remains authoritative, including subsequent
 changes made by Settings or OEM tools. Native failures retain their error codes.
 
-Overlay → Device offers a Windows power-profile dropdown, Apply and Refresh. It stays available with
-Device Integration off. Choosing an entry stages it; only Apply writes Windows. The current scheme
-is read when the sheet opens, when Device is selected, after Apply and on Refresh. Duplicate names
-include their GUIDs. An unknown active scheme leaves the picker unselected; an empty or failed read
-disables Apply. An unconfirmed write requires Refresh before another attempt. Preview mode allows
-reads only. Native calls and persistence run off the UI thread, and closing the overlay discards
-late UI updates. Idle-timeout badges refresh after the active scheme is read.
+Overlay → Device → Power offers a Windows power-profile dropdown, Apply and Refresh inside the
+Windows energy plan card. It stays available with Device Integration off. Choosing an entry stages
+it; only Apply writes Windows. The current scheme is read when the sheet opens, when Device is
+selected, after Apply and on Refresh. Duplicate names include their GUIDs. An unknown active scheme
+leaves the picker unselected; an empty or failed read disables Apply. An unconfirmed write requires
+Refresh before another attempt. Preview mode allows reads only. Native calls and persistence run off
+the UI thread, and closing the overlay discards late UI updates. Idle-timeout badges refresh after
+the active scheme is read.
 
 The last verified manual selection is saved as `LastSelectedPowerSchemeId`, a GUID in Core config.
 It is a reference, not an instruction to reapply at startup, config reload or a session transition.
@@ -48,37 +49,64 @@ pending. The toolkit owns row placement and command validation; WSGM owns Window
 
 ## Device power presets
 
-Overlay → Device and Steam QAM → Performance also offer a Device power profile dropdown when the
-plugin declares presets. The Claw A2VM supplies:
+Steam QAM → Performance offers a Device power profile dropdown when the plugin declares presets. The
+Claw A2VM supplies:
 
-| Preset              | PL1 / PL2 | Windows power mode |
-| ------------------- | --------- | ------------------ |
-| Super Battery       | 8 / 9 W   | Better Battery     |
-| Balanced            | 17 / 18 W | Balanced           |
-| Extreme Performance | 30 / 31 W | Best Performance   |
+| Preset              | PL1 / PL2 | Windows power mode | EC scenario on AC | EC scenario on battery |
+| ------------------- | --------- | ------------------ | ----------------- | ---------------------- |
+| Super Battery       | 8 / 9 W   | Better Battery     | Eco               | Comfort                |
+| Balanced            | 17 / 18 W | Balanced           | Green             | Comfort                |
+| Extreme Performance | 30 / 31 W | Best Performance   | Sport             | Comfort                |
+| Full Power          | 37 / 37 W | Best Performance   | Sport             | Comfort                |
 
-These are the A2VM values from HandheldCompanion. They change only the two watt limits and Windows
-power mode. A Windows mode is the performance/efficiency overlay on a power plan, separate from the
-scheme selector above. CPU boost, Intel Endurance Gaming and fan controls remain independent.
+Full Power uses the Claw plugin's supported maximum of 37 W for both limits. The other three presets
+are the A2VM values from the local `_ref/HandheldCompanion` source. `ClawA2VM` overrides the watt
+pairs and inherits `ClawA1M.PowerProfileManager_Applied` for the scenario selection. HC's battery
+`ShiftType.None` becomes active Comfort (`0xC0`). WSGM uses the same mapping through optional
+plugin-authored AC/battery scenario targets; the host contains no MSI register knowledge. A Windows
+mode is the performance/efficiency overlay on a power plan, separate from the scheme selector above.
+CPU boost, Intel Endurance Gaming and fan controls remain independent. The exact firmware effects of
+each EC scenario still require attended AC/battery measurements.
 
-Selecting a preset applies immediately. WSGM serializes it with manual power and AutoTDP writes,
-raises PL2 before PL1 when necessary, and lowers PL1 before PL2. Each device write must report
-verified success before the next step; Windows mode is applied last and read back. Device and
-descriptor generations are checked at command admission. The manual TDP funnel pauses AutoTDP and
-records the underlying values using their existing owners. No selected-preset policy is stored or
-reapplied at startup, on configuration reload, or when another control changes.
+Selecting a preset applies immediately. WSGM serializes it with manual power, scenario and AutoTDP
+writes. It selects the firmware scenario first, reads the resulting watt pair, raises PL2 before PL1
+when necessary, and lowers PL1 before PL2. Each device write must report verified success before the
+next step; Windows mode is applied last and read back. Device and descriptor generations and power
+source are checked between steps; an unknown power source blocks scenario presets, and a source
+change stops remaining writes without retry. The manual TDP funnel pauses AutoTDP and records the
+underlying values using their existing owners. Manual selection does not create an automatic
+assignment. Preset scenario commands are not persisted as desired values. The plugin journals the
+exact original scenario and watt pair and restores the scenario first, then the pair, when releasing
+its temporary state.
 
-Both UIs derive the current preset from observed PL1, PL2 and effective Windows mode. A mismatch,
-including an external Windows mode change or a resumed AutoTDP adjustment, shows Custom. Custom is a
-reading, not an action. The open overlay refreshes once per second; QAM refreshes with its regular
-state publication. Missing or stale observations disable selection instead of guessing a preset.
-Disabling Device Integration removes the preset choices and leaves the Windows scheme picker.
+Both UIs derive the current preset from observed PL1, PL2, firmware scenario for the current power
+source, and effective Windows mode. A mismatch, including an external Windows mode change or a
+resumed AutoTDP adjustment, shows Custom. Custom is a reading, not an action. The open overlay
+refreshes once per second; QAM refreshes with its regular state publication. Missing or stale
+observations disable selection instead of guessing a preset. Disabling Device Integration removes
+the preset choices and leaves the Windows scheme picker.
 
 A failure can leave some underlying values changed. WSGM reports that partial result, stops, and
 does not retry or roll back across Windows and device controls. The plugin's existing per-command
 power rollback remains intact. Preview surfaces cannot apply presets, and closing the overlay
 cancels remaining work and prevents late UI updates. Validation uses fake device/Windows backends
 and emitted dropdown fixtures; it does not change live power settings or a running Steam client.
+
+## AC and battery assignments
+
+Device → Power provides **When plugged in** and **On battery** profile assignments and a read-only
+active-profile status. There is no separate active-profile selector. Background reads do not block
+assignment selection or overwrite an open dropdown. Global assignments are the defaults; enabling
+the existing per-game profile switch exposes overrides for the running game. An unset per-game value
+inherits its global assignment. References include the plugin ID so changing device packages cannot
+silently apply another package's similarly named preset.
+
+The session applies an assignment once on source, application, assignment or device-cycle changes.
+Unknown power sources and unavailable device observations defer application. A failed or uncertain
+write is recorded before dispatch and never retried by polling; explicitly saving an assignment
+permits another attempt. Manual changes remain in place until the next transition. Automatic
+application pauses AutoTDP without overwriting the saved manual watt limit. Windows power-plan
+selection remains independent of these device preset assignments.
 
 ## Display profiles
 

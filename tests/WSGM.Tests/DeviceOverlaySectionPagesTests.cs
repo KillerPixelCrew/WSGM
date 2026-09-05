@@ -35,10 +35,10 @@ public sealed class DeviceOverlaySectionPagesTests
 
         Assert.Equal(
             [
-                DeviceOverlaySection.Overview,
                 DeviceOverlaySection.PowerAndThermals,
                 DeviceOverlaySection.LightingAndFeatures,
                 DeviceOverlaySection.Diagnostics,
+                DeviceOverlaySection.Overview,
             ],
             entries.Select(entry => entry.Section));
     }
@@ -51,7 +51,7 @@ public sealed class DeviceOverlaySectionPagesTests
             Capability("b", DeviceOverlaySection.PowerAndThermals),
             Capability("c", DeviceOverlaySection.PowerAndThermals));
 
-        Assert.Equal(3, Assert.Single(DeviceOverlaySectionPages.Build(snapshot)).Count);
+        Assert.Equal(4, Assert.Single(DeviceOverlaySectionPages.Build(snapshot)).Count);
     }
 
     [Fact]
@@ -110,7 +110,8 @@ public sealed class DeviceOverlaySectionPagesTests
                 DescriptorStatus.Available),
         };
 
-        DeviceOverlaySectionEntry entry = Assert.Single(DeviceOverlaySectionPages.Build(snapshot));
+        DeviceOverlaySectionEntry entry = Assert.Single(DeviceOverlaySectionPages.Build(snapshot),
+            entry => entry.PluginSectionId == "controller");
 
         // It is WSGM's own control, not a plugin capability, so it never reaches the capability
         // list and has to be counted into its section explicitly. Glyphs is no longer a page of its
@@ -224,7 +225,7 @@ public sealed class DeviceOverlaySectionPagesTests
         DeviceOverlaySectionEntry entry =
             Assert.Single(DeviceOverlaySectionPages.Build(snapshot));
 
-        Assert.Equal(2, entry.Count);
+        Assert.Equal(3, entry.Count);
         Assert.Equal(DescriptorStatus.Faulted, entry.Status);
     }
 
@@ -292,7 +293,8 @@ public sealed class DeviceOverlaySectionPagesTests
         };
 
     private static DeviceOverlayPluginSection Section(string id) =>
-        new(id, id, string.Empty, WSGM.Device.Sdk.Capabilities.SectionIcon.None, []);
+        new(id, id, string.Empty, WSGM.Device.Sdk.Capabilities.SectionIcon.None, [])
+        { Key = id == "power" ? WSGM.Device.Sdk.Settings.SettingSectionKey.Power : WSGM.Device.Sdk.Settings.SettingSectionKey.Custom };
 
     private static DeviceOverlayCapability Capability(
         string id,

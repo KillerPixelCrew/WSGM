@@ -29,6 +29,11 @@ public sealed class VisualTests
             window.AttachPowerSchemes(schemes);
             if (page == "plugin") { window.AttachDeviceBridge(device); }
             UiFixture.Click(window, UiFixture.Tab(window, 3));
+            if (page == "core")
+            {
+                UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
+                    .Single(card => card.IsEffectivelyVisible && card.Title == "Power"));
+            }
             if (page == "plugin")
             {
                 UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()

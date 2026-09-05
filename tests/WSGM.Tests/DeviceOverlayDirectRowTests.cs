@@ -138,7 +138,8 @@ public sealed class DeviceOverlayDirectRowTests
                 Status(ControllerManagementState.Active, ManagedControllerTarget.Xbox360)),
             Recovery: null);
 
-        DeviceOverlaySectionEntry entry = Assert.Single(DeviceOverlaySectionPages.Build(snapshot));
+        DeviceOverlaySectionEntry entry = Assert.Single(DeviceOverlaySectionPages.Build(snapshot),
+            entry => entry.PluginSectionId == "controller");
 
         Assert.Equal(DeviceOverlaySection.ControllerAndMotion, entry.Section);
         Assert.Equal(1, entry.Count);

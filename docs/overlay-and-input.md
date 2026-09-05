@@ -16,9 +16,10 @@ The header carries the wordmark, the active-destination eyebrow and the status p
 per-open `SystemStatus`. The radio, audio and eject panels hang from the header's measured bottom
 edge (`HeaderBottomScreenY` → `StatusPanel.DockBelowHeader`). A `TabStrip` sits over the
 always-alive destination roots: Quick access, Session, Steam, Device, Tools and Power. Device
-includes the Core Windows power-profile picker even without a device plugin. LB/RB cycle with wrap;
-the sheet reopens on its last destination; focus lands on the first row after a switch; the warning
-`InfoBar` stays above the tabs.
+includes shared Power, RGB, Controller and Info pages. Power contains the Core Windows power-profile
+picker even without a device plugin, plus device presets and AC/battery assignments when available.
+LB/RB cycle with wrap; the sheet reopens on its last destination; focus lands on the first row after
+a switch; the warning `InfoBar` stays above the tabs.
 
 Quick access is the home root and the Back target of every other root. `AppConfig.QuickAccessPins`
 holds row ids (X, touch-hold or right-click toggles one through `PinToggleRequested`). The root

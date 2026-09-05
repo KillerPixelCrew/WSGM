@@ -1,0 +1,1014 @@
+{
+  "Descriptors": {
+    "Generation": 1,
+    "CycleGeneration": 7,
+    "Sections": [
+      {
+        "SectionId": "power",
+        "Key": "Power",
+        "CustomTitle": null,
+        "CustomDescription": null,
+        "Icon": "Power",
+        "SortOrder": 0,
+        "Categories": [
+          {
+            "CategoryId": "limits",
+            "Key": "Custom",
+            "CustomTitle": "Limits",
+            "SortOrder": 0
+          },
+          {
+            "CategoryId": "charging",
+            "Key": "Custom",
+            "CustomTitle": "Charging",
+            "SortOrder": 1
+          },
+          {
+            "CategoryId": "control",
+            "Key": "Custom",
+            "CustomTitle": "Fans",
+            "SortOrder": 2
+          }
+        ]
+      },
+      {
+        "SectionId": "rgb",
+        "Key": "Lighting",
+        "CustomTitle": null,
+        "CustomDescription": null,
+        "Icon": "Lighting",
+        "SortOrder": 1,
+        "Categories": [
+          {
+            "CategoryId": "zones",
+            "Key": "Custom",
+            "CustomTitle": "Zones",
+            "SortOrder": 0
+          }
+        ]
+      },
+      {
+        "SectionId": "info",
+        "Key": "Diagnostics",
+        "CustomTitle": null,
+        "CustomDescription": null,
+        "Icon": "Gauge",
+        "SortOrder": 3,
+        "Categories": [
+          {
+            "CategoryId": "ownership",
+            "Key": "Custom",
+            "CustomTitle": "Plugin ownership",
+            "SortOrder": 0
+          },
+          {
+            "CategoryId": "readings",
+            "Key": "Custom",
+            "CustomTitle": "Readings",
+            "SortOrder": 1
+          }
+        ]
+      }
+    ],
+    "Descriptors": [
+      {
+        "CapabilityId": "power.primary-limit",
+        "InstanceId": null,
+        "Role": "PowerSustainedLimit",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "SustainedPowerLimit",
+          "CustomLabel": null
+        },
+        "SectionId": "power",
+        "CategoryId": "limits",
+        "SortOrder": 0,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "SupportsAction": false,
+        "Minimum": 8,
+        "Maximum": 37,
+        "Step": 1,
+        "Unit": "Watt",
+        "Choices": [],
+        "PowerPresets": [
+          {
+            "Id": "super-battery",
+            "Name": "Super Battery",
+            "SustainedWatts": 8,
+            "SlowWatts": 9,
+            "WindowsMode": "BetterBattery",
+            "ScenarioOnAc": "eco",
+            "ScenarioOnDc": "comfort"
+          },
+          {
+            "Id": "balanced",
+            "Name": "Balanced",
+            "SustainedWatts": 17,
+            "SlowWatts": 18,
+            "WindowsMode": "Balanced",
+            "ScenarioOnAc": "green",
+            "ScenarioOnDc": "comfort"
+          },
+          {
+            "Id": "extreme-performance",
+            "Name": "Extreme Performance",
+            "SustainedWatts": 30,
+            "SlowWatts": 31,
+            "WindowsMode": "BestPerformance",
+            "ScenarioOnAc": "sport",
+            "ScenarioOnDc": "comfort"
+          },
+          {
+            "Id": "full-power",
+            "Name": "Full Power",
+            "SustainedWatts": 37,
+            "SlowWatts": 37,
+            "WindowsMode": "BestPerformance",
+            "ScenarioOnAc": "sport",
+            "ScenarioOnDc": "comfort"
+          }
+        ],
+        "MaximumLength": null,
+        "AvailableOnAc": true,
+        "AvailableOnDc": true,
+        "Persistence": "Volatile"
+      },
+      {
+        "CapabilityId": "power.boost-limit",
+        "InstanceId": null,
+        "Role": "PowerSlowLimit",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "BoostPowerLimit",
+          "CustomLabel": null
+        },
+        "SectionId": "power",
+        "CategoryId": "limits",
+        "SortOrder": 1,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "SupportsAction": false,
+        "Minimum": 8,
+        "Maximum": 37,
+        "Step": 1,
+        "Unit": "Watt",
+        "Choices": [],
+        "PowerPresets": [],
+        "MaximumLength": null,
+        "AvailableOnAc": true,
+        "AvailableOnDc": true,
+        "Persistence": "Volatile"
+      },
+      {
+        "CapabilityId": "battery.charge-limit",
+        "InstanceId": null,
+        "Role": "ChargeLimit",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "ChargeLimit",
+          "CustomLabel": null
+        },
+        "SectionId": "power",
+        "CategoryId": "charging",
+        "SortOrder": 0,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "SupportsAction": false,
+        "Minimum": 60,
+        "Maximum": 100,
+        "Step": 1,
+        "Unit": "Percent",
+        "Choices": [],
+        "PowerPresets": [],
+        "MaximumLength": null,
+        "AvailableOnAc": true,
+        "AvailableOnDc": true,
+        "Persistence": "DevicePersistent"
+      },
+      {
+        "CapabilityId": "power.scenario",
+        "InstanceId": null,
+        "Role": "ScenarioMode",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "PerformanceProfile",
+          "CustomLabel": null
+        },
+        "SectionId": "power",
+        "CategoryId": null,
+        "SortOrder": 0,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "SupportsAction": false,
+        "Minimum": null,
+        "Maximum": null,
+        "Step": null,
+        "Unit": "None",
+        "Choices": [
+          {
+            "Value": "comfort",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "comfort"
+            }
+          },
+          {
+            "Value": "green",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "green"
+            }
+          },
+          {
+            "Value": "eco",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "eco"
+            }
+          },
+          {
+            "Value": "user",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "user"
+            }
+          },
+          {
+            "Value": "sport",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "sport"
+            }
+          },
+          {
+            "Value": "inactive",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "inactive"
+            }
+          }
+        ],
+        "PowerPresets": [],
+        "MaximumLength": null,
+        "AvailableOnAc": true,
+        "AvailableOnDc": true,
+        "Persistence": "Volatile"
+      },
+      {
+        "CapabilityId": "fan.mode",
+        "InstanceId": null,
+        "Role": "FanMode",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "FanMode",
+          "CustomLabel": null
+        },
+        "SectionId": "power",
+        "CategoryId": "control",
+        "SortOrder": 0,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "SupportsAction": false,
+        "Minimum": null,
+        "Maximum": null,
+        "Step": null,
+        "Unit": "None",
+        "Choices": [
+          {
+            "Value": "automatic",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "automatic"
+            }
+          },
+          {
+            "Value": "custom",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "custom"
+            }
+          },
+          {
+            "Value": "full-speed",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "full-speed"
+            }
+          }
+        ],
+        "PowerPresets": [],
+        "MaximumLength": null,
+        "AvailableOnAc": true,
+        "AvailableOnDc": true,
+        "Persistence": "Volatile"
+      },
+      {
+        "CapabilityId": "fan.curve",
+        "InstanceId": null,
+        "Role": "FanCurve",
+        "ValueKind": "Curve",
+        "Display": {
+          "Key": "FanCurve",
+          "CustomLabel": null
+        },
+        "SectionId": "power",
+        "CategoryId": "control",
+        "SortOrder": 1,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "SupportsAction": false,
+        "Minimum": 0,
+        "Maximum": 100,
+        "Step": null,
+        "Unit": "Percent",
+        "Choices": [],
+        "PowerPresets": [],
+        "MaximumLength": null,
+        "AvailableOnAc": true,
+        "AvailableOnDc": true,
+        "Persistence": "Volatile"
+      },
+      {
+        "CapabilityId": "lighting.brightness",
+        "InstanceId": null,
+        "Role": "LightingBrightness",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "Brightness",
+          "CustomLabel": null
+        },
+        "SectionId": "rgb",
+        "CategoryId": null,
+        "SortOrder": 0,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "SupportsAction": false,
+        "Minimum": 0,
+        "Maximum": 100,
+        "Step": 1,
+        "Unit": "Percent",
+        "Choices": [],
+        "PowerPresets": [],
+        "MaximumLength": null,
+        "AvailableOnAc": true,
+        "AvailableOnDc": true,
+        "Persistence": "DevicePersistent"
+      },
+      {
+        "CapabilityId": "lighting.zone-color",
+        "InstanceId": "left-ring",
+        "Role": "LightingZoneColor",
+        "ValueKind": "Color",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Left ring"
+        },
+        "SectionId": "rgb",
+        "CategoryId": "zones",
+        "SortOrder": 0,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "SupportsAction": false,
+        "Minimum": null,
+        "Maximum": null,
+        "Step": null,
+        "Unit": "None",
+        "Choices": [],
+        "PowerPresets": [],
+        "MaximumLength": null,
+        "AvailableOnAc": true,
+        "AvailableOnDc": true,
+        "Persistence": "DevicePersistent"
+      },
+      {
+        "CapabilityId": "lighting.zone-color",
+        "InstanceId": "right-ring",
+        "Role": "LightingZoneColor",
+        "ValueKind": "Color",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Right ring"
+        },
+        "SectionId": "rgb",
+        "CategoryId": "zones",
+        "SortOrder": 1,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "SupportsAction": false,
+        "Minimum": null,
+        "Maximum": null,
+        "Step": null,
+        "Unit": "None",
+        "Choices": [],
+        "PowerPresets": [],
+        "MaximumLength": null,
+        "AvailableOnAc": true,
+        "AvailableOnDc": true,
+        "Persistence": "DevicePersistent"
+      },
+      {
+        "CapabilityId": "lighting.zone-color",
+        "InstanceId": "buttons",
+        "Role": "LightingZoneColor",
+        "ValueKind": "Color",
+        "Display": {
+          "Key": "Custom",
+          "CustomLabel": "Buttons"
+        },
+        "SectionId": "rgb",
+        "CategoryId": "zones",
+        "SortOrder": 2,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "SupportsAction": false,
+        "Minimum": null,
+        "Maximum": null,
+        "Step": null,
+        "Unit": "None",
+        "Choices": [],
+        "PowerPresets": [],
+        "MaximumLength": null,
+        "AvailableOnAc": true,
+        "AvailableOnDc": true,
+        "Persistence": "DevicePersistent"
+      },
+      {
+        "CapabilityId": "controller.source",
+        "InstanceId": null,
+        "Role": "ControllerSource",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "Controller",
+          "CustomLabel": null
+        },
+        "SectionId": "info",
+        "CategoryId": "ownership",
+        "SortOrder": 0,
+        "SupportsRead": true,
+        "SupportsWrite": false,
+        "SupportsAction": false,
+        "Minimum": null,
+        "Maximum": null,
+        "Step": null,
+        "Unit": "None",
+        "Choices": [
+          {
+            "Value": "device",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "device"
+            }
+          },
+          {
+            "Value": "plugin",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "plugin"
+            }
+          },
+          {
+            "Value": "unavailable",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "unavailable"
+            }
+          }
+        ],
+        "PowerPresets": [],
+        "MaximumLength": null,
+        "AvailableOnAc": true,
+        "AvailableOnDc": true,
+        "Persistence": "Volatile"
+      },
+      {
+        "CapabilityId": "motion.source",
+        "InstanceId": null,
+        "Role": "MotionSource",
+        "ValueKind": "Choice",
+        "Display": {
+          "Key": "Motion",
+          "CustomLabel": null
+        },
+        "SectionId": "info",
+        "CategoryId": "ownership",
+        "SortOrder": 1,
+        "SupportsRead": true,
+        "SupportsWrite": false,
+        "SupportsAction": false,
+        "Minimum": null,
+        "Maximum": null,
+        "Step": null,
+        "Unit": "None",
+        "Choices": [
+          {
+            "Value": "device",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "device"
+            }
+          },
+          {
+            "Value": "plugin",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "plugin"
+            }
+          },
+          {
+            "Value": "unavailable",
+            "Display": {
+              "Key": "Custom",
+              "CustomLabel": "unavailable"
+            }
+          }
+        ],
+        "PowerPresets": [],
+        "MaximumLength": null,
+        "AvailableOnAc": true,
+        "AvailableOnDc": true,
+        "Persistence": "Volatile"
+      },
+      {
+        "CapabilityId": "haptic.rumble",
+        "InstanceId": null,
+        "Role": "HapticSink",
+        "ValueKind": "None",
+        "Display": {
+          "Key": "Rumble",
+          "CustomLabel": null
+        },
+        "SectionId": "info",
+        "CategoryId": "ownership",
+        "SortOrder": 2,
+        "SupportsRead": false,
+        "SupportsWrite": false,
+        "SupportsAction": true,
+        "Minimum": null,
+        "Maximum": null,
+        "Step": null,
+        "Unit": "None",
+        "Choices": [],
+        "PowerPresets": [],
+        "MaximumLength": null,
+        "AvailableOnAc": true,
+        "AvailableOnDc": true,
+        "Persistence": "Volatile"
+      },
+      {
+        "CapabilityId": "telemetry.temperature",
+        "InstanceId": null,
+        "Role": "Telemetry",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "CpuTemperature",
+          "CustomLabel": null
+        },
+        "SectionId": "info",
+        "CategoryId": "readings",
+        "SortOrder": 0,
+        "SupportsRead": true,
+        "SupportsWrite": false,
+        "SupportsAction": false,
+        "Minimum": 0,
+        "Maximum": 110,
+        "Step": 1,
+        "Unit": "Celsius",
+        "Choices": [],
+        "PowerPresets": [],
+        "MaximumLength": null,
+        "AvailableOnAc": true,
+        "AvailableOnDc": true,
+        "Persistence": "Volatile"
+      },
+      {
+        "CapabilityId": "fan.measured-rpm",
+        "InstanceId": "left",
+        "Role": "FanMeasuredRpm",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "FanLeft",
+          "CustomLabel": null
+        },
+        "SectionId": "info",
+        "CategoryId": "readings",
+        "SortOrder": 1,
+        "SupportsRead": true,
+        "SupportsWrite": false,
+        "SupportsAction": false,
+        "Minimum": 0,
+        "Maximum": 10000,
+        "Step": 1,
+        "Unit": "Rpm",
+        "Choices": [],
+        "PowerPresets": [],
+        "MaximumLength": null,
+        "AvailableOnAc": true,
+        "AvailableOnDc": true,
+        "Persistence": "Volatile"
+      },
+      {
+        "CapabilityId": "fan.measured-rpm",
+        "InstanceId": "right",
+        "Role": "FanMeasuredRpm",
+        "ValueKind": "Integer",
+        "Display": {
+          "Key": "FanRight",
+          "CustomLabel": null
+        },
+        "SectionId": "info",
+        "CategoryId": "readings",
+        "SortOrder": 2,
+        "SupportsRead": true,
+        "SupportsWrite": false,
+        "SupportsAction": false,
+        "Minimum": 0,
+        "Maximum": 10000,
+        "Step": 1,
+        "Unit": "Rpm",
+        "Choices": [],
+        "PowerPresets": [],
+        "MaximumLength": null,
+        "AvailableOnAc": true,
+        "AvailableOnDc": true,
+        "Persistence": "Volatile"
+      },
+      {
+        "CapabilityId": "display.variable-refresh",
+        "InstanceId": null,
+        "Role": "VariableRefreshRate",
+        "ValueKind": "Boolean",
+        "Display": {
+          "Key": "VariableRefreshRate",
+          "CustomLabel": null
+        },
+        "SectionId": "power",
+        "CategoryId": null,
+        "SortOrder": 0,
+        "SupportsRead": true,
+        "SupportsWrite": true,
+        "SupportsAction": false,
+        "Minimum": null,
+        "Maximum": null,
+        "Step": null,
+        "Unit": "None",
+        "Choices": [],
+        "PowerPresets": [],
+        "MaximumLength": null,
+        "AvailableOnAc": true,
+        "AvailableOnDc": true,
+        "Persistence": "DevicePersistent"
+      }
+    ]
+  },
+  "States": [
+    {
+      "CapabilityId": "power.primary-limit",
+      "InstanceId": null,
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "BooleanValue": null,
+        "IntegerValue": 30,
+        "ChoiceValue": null,
+        "ColorValue": null,
+        "CurveValue": [],
+        "TextValue": null
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-05T16:13:58.3295013+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 7
+    },
+    {
+      "CapabilityId": "power.boost-limit",
+      "InstanceId": null,
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "BooleanValue": null,
+        "IntegerValue": 37,
+        "ChoiceValue": null,
+        "ColorValue": null,
+        "CurveValue": [],
+        "TextValue": null
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-05T16:13:58.3296387+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 7
+    },
+    {
+      "CapabilityId": "battery.charge-limit",
+      "InstanceId": null,
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "BooleanValue": null,
+        "IntegerValue": 80,
+        "ChoiceValue": null,
+        "ColorValue": null,
+        "CurveValue": [],
+        "TextValue": null
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-05T16:13:58.329671+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 7
+    },
+    {
+      "CapabilityId": "power.scenario",
+      "InstanceId": null,
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Choice",
+        "BooleanValue": null,
+        "IntegerValue": null,
+        "ChoiceValue": "green",
+        "ColorValue": null,
+        "CurveValue": [],
+        "TextValue": null
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-05T16:13:58.3297614+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 7
+    },
+    {
+      "CapabilityId": "fan.mode",
+      "InstanceId": null,
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Choice",
+        "BooleanValue": null,
+        "IntegerValue": null,
+        "ChoiceValue": "automatic",
+        "ColorValue": null,
+        "CurveValue": [],
+        "TextValue": null
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-05T16:13:58.3298408+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 7
+    },
+    {
+      "CapabilityId": "fan.curve",
+      "InstanceId": null,
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Curve",
+        "BooleanValue": null,
+        "IntegerValue": null,
+        "ChoiceValue": null,
+        "ColorValue": null,
+        "CurveValue": [
+          {
+            "Input": 0,
+            "Output": 0
+          },
+          {
+            "Input": 50,
+            "Output": 40
+          },
+          {
+            "Input": 60,
+            "Output": 49
+          },
+          {
+            "Input": 70,
+            "Output": 58
+          },
+          {
+            "Input": 80,
+            "Output": 67
+          },
+          {
+            "Input": 88,
+            "Output": 75
+          }
+        ],
+        "TextValue": null
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-05T16:13:58.3316495+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 7
+    },
+    {
+      "CapabilityId": "lighting.brightness",
+      "InstanceId": null,
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "BooleanValue": null,
+        "IntegerValue": 50,
+        "ChoiceValue": null,
+        "ColorValue": null,
+        "CurveValue": [],
+        "TextValue": null
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-05T16:13:58.3316658+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 7
+    },
+    {
+      "CapabilityId": "lighting.zone-color",
+      "InstanceId": "left-ring",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Color",
+        "BooleanValue": null,
+        "IntegerValue": null,
+        "ChoiceValue": null,
+        "ColorValue": 0,
+        "CurveValue": [],
+        "TextValue": null
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-05T16:13:58.331725+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 7
+    },
+    {
+      "CapabilityId": "lighting.zone-color",
+      "InstanceId": "right-ring",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Color",
+        "BooleanValue": null,
+        "IntegerValue": null,
+        "ChoiceValue": null,
+        "ColorValue": 0,
+        "CurveValue": [],
+        "TextValue": null
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-05T16:13:58.3317261+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 7
+    },
+    {
+      "CapabilityId": "lighting.zone-color",
+      "InstanceId": "buttons",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Color",
+        "BooleanValue": null,
+        "IntegerValue": null,
+        "ChoiceValue": null,
+        "ColorValue": 0,
+        "CurveValue": [],
+        "TextValue": null
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-05T16:13:58.3317278+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 7
+    },
+    {
+      "CapabilityId": "controller.source",
+      "InstanceId": null,
+      "Available": false,
+      "Reason": {
+        "Code": "ResourceReleased",
+        "Detail": "Controller management is disabled.",
+        "Retryable": false
+      },
+      "ObservedValue": {
+        "Kind": "Choice",
+        "BooleanValue": null,
+        "IntegerValue": null,
+        "ChoiceValue": "device",
+        "ColorValue": null,
+        "CurveValue": [],
+        "TextValue": null
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-05T16:13:58.331784+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 7
+    },
+    {
+      "CapabilityId": "motion.source",
+      "InstanceId": null,
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Choice",
+        "BooleanValue": null,
+        "IntegerValue": null,
+        "ChoiceValue": "plugin",
+        "ColorValue": null,
+        "CurveValue": [],
+        "TextValue": null
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-05T16:13:58.3317852+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 7
+    },
+    {
+      "CapabilityId": "haptic.rumble",
+      "InstanceId": null,
+      "Available": false,
+      "Reason": {
+        "Code": "ResourceReleased",
+        "Detail": "Controller management is disabled.",
+        "Retryable": false
+      },
+      "ObservedValue": null,
+      "Quality": "Unknown",
+      "ObservedAt": null,
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 7
+    },
+    {
+      "CapabilityId": "telemetry.temperature",
+      "InstanceId": null,
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "BooleanValue": null,
+        "IntegerValue": 52,
+        "ChoiceValue": null,
+        "ColorValue": null,
+        "CurveValue": [],
+        "TextValue": null
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-05T16:13:58.3318085+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 7
+    },
+    {
+      "CapabilityId": "fan.measured-rpm",
+      "InstanceId": "left",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "BooleanValue": null,
+        "IntegerValue": 2412,
+        "ChoiceValue": null,
+        "ColorValue": null,
+        "CurveValue": [],
+        "TextValue": null
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-05T16:13:58.3318188+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 7
+    },
+    {
+      "CapabilityId": "fan.measured-rpm",
+      "InstanceId": "right",
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Integer",
+        "BooleanValue": null,
+        "IntegerValue": 2318,
+        "ChoiceValue": null,
+        "ColorValue": null,
+        "CurveValue": [],
+        "TextValue": null
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-05T16:13:58.3318285+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 7
+    },
+    {
+      "CapabilityId": "display.variable-refresh",
+      "InstanceId": null,
+      "Available": true,
+      "Reason": null,
+      "ObservedValue": {
+        "Kind": "Boolean",
+        "BooleanValue": true,
+        "IntegerValue": null,
+        "ChoiceValue": null,
+        "ColorValue": null,
+        "CurveValue": [],
+        "TextValue": null
+      },
+      "Quality": "Observed",
+      "ObservedAt": "2026-09-05T16:13:58.3324987+00:00",
+      "DescriptorGeneration": 1,
+      "CycleGeneration": 7
+    }
+  ]
+}

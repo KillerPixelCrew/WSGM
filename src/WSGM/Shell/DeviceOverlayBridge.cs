@@ -179,7 +179,8 @@ internal sealed record DeviceOverlaySnapshot(
     DescriptorRow? AuthoredProfile = null)
 {
     /// <summary>Plugin-declared overlay sections in presentation order.</summary>
-    public IReadOnlyList<DeviceOverlayPluginSection> PluginSections { get; init; } = [];
+    public IReadOnlyList<DeviceOverlayPluginSection> PluginSections { get; init; } =
+        DeviceOverlayBridge.ProjectSections(DeviceSections.All);
 }
 
 /// <summary>Closed semantic source consumed by the Device overlay destination.</summary>
@@ -302,7 +303,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         ControllerManagerStatus controllerStatus = _coordinator.Controllers.Snapshot();
         IReadOnlyList<CapabilitySection> declaredSections = _coordinator.Capabilities.Sections;
         HashSet<string> declaredSectionIds = new(
-            declaredSections.Select(section => section.SectionId),
+            DeviceSections.IncludePredefined(declaredSections).Select(section => section.SectionId),
             StringComparer.Ordinal);
         List<DeviceOverlayCapability> capabilities = _coordinator.Capabilities.Snapshot()
             .Take(128)
@@ -976,8 +977,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         CapabilityProjection projection = view.Projection;
         CapabilityState state = projection.State;
         CapabilityValue? displayed = projection.PendingValue
-            ?? projection.DesiredValue
-            ?? state.ObservedValue;
+            ?? state.ObservedValue
+            ?? projection.DesiredValue;
         bool actionOnlyReady = state.Available
             && state.Reason is null
             && descriptor.SupportsAction
@@ -1090,13 +1091,15 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// <summary>Projects the declared overlay sections for presentation, in declared order.</summary>
     internal static IReadOnlyList<DeviceOverlayPluginSection> ProjectSections(
         IReadOnlyList<CapabilitySection> sections) =>
-        sections
+        DeviceSections.IncludePredefined(sections)
             .Select((section, index) => (Section: section, Index: index))
             .OrderBy(item => item.Section.SortOrder)
             .ThenBy(item => item.Index)
             .Select(item => new DeviceOverlayPluginSection(
                 item.Section.SectionId,
-                SectionTitle(item.Section.Key, item.Section.CustomTitle),
+                item.Section.SectionId == DeviceSections.RgbId ? "RGB"
+                    : item.Section.SectionId == DeviceSections.InfoId ? "Info"
+                    : SectionTitle(item.Section.Key, item.Section.CustomTitle),
                 item.Section.CustomDescription ?? SectionDescription(item.Section.Key),
                 item.Section.Icon,
                 item.Section.Categories
