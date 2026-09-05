@@ -488,8 +488,12 @@ public partial class OverlayWindow : Window
         PerformanceOverlaySnapshot? performance = _performanceSource?.Snapshot();
         RefreshNavigationHints();
         ConfigureTabs(snapshot.Visible);
-        DevicePowerSchemeHost.IsVisible = _navigation.Page == OverlayPage.Device;
-        DevicePowerPresetContainer.IsVisible = _navigation.Page == OverlayPage.Device;
+        bool powerPage = _navigation.Page == OverlayPage.DevicePowerAndThermals
+            || (_navigation.Page == OverlayPage.DevicePluginSection
+                && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, _navigation.SectionId ?? string.Empty)
+                    == DeviceOverlaySection.PowerAndThermals);
+        DevicePowerSchemeHost.IsVisible = powerPage;
+        DevicePowerPresetContainer.IsVisible = powerPage;
         DeviceStatusTitle.Text = snapshot.Status;
         DeviceStatusDetail.Text = snapshot.Detail;
 
@@ -1777,7 +1781,8 @@ public partial class OverlayWindow : Window
 
         return _navigation.Page is OverlayPage.DevicePluginSection
             && _navigation.SectionId is { } sectionId
-            && _deviceBridge?.Snapshot() is { } snapshot
+            && (_deviceBridge?.Snapshot()
+                ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, null, [])) is { } snapshot
             && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, sectionId)
                 is DeviceOverlaySection.PowerAndThermals;
     }

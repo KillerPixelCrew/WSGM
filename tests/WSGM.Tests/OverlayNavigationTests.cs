@@ -5,6 +5,16 @@ namespace WSGM.Tests;
 public sealed class OverlayNavigationTests
 {
     [Fact]
+    public void SharedPowerRemainsOpenWithoutIntegration()
+    {
+        OverlayNavigation navigation = new();
+        navigation.SetDeviceVisible(false, coreControlsAvailable: true);
+        navigation.Select(OverlayDestination.Device);
+        navigation.Push(OverlayPage.DevicePluginSection, "device.section.plugin.power", "power");
+        Assert.False(navigation.NeedsDeviceRoot(pluginVisible: false));
+    }
+
+    [Fact]
     public void RemovingAPluginRequestsTheDeviceRootWhileCoreControlsRemain()
     {
         OverlayNavigation navigation = new();

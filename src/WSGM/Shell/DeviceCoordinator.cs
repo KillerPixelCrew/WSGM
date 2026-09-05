@@ -54,6 +54,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private readonly SemaphoreSlim _transitionGate = new(1, 1);
     private readonly SemaphoreSlim _profileReconcileGate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly Task _powerAssignmentTask;
     private readonly object _backgroundGate = new();
     private readonly HashSet<Task> _backgroundTasks = [];
     private readonly DeviceCapabilityRouter _capabilities;
@@ -75,6 +76,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private long _cycleGeneration;
     private string? _runningApplicationId;
     private Action<int>? _autoTdpManualOverride;
+    private Action<int>? _assignedPowerOverride;
     private Action<bool>? _manualVariableRefreshOverride;
     private bool _intentionalStop;
     private bool _faultRecoveryPending;
@@ -91,10 +93,14 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         _sessionId = sessionId;
         _ownerMutex = ownerMutex;
         _capabilities = new DeviceCapabilityRouter(postToUi);
+        // Scenario targets are one-shot preset steps. Persist only the watt controls through the
+        // manual funnel; saving an AC scenario as desired state would replay it on battery later.
         PowerPresets = new DevicePowerPresets(() => IntegrationEnabled ? _capabilities.Snapshot() : [],
-            (id, watts, cycle, generation, token) => ExecuteCapabilityCoreAsync(id, null,
-                new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = watts },
-                TimeSpan.FromSeconds(5), CapabilityCommandOrigin.User, token, cycle, generation), WindowsPowerModes.Windows);
+            ExecutePresetCapabilityAsync, WindowsPowerModes.Windows, ReadOnAcPower);
+        PowerAssignments = new DevicePowerAssignments(PowerPresets,
+            () => new(_config.Performance, _runningApplicationId, InstalledPackage?.Manifest?.Id,
+                _cycleGeneration, IntegrationEnabled, ReadOnAcPower()),
+            SavePowerAssignmentAsync);
         _pluginSettings = new PluginSettingsCoordinator();
         _diagnostics = new DeviceCoordinatorDiagnosticsServer(sessionId, DiagnosticsSnapshot);
         _hapticSink = new PluginHapticSink(ApplyHapticOutputAsync);
@@ -108,6 +114,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             NativeStorage.FromDosPath(
                 Environment.ProcessPath
                     ?? throw new InvalidOperationException("The WSGM executable path is unavailable.")));
+        _powerAssignmentTask = Task.Run(ObservePowerAssignmentsAsync);
     }
 
     private Task ApplyHapticOutputAsync(HapticOutputFrame frame, CancellationToken cancellationToken)
@@ -151,6 +158,64 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     internal DeviceCapabilityRouter Capabilities => _capabilities;
 
     internal DevicePowerPresets PowerPresets { get; }
+
+    internal DevicePowerAssignments PowerAssignments { get; }
+
+    private static bool? ReadOnAcPower() =>
+        NativeMethods.GetSystemPowerStatus(out NativeMethods.SystemPowerStatus power) && power.ACLineStatus is 0 or 1
+            ? power.ACLineStatus == 1 : null;
+
+    private async Task<CapabilityCommandResult> ExecutePresetCapabilityAsync(
+        string id, CapabilityValue value, long cycle, long generation, bool persist, CancellationToken token)
+    {
+        var result = await ExecuteCapabilityCoreAsync(id, null, value, TimeSpan.FromSeconds(5),
+            persist && value.Kind == CapabilityValueKind.Integer ? CapabilityCommandOrigin.User : CapabilityCommandOrigin.AutomaticControl,
+            token, cycle, generation).ConfigureAwait(false);
+        if (!persist && value.IntegerValue is { } watts && result.Outcome == CommandOutcome.AppliedVerified
+            && FindDescriptor(id, null)?.Role == CapabilityRole.PowerSustainedLimit)
+        { _assignedPowerOverride?.Invoke(watts); }
+        return result;
+    }
+
+    private async Task SavePowerAssignmentAsync(DevicePowerAssignmentContext selection, bool ac, DevicePowerPresetReference? reference)
+    {
+        string? applicationId = selection.ApplicationId;
+        await _transitionGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+        try
+        {
+            if (_runningApplicationId != applicationId || InstalledPackage?.Manifest?.Id != selection.PluginId)
+            { throw new InvalidOperationException("The running application or device changed before saving the assignment."); }
+            await PersistConfigurationAsync(config =>
+            {
+                var application = config.Performance.Applications.FirstOrDefault(item =>
+                    item.ApplicationId == applicationId && item.UsePerGameProfile);
+                if (application is not null)
+                {
+                    if (ac) { application.AcPowerPreset = reference; }
+                    else { application.BatteryPowerPreset = reference; }
+                }
+                else if (ac) { config.Performance.AcPowerPreset = reference; }
+                else { config.Performance.BatteryPowerPreset = reference; }
+            }, _lifetime.Token).ConfigureAwait(false);
+        }
+        finally { _transitionGate.Release(); }
+    }
+
+    private async Task ObservePowerAssignmentsAsync()
+    {
+        using PeriodicTimer timer = new(TimeSpan.FromSeconds(1));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_lifetime.Token).ConfigureAwait(false))
+            {
+                try { await PowerAssignments.ReconcileAsync(_lifetime.Token).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { break; }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                { Log.Change("power.assignment.failure", $"Power assignment failed: {ex.Message}", LogLevel.Warn); }
+            }
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+    }
 
     /// <summary>The controller manager, for status/sample subscriptions and reads.</summary>
     /// <remarks>
@@ -468,6 +533,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         {
             await CancelLifetimeAndWaitForTransitionAsync(_lifetime, _transitionGate)
                 .ConfigureAwait(false);
+            await _powerAssignmentTask.ConfigureAwait(false);
             try
             {
                 DeviceClientTeardownResult teardown = await StopCycleUnderGateAsync(
@@ -1488,12 +1554,17 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// Attaches the hook that pauses AutoTDP after a user-originated power-limit write.
     /// </summary>
     /// <param name="note">Receives the accepted wattage, or null when AutoTDP is not running.</param>
+    /// <param name="assigned">Pauses AutoTDP for an applied assignment without persisting its wattage.</param>
     /// <remarks>
     /// Attached here because this is the one path every surface's power write already goes through:
     /// the overlay row and the native-QAM TDP control both call <see cref="ExecuteCapabilityAsync"/>,
     /// so this is the one place that sees every manual change.
     /// </remarks>
-    internal void AttachAutoTdpManualOverride(Action<int>? note) => _autoTdpManualOverride = note;
+    internal void AttachAutoTdpManualOverride(Action<int>? note, Action<int>? assigned = null)
+    {
+        _autoTdpManualOverride = note;
+        _assignedPowerOverride = assigned;
+    }
 
     /// <summary>
     /// Attaches the hook that saves a user-originated variable-refresh write to the performance
@@ -1634,7 +1705,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         bool power = FindDescriptor(capabilityId, instanceId)?.Role is
-            CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit;
+            CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit or CapabilityRole.ScenarioMode;
         if (power) { await PowerPresets.MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false); }
         try
         {

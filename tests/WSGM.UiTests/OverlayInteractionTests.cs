@@ -115,7 +115,7 @@ public sealed class OverlayInteractionTests
         using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()),
             _ => throw new InvalidOperationException("Unexpected power scheme write"));
         DevicePowerPresets service = new(() => [],
-            (_, _, _, _, _) => throw new InvalidOperationException("Unexpected preset write"),
+            (_, _, _, _, _, _) => throw new InvalidOperationException("Unexpected preset write"),
             new WindowsPowerModes(new UnusedPowerModeApi()));
         using DevicePowerPresetSelection presets = new(service, false);
         TaskCompletionSource operation = new();
@@ -182,6 +182,9 @@ public sealed class OverlayInteractionTests
         OverlayWindow window = fixture.Overlay();
         window.AttachPowerSchemes(selection);
         UiFixture.Click(window, UiFixture.Tab(window, 3));
+        Dispatcher.UIThread.RunJobs();
+        UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
+            .Single(card => card.IsEffectivelyVisible && card.Title == "Power"));
         Dispatcher.UIThread.RunJobs();
         var combo = window.GetVisualDescendants().OfType<ComboBox>().Single(control => Equals(control.Tag, "system.power-profile.choice"));
         combo.Focus();
