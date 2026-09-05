@@ -497,6 +497,8 @@ public partial class OverlayWindow : Window
         }
     }
 
+    private bool? _previousDeviceIntegrationVisible;
+
     private void RefreshDevicePanel()
     {
         if (_closed)
@@ -516,8 +518,11 @@ public partial class OverlayWindow : Window
         DevicePowerSchemeHost.IsVisible = powerPage;
         DevicePowerPresetContainer.IsVisible = powerPage;
         DevicePowerOverview.IsVisible = powerPage;
-        if (powerPage && !DeviceWindowsPower.IsVisible && !snapshot.Visible) { DeviceWindowsPower.IsExpanded = true; }
+        if (powerPage && !snapshot.Visible
+            && (!DeviceWindowsPower.IsVisible || _previousDeviceIntegrationVisible is true))
+        { DeviceWindowsPower.IsExpanded = true; }
         DeviceWindowsPower.IsVisible = powerPage;
+        _previousDeviceIntegrationVisible = snapshot.Visible;
         DeviceStatusTitle.IsVisible = DeviceStatusDetail.IsVisible = _navigation.Page == OverlayPage.Device;
         DeviceStatusTitle.Text = snapshot.Status;
         DeviceStatusDetail.Text = snapshot.Detail;

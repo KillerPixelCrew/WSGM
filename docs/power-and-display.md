@@ -102,6 +102,9 @@ inherits its global assignment. References include the plugin ID so changing dev
 silently apply another package's similarly named preset.
 
 The session applies an assignment once on source, application, assignment or device-cycle changes.
+Every preset checks the selected power source before each device or Windows write, including
+presets without firmware targets. A source change stops the remaining steps. Assignment saves
+reject a replaced performance configuration instead of falling back into a different scope.
 Unknown power sources and unavailable device observations defer application. A failed or uncertain
 write is recorded before dispatch and never retried by polling; explicitly saving an assignment
 permits another attempt. Manual changes remain in place until the next transition. Automatic

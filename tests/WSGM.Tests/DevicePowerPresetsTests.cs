@@ -84,11 +84,13 @@ public sealed class DevicePowerPresetsTests
         internal DeviceCapabilityView[] Views = [View(CapabilityRole.PowerSustainedLimit, 17), View(CapabilityRole.PowerSlowLimit, 18)];
         internal readonly ModeApi Api = new();
         internal readonly List<(string Id, int Watts)> Calls = [];
+        internal readonly List<bool> Persistence = [];
         internal int FailAt;
         internal bool ReplaceGeneration;
         internal bool? OnAc = true;
         internal string? LastScenario;
         internal Action<string>? AfterDeviceWrite;
+        internal Action<int>? OnWriteEntered;
         internal TaskCompletionSource? WaitForWrite;
         internal readonly TaskCompletionSource Entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal DevicePowerPresets Create() => new(() => Views, async (id, value, cycle, generation, persist, token) =>
@@ -97,6 +99,8 @@ public sealed class DevicePowerPresetsTests
             Assert.Equal(1, cycle);
             Assert.Equal(1, generation);
             Calls.Add((id, watts));
+            Persistence.Add(persist);
+            OnWriteEntered?.Invoke(Calls.Count);
             Entered.TrySetResult();
             if (WaitForWrite is not null) { await WaitForWrite.Task.WaitAsync(token); }
             bool fail = FailAt == Calls.Count;
@@ -403,6 +407,7 @@ public sealed class DevicePowerPresetsTests
         var service = rig.Create();
         Assert.True((await service.ApplyAsync(preset, default)).Succeeded);
         Assert.Equal("ScenarioMode", rig.Calls[0].Id);
+        Assert.Equal([false, true, true], rig.Persistence);
         Assert.Equal(expected, rig.LastScenario);
         Assert.Equal(3, rig.Calls.Count);
         Assert.Equal(preset, (await service.ReadAsync()).Current);
@@ -455,11 +460,13 @@ public sealed class DevicePowerPresetsTests
         Assert.Empty(rig.Calls);
     }
 
-    [Fact]
-    public async Task PowerSourceChangeDuringScenarioWriteStopsRemainingSteps()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PowerSourceChangeDuringWriteStopsRemainingSteps(bool scenarios)
     {
         Rig rig = new();
-        rig.AddScenarios();
+        if (scenarios) { rig.AddScenarios(); }
         rig.AfterDeviceWrite = _ => rig.OnAc = false;
         Assert.False((await rig.Create().ApplyAsync("extreme", default)).Succeeded);
         Assert.Single(rig.Calls);
@@ -484,6 +491,15 @@ public sealed class DevicePowerPresetsTests
         Assert.False((await service.ReadAsync()).Available);
         Assert.False((await service.ApplyAsync("battery", default)).Succeeded);
         Assert.Empty(rig.Calls);
+    }
+
+    [Fact]
+    public async Task AssignmentSourceChangedBeforeApplyRejectsWithoutWriting()
+    {
+        Rig rig = new() { OnAc = false };
+        Assert.False((await rig.Create().ApplyAsync("extreme", default, false, expectedOnAc: true)).Succeeded);
+        Assert.Empty(rig.Calls);
+        Assert.Equal(0, rig.Api.Writes);
     }
 
     [Fact]

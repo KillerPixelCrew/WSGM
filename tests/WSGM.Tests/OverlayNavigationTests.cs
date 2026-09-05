@@ -8,9 +8,12 @@ public sealed class OverlayNavigationTests
     public void SharedPowerRemainsOpenWithoutIntegration()
     {
         OverlayNavigation navigation = new();
-        navigation.SetDeviceVisible(false, coreControlsAvailable: true);
-        navigation.Select(OverlayDestination.Device);
-        navigation.Push(OverlayPage.DevicePluginSection, "device.section.plugin.power", "power");
+        Assert.True(navigation.SetDeviceVisible(false, coreControlsAvailable: true));
+        Assert.True(navigation.IsVisible(OverlayDestination.Device));
+        Assert.True(navigation.Select(OverlayDestination.Device));
+        Assert.True(navigation.Push(OverlayPage.DevicePluginSection, "device.section.plugin.power", "power"));
+        Assert.Equal(OverlayPage.DevicePluginSection, navigation.Page);
+        Assert.Equal("power", navigation.SectionId);
         Assert.False(navigation.NeedsDeviceRoot(pluginVisible: false));
     }
 

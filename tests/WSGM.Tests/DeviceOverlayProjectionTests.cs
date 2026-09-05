@@ -62,6 +62,8 @@ public sealed class DeviceOverlayProjectionTests
         DeviceOverlaySnapshot snapshot = source.Snapshot();
 
         Assert.True(snapshot.Visible);
+        Assert.Equal(DeviceOverlaySection.PowerAndThermals,
+            DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, DeviceSections.PowerId));
         Assert.Contains(snapshot.Capabilities,
             capability => capability.Section == DeviceOverlaySection.PowerAndThermals);
         Assert.Contains(snapshot.Capabilities,
@@ -151,10 +153,10 @@ public sealed class DeviceOverlayProjectionTests
         DeviceOverlaySnapshot snapshot = source.Snapshot();
 
         Assert.Equal(
-            ["power", "cooling", "lighting"],
+            ["power", "cooling", "rgb"],
             snapshot.PluginSections.Select(section => section.SectionId));
         Assert.Contains(snapshot.Capabilities, capability =>
-            capability.PluginSectionId == "lighting"
+            capability.PluginSectionId == DeviceSections.RgbId
             && capability.Role == CapabilityRole.LightingZoneColor);
         Assert.Contains(snapshot.Capabilities, capability =>
             capability.Role == CapabilityRole.LightingBrightness);

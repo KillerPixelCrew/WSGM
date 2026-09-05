@@ -45,7 +45,7 @@ internal sealed class DevicePowerPresets(
         finally { MutationGate.Release(); }
     }
 
-    internal async Task<SteamUiCommandResult> ApplyAsync(string id, CancellationToken cancellationToken, bool persistValues = true)
+    internal async Task<SteamUiCommandResult> ApplyAsync(string id, CancellationToken cancellationToken, bool persistValues = true, bool? expectedOnAc = null)
     {
         await MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -63,12 +63,13 @@ internal sealed class DevicePowerPresets(
                 await Task.Run(modes.Read, cancellationToken).ConfigureAwait(false);
                 long cycle = sustained!.Projection.State.CycleGeneration;
                 long generation = sustained.Projection.State.DescriptorGeneration;
-                bool? onAc = readOnAc?.Invoke();
+                bool? onAc = expectedOnAc ?? readOnAc?.Invoke();
                 void CheckCurrent()
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     if (!SameGeneration(snapshot(), cycle, generation, preset)
-                        || (preset.ScenarioOnAc is not null && (onAc is null || readOnAc?.Invoke() != onAc)))
+                        || readOnAc?.Invoke() != onAc
+                        || (preset.ScenarioOnAc is not null && onAc is null))
                     {
                         throw new InvalidOperationException("Device capabilities or power source changed during selection.");
                     }
@@ -81,7 +82,7 @@ internal sealed class DevicePowerPresets(
                     mutationStarted = true;
                     CapabilityCommandResult result = await execute(scenario.Descriptor.CapabilityId,
                         new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = target },
-                        cycle, generation, persistValues, cancellationToken).ConfigureAwait(false);
+                        cycle, generation, false, cancellationToken).ConfigureAwait(false);
                     if (result.Outcome != CommandOutcome.AppliedVerified)
                     {
                         throw new InvalidOperationException(result.Reason?.Detail ?? $"The device reported {result.Outcome}.");

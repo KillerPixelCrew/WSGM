@@ -34,6 +34,56 @@ public sealed class DevicePowerAssignmentsTests
     }
 
     [Fact]
+    public async Task ReplacedPerGameConfigurationCannotSaveIntoTheGlobalFallback()
+    {
+        Rig rig = new() { Application = "steam:42" };
+        rig.Config.Applications.Add(new() { ApplicationId = "steam:42", UsePerGameProfile = true });
+        rig.Device.Api.AfterRead = () => rig.Config = new() { AcPowerPreset = Reference("extreme") };
+        var assignments = rig.Create();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => assignments.AssignAsync(true, "balanced", default));
+        Assert.Equal(0, rig.Saves);
+        Assert.Equal("extreme", rig.Config.AcPowerPreset?.PresetId);
+        Assert.Empty(rig.Device.Calls);
+    }
+
+    [Fact]
+    public async Task FailedSecondWriteIsNotRetriedByPolling()
+    {
+        Rig rig = new();
+        rig.Device.FailAt = 2;
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(31, rig.Device.Views[1].Projection.State.ObservedValue!.IntegerValue);
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(2, rig.Device.Calls.Count);
+        Assert.Equal(0, rig.Device.Api.Writes);
+    }
+
+    [Fact]
+    public async Task CancelledPartialAssignmentIsNotRetriedByPolling()
+    {
+        Rig rig = new();
+        using CancellationTokenSource cancellation = new();
+        TaskCompletionSource laterWrite = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Device.OnWriteEntered = count => { if (count == 2) { entered.TrySetResult(); } };
+        rig.Device.AfterDeviceWrite = _ =>
+        {
+            rig.Device.WaitForWrite = laterWrite;
+        };
+        var assignments = rig.Create();
+        Task applying = assignments.ReconcileAsync(cancellation.Token);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => applying);
+        Assert.Equal(2, rig.Device.Calls.Count);
+        Assert.Equal(31, rig.Device.Views[1].Projection.State.ObservedValue!.IntegerValue);
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(2, rig.Device.Calls.Count);
+        Assert.Equal(0, rig.Device.Api.Writes);
+    }
+
+    [Fact]
     public async Task SourceTransitionsApplyOnceAndDoNotFightManualDrift()
     {
         Rig rig = new();

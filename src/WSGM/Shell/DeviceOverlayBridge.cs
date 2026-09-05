@@ -1391,7 +1391,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
             [
                 new DeviceOverlayCategory("limits", "Limits"),
                 new DeviceOverlayCategory("charging", "Charging"),
-            ]),
+            ]) { Key = SettingSectionKey.Power },
         new DeviceOverlayPluginSection(
             "cooling",
             "Fans",
@@ -1402,11 +1402,11 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 new DeviceOverlayCategory("readings", "Readings"),
             ]),
         new DeviceOverlayPluginSection(
-            "lighting",
-            "Lighting",
+            DeviceSections.RgbId,
+            "RGB",
             "Ring and button lighting",
             SectionIcon.Lighting,
-            [new DeviceOverlayCategory("zones", "Zones")]),
+            [new DeviceOverlayCategory("zones", "Zones")]) { Key = SettingSectionKey.Lighting },
     ];
 
     public event Action? Changed;
@@ -1570,7 +1570,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     })
                 {
                     Role = CapabilityRole.LightingPower,
-                    PluginSectionId = "lighting",
+                    PluginSectionId = DeviceSections.RgbId,
                 },
                 new DeviceOverlayCapability(
                     "preview.lighting.brightness",
@@ -1593,7 +1593,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     })
                 {
                     Role = CapabilityRole.LightingBrightness,
-                    PluginSectionId = "lighting",
+                    PluginSectionId = DeviceSections.RgbId,
                     SortOrder = 1,
                 },
                 new DeviceOverlayCapability(
@@ -1613,7 +1613,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     NextValue: null)
                 {
                     Role = CapabilityRole.LightingZoneColor,
-                    PluginSectionId = "lighting",
+                    PluginSectionId = DeviceSections.RgbId,
                     CategoryId = "zones",
                 },
                 new DeviceOverlayCapability(

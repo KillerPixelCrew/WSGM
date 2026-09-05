@@ -48,6 +48,8 @@ internal sealed class DevicePowerAssignments(
     {
         var current = context();
         var state = await presets.ReadAsync(cancellationToken).ConfigureAwait(false);
+        if (!ReferenceEquals(current.Config, context().Config))
+        { throw new InvalidOperationException("The performance configuration changed before saving the assignment."); }
         if (id is not null && (current.PluginId is null || !state.Presets.Any(preset => preset.Id == id)))
         {
             throw new InvalidOperationException("This device power profile is no longer available.");
@@ -93,7 +95,7 @@ internal sealed class DevicePowerAssignments(
                 || !ReferenceEquals(confirmed.Config, current.Config)) { return; }
             // Record before dispatch. Uncertainty or a timeout must never cause a polling retry.
             _attempted = key;
-            var result = await presets.ApplyAsync(assignment.PresetId, cancellationToken, persistValues: false).ConfigureAwait(false);
+            var result = await presets.ApplyAsync(assignment.PresetId, cancellationToken, persistValues: false, expectedOnAc: ac).ConfigureAwait(false);
             _status = result.Succeeded ? string.Empty : result.Error ?? "The assigned profile could not be applied.";
         }
         finally { _gate.Release(); }

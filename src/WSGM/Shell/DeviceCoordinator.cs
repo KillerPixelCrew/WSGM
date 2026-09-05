@@ -183,8 +183,10 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         await _transitionGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
         try
         {
-            if (_runningApplicationId != applicationId || InstalledPackage?.Manifest?.Id != selection.PluginId)
-            { throw new InvalidOperationException("The running application or device changed before saving the assignment."); }
+            if (_runningApplicationId != applicationId || InstalledPackage?.Manifest?.Id != selection.PluginId
+                || IntegrationEnabled != selection.Enabled || Interlocked.Read(ref _cycleGeneration) != selection.Cycle
+                || !ReferenceEquals(selection.Config, _config.Performance))
+            { throw new InvalidOperationException("The running application, device or configuration changed before saving the assignment."); }
             await PersistConfigurationAsync(config =>
             {
                 var application = config.Performance.Applications.FirstOrDefault(item =>

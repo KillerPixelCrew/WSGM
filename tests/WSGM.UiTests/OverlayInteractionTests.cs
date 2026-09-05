@@ -18,6 +18,34 @@ namespace WSGM.UiTests;
 public sealed class OverlayInteractionTests
 {
     [AvaloniaFact]
+    public void LosingIntegrationExpandsWindowsPlansOnTheOpenPowerPage()
+    {
+        using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()),
+            _ => throw new InvalidOperationException("Unexpected power scheme write"));
+        using FakeDevice device = new();
+        device.State = device.State with
+        {
+            PluginSections = [new DeviceOverlayPluginSection(DeviceSections.PowerId, "Power", "", SectionIcon.Power, [])
+            { Key = WSGM.Device.Sdk.Settings.SettingSectionKey.Power }],
+        };
+        using UiFixture fixture = new();
+        OverlayWindow window = fixture.Overlay();
+        window.AttachDeviceBridge(device);
+        window.AttachPowerSchemes(schemes);
+        UiFixture.Click(window, UiFixture.Tab(window, 3));
+        UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
+            .Single(card => card.IsEffectivelyVisible && card.Title == "Power"));
+        Expander plans = UiFixture.Named<Expander>(window, "DeviceWindowsPower");
+        Assert.True(plans.IsVisible);
+        plans.IsExpanded = false;
+        device.State = device.State with { Visible = false };
+        device.Notify();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(plans.IsVisible);
+        Assert.True(plans.IsExpanded);
+    }
+
+    [AvaloniaFact]
     public async Task BatteryAssignmentDuringRefreshIsSavedOnFirstSelection()
     {
         using FakeDevice device = new();
