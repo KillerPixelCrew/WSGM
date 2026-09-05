@@ -103,8 +103,9 @@ internal sealed class OverlayNavigation
     internal bool IsVisible(OverlayDestination destination)
         => destination != OverlayDestination.Device || _deviceVisible;
 
-    internal bool SetDeviceVisible(bool visible)
+    internal bool SetDeviceVisible(bool visible, bool coreControlsAvailable = false)
     {
+        visible |= coreControlsAvailable;
         if (_deviceVisible == visible)
         {
             return false;

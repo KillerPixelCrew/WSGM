@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using WSGM.Interop;
 
 namespace WSGM.Core;
@@ -15,7 +16,7 @@ internal sealed record PowerScheme(Guid Id, string Name);
 internal sealed class PowerSchemes(IPowerSchemeApi api)
 {
     internal static PowerSchemes Windows { get; } = new(new WindowsPowerSchemeApi());
-    private readonly object _selectionGate = new();
+    internal static object MutationGate { get; } = new();
 
     internal Guid ReadActive() => api.ReadActive();
 
@@ -35,14 +36,15 @@ internal sealed class PowerSchemes(IPowerSchemeApi api)
 
     /// <summary>Writes once and verifies the active GUID. A failed write or readback throws;
     /// the write may already have taken effect, so the caller must re-read before another action.</summary>
-    internal void Select(Guid id)
+    internal void Select(Guid id, CancellationToken cancellationToken = default)
     {
         if (id == Guid.Empty)
         {
             throw new ArgumentException("A power scheme GUID is required.", nameof(id));
         }
-        lock (_selectionGate)
+        lock (MutationGate)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             api.SetActive(id);
             Guid active = api.ReadActive();
             if (active != id)

@@ -18,9 +18,30 @@ A manual selection calls `PowerSetActiveScheme` once, then verifies the GUID wit
 does not trigger another write or rollback. Windows remains authoritative, including subsequent
 changes made by Settings or OEM tools. Native failures retain their error codes.
 
-The backend has synthetic tests; it has not been exercised against live power settings. The
-Power/Performance selectors and any persisted references are still pending. No session-mode or
-per-application scheme policy is installed by this backend, and it has no device-plugin dependency.
+Overlay → Device offers a Windows power-profile dropdown, Apply and Refresh. It stays available with
+Device Integration off. Choosing an entry stages it; only Apply writes Windows. The current scheme
+is read when the sheet opens, when Device is selected, after Apply and on Refresh. Duplicate names
+include their GUIDs. An unknown active scheme leaves the picker unselected; an empty or failed read
+disables Apply. An unconfirmed write requires Refresh before another attempt. Preview mode allows
+reads only. Native calls and persistence run off the UI thread, and closing the overlay discards
+late UI updates. Idle-timeout badges refresh after the active scheme is read.
+
+The last verified manual selection is saved as `LastSelectedPowerSchemeId`, a GUID in Core config.
+It is a reference, not an instruction to reapply at startup, config reload or a session transition.
+A failed save reports that Windows applied the scheme but WSGM could not save the reference; it does
+not undo or repeat the write. Timeout edits and scheme selection share one mutation gate so an
+idle-timeout edit cannot reactivate a stale scheme during selection.
+
+Synthetic tests cover the backend, selection workflow, persistence and Core-only Device navigation.
+No live power settings were changed for validation. No session-mode or per-application scheme policy
+is installed, and the selector has no device-plugin dependency. WSGM Settings configures WSGM
+itself; this Windows control belongs in the overlay and Steam QAM.
+
+Steam QAM → Performance offers a Power profile dropdown, built on Valve's dropdown field. Selecting
+an entry applies it immediately through the same Core backend and saves the verified GUID. Each
+publication reads Windows; the backend rejects unknown or removed GUIDs and requires a fresh read
+after an uncertain write. The row shows failures and disables input while its request is pending.
+The toolkit owns row placement and command validation; WSGM owns Windows access.
 
 ## Display profiles
 

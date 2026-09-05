@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using Microsoft.Win32;
@@ -754,6 +755,10 @@ public sealed class AppConfig
     /// is kept (a device plugin's row survives the device being unplugged) but not
     /// rendered.</summary>
     public List<string> QuickAccessPins { get; set; } = [];
+
+    /// <summary>Last Windows power scheme explicitly selected and verified through the overlay.
+    /// This is a reference only; startup and config reload must not reapply it.</summary>
+    public Guid? LastSelectedPowerSchemeId { get; set; }
 
     /// <summary>Controller glyph family displayed by the UI.</summary>
     public GlyphStyle GlyphStyle { get; set; } = GlyphStyle.Xbox;

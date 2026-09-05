@@ -71,6 +71,53 @@ public sealed class PowerSchemesTests
     }
 
     [Fact]
+    public void CancelledSelectionDoesNotStartANativeWrite()
+    {
+        FakeApi api = new();
+        Assert.Throws<OperationCanceledException>(() =>
+            new PowerSchemes(api).Select(Custom, new CancellationToken(canceled: true)));
+        Assert.Empty(api.Calls);
+    }
+
+    [Fact]
+    public async Task SelectionWaitsUntilTheTimeoutMutationReleasesTheSharedGate()
+    {
+        FakeApi api = new() { Active = Balanced };
+        using ManualResetEventSlim releaseTimeout = new(false);
+        TaskCompletionSource timeoutEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource selectionStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task timeout = Task.Run(() =>
+        {
+            lock (PowerSchemes.MutationGate)
+            {
+                timeoutEntered.SetResult();
+                if (!releaseTimeout.Wait(TimeSpan.FromSeconds(10)))
+                {
+                    throw new TimeoutException();
+                }
+                api.Active = Balanced;
+            }
+        });
+        Task? selection = null;
+        try
+        {
+            await timeoutEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            selection = Task.Run(() =>
+            {
+                selectionStarted.SetResult();
+                new PowerSchemes(api).Select(Custom);
+            });
+            await selectionStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(0, api.Writes);
+        }
+        finally { releaseTimeout.Set(); }
+        await timeout;
+        if (selection is not null) { await selection; }
+        Assert.Equal(Custom, api.Active);
+        Assert.Equal(1, api.Writes);
+    }
+
+    [Fact]
     public void RejectedWriteKeepsItsNativeErrorAndIsNeverRetried()
     {
         FakeApi api = new() { WriteFailure = new Win32Exception(5), Active = Balanced };

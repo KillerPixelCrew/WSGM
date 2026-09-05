@@ -50,6 +50,14 @@ public partial class OverlayWindow : Window
 
     private const int DeviceLiveRefresh = 1;
     private const int PerformanceLiveRefresh = 2;
+    private PowerSchemeSelection? _powerSchemeSelection;
+
+    internal void AttachPowerSchemes(PowerSchemeSelection selection)
+    {
+        _powerSchemeSelection = selection;
+        DevicePowerSchemeHost.Attach(selection);
+        RefreshDevicePanel();
+    }
 
     /// <summary>Raised when the user requests to start or focus the home application.</summary>
     public event Action? HomeAppRequested;
@@ -468,6 +476,7 @@ public partial class OverlayWindow : Window
         PerformanceOverlaySnapshot? performance = _performanceSource?.Snapshot();
         RefreshNavigationHints();
         ConfigureTabs(snapshot.Visible);
+        DevicePowerSchemeHost.IsVisible = _navigation.Page == OverlayPage.Device;
         DeviceStatusTitle.Text = snapshot.Status;
         DeviceStatusDetail.Text = snapshot.Detail;
 
@@ -493,7 +502,7 @@ public partial class OverlayWindow : Window
         {
             DeviceCapabilityList.Children.Add(new TextBlock
             {
-                Text = "No semantic capabilities are available yet.",
+                Text = "No device-plugin controls are available.",
                 TextWrapping = Avalonia.Media.TextWrapping.Wrap,
                 Margin = new Thickness(2, 4),
             });
@@ -1724,7 +1733,7 @@ public partial class OverlayWindow : Window
     private void PlacePerformanceSection(bool deviceVisible)
     {
         StackPanel target = deviceVisible ? PanelDevice : SystemPrimaryColumn;
-        int targetIndex = deviceVisible ? 2 : 3;
+        const int targetIndex = 3;
         if (!target.Children.Contains(PerformanceSection))
         {
             PanelDevice.Children.Remove(PerformanceSection);
@@ -1783,19 +1792,20 @@ public partial class OverlayWindow : Window
         }
 
         OverlayDestination previous = _navigation.Destination;
-        bool visibilityChanged = _navigation.SetDeviceVisible(showDevice);
+        bool deviceAvailable = showDevice || _powerSchemeSelection is not null;
+        bool visibilityChanged = _navigation.SetDeviceVisible(showDevice, _powerSchemeSelection is not null);
         if (!visibilityChanged && Tabs.Tabs is not null)
         {
             return;
         }
 
-        if (previous == OverlayDestination.Device && !showDevice)
+        if (previous == OverlayDestination.Device && !deviceAvailable)
         {
             RememberDestinationState(previous);
             _lastDestination = OverlayDestination.Home;
         }
 
-        PlacePerformanceSection(showDevice);
+        PlacePerformanceSection(deviceAvailable);
 
         Tabs.Tabs = _navigation.VisibleDestinations.Select(CreateDestinationTab).ToList();
         int selectedIndex = DestinationIndex(_navigation.Destination);
@@ -2254,7 +2264,7 @@ public partial class OverlayWindow : Window
         PanelHome.IsVisible = destination == OverlayDestination.Home;
         PanelSteam.IsVisible = destination == OverlayDestination.Steam;
         PanelDevice.IsVisible = destination == OverlayDestination.Device
-            && _deviceBridge?.Snapshot().Visible is true;
+            && _navigation.IsVisible(OverlayDestination.Device);
         PanelSystem.IsVisible = destination == OverlayDestination.System;
         PanelPower.IsVisible = destination == OverlayDestination.Power;
 
@@ -2283,6 +2293,10 @@ public partial class OverlayWindow : Window
         }
 
         RestoreDestinationState(restoreFocus);
+        if (restoreFocus && destination == OverlayDestination.Device && _powerSchemeSelection is { } schemes)
+        {
+            _ = schemes.RefreshAsync();
+        }
     }
 
     private Control DestinationPanel() => _navigation.Destination switch

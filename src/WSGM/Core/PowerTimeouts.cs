@@ -64,6 +64,14 @@ public static class PowerTimeouts
     /// <param name="seconds">The new value.</param>
     public static bool Write(PowerTimeoutKind kind, int seconds)
     {
+        lock (PowerSchemes.MutationGate)
+        {
+            return WriteCore(kind, seconds);
+        }
+    }
+
+    private static bool WriteCore(PowerTimeoutKind kind, int seconds)
+    {
         if (seconds < 0 || !TryGetActiveScheme(out var scheme))
         {
             return false;

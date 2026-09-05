@@ -410,6 +410,7 @@
                          vocabulary; WSGM-owned commands are separate view models. Packages cannot
                          provide markup, styles, URLs, or arbitrary commands through this surface. -->
                     <StackPanel x:Name="PanelDevice" Spacing="4" IsVisible="False">
+                        <ov:PowerSchemeView x:Name="DevicePowerSchemeHost" />
                         <TextBlock x:Name="DeviceStatusTitle"
                                    Text="Device integration"
                                    FontSize="16"

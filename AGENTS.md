@@ -38,6 +38,10 @@ when the guidance conflicts.
 
 ## Working rules
 
+- WSGM Settings configures WSGM itself only. Controls that change Windows or other external system
+  state belong on the overlay's relevant page or in Steam QAM, not in WSGM Settings. Windows power
+  schemes belong on the overlay's Device page, even when Device Integration is off.
+
 - Inspect git status before changing anything. Preserve unrelated edits and never clean, reset, or
   rewrite user work to make a task easier.
 - Work on a dedicated branch for each change and deliver it through a pull request so CodeRabbit

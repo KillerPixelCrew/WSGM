@@ -797,6 +797,18 @@ public sealed class OverlayController : IDisposable
         _systemStatus.Start();
         long setupDone = System.Diagnostics.Stopwatch.GetTimestamp();
         _overlay = new OverlayWindow(vm, switcher, _systemStatus, UiScale(), WindowCenter(_restoreFocusTo));
+        var powerSchemes = new PowerSchemeSelection(PowerSchemes.Windows,
+            id => ConfigStore.Mutate(config => config.LastSelectedPowerSchemeId = id), _previewOnly);
+        _overlay.AttachPowerSchemes(powerSchemes);
+        _overlay.Opened += async (_, _) => await powerSchemes.RefreshAsync();
+        _overlay.Closed += (_, _) => powerSchemes.Dispose();
+        powerSchemes.Changed += () =>
+        {
+            if (!powerSchemes.Busy && powerSchemes.ActiveId is not null && ReferenceEquals(_overlayViewModel, vm))
+            {
+                RefreshPowerTimeouts(vm);
+            }
+        };
         long constructDone = System.Diagnostics.Stopwatch.GetTimestamp();
         _overlay.AttachDeviceBridge(_device);
         _overlay.AttachPerformanceSource(_performance);
@@ -852,16 +864,25 @@ public sealed class OverlayController : IDisposable
             // on its own poll tick.
             _keepAwake?.CycleManualMode();
         };
-        _overlay.PowerTimeoutCycleRequested += kind =>
+        _overlay.PowerTimeoutCycleRequested += async kind =>
         {
-            // Registry-fast policy reads/writes — no off-thread hop needed. A failed
-            // read leaves the row's badge at "—" rather than writing blind.
-            var current = PowerTimeouts.Read(kind);
-            if (current is not null)
+            // Scheme writes share a gate with the profile selector. Waiting for it must not
+            // block input; a failed read still refuses to write blind.
+            await Task.Run(() =>
             {
-                PowerTimeouts.Write(kind, PowerTimeouts.NextPreset(current.Value));
+                lock (PowerSchemes.MutationGate)
+                {
+                    var current = PowerTimeouts.Read(kind);
+                    if (current is not null)
+                    {
+                        PowerTimeouts.Write(kind, PowerTimeouts.NextPreset(current.Value));
+                    }
+                }
+            });
+            if (ReferenceEquals(_overlayViewModel, vm))
+            {
+                RefreshPowerTimeouts(vm);
             }
-            RefreshPowerTimeouts(vm);
         };
         _overlay.TaskManagerRequested += () => { _suppressFocusRestore = true; CloseOverlay(); StartTaskManager(); };
         _overlay.SettingsRequested += () =>

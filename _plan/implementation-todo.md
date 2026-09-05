@@ -212,17 +212,21 @@ device-specific power limit consumed by AutoTDP, but it never owns or reimplemen
       before applying, and let WSGM's existing per-mode resolution/refresh/DPI/HDR profile run after
       the scene establishes which targets exist. Include crash, cancellation and Desktop rollback
       coverage so a topology change cannot strand the session without Explorer or a usable display.
-- [ ] **Add Windows power-scheme selection to Core.** Enumerate installed schemes, identify and read
+- [x] **Add Windows power-scheme selection to Core.** Enumerate installed schemes, identify and read
       the active scheme, select one through the locale-independent `powrprof` API, and verify with
       `PowerGetActiveScheme`. Project it on WSGM's Power/Performance surfaces independently of
       Device Integration; persist GUIDs rather than localized names. Windows remains the authority
       for an ordinary manual selection. If session-mode or per-application scheme policy is added,
       it belongs beside WSGM's existing performance policy and restores the applicable Core layer
       when that scope ends, never in a device profile or hardware plugin.
-      Backend implemented: GUID-based enumeration, active reads, one-shot selection with verified
-      readback, native error reporting and synthetic failure tests. Existing idle-timeout reads use
-      the shared backend. Power/Performance UI and persisted references remain open; no live power
-      settings were changed. `docs\power-and-display.md`.
+      Implemented in overlay → Device with a staged dropdown, Apply and Refresh, independently of
+      Device Integration. GUID-based enumeration, verified selection, native error reporting,
+      shared serialization with idle-timeout writes and synthetic workflow tests are complete.
+      The last verified GUID is persisted as a reference, never automatically reapplied. WSGM
+      Settings remains WSGM configuration only. No live power settings were changed.
+      Steam QAM → Performance provides the same selection through a native dropdown, backed by
+      the shared Core service and a reusable toolkit row.
+      `docs\power-and-display.md`.
 
 ### Product backlog
 

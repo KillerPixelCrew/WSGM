@@ -15,9 +15,10 @@ sheet with no extra code; a fullscreen window would have needed a second dismiss
 The header carries the wordmark, the active-destination eyebrow and the status pills, bound to a
 per-open `SystemStatus`. The radio, audio and eject panels hang from the header's measured bottom
 edge (`HeaderBottomScreenY` → `StatusPanel.DockBelowHeader`). A `TabStrip` sits over the
-always-alive destination roots: Quick access, Session, Steam, optional Device, Tools and Power.
-LB/RB cycle with wrap; the sheet reopens on its last destination; focus lands on the first row after
-a switch; the warning `InfoBar` stays above the tabs.
+always-alive destination roots: Quick access, Session, Steam, Device, Tools and Power. Device
+includes the Core Windows power-profile picker even without a device plugin. LB/RB cycle with wrap;
+the sheet reopens on its last destination; focus lands on the first row after a switch; the warning
+`InfoBar` stays above the tabs.
 
 Quick access is the home root and the Back target of every other root. `AppConfig.QuickAccessPins`
 holds row ids (X, touch-hold or right-click toggles one through `PinToggleRequested`). The root
@@ -66,11 +67,10 @@ both panels are redrawn, which the generic pop fallback it used to take did neit
 Per-application performance profiles belong to Device → Profiles; they are not a second detector and
 not a device-plugin feature. `PerformanceOverlayBridge` projects the session's one
 `PerformanceService` into closed rows. The value rows also sit beside the power controls on Device →
-Power and thermals; when Device does not exist, System shows the complete profile workflow.
-Identity-only Steam games stay visible as "executable pending", with edits stored for that AppID
-until foreground observation supplies the RTSS profile. Performance state changes rebuild both the
-owning Device page and its section-card count, so the Profiles page cannot disappear merely because
-no plugin publishes a hardware profile.
+Power and thermals, including when Device Integration is off. Identity-only Steam games stay visible
+as "executable pending", with edits stored for that AppID until foreground observation supplies the
+RTSS profile. Performance state changes rebuild both the owning Device page and its section-card
+count, so the Profiles page cannot disappear merely because no plugin publishes a hardware profile.
 
 Device lighting color opens `DeviceColorView` rather than cycling an opaque integer in the row. The
 hue field, RGB sliders and exact `#RRGGBB` entry are staged locally; only the explicit Apply row
