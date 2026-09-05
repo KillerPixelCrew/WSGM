@@ -9,6 +9,10 @@ Windows shell the whole time.
 
 ## Features
 
+- **Device power profiles**: select a plugin-defined TDP and Windows mode preset from the Device
+  page or Steam QAM Performance. The Claw A2VM offers Super Battery, Balanced and Extreme
+  Performance; independent changes show Custom.
+
 - **Boot to Big Picture** — a logon service starts game mode at sign-in behind a splash screen;
   switching to the desktop and back is one press, any time.
 - **Quick access sheet** — one controller- and touch-driven surface that slides down from the top

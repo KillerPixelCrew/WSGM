@@ -116,7 +116,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         string? instanceId,
         CapabilityValue? value,
         TimeSpan timeout,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        long? expectedCycle = null, long? expectedDescriptors = null)
     {
         DeviceCapabilityKey key = new(capabilityId, instanceId);
         SemaphoreSlim commandGate;
@@ -135,7 +136,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         {
             CapabilityCommand command;
             DevicePluginRuntime client;
-            CapabilityCommandResult? refusal = PrepareCommand(key, value, timeout, out command, out client);
+            CapabilityCommandResult? refusal = PrepareCommand(key, value, timeout, out command, out client, expectedCycle, expectedDescriptors);
             if (refusal is not null)
             {
                 ReconcileResult(key, refusal);
@@ -258,7 +259,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         CapabilityValue? value,
         TimeSpan timeout,
         out CapabilityCommand command,
-        out DevicePluginRuntime client)
+        out DevicePluginRuntime client,
+        long? expectedCycle = null, long? expectedDescriptors = null)
     {
         DateTimeOffset now = DateTimeOffset.UtcNow;
         Guid commandId = Guid.NewGuid();
@@ -283,6 +285,12 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             }
 
             client = _client;
+            if ((expectedCycle is not null && expectedCycle != _cycleGeneration)
+                || (expectedDescriptors is not null && expectedDescriptors != _descriptorGeneration))
+            {
+                return Reject(command, CapabilityReasonCode.HostUnavailable,
+                    "The power preset belongs to an earlier device or descriptor generation.");
+            }
             if (!_descriptors.TryGetValue(key, out CapabilityDescriptor? descriptor))
             {
                 return Reject(command, CapabilityReasonCode.Unsupported,
@@ -829,8 +837,7 @@ internal static class DeviceCapabilityValidation
             }
         }
 
-        error = null;
-        return true;
+        return DevicePowerPreset.TryValidate(set.Descriptors, out error);
     }
 
     internal static bool TryValidateState(

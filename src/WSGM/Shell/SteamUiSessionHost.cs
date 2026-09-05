@@ -31,6 +31,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly DeviceCoordinatorNativeQamAutoTdpService _autoTdp;
     private readonly DeviceCoordinatorNativeQamControllerTargetService _controllerTarget;
     private readonly NativeQamBrightnessService _brightness;
+    private readonly NativeQamPowerPresetService _powerPresets;
     private readonly NativeQamPowerProfileService _powerProfiles = new(PowerSchemes.Windows,
         id => ConfigStore.Mutate(config => config.LastSelectedPowerSchemeId = id));
 
@@ -112,6 +113,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(toggleQuickAccess);
         _toggleQuickAccess = toggleQuickAccess;
         _tdp = new DeviceCoordinatorNativeQamTdpService(deviceCoordinator);
+        _powerPresets = new NativeQamPowerPresetService(deviceCoordinator?.PowerPresets);
         _deviceControls = new DeviceCoordinatorNativeQamDeviceControlsService(deviceCoordinator);
         _performanceService = performance;
         _performance = new PerformanceServiceNativeQamAdapter(performance)
@@ -400,6 +402,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             // the Q12 retirement does not apply: a free 30-120 range made Valve's unusable.
             SteamFrameLimitRow.Module(Enabled, () => new(_performance.FrameLimit), _performance),
             SteamPowerProfileRow.Module(Enabled, _powerProfiles.ReadAsync, _powerProfiles),
+            SteamPowerPresetRow.Module(Enabled, _powerPresets.ReadAsync, _powerPresets),
 
             SteamControllerTargetRow.Module(
                 Enabled,

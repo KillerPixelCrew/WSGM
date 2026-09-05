@@ -228,6 +228,13 @@ device-specific power limit consumed by AutoTDP, but it never owns or reimplemen
       the shared Core service and a reusable toolkit row.
       `docs\power-and-display.md`.
 
+- [x] **Claw A2VM power presets on Device and QAM Performance.** Plugin-defined Super Battery,
+      Balanced and Extreme Performance apply PL1/PL2 plus Windows power mode through Core-owned
+      orchestration. Observed drift displays Custom without reapplying the preset. Safe write order,
+      generation changes, partial failures, cancellation, preview and UI synchronization have
+      deterministic coverage. The Windows scheme picker stays independent. No live deployment or
+      hardware write is part of validation. `docs\power-and-display.md`.
+
 ### Product backlog
 
 Capabilities that were already incomplete or explicitly future work. None was removed to make the

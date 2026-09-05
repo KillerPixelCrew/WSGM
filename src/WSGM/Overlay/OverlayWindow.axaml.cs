@@ -52,6 +52,8 @@ public partial class OverlayWindow : Window
     private const int PerformanceLiveRefresh = 2;
     private PowerSchemeSelection? _powerSchemeSelection;
 
+    internal void AttachPowerPresets(DevicePowerPresetSelection selection) => DevicePowerPresetHost.Attach(selection);
+
     internal void AttachPowerSchemes(PowerSchemeSelection selection)
     {
         _powerSchemeSelection = selection;
@@ -477,6 +479,7 @@ public partial class OverlayWindow : Window
         RefreshNavigationHints();
         ConfigureTabs(snapshot.Visible);
         DevicePowerSchemeHost.IsVisible = _navigation.Page == OverlayPage.Device;
+        DevicePowerPresetContainer.IsVisible = _navigation.Page == OverlayPage.Device;
         DeviceStatusTitle.Text = snapshot.Status;
         DeviceStatusDetail.Text = snapshot.Detail;
 
@@ -1733,7 +1736,7 @@ public partial class OverlayWindow : Window
     private void PlacePerformanceSection(bool deviceVisible)
     {
         StackPanel target = deviceVisible ? PanelDevice : SystemPrimaryColumn;
-        const int targetIndex = 3;
+        int targetIndex = deviceVisible ? 4 : 3;
         if (!target.Children.Contains(PerformanceSection))
         {
             PanelDevice.Children.Remove(PerformanceSection);
