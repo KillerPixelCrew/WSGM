@@ -21,13 +21,14 @@ A manual selection calls `PowerSetActiveScheme` once, then verifies the GUID wit
 does not trigger another write or rollback. Windows remains authoritative, including subsequent
 changes made by Settings or OEM tools. Native failures retain their error codes.
 
-Overlay → Device → Power offers a Windows power-profile dropdown, Apply and Refresh. It stays
-available with Device Integration off. Choosing an entry stages it; only Apply writes Windows. The
-current scheme is read when the sheet opens, when Device is selected, after Apply and on Refresh.
-Duplicate names include their GUIDs. An unknown active scheme leaves the picker unselected; an empty
-or failed read disables Apply. An unconfirmed write requires Refresh before another attempt. Preview
-mode allows reads only. Native calls and persistence run off the UI thread, and closing the overlay
-discards late UI updates. Idle-timeout badges refresh after the active scheme is read.
+Overlay → Device → Power offers a Windows power-profile dropdown, Apply and Refresh inside the
+Windows energy plan card. It stays available with Device Integration off. Choosing an entry stages
+it; only Apply writes Windows. The current scheme is read when the sheet opens, when Device is
+selected, after Apply and on Refresh. Duplicate names include their GUIDs. An unknown active scheme
+leaves the picker unselected; an empty or failed read disables Apply. An unconfirmed write requires
+Refresh before another attempt. Preview mode allows reads only. Native calls and persistence run off
+the UI thread, and closing the overlay discards late UI updates. Idle-timeout badges refresh after
+the active scheme is read.
 
 The last verified manual selection is saved as `LastSelectedPowerSchemeId`, a GUID in Core config.
 It is a reference, not an instruction to reapply at startup, config reload or a session transition.

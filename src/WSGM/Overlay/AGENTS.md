@@ -34,3 +34,5 @@ docs/ui.md before changing behavior.
 
 Test open/close idempotence, route transitions, stale async results, touch/mouse deduplication,
 capture release, and integration-disabled behavior.
+
+Device sections use shared group cards and two-column blocks. Keep assignments and performance together, preserve focus while regrouping rows, and keep Windows energy plans reachable with integration disabled. Run the complete Claw publication captures when changing Device layout; the one-row fake is not sufficient coverage.
