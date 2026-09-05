@@ -185,7 +185,7 @@ public class CardNameAuthorityTests
 
         var note = LibraryTabManager.TrySetMarkerLabel(library, "9696", "Handhelds");
 
-        Assert.Equal("The card still carries its old name.", note);
+        Assert.Equal("The drive still carries its old name.", note);
         Assert.True(SteamLibraryVdf.TryReadMarker(library, out var id, out var label));
         Assert.Equal("1010", id);
         Assert.Equal("SDCard10", label);
@@ -197,7 +197,7 @@ public class CardNameAuthorityTests
         using var temp = new TemporaryDirectory();
 
         Assert.Equal(
-            "The card still carries its old name.",
+            "The drive still carries its old name.",
             LibraryTabManager.TrySetMarkerLabel(temp.Root, "777", "Handhelds"));
     }
 

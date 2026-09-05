@@ -405,22 +405,27 @@ public sealed class LibraryTabManager
     /// <summary>Renames a tracked card everywhere it has a name: the card's own
     /// <c>libraryfolder.vdf</c> marker, the WSGM tab, the Steam library label (live
     /// via CEF when Steam runs, else a byte-preserving vdf edit), and the Windows
-    /// volume label. Identity is always the content id — never the reader's (shared)
-    /// drive letter.</summary>
+    /// volume label. Identity is always the content id, and every write addresses the
+    /// volume resolved from it — never a drive letter.</summary>
     /// <remarks>
     /// <para>
     /// The marker write is the one that matters: it is the only copy that travels with
-    /// the media, so it is what the next scan reads the name back from. It happens
+    /// the medium, so it is what the next scan reads the name back from. It happens
     /// FIRST and everything else is conditional on it, because a name that did not
-    /// reach the card is reverted by the next scan — updating the tracked name, Steam
-    /// and the volume label around a failed marker write would show a rename that
-    /// silently undoes itself, and the volume label (addressed by drive letter) would
-    /// land on whatever card is in the reader now.
+    /// reach the drive is reverted by the next scan, and a rename that stopped at the
+    /// tracked cache would appear to work and then silently undo itself.
     /// </para>
     /// <para>
-    /// A card that is not in a reader therefore cannot be renamed. Nothing can reach
-    /// its marker, so the rename could only live in the tracked cache until the card
-    /// came back and the marker overwrote it.
+    /// A library that is not mounted therefore cannot be renamed. Nothing can reach its
+    /// marker, so the rename could only live in the tracked cache until the drive came
+    /// back and the marker overwrote it.
+    /// </para>
+    /// <para>
+    /// See <see cref="FindMountedVolume"/> for why the letter is resolved to a volume
+    /// once and never used again: the Steam label is selected by content id and is safe
+    /// either way, but the marker and the Windows volume label are file-system writes,
+    /// and a letter can name different media by the time the Steam round trip between
+    /// them returns.
     /// </para>
     /// </remarks>
     /// <param name="contentId">The card's content id.</param>
@@ -437,16 +442,16 @@ public sealed class LibraryTabManager
             return "The name cannot be empty.";
         }
 
-        var letter = await Task.Run(() => FindMountedLetter(contentId), cancellationToken)
+        var mounted = await Task.Run(() => FindMountedVolume(contentId), cancellationToken)
             .ConfigureAwait(false);
-        if (letter is not char mounted)
+        if (mounted is not { } volume)
         {
-            Log.Info($"Card rename: {contentId} is not in a reader; nothing can write its "
-                + "name onto the card, so the rename is refused.");
-            return "Insert the card to rename it.";
+            Log.Info($"Card rename: {contentId} is not mounted; nothing can write its name "
+                + "onto the drive, so the rename is refused.");
+            return "Connect the drive to rename it.";
         }
 
-        var library = Path.Combine($"{mounted}:\\", "SteamLibrary");
+        var library = Path.Combine(volume.Root, "SteamLibrary");
         var markerNote = await Task.Run(
             () => TrySetMarkerLabel(library, contentId, trimmed), cancellationToken)
             .ConfigureAwait(false);
@@ -467,7 +472,7 @@ public sealed class LibraryTabManager
         }
 
         var volumeNote = await Task.Run(
-            () => TrySetVolumeLabel(mounted, trimmed), cancellationToken).ConfigureAwait(false);
+            () => TrySetVolumeLabel(volume, trimmed), cancellationToken).ConfigureAwait(false);
         if (volumeNote is not null)
         {
             notes.Add(volumeNote);
@@ -490,7 +495,7 @@ public sealed class LibraryTabManager
     internal static string? TrySetMarkerLabel(
         string libraryPath, string contentId, string label)
     {
-        const string markerBehind = "The card still carries its old name.";
+        const string markerBehind = "The drive still carries its old name.";
         var marker = Path.Combine(libraryPath, "libraryfolder.vdf");
         try
         {
@@ -532,10 +537,27 @@ public sealed class LibraryTabManager
         }
     }
 
-    /// <summary>The drive letter the card with this content id is currently mounted
-    /// on, verified by reading the marker — never assumed from a remembered letter,
-    /// because the reader letter is shared by every card ever inserted.</summary>
-    private static char? FindMountedLetter(string contentId)
+    /// <summary>The volume a tracked library currently lives on.</summary>
+    /// <param name="Root">The volume GUID path with its trailing separator, which is
+    /// what every subsequent write addresses.</param>
+    /// <param name="Letter">The drive letter it was found through, for log lines
+    /// only — it is not a durable name for the volume.</param>
+    private readonly record struct MountedVolume(string Root, char Letter);
+
+    /// <summary>Finds the volume carrying this content id, verified by reading the
+    /// marker, and returns it as a volume GUID path.</summary>
+    /// <remarks>
+    /// Two separate reasons this cannot answer with a drive letter. The letter is
+    /// shared by every card a reader has ever held, so it is not identity; and it is
+    /// a mount point that the system can re-point at other media on its own — a
+    /// reconnecting iSCSI target or USB device bringing several volumes back at once
+    /// has the mount manager assigning letters in whatever order it processes them,
+    /// with no user action and no human timescale. Everything the rename writes
+    /// afterwards therefore addresses the volume that was validated here, so a letter
+    /// that moves in between cannot redirect a write onto a different library.
+    /// </remarks>
+    /// <param name="contentId">The library identity to look for.</param>
+    private static MountedVolume? FindMountedVolume(string contentId)
     {
         var systemDisks = RemovableDriveManager.ResolveSystemDisks();
         foreach (var drive in DriveInfo.GetDrives())
@@ -546,16 +568,21 @@ public sealed class LibraryTabManager
                 {
                     continue;
                 }
-                var marker = Path.Combine(drive.Name, "SteamLibrary", "libraryfolder.vdf");
-                if (!File.Exists(marker))
+                var letter = char.ToUpperInvariant(drive.Name[0]);
+                // Resolve the volume BEFORE reading the marker, and read through the
+                // volume: validating a letter and then writing to that letter is the
+                // race this exists to close.
+                if (!NativeStorage.TryGetVolumeGuidPath(letter, out var root) || root is null)
                 {
+                    Log.Warn($"Card rename: {letter}: has no volume path (Win32 error "
+                        + $"{NativeStorage.LastWin32Error()}); it cannot be written safely.");
                     continue;
                 }
-                var id = SteamLibraryVdf.ValuesOf(File.ReadAllText(marker), "contentid")
-                    .FirstOrDefault();
-                if (string.Equals(id, contentId, StringComparison.Ordinal))
+                if (SteamLibraryVdf.TryReadMarker(
+                        Path.Combine(root, "SteamLibrary"), out var id, out _)
+                    && string.Equals(id, contentId, StringComparison.Ordinal))
                 {
-                    return char.ToUpperInvariant(drive.Name[0]);
+                    return new MountedVolume(root, letter);
                 }
             }
             catch (Exception ex)
@@ -638,12 +665,21 @@ public sealed class LibraryTabManager
 
     // Windows volume labels are capped by filesystem: 32 chars on NTFS, 11 on
     // FAT32/exFAT — truncate rather than fail, and strip FAT-hostile characters.
-    private static string? TrySetVolumeLabel(char letter, string name)
+    // Addressed by volume GUID path, not by DriveInfo: this runs after a Steam round
+    // trip that can take seconds, and a drive letter can name different media by then.
+    private static string? TrySetVolumeLabel(MountedVolume volume, string name)
     {
+        const string labelBehind = "The Windows volume label could not be changed.";
         try
         {
-            var drive = new DriveInfo($"{letter}:\\");
-            var isNtfs = string.Equals(drive.DriveFormat, "NTFS", StringComparison.OrdinalIgnoreCase);
+            if (!NativeStorage.TryGetVolumeInformation(
+                    volume.Root, out var current, out var fileSystem))
+            {
+                Log.Warn($"Card rename: {volume.Letter}: could not be queried for its label "
+                    + $"(Win32 error {NativeStorage.LastWin32Error()}); it is unchanged.");
+                return labelBehind;
+            }
+            var isNtfs = string.Equals(fileSystem, "NTFS", StringComparison.OrdinalIgnoreCase);
             var invalid = "*?/\\|,;:+=<>[]\".".ToCharArray();
             var cleaned = new string([.. name.Where(c => Array.IndexOf(invalid, c) < 0)]).Trim();
             if (cleaned.Length == 0)
@@ -652,17 +688,24 @@ public sealed class LibraryTabManager
             }
             var capped = cleaned.Length > (isNtfs ? 32 : 11)
                 ? cleaned[..(isNtfs ? 32 : 11)] : cleaned;
-            if (!string.Equals(drive.VolumeLabel, capped, StringComparison.Ordinal))
+            if (string.Equals(current, capped, StringComparison.Ordinal))
             {
-                drive.VolumeLabel = capped;
-                Log.Info($"Card rename: volume {letter}: labeled '{capped}'.");
+                return null;
             }
+            if (!NativeStorage.TrySetVolumeLabel(volume.Root, capped))
+            {
+                Log.Warn($"Card rename: could not label {volume.Letter}: '{capped}' "
+                    + $"(Win32 error {NativeStorage.LastWin32Error()}).");
+                return labelBehind;
+            }
+            Log.Info($"Card rename: volume {volume.Letter}: labeled '{capped}'.");
             return null;
         }
         catch (Exception ex)
         {
-            Log.Warn($"Card rename: could not set volume label on {letter}:: {ex.Message}");
-            return "The Windows volume label could not be changed.";
+            Log.Warn($"Card rename: could not set the volume label on "
+                + $"{volume.Letter}:: {ex.Message}");
+            return labelBehind;
         }
     }
 

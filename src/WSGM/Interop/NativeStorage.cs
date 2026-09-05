@@ -793,4 +793,94 @@ internal static unsafe partial class NativeStorage
 
         return target + fullPath[2..];
     }
+
+    // ---- volume identity and label ----
+
+    [LibraryImport("kernel32.dll", EntryPoint = "GetVolumeNameForVolumeMountPointW",
+        SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetVolumeNameForVolumeMountPointW(
+        string mountPoint, char* volumeName, uint bufferLength);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "GetVolumeInformationW",
+        SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetVolumeInformationW(
+        string rootPath, char* volumeName, uint volumeNameLength, uint* serialNumber,
+        uint* maximumComponentLength, uint* fileSystemFlags,
+        char* fileSystemName, uint fileSystemNameLength);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "SetVolumeLabelW",
+        SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetVolumeLabelW(string rootPath, string? volumeLabel);
+
+    /// <summary>Resolves a drive letter to its volume GUID path
+    /// (<c>\\?\Volume{...}\</c>) — the name of the VOLUME rather than of the mount
+    /// point that currently exposes it.</summary>
+    /// <remarks>
+    /// A drive letter is a mount point and can be re-pointed at different media
+    /// without any user action: a reconnecting iSCSI target or USB device
+    /// re-enumerating, or another tool reassigning letters, does it in whatever
+    /// order the mount manager processes the volumes. File work that must stay on
+    /// the medium it validated has to address the volume, not the letter. If the
+    /// volume goes away, opens through this path fail instead of silently landing
+    /// on whatever took the letter over.
+    /// </remarks>
+    /// <param name="letter">The drive letter, without a colon.</param>
+    /// <param name="volumeRoot">The volume GUID path WITH its trailing separator,
+    /// or null when the letter names no volume.</param>
+    /// <returns>True when the letter resolved.</returns>
+    internal static bool TryGetVolumeGuidPath(char letter, out string? volumeRoot)
+    {
+        volumeRoot = null;
+        // Documented minimum for a volume GUID path is 50 characters.
+        var buffer = stackalloc char[64];
+        if (!GetVolumeNameForVolumeMountPointW($"{letter}:\\", buffer, 64))
+        {
+            return false;
+        }
+        var value = ReadBoundedString(buffer, 64);
+        if (value.Length == 0)
+        {
+            return false;
+        }
+        volumeRoot = value;
+        return true;
+    }
+
+    /// <summary>Reads a mounted volume's label and filesystem name.</summary>
+    /// <param name="volumeRoot">A root path WITH a trailing separator — a drive root
+    /// or a volume GUID path.</param>
+    /// <param name="label">The current volume label, empty when it has none.</param>
+    /// <param name="fileSystem">The filesystem name, e.g. <c>NTFS</c>.</param>
+    /// <returns>False when the volume could not be queried; the Win32 error is the
+    /// caller's to report.</returns>
+    internal static bool TryGetVolumeInformation(
+        string volumeRoot, out string label, out string fileSystem)
+    {
+        label = "";
+        fileSystem = "";
+        // MAX_PATH+1 each, the documented cap for both strings.
+        var labelBuffer = stackalloc char[261];
+        var fileSystemBuffer = stackalloc char[261];
+        if (!GetVolumeInformationW(
+                volumeRoot, labelBuffer, 261, null, null, null, fileSystemBuffer, 261))
+        {
+            return false;
+        }
+        label = ReadBoundedString(labelBuffer, 261);
+        fileSystem = ReadBoundedString(fileSystemBuffer, 261);
+        return true;
+    }
+
+    /// <summary>Sets a mounted volume's label.</summary>
+    /// <param name="volumeRoot">A root path WITH a trailing separator — a drive root
+    /// or a volume GUID path.</param>
+    /// <param name="label">The new label; it must already be within the
+    /// filesystem's length limit and free of characters it rejects.</param>
+    /// <returns>False when Windows refused; the Win32 error is the caller's to
+    /// report.</returns>
+    internal static bool TrySetVolumeLabel(string volumeRoot, string label)
+        => SetVolumeLabelW(volumeRoot, label);
 }

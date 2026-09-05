@@ -42,24 +42,49 @@ the media, and it cannot be attributed to the wrong card:
   the previous one's. This is what keeps Steam's own storage page honest; WSGM no longer depends on
   it.
 
+## A drive letter is a mount point, so no write may be addressed by one
+
+A card library is the common case, not the only one. The Add Steam Library flow takes any writable
+path, so a tracked library can also sit on an internal disk, a USB drive or an iSCSI LUN. That
+matters because those change what a letter points at **without a person touching anything**: an
+iSCSI target reconnecting or a USB device re-enumerating brings its volumes back in whatever order
+the mount manager processes them, and `mountvol` or Disk Management reassigns a letter outright.
+There is no human timescale to hide behind, so "the window between a read and a write is only
+microseconds" is not an argument — the mount point can be re-pointed inside it.
+
+The consequence for a rename would be severe. Validating the content id in
+`E:\SteamLibrary\libraryfolder.vdf` and then writing back through that same path can put the
+validated library's content id and label onto whichever library holds E: at the moment of the write.
+Two libraries would then carry one content id, which is the key both the tracked list and Steam's
+registrations select on — a worse failure than the naming bug above.
+
+So `FindMountedVolume` resolves the letter to a volume GUID path
+(`GetVolumeNameForVolumeMountPoint`, `\\?\Volume{...}\`) once, reads the marker through it to
+confirm the identity, and returns that path. Every write afterwards addresses the volume: the
+marker, and the Windows volume label through
+`NativeStorage.TryGetVolumeInformation`/`TrySetVolumeLabel` rather than `DriveInfo`. A volume GUID
+names the medium, so a letter that moves cannot redirect a write, and a volume that goes away makes
+the open fail instead of landing somewhere else. Steam's own label is selected by content id and was
+never exposed to this.
+
 ## The rename is ordered around the write that can fail
 
 `TrySetMarkerLabel` runs first and everything else is conditional on it. It selects the block by
-content id, so a card swapped between `FindMountedLetter` and the write cannot be relabelled, and it
-reads the marker back afterwards, so a half-applied replace is reported rather than assumed. Only
-once the media says the new name does the rename update the tracked cache, Steam's label and the
-Windows volume label.
+content id, so a drive that changed under the path cannot be relabelled, and it reads the marker
+back afterwards, so a half-applied replace is reported rather than assumed. Only once the medium
+says the new name does the rename update the tracked cache, Steam's label and the Windows volume
+label.
 
-The order matters because the other two writes are addressed differently. Steam's is by content id
-and would survive a mistake, but the volume label is by **drive letter**: applied after a failed
-marker write it renames whichever card is in the reader now. And a tracked name the media does not
-carry is reverted by the very next scan, so a rename that stopped at the cache would appear to work
-and then silently undo itself.
+The order matters because a tracked name the medium does not carry is reverted by the very next
+scan: a rename that stopped at the cache would appear to work and then silently undo itself. And
+`PushLabelToSteamAsync` sits between the marker write and the volume label as a CEF round trip that
+can take seconds — ample time for a letter to move, which is why the volume label uses the resolved
+volume rather than re-deriving a path.
 
-**A card that is not in a reader cannot be renamed** — the manager answers "Insert the card to
-rename it." Nothing can reach an absent card's marker, so such a rename could only live in the cache
-until the card came back and the marker overwrote it. Before the marker became authoritative this
-happened to stick, which is why it was previously allowed.
+**A library that is not mounted cannot be renamed** — the manager answers "Connect the drive to
+rename it." Nothing can reach an absent drive's marker, so such a rename could only live in the
+cache until the drive came back and the marker overwrote it. Before the marker became authoritative
+this happened to stick, which is why it was previously allowed.
 
 ## A reconcile decision is re-checked against the media before it is applied
 
@@ -70,6 +95,25 @@ decision when the identity no longer matches — otherwise the pass would regist
 or hand the card that arrived the previous one's label, and `Decide` would see a matching id
 afterwards and never correct it. The swap raised its own notification, so the pass it schedules
 decides again on what is actually there.
+
+This one path cannot use a volume GUID: `AddInstallFolder` registers a path with Steam, and Steam
+needs a real drive-letter path. The re-read immediately before the call is the whole guard available
+there.
+
+## What the monitor does and does not watch
+
+`CardVolumeMonitor.ScanCardLibraryPaths` considers `DriveType.Removable` volumes only, so a library
+on an internal disk, an iSCSI LUN or a non-removable USB enclosure is never added, replaced or
+purged by the reconcile — those volumes raise the same `GUID_DEVINTERFACE_VOLUME` notifications and
+are then skipped. That is deliberate for removal: the monitor only purges paths it positively
+identified as removable while they were mounted, because a registered path that is currently
+unreachable might be a drive the user detached on purpose, and purging it would throw away a library
+WSGM never created. Widening the scan would need that removal rule rethought first.
+
+`LibraryTabManager.IsExternalVolume` is a different gate — `Fixed` or `Removable`, non-system, and
+`RemovableDriveManager.Classify` non-null, which needs `DeviceHotplug` or `MediaRemovable` from
+`IOCTL_STORAGE_GET_HOTPLUG_INFO`. Whether a given iSCSI or internal library passes it therefore
+depends on what that disk reports, and has not been measured on the reference device.
 
 ## Format SD Card lives inside the Card Manager
 
