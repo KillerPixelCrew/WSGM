@@ -5,7 +5,15 @@ import { readFileSync } from "node:fs";
 
 const PORT = 8080;
 const mode = process.argv[2] || "enable";
-const cs = readFileSync("../../src/WSGM/Core/SteamDownloadSort.cs", "utf8");
+const root = new URL("../../", import.meta.url);
+const cs = readFileSync(new URL("src/WSGM/Core/SteamDownloadSort.cs", root), "utf8");
+const resolver = readFileSync(
+  new URL(
+    "external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiAssets/Source/module-resolver.ts",
+    root,
+  ),
+  "utf8",
+);
 
 const start = cs.indexOf('private const string ResidentSetup = """');
 if (start === -1) throw new Error("ResidentSetup not found");
@@ -22,7 +30,9 @@ body = lines.map((l) => (l.startsWith(" ".repeat(pad)) ? l.slice(pad) : l)).join
 const expression =
   mode === "disable"
     ? "(()=>{try{var W=window.__wsgm;if(W&&W.dlSortRemove)W.dlSortRemove();return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false,err:String(e)});}})()"
-    : "(()=>{try{" +
+    : "(()=>{try{const steamModules=(" +
+      resolver +
+      ")('download-sort');" +
       body +
       "\nreturn W.dlSortInstall();}catch(e){return JSON.stringify({ok:false,err:String((e&&e.stack)||e)});}})()";
 

@@ -26,7 +26,8 @@ remains in its feature scope.
 
 - SharedJSContext is the Steam execution surface for CEF modules and stores;
   Shell/SteamUiSessionHost owns the bridge, patch manager, modules, runtime, and their lifetime. Use
-  literal module lookups and JSON-encoded values across the JavaScript boundary.
+  the toolkit's module resolver for literal lookups or unique source fingerprints, and JSON-encode
+  values across the JavaScript boundary. Features must not implement registry scans or raw require.
 - Keep CEF debugger sockets loopback-only. Artwork queries request static assets, require HTTPS,
   infer supported formats from the URL suffix, and cap downloads at 16 MiB; those checks do not
   validate MIME headers or decoded PNG/JPEG content. An unreachable client remains distinct from a

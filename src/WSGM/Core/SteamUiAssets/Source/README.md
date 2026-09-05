@@ -8,11 +8,12 @@ It is compiled as a single unit because it is evaluated in a single CDP call, an
 deliberately share one lexical scope: a gate closes over the bridge's private functions and must not
 publish a second runtime API merely to cross a source-file boundary.
 
-Everything Steam-shaped — a literal module id, a store's field names, a localization token, a row —
-belongs in the toolkit, so that another host can feed its own data into the same surface. A fragment
-lives here only when it is WSGM's own feature and no other host could want it. Today nothing
-qualifies: WSGM's library tabs, card badge and download sorting are resident scripts and patches of
-their own, not fragments of this asset.
+Reusable Valve surfaces belong in the toolkit, so another host can feed its own data into the same
+surface. WSGM-only features retain their fingerprints, but resolve them through the toolkit's
+`SteamUiModuleResolver`; they do not implement a registry scan. A fragment lives here only when it
+is WSGM's own feature and no other host could want it. Today nothing qualifies: WSGM's library tabs,
+card badge and download sorting are resident scripts and patches of their own, not fragments of this
+asset.
 
 - `gates/` would hold WSGM-only, independently reversible service/store integrations, one file per
   gate, each registering itself with `registerGate(name, gate)`.

@@ -680,7 +680,7 @@ public sealed class SessionModes
         Log.Info("Starting Steam Big Picture.");
         // Read at launch time, not captured: a config reload replaces _config wholesale, and both
         // the cold start and the auto-relaunch after Steam exits come through here.
-        var result = Steam.LaunchBigPicture(_config.SteamLaunchUnelevated);
+        var result = Steam.LaunchBigPicture(_config.SteamLaunchUnelevated, _config.Cef.Enabled);
         return result.Started ? null : BigPictureStartFailedWarning;
     }
 

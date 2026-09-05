@@ -59,6 +59,14 @@ Big Picture request, retract the host, card badge, and library tabs, then close 
 the bounded shutdown budget. Disabling the master switch follows the same retract-before-close
 order. Overlay-test mode never attaches.
 
+The toolkit transport additionally requires one validated MainWindow target before attaching in
+either mode (`requireMainWindow: true` in WSGM). The desktop master-switch branch permits discovery,
+not headless startup injection. Remote-debugging opt-in receives the configured master switch
+separately, so the startup hold cannot suppress the flag on a first cold start.
+
+Module scans and resolution belong to `SteamUiModuleResolver` in the toolkit. WSGM features supply
+their fingerprints and interpret exports; they use the same resolver source as probes and gates.
+
 A healthy cold start orders evidence as:
 
 1. `Big Picture window detected`

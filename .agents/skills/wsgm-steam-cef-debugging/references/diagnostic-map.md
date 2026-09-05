@@ -38,6 +38,12 @@ steam.ui.patch.<id> ... Verified
 
 Patch work before the readiness line points to a transport-gate regression, not a missing row token.
 
+For desktop cold starts, distinguish the enabled transport policy from actual attachment: toolkit
+discovery requires a validated MainWindow, not a login popup. The 2026-09-05 failure and whole-path
+audit are recorded in `docs/steam-cef-startup-audit.md`. A missing-factory `reading 'call'` followed
+by missing exports can mean an early module load poisoned webpack's cache, even if its source is
+present by the time of inspection. Do not retry the module to investigate that state.
+
 ## Symptom routing
 
 | Symptom                                        | First checks                                                        | Common causes                                                                          |

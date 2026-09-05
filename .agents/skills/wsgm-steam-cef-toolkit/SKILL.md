@@ -32,7 +32,10 @@ changes outside the requested feature.
 ## Preserve these invariants
 
 - Open the transport only when `master && ((!inGameMode && !transitionPending) || bigPictureReady)`.
-  A reachable CEF endpoint or a new `SharedJSContext` is not Big Picture readiness.
+  A reachable CEF endpoint or a new `SharedJSContext` is not Big Picture readiness. WSGM also
+  requires a validated MainWindow during toolkit discovery in both modes; a desktop login popup does
+  not authorize attachment. The configured master switch, not that temporary hold, controls creating
+  the remote-debugging flag before a cold start.
 - Keep one persistent transport and one attached session. One-shot evaluations borrow that session.
 - Use `SharedJSContext` for stores, webpack, React, bridge, and patches. Use the visible shaped
   `MainWindow` target for DOM and screenshots; never select it by localized title.
@@ -42,7 +45,9 @@ changes outside the requested feature.
   marker, and remove only WSGM's change. Accept the owned post-apply state on the next probe.
 - Discover only named module ids or uniquely matched source/prototype strings. Never execute the
   webpack registry, instantiate unknown exports, or spoof broad platform state such as
-  `TS.IS_STEAMOS` or `force_deck_perf_tab`.
+  `TS.IS_STEAMOS` or `force_deck_perf_tab`. Use the toolkit's `SteamUiModuleResolver` for matching
+  and module resolution. Features provide fingerprints; they must not implement registry scans or
+  expose raw webpack require.
 - Keep the bridge vocabulary closed and derived from registered modules. Maintain camelCase wire
   fields, payload limits, positive sequence/action generations, validation, and replay rejection.
 - Treat `null` projected state as "publish nothing," not a zero/default value. Keep data

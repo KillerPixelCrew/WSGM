@@ -60,7 +60,7 @@ public static class SteamLibraryTabs
         CancellationToken cancellationToken = default)
     {
         var expression =
-            "(async()=>{try{" + ResidentSetup +
+            "(async()=>{try{const steamModules=" + SteamUiModuleResolver.CreateExpression("library-tabs") + ";" + ResidentSetup +
             "window.__wsgm.tabs=" + BuildDefs(tabs) + ";" +
             "window.__wsgm.tabOrder=" + BuildStrings(order) + ";" +
             "window.__wsgm.hiddenTabs=" + BuildStrings(hiddenNativeIds) + ";" +
@@ -195,20 +195,14 @@ public static class SteamLibraryTabs
     // under window.__wsgm to coexist with CSSLoader. This is the exact script verified
     // live against Steam's Big Picture library.
     //
-    // React discovery MUST load modules via req(id) over req.m: the require captured
-    // from a pushed chunk exposes an EMPTY module cache (req.c has zero entries,
-    // verified live), so a cache-only exports scan finds nothing — ever. A past review
-    // "hardened" this into req.c and silently broke every injection ("React not
-    // found") until the next device test. Do not switch this back to a cache scan.
+    // Steam does not expose its module cache. Match React's factory source uniquely before
+    // resolving it; executing the registry can initialize unrelated services during startup.
     private const string ResidentSetup = """
         var W=window.__wsgm=window.__wsgm||{};
         if(W.tabsDisabled)throw new Error('WSGM library tabs are disabled for this Steam session');
         if(!W._react){
-          if(!window.webpackChunksteamui)throw new Error('webpack not ready');
-          var req;window.webpackChunksteamui.push([[Symbol('wsgm')],{},function(r){req=r;}]);
-          if(!req)throw new Error('no require');
-          for(var id of Object.keys(req.m)){var e;try{e=req(id);}catch(x){continue;}
-            if(e&&e.createElement&&e.useMemo&&e.version){W._react=e;break;}}
+          var e=steamModules.resolve(['react.transitional.element','useState','cloneElement','createElement']);
+          if(e&&e.createElement&&e.useMemo&&e.version)W._react=e;
           if(!W._react)throw new Error('React not found');
         }
         var React=W._react;

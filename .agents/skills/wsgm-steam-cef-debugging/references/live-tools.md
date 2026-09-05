@@ -39,7 +39,7 @@ screenshots, select MainWindow by URL shape (`about:blank?`, `createflags`, `min
 | `qam-harness.mjs install` or `publish`           | mutating                                      | bypasses the patch manager; follow with `remove` and verify the visible result       |
 | `qam-harness.mjs remove`                         | partial cleanup                               | removes its gates/bridge, not the installed runtime binding                          |
 | `qam-harness.mjs screenshot`                     | capture                                       | may expose user-visible Steam content                                                |
-| `run-prod-sort.mjs enable` or `disable`          | mutating                                      | can reorder or resume downloads and is working-directory-sensitive                   |
+| `run-prod-sort.mjs enable` or `disable`          | mutating                                      | can reorder or resume downloads; source paths resolve relative to the script         |
 | `art-test.mjs`                                   | mutating                                      | applies artwork and needs `SGDB_KEY`                                                 |
 
 Both `.codex/config.toml` and `.mcp.json` attach their `steam-cef` client to the same loopback
