@@ -449,15 +449,31 @@ public static class SteamLibraryVdf
     /// <param name="libraryPath">The library root, e.g. <c>E:\SteamLibrary</c>.</param>
     /// <param name="contentId">The first non-whitespace content id, or null.</param>
     public static bool TryReadMarkerContentId(string libraryPath, out string? contentId)
+        => TryReadMarker(libraryPath, out contentId, out _);
+
+    /// <summary>Reads both values a card's <c>libraryfolder.vdf</c> marker holds:
+    /// its content id and its label. The marker is the only copy of either that
+    /// travels with the media, which is why it, and not
+    /// <c>config\libraryfolders.vdf</c>, names a card (see <c>docs\sd-cards.md</c>).
+    /// IO failures propagate, as in <see cref="TryReadMarkerContentId"/>.</summary>
+    /// <param name="libraryPath">The library root, e.g. <c>E:\SteamLibrary</c>.</param>
+    /// <param name="contentId">The first non-whitespace content id, or null.</param>
+    /// <param name="label">The marker's label, empty when it carries none.</param>
+    /// <returns>True when the marker exists and holds a usable content id.</returns>
+    public static bool TryReadMarker(
+        string libraryPath, out string? contentId, out string label)
     {
         contentId = null;
+        label = "";
         var marker = Path.Combine(libraryPath, "libraryfolder.vdf");
         if (!File.Exists(marker))
         {
             return false;
         }
-        contentId = ValuesOf(File.ReadAllText(marker), "contentid")
+        var text = File.ReadAllText(marker);
+        contentId = ValuesOf(text, "contentid")
             .FirstOrDefault(id => !string.IsNullOrWhiteSpace(id));
+        label = (ValuesOf(text, "label").FirstOrDefault() ?? "").Trim();
         return contentId is not null;
     }
 

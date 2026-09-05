@@ -1,3 +1,4 @@
+using WSGM.Device.Tests;
 using WSGM.Interop;
 using WSGM.Shell;
 
@@ -309,6 +310,46 @@ public sealed class SdFormatTests
             + "}\n",
             marker);
         Assert.DoesNotContain("\r", marker);
+    }
+
+    [Fact]
+    public void ReadingAMarkerReturnsBothItsIdentityAndItsName()
+    {
+        // The card's own name, which is what discovery follows: Steam's config label
+        // belongs to a path registration and survives a card swap.
+        using var temp = new TemporaryDirectory();
+        var library = Directory.CreateDirectory(temp.GetPath("SteamLibrary")).FullName;
+        File.WriteAllText(
+            Path.Combine(library, "libraryfolder.vdf"),
+            SteamLibraryVdf.BuildMarker("222", @"C:\Steam\steam.exe", "SDCard10"));
+
+        Assert.True(SteamLibraryVdf.TryReadMarker(library, out var contentId, out var label));
+        Assert.Equal("222", contentId);
+        Assert.Equal("SDCard10", label);
+    }
+
+    [Fact]
+    public void ReadingAnUnlabelledMarkerReportsAnEmptyName()
+    {
+        using var temp = new TemporaryDirectory();
+        var library = Directory.CreateDirectory(temp.GetPath("SteamLibrary")).FullName;
+        File.WriteAllText(
+            Path.Combine(library, "libraryfolder.vdf"),
+            SteamLibraryVdf.BuildMarker("222", @"C:\Steam\steam.exe"));
+
+        Assert.True(SteamLibraryVdf.TryReadMarker(library, out var contentId, out var label));
+        Assert.Equal("222", contentId);
+        Assert.Equal("", label);
+    }
+
+    [Fact]
+    public void ReadingAMissingMarkerFailsWithoutThrowing()
+    {
+        using var temp = new TemporaryDirectory();
+
+        Assert.False(SteamLibraryVdf.TryReadMarker(temp.Root, out var contentId, out var label));
+        Assert.Null(contentId);
+        Assert.Equal("", label);
     }
 
     // ---- label rewrite (card rename while Steam is closed) ----

@@ -441,7 +441,11 @@ public sealed class CardLibraryConfig
     /// <summary>The card's library content id — its stable identity.</summary>
     public string ContentId { get; set; } = "";
 
-    /// <summary>Display/collection name (the card's label, or a fallback).</summary>
+    /// <summary>Display/collection name. A cache of the label in the card's own
+    /// <c>libraryfolder.vdf</c>, which is what names the card while it is ejected
+    /// and nothing can be read from it. The marker wins whenever the card is
+    /// present; see <c>docs\sd-cards.md</c> for why Steam's config label may not.
+    /// </summary>
     public string Name { get; set; } = "";
 
     /// <summary>Whether a Steam collection ("tab") is maintained for this card.</summary>
@@ -453,12 +457,6 @@ public sealed class CardLibraryConfig
 
     /// <summary>App ids installed on the card (remembered while it is ejected).</summary>
     public List<long> AppIds { get; set; } = [];
-
-    /// <summary>The Steam-side library label as last seen in sync with
-    /// <see cref="Name"/>. Names follow Steam only while Name equals this value;
-    /// a WSGM-side rename leaves it stale until Steam's config catches up, which
-    /// is what stops a lagging libraryfolders.vdf from reverting the rename.</summary>
-    public string LastSteamLabel { get; set; } = "";
 }
 
 /// <summary>One user-built custom library tab: a WSGM-owned Steam collection whose

@@ -402,10 +402,14 @@ public sealed class LibraryTabManager
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Renames a tracked card everywhere it has a name: the WSGM tab, the
-    /// Steam library label (live via CEF when Steam runs, else a byte-preserving
-    /// vdf edit), and the Windows volume label when the card is inserted. Identity
-    /// is always the content id — never the reader's (shared) drive letter.</summary>
+    /// <summary>Renames a tracked card everywhere it has a name: the card's own
+    /// <c>libraryfolder.vdf</c> marker, the WSGM tab, the Steam library label (live
+    /// via CEF when Steam runs, else a byte-preserving vdf edit), and the Windows
+    /// volume label. Identity is always the content id — never the reader's (shared)
+    /// drive letter.</summary>
+    /// <remarks>The marker write is the one that matters: it is the only copy that
+    /// travels with the media, so it is what the next scan reads the name back from.
+    /// It runs whenever the card is mounted, whatever Steam is doing.</remarks>
     /// <param name="contentId">The card's content id.</param>
     /// <param name="name">The new name.</param>
     /// <param name="cancellationToken">Cancels the writes.</param>
@@ -426,23 +430,72 @@ public sealed class LibraryTabManager
         var letter = await Task.Run(() => FindMountedLetter(contentId), cancellationToken)
             .ConfigureAwait(false);
 
-        var steamNote = await PushLabelToSteamAsync(contentId, trimmed, letter, cancellationToken)
+        if (letter is char mounted)
+        {
+            var markerNote = await Task.Run(
+                () => TrySetMarkerLabel(mounted, contentId, trimmed), cancellationToken)
+                .ConfigureAwait(false);
+            if (markerNote is not null)
+            {
+                notes.Add(markerNote);
+            }
+        }
+
+        var steamNote = await PushLabelToSteamAsync(contentId, trimmed, cancellationToken)
             .ConfigureAwait(false);
         if (steamNote is not null)
         {
             notes.Add(steamNote);
         }
 
-        if (letter is char mounted)
+        if (letter is char volume)
         {
             var volumeNote = await Task.Run(
-                () => TrySetVolumeLabel(mounted, trimmed), cancellationToken).ConfigureAwait(false);
+                () => TrySetVolumeLabel(volume, trimmed), cancellationToken).ConfigureAwait(false);
             if (volumeNote is not null)
             {
                 notes.Add(volumeNote);
             }
         }
         return notes.Count == 0 ? null : string.Join(" ", notes);
+    }
+
+    /// <summary>Writes the new label into the card's own <c>libraryfolder.vdf</c>,
+    /// preserving every other byte. Returns null on success, else a user-facing note.
+    /// </summary>
+    /// <remarks>Safe against a running Steam: the marker is read at mount time, not
+    /// held open, and WSGM already writes it at format time under a live client.
+    /// </remarks>
+    private static string? TrySetMarkerLabel(char letter, string contentId, string label)
+    {
+        const string markerBehind = "The card still carries its old name.";
+        var marker = Path.Combine($"{letter}:\\", "SteamLibrary", "libraryfolder.vdf");
+        try
+        {
+            if (!File.Exists(marker))
+            {
+                Log.Warn($"Card rename: {marker} is gone; the card keeps its old name.");
+                return markerBehind;
+            }
+            // Selected by content id even though the path already matched it: the card
+            // can be swapped between FindMountedLetter and here, and relabelling the
+            // wrong card is exactly the failure this rename exists to stop.
+            if (!SteamLibraryVdf.TrySetLabel(
+                    File.ReadAllText(marker), contentId, label, out var updated)
+                || updated is null)
+            {
+                Log.Warn($"Card rename: {marker} does not carry content id {contentId}; "
+                    + "the card in the reader changed. Its name is unchanged.");
+                return markerBehind;
+            }
+            SdFormatManager.WriteAtomically(marker, updated);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Card rename: could not write {marker}: {ex.Message}");
+            return markerBehind;
+        }
     }
 
     /// <summary>The drive letter the card with this content id is currently mounted
@@ -479,12 +532,14 @@ public sealed class LibraryTabManager
         return null;
     }
 
-    // Pushes the new label to Steam. Live client: SetFolderLabel over CEF (Steam
-    // persists it itself; LastSteamLabel stays stale until Steam flushes its config,
-    // and MergeDiscovery records the new agreement then). Closed client: edit the
-    // config and marker vdf files directly and record the agreement immediately.
+    // Pushes the new label to Steam's own view of the library, so its storage page
+    // agrees with the name WSGM shows. Live client: SetFolderLabel over CEF, which
+    // Steam persists itself. Closed client: a byte-preserving edit of
+    // config\libraryfolders.vdf. The card's own marker is NOT written here — that is
+    // TrySetMarkerLabel's job and it runs whether or not Steam is reachable, because
+    // it is the copy the next scan reads the name back from.
     private static async Task<string?> PushLabelToSteamAsync(
-        string contentId, string label, char? letter, CancellationToken cancellationToken)
+        string contentId, string label, CancellationToken cancellationToken)
     {
         const string steamBehind = "Steam still shows the old name.";
         var steamExe = Steam.ExePath;
@@ -536,17 +591,6 @@ public sealed class LibraryTabManager
                     }
                     SdFormatManager.WriteAtomically(configPath, updatedConfig);
                 }
-                if (letter is char mounted)
-                {
-                    var marker = Path.Combine($"{mounted}:\\", "SteamLibrary", "libraryfolder.vdf");
-                    if (File.Exists(marker)
-                        && SteamLibraryVdf.TrySetLabel(
-                            File.ReadAllText(marker), contentId, label, out var updatedMarker)
-                        && updatedMarker is not null)
-                    {
-                        SdFormatManager.WriteAtomically(marker, updatedMarker);
-                    }
-                }
                 return true;
             }
             catch (Exception ex)
@@ -555,15 +599,7 @@ public sealed class LibraryTabManager
                 return false;
             }
         }, cancellationToken).ConfigureAwait(false);
-        if (!edited)
-        {
-            return steamBehind;
-        }
-        // The files now agree with Name; record the pair so discovery keeps
-        // following future Steam-side renames.
-        await UpdateCardAsync(contentId, c => c.LastSteamLabel = label, cancellationToken)
-            .ConfigureAwait(false);
-        return null;
+        return edited ? null : steamBehind;
     }
 
     // Windows volume labels are capped by filesystem: 32 chars on NTFS, 11 on
@@ -802,18 +838,23 @@ public sealed class LibraryTabManager
         return result;
     }
 
-    /// <summary>A removable Steam library found on a mounted drive.
-    /// <paramref name="SteamLabel"/> is the label Steam itself shows for it (config
-    /// label, else marker label) — the value a Steam-side rename changes.</summary>
-    private sealed record Discovered(
-        string ContentId, string Name, List<long> AppIds, char Letter, string SteamLabel);
+    /// <summary>A removable Steam library found on a mounted drive.</summary>
+    /// <param name="ContentId">The stable identity from the card's own marker.</param>
+    /// <param name="Name">The display name to use when the card has never been
+    /// tracked and its marker carries no label.</param>
+    /// <param name="AppIds">The app ids currently installed on the card.</param>
+    /// <param name="Letter">The drive letter the card is mounted on right now.</param>
+    /// <param name="MarkerLabel">The label in the card's own
+    /// <c>libraryfolder.vdf</c>, empty when it has none. Authoritative: it is the
+    /// only name that travels with the media.</param>
+    internal sealed record Discovered(
+        string ContentId, string Name, List<long> AppIds, char Letter, string MarkerLabel);
 
     /// <summary>Scans every ready drive for a <c>&lt;X&gt;:\SteamLibrary</c> marker and
     /// reads its identity, label and installed app ids. The primary Steam install
     /// has no such subfolder marker, so it is naturally excluded.</summary>
     private static List<Discovered> ScanLibraries()
     {
-        var configLabels = ReadConfigLabels();
         // Resolved once per scan: each call opens two volume handles and issues two
         // IOCTLs, and the answer cannot change while a single scan runs.
         var systemDisks = RemovableDriveManager.ResolveSystemDisks();
@@ -839,13 +880,10 @@ public sealed class LibraryTabManager
                     continue;
                 }
                 var letter = char.ToUpperInvariant(drive.Name[0]);
-                var label = SteamLibraryVdf.ValuesOf(text, "label").FirstOrDefault() ?? "";
-                var name = ResolveName(label, contentId, configLabels, drive, letter);
+                var label = (SteamLibraryVdf.ValuesOf(text, "label").FirstOrDefault() ?? "").Trim();
+                var name = ResolveName(label, drive, letter);
                 var appIds = ReadAcfAppIds(Path.Combine(root, "steamapps"));
-                var steamLabel = configLabels.TryGetValue(contentId, out var configLabel)
-                    && !string.IsNullOrWhiteSpace(configLabel)
-                    ? configLabel.Trim() : label.Trim();
-                found.Add(new Discovered(contentId, name, appIds, letter, steamLabel));
+                found.Add(new Discovered(contentId, name, appIds, letter, label));
             }
             catch (Exception ex)
             {
@@ -880,58 +918,17 @@ public sealed class LibraryTabManager
             && RemovableDriveManager.Classify(hotplug, media) is not null;
     }
 
-    /// <summary>Maps content id → the Steam-side library label from
-    /// <c>config\libraryfolders.vdf</c> (each entry lists <c>label</c> then
-    /// <c>contentid</c> in order, so the value lists align by entry). Lets a card
-    /// whose on-disk marker has no label still get its real Steam name.</summary>
-    private static Dictionary<string, string> ReadConfigLabels()
-    {
-        var map = new Dictionary<string, string>(StringComparer.Ordinal);
-        var steamExe = Steam.ExePath;
-        if (steamExe is null)
-        {
-            return map;
-        }
-        var configPath = Path.Combine(
-            Path.GetDirectoryName(steamExe)!, "config", "libraryfolders.vdf");
-        if (!File.Exists(configPath))
-        {
-            return map;
-        }
-        try
-        {
-            var text = File.ReadAllText(configPath);
-            var ids = SteamLibraryVdf.ValuesOf(text, "contentid");
-            foreach (var id in ids)
-            {
-                if (!string.IsNullOrEmpty(id))
-                {
-                    map[id] = SteamLibraryVdf.LabelForContentId(text, id) ?? "";
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Library tabs: could not read config labels: {ex.Message}");
-        }
-        return map;
-    }
-
-    /// <summary>Picks a tab name: the library's own marker label, else its
-    /// Steam-side label from config, else the volume label, else a drive-letter
-    /// fallback.</summary>
-    private static string ResolveName(
-        string markerLabel, string contentId, Dictionary<string, string> configLabels,
-        DriveInfo drive, char letter)
+    /// <summary>Picks a name for a card nothing has tracked yet: its marker label,
+    /// else the volume label, else a drive-letter fallback. Every candidate here is
+    /// read from the media itself. <c>config\libraryfolders.vdf</c> is deliberately
+    /// not consulted — its <c>label</c> belongs to a PATH registration, and a card
+    /// reader hands every card the same path, so Steam carries the previous card's
+    /// label onto the new card's content id (see <c>docs\sd-cards.md</c>).</summary>
+    private static string ResolveName(string markerLabel, DriveInfo drive, char letter)
     {
         if (!string.IsNullOrWhiteSpace(markerLabel))
         {
             return markerLabel.Trim();
-        }
-        if (configLabels.TryGetValue(contentId, out var steamLabel)
-            && !string.IsNullOrWhiteSpace(steamLabel))
-        {
-            return steamLabel.Trim();
         }
         try
         {
@@ -970,15 +967,30 @@ public sealed class LibraryTabManager
     }
 
     /// <summary>Upserts the scan into the persisted card DB: a new card is added
-    /// (enabled), a known one has its name, app ids, last-seen and letter refreshed.
-    /// Cards not currently discovered are left untouched (remembered while ejected).</summary>
-    private static void MergeDiscovery(AppConfig config, List<Discovered> discovered)
+    /// (enabled), a known one has its name and app ids refreshed from the media.
+    /// Cards not currently discovered are left untouched (remembered while ejected).
+    /// </summary>
+    /// <remarks>
+    /// The name follows the card's OWN marker label and nothing else. Steam's
+    /// <c>config\libraryfolders.vdf</c> label was the previous source and is not a
+    /// per-card value: it belongs to the registration at a PATH, and a card reader
+    /// gives every card the same path, so swapping cards left the new card's content
+    /// id carrying the previous card's label — which this merge then adopted, renaming
+    /// one card to the other (device-observed, 2026-09-05; see
+    /// <c>docs\sd-cards.md</c>). A WSGM-side rename writes the marker, so following
+    /// the marker still reflects a rename made here, and there is nothing left for a
+    /// two-way sync to reconcile.
+    /// </remarks>
+    /// <param name="config">The configuration to upsert into.</param>
+    /// <param name="discovered">Cards found mounted by this scan.</param>
+    internal static void MergeDiscovery(AppConfig config, List<Discovered> discovered)
     {
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(discovered);
         var db = config.CardLibraries;
         var presentIds = discovered.Select(static card => card.ContentId)
             .ToHashSet(StringComparer.Ordinal);
         config.ForgottenInsertedCardIds.RemoveAll(id => !presentIds.Contains(id));
-        var now = DateTime.UtcNow.Ticks;
         foreach (var card in discovered)
         {
             if (config.ForgottenInsertedCardIds.Contains(card.ContentId, StringComparer.Ordinal))
@@ -992,32 +1004,26 @@ public sealed class LibraryTabManager
                 existing = new CardLibraryConfig { ContentId = card.ContentId, Enabled = true };
                 db.Add(existing);
             }
-            if (string.IsNullOrWhiteSpace(existing.Name))
+            // A labelled marker is the card's name. Only a card that carries no label
+            // of its own falls back to the scan's guess, and only while nothing has
+            // named it yet — otherwise an unlabelled card would lose a rename made
+            // here every time the reader handed it a different drive letter.
+            var name = string.IsNullOrWhiteSpace(card.MarkerLabel)
+                ? existing.Name
+                : card.MarkerLabel;
+            if (string.IsNullOrWhiteSpace(name))
             {
-                existing.Name = card.Name;
+                name = card.Name;
             }
-            // Two-way name sync with Steam, keyed by LastSteamLabel (the label last
-            // seen in agreement with Name):
-            //   - in sync (Name == LastSteamLabel) and Steam's label changed → the
-            //     user renamed it in Steam; follow it here.
-            //   - Steam's label caught up with a WSGM-side rename → record the new
-            //     agreement. Until then a lagging libraryfolders.vdf (Steam flushes
-            //     on exit) must NOT revert the WSGM rename, which is why an
-            //     out-of-sync pair adopts nothing.
-            if (!string.IsNullOrWhiteSpace(card.SteamLabel))
+            if (!string.Equals(existing.Name, name, StringComparison.Ordinal))
             {
-                if (string.Equals(existing.Name, existing.LastSteamLabel, StringComparison.Ordinal)
-                    && !string.Equals(card.SteamLabel, existing.LastSteamLabel, StringComparison.Ordinal))
-                {
-                    Log.Info($"Card {card.ContentId}: following Steam rename "
-                        + $"'{existing.Name}' -> '{card.SteamLabel}'.");
-                    existing.Name = card.SteamLabel;
-                    existing.LastSteamLabel = card.SteamLabel;
-                }
-                else if (string.Equals(card.SteamLabel, existing.Name, StringComparison.Ordinal))
-                {
-                    existing.LastSteamLabel = card.SteamLabel;
-                }
+                // Change, not Info: one sync merges twice (once into the snapshot it
+                // builds tabs from, once into the freshly locked config it saves), so
+                // an unconditional line would report every rename twice.
+                Log.Change($"card-name-{card.ContentId}",
+                    $"Card {card.ContentId}: name '{existing.Name}' -> '{name}' "
+                    + "(from the card's own marker).");
+                existing.Name = name;
             }
             existing.AppIds = card.AppIds;
         }

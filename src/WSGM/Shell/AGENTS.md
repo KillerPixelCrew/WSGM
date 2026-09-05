@@ -19,6 +19,9 @@ docs/device-integration.md, and docs/sd-cards.md before changing these paths.
   unelevated applications reach elevated WSGM.
 - Removable-card ownership is keyed by contentId rather than drive letter. Steam VDF edits are
   shape-checked, renumbered, backed up once, and atomically replaced.
+- A card's name comes from its own libraryfolder.vdf marker. The label in Steam's libraryfolders.vdf
+  belongs to a path registration and survives a card swap, so it must never name a card. A rename
+  writes the marker whether or not Steam is running.
 
 ## SD-card formatting
 
