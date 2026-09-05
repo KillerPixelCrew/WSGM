@@ -225,13 +225,14 @@ device-specific power limit consumed by AutoTDP, but it never owns or reimplemen
 Capabilities that were already incomplete or explicitly future work. None was removed to make the
 architecture smaller.
 
-- [ ] **Fix the Claw OEM button opening Xbox Game Bar on the Windows desktop.** The Claw plugin's
-      existing `FirmwareChordSuppressor` must also suppress the verified orphan `G UP` firmware burst
-      while Explorer is the active desktop. This is a current input-suppression defect and is
-      independent of Desktop First or the planned session-mode work. It remains exact-device plugin
-      policy, not a Core or global `Win+G` block: a physical keyboard's well-formed `Win+G`, modified
-      chords, volume keys and unknown/future BIOS sequences must continue to fail open. Add regression
-      coverage; live validation on the reference Claw is optional and not a completion gate.
+- [x] **Fix the Claw OEM button opening Xbox Game Bar on the Windows desktop.** Corrected the
+      plugin's x64 `INPUT` layout from 32 to 40 bytes. Windows rejected the undersized synthetic
+      Win-key release, which made `FirmwareChordSuppressor` pass the measured orphan `G UP` through.
+      The existing device-specific matcher also covers the long-press `Tab UP`; physical keyboard
+      chords, modifiers, injected input, volume keys and unknown sequences still pass through.
+      Regression tests cover the ABI, shortcut preservation, failed release and hook reset/startup
+      state. `eng/verify.ps1` passed: 2,445 managed tests, 45 native tests, coverage and a Release
+      build with zero warnings/errors. No live device validation was run. `docs\device-integration.md`.
 - [ ] Add a WSGM-owned Windows Night Light backend. Valve's row depends on an unavailable,
       non-configurable gamescope gate and is not a viable revival.
 - [ ] Add WASAPI session/per-app volume and multichannel speaker configuration/reapply. The Claw's
