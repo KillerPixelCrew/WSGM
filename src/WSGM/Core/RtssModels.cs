@@ -178,6 +178,10 @@ internal interface IRtssAdapter : IAsyncDisposable
     /// <param name="settings">The widget order and per-widget detail.</param>
     void ApplyOsdCustomization(RtssOsdCustomSettings settings);
 
+    /// <summary>Applies the cached device-power projection drawn by OSD levels above 1.</summary>
+    /// <param name="status">Current sustained limit and AutoTDP activity.</param>
+    void ApplyOsdPowerStatus(RtssOsdPowerStatus status);
+
     /// <summary>Whether RTSS already holds a profile with this exact name.</summary>
     /// <param name="rtssProfileName">The application profile name; empty means the global profile.</param>
     /// <remarks>

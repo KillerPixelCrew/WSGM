@@ -1,5 +1,6 @@
 using System.Text;
 using WSGM.Core;
+using WSGM.Shell;
 
 namespace WSGM.Tests;
 
@@ -37,6 +38,55 @@ public sealed class RtssOsdContentTests
         Assert.Contains("<APP>", text);
         Assert.DoesNotContain("\n", text);
         Assert.DoesNotContain("<FT>", text);
+    }
+
+    [Fact]
+    public void Minimal_DoesNotShowPowerStatus()
+    {
+        var power = new RtssOsdPowerStatus(18, true, true, 17, "Raising");
+
+        string text = RtssOsdContent.Build(1, FullMetrics, power);
+
+        Assert.DoesNotContain("TDP", text);
+        Assert.DoesNotContain("RAISING", text);
+    }
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void RichLevels_ShowTdpAndLiveAutoTdpActivity(int level)
+    {
+        var power = new RtssOsdPowerStatus(18, true, true, 17, "Raising");
+
+        string text = RtssOsdContent.Build(level, FullMetrics, power);
+
+        Assert.Contains("TDP", text);
+        Assert.Contains("18<S1>W", text);
+        Assert.Contains("AUTO TDP", text);
+        Assert.Contains("17<S1>W", text);
+        Assert.Contains("RAISING", text);
+    }
+
+    [Fact]
+    public void AutoTdpIndicator_IsHiddenWhileAutoTdpIsOff()
+    {
+        var power = new RtssOsdPowerStatus(18, false, false, null, string.Empty);
+
+        string text = RtssOsdContent.Build(2, FullMetrics, power);
+
+        Assert.Contains("TDP", text);
+        Assert.DoesNotContain("AUTO TDP", text);
+    }
+
+    [Fact]
+    public void AutoTdpIndicator_IsHiddenUntilAutoTdpIsActivelyControlling()
+    {
+        var power = new RtssOsdPowerStatus(18, true, false, null, string.Empty);
+
+        string text = RtssOsdContent.Build(2, FullMetrics, power);
+
+        Assert.Contains("TDP", text);
+        Assert.DoesNotContain("AUTO TDP", text);
     }
 
     [Fact]
@@ -238,6 +288,24 @@ public sealed class RtssOsdCustomTests
     }
 
     [Fact]
+    public void BuildCustom_PrependsPowerStatus()
+    {
+        var power = new RtssOsdPowerStatus(18, true, true, 17, "Lowering");
+
+        string text = RtssOsdContent.BuildCustom(
+            RtssOsdCustomSettings.Default,
+            Metrics,
+            power);
+
+        string[] rows = text.Split('\n');
+        Assert.Contains("TDP", rows[0]);
+        Assert.Contains("18<S1>W", rows[0]);
+        Assert.Contains("AUTO TDP", rows[1]);
+        Assert.Contains("17<S1>W", rows[1]);
+        Assert.Contains("LOWERING", rows[1]);
+    }
+
+    [Fact]
     public void BuildCustom_SkipsHiddenWidgetsAndSourcelessEntries()
     {
         RtssOsdCustomSettings settings = RtssOsdCustomSettings.Default with { Gpu = 0 };
@@ -248,6 +316,39 @@ public sealed class RtssOsdCustomTests
         Assert.DoesNotContain("GPU", text.Replace("VRAM", string.Empty));
         Assert.DoesNotContain("BATT", text);
         Assert.Contains("CPU", text);
+    }
+}
+
+public sealed class RtssOsdAutoTdpActivityTests
+{
+    [Theory]
+    [InlineData((int)AutoTdpAction.Hold, "on-target", "Holding")]
+    [InlineData((int)AutoTdpAction.Raise, "sustained-miss", "Raising")]
+    [InlineData((int)AutoTdpAction.Probe, "probe-down", "Lowering")]
+    [InlineData((int)AutoTdpAction.Restore, "probe-rejected", "Restoring")]
+    [InlineData((int)AutoTdpAction.Hold, "settling", "Settling")]
+    [InlineData((int)AutoTdpAction.Hold, "probe-pending", "Testing")]
+    public void ControllingState_DescribesTheCurrentDecision(
+        int action,
+        string detail,
+        string expected)
+    {
+        var status = new AutoTdpStatus(
+            AutoTdpState.Controlling,
+            17,
+            16.6,
+            16.7,
+            "steam:480",
+            detail,
+            (AutoTdpAction)action);
+
+        Assert.Equal(expected, ShellSession.AutoTdpActivity(true, status));
+    }
+
+    [Fact]
+    public void DisabledState_HasNoActivity()
+    {
+        Assert.Equal(string.Empty, ShellSession.AutoTdpActivity(false, null));
     }
 }
 

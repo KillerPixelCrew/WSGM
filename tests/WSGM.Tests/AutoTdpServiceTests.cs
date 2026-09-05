@@ -107,6 +107,192 @@ public sealed class AutoTdpServiceTests
         await harness.Service.DisposeAsync();
     }
 
+    [Theory]
+    [InlineData(CommandOutcome.AppliedVerified)]
+    [InlineData(CommandOutcome.Rejected)]
+    public async Task AnInFlightTickOutcomeCannotPublishStatusForAnOldApplication(
+        CommandOutcome outcome)
+    {
+        Harness harness = new();
+        harness.Service.Apply(enabled: true);
+        harness.Service.ApplyRunningApplication(Running(GameExecutable));
+        harness.Frametimes.Live = [Rendering(22.0)];
+        for (int tick = 1; tick < AutoTdpController.SustainedMisses; tick++)
+        {
+            await harness.Service.TickAsync(CancellationToken.None);
+        }
+
+        TaskCompletionSource<CapabilityCommandResult> pendingWrite =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.PendingWrite = pendingWrite;
+        Task previousTick = harness.Service.TickAsync(CancellationToken.None);
+        await WaitForWriteCountAsync(harness, 1);
+
+        harness.Service.ApplyRunningApplication(Running(
+            @"C:\Games\other.exe",
+            generation: 2,
+            applicationId: "steam:71"));
+        harness.Service.ApplyRunningApplication(Running(
+            @"C:\Games\newest.exe",
+            generation: 3,
+            applicationId: "steam:72"));
+        pendingWrite.SetResult(new CapabilityCommandResult
+        {
+            CommandId = Guid.NewGuid(),
+            Outcome = outcome,
+            CompletedAt = DateTimeOffset.UtcNow,
+        });
+        await previousTick;
+
+        Assert.Equal("steam:72", harness.Service.Status.ApplicationId);
+        Assert.Equal(AutoTdpState.Idle, harness.Service.Status.State);
+        Assert.Equal("context-changed", harness.Service.Status.Detail);
+        await harness.Service.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AnApplicationChangeCancelsItsInFlightWriteAndDisposalCompletes()
+    {
+        Harness harness = new();
+        harness.Service.Apply(enabled: true);
+        harness.Service.ApplyRunningApplication(Running(GameExecutable));
+        harness.Frametimes.Live = [Rendering(22.0)];
+        for (int tick = 1; tick < AutoTdpController.SustainedMisses; tick++)
+        {
+            await harness.Service.TickAsync(CancellationToken.None);
+        }
+
+        TaskCompletionSource<CapabilityCommandResult> pendingWrite =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.PendingWrite = pendingWrite;
+        Task previousTick = harness.Service.TickAsync(CancellationToken.None);
+        await WaitForWriteCountAsync(harness, 1);
+
+        harness.Service.ApplyRunningApplication(Running(
+            @"C:\Games\other.exe",
+            generation: 2,
+            applicationId: "steam:71"));
+        await previousTick.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.False(pendingWrite.Task.IsCompleted);
+        Assert.Equal("steam:71", harness.Service.Status.ApplicationId);
+        Assert.Equal(AutoTdpState.Idle, harness.Service.Status.State);
+        Assert.Equal("context-changed", harness.Service.Status.Detail);
+        await harness.Service.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task AnApplicationChangeBeforeDispatchPreventsTheOldPowerWrite()
+    {
+        Harness harness = new();
+        harness.Service.Apply(enabled: true);
+        harness.Service.ApplyRunningApplication(Running(GameExecutable));
+        harness.Frametimes.Live = [Rendering(22.0)];
+        for (int tick = 1; tick < AutoTdpController.SustainedMisses; tick++)
+        {
+            await harness.Service.TickAsync(CancellationToken.None);
+        }
+
+        using ManualResetEventSlim capabilitiesEntered = new();
+        using ManualResetEventSlim continueCapabilities = new();
+        harness.BeforeCapabilitiesRead = () =>
+        {
+            capabilitiesEntered.Set();
+            Assert.True(continueCapabilities.Wait(TimeSpan.FromSeconds(2)));
+        };
+        Task previousTick = Task.Run(() => harness.Service.TickAsync(CancellationToken.None));
+        Assert.True(capabilitiesEntered.Wait(TimeSpan.FromSeconds(2)));
+
+        harness.Service.ApplyRunningApplication(Running(
+            @"C:\Games\other.exe",
+            generation: 2,
+            applicationId: "steam:71"));
+        continueCapabilities.Set();
+        await previousTick;
+
+        Assert.Empty(harness.Writes);
+        Assert.Equal("steam:71", harness.Service.Status.ApplicationId);
+        Assert.Equal("context-changed", harness.Service.Status.Detail);
+        await harness.Service.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AnInFlightTickCannotRestoreStatusAfterAutoTdpIsDisabled()
+    {
+        Harness harness = new();
+        harness.Service.Apply(enabled: true);
+        harness.Service.ApplyRunningApplication(Running(GameExecutable));
+        harness.Frametimes.Live = [Rendering(22.0)];
+        for (int tick = 1; tick < AutoTdpController.SustainedMisses; tick++)
+        {
+            await harness.Service.TickAsync(CancellationToken.None);
+        }
+
+        TaskCompletionSource<CapabilityCommandResult> pendingWrite =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.PendingWrite = pendingWrite;
+        Task inFlightTick = harness.Service.TickAsync(CancellationToken.None);
+        await WaitForWriteCountAsync(harness, 1);
+
+        harness.Service.Apply(enabled: false);
+        await inFlightTick.WaitAsync(TimeSpan.FromSeconds(2));
+        await WaitForStateAsync(harness, AutoTdpState.Off);
+
+        Assert.False(pendingWrite.Task.IsCompleted);
+        Assert.Equal(AutoTdpState.Off, harness.Service.Status.State);
+        await harness.Service.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task AnUnavailableTickCannotPublishAfterTheApplicationChanges()
+    {
+        Harness harness = new(capabilities: []);
+        using ManualResetEventSlim capabilitiesEntered = new();
+        using ManualResetEventSlim continueCapabilities = new();
+        harness.BeforeCapabilitiesRead = () =>
+        {
+            capabilitiesEntered.Set();
+            Assert.True(continueCapabilities.Wait(TimeSpan.FromSeconds(2)));
+        };
+        harness.Service.Apply(enabled: true);
+        harness.Service.ApplyRunningApplication(Running(GameExecutable));
+
+        Task previousTick = Task.Run(() => harness.Service.TickAsync(CancellationToken.None));
+        Assert.True(capabilitiesEntered.Wait(TimeSpan.FromSeconds(2)));
+        harness.Service.ApplyRunningApplication(Running(
+            @"C:\Games\other.exe",
+            generation: 2,
+            applicationId: "steam:71"));
+        continueCapabilities.Set();
+        await previousTick;
+
+        Assert.Equal("steam:71", harness.Service.Status.ApplicationId);
+        Assert.Equal(AutoTdpState.Idle, harness.Service.Status.State);
+        Assert.Equal("context-changed", harness.Service.Status.Detail);
+        await harness.Service.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AnOlderApplicationSnapshotCannotReplaceTheNewestOne()
+    {
+        Harness harness = new();
+        harness.Service.Apply(enabled: true);
+        harness.Service.ApplyRunningApplication(Running(
+            @"C:\Games\newest.exe",
+            generation: 3,
+            applicationId: "steam:72"));
+
+        harness.Service.ApplyRunningApplication(Running(
+            @"C:\Games\older.exe",
+            generation: 2,
+            applicationId: "steam:71"));
+
+        Assert.Equal("steam:72", harness.Service.Status.ApplicationId);
+        Assert.Equal(AutoTdpState.Idle, harness.Service.Status.State);
+        Assert.Equal("context-changed", harness.Service.Status.Detail);
+        await harness.Service.DisposeAsync();
+    }
+
     [Fact]
     public async Task AManualChangePausesControlAndStopsFurtherWrites()
     {
@@ -123,6 +309,18 @@ public sealed class AutoTdpServiceTests
 
         Assert.Empty(harness.Writes);
         Assert.Equal(AutoTdpState.Paused, harness.Service.Status.State);
+        await harness.Service.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AManualChangeWhileDisabledKeepsTheServiceOff()
+    {
+        Harness harness = new();
+
+        harness.Service.NoteManualChange(24);
+
+        Assert.Equal(AutoTdpState.Off, harness.Service.Status.State);
+        Assert.Null(harness.Service.Status.Watts);
         await harness.Service.DisposeAsync();
     }
 
@@ -243,6 +441,18 @@ public sealed class AutoTdpServiceTests
         {
             await Task.Delay(10);
         }
+
+        Assert.True(harness.Writes.Count >= count, $"Expected at least {count} power writes.");
+    }
+
+    private static async Task WaitForStateAsync(Harness harness, AutoTdpState state)
+    {
+        for (int attempt = 0; attempt < 100 && harness.Service.Status.State != state; attempt++)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.Equal(state, harness.Service.Status.State);
     }
 
     private static RtssFrametimeSample Rendering(
@@ -251,11 +461,14 @@ public sealed class AutoTdpServiceTests
         uint processId = 1) =>
         new(processId, executable, frametimeMs, 60, 100);
 
-    private static RunningApplicationTargetSnapshot Running(string executable) => new(
-        1,
+    private static RunningApplicationTargetSnapshot Running(
+        string executable,
+        long generation = 1,
+        string applicationId = "steam:70") => new(
+        generation,
         1,
         RunningApplicationTargetState.Active,
-        "steam:70",
+        applicationId,
         70,
         executable,
         "game",
@@ -278,10 +491,20 @@ public sealed class AutoTdpServiceTests
             IReadOnlyList<DeviceCapabilityView> views = capabilities ?? [PowerView(15)];
             Service = new AutoTdpService(
                 Frametimes,
-                () => views,
-                (capabilityId, instanceId, value, _) =>
+                () =>
+                {
+                    BeforeCapabilitiesRead?.Invoke();
+                    return views;
+                },
+                (capabilityId, instanceId, value, cancellationToken) =>
                 {
                     Writes.Add(new Write(capabilityId, instanceId, value));
+                    if (PendingWrite is { } pending)
+                    {
+                        PendingWrite = null;
+                        return pending.Task.WaitAsync(cancellationToken);
+                    }
+
                     return Task.FromResult(new CapabilityCommandResult
                     {
                         CommandId = Guid.NewGuid(),
@@ -295,8 +518,12 @@ public sealed class AutoTdpServiceTests
 
         internal FakeFrametimeSource Frametimes { get; } = new();
 
+        internal Action? BeforeCapabilitiesRead { get; set; }
+
         /// <summary>What the capability layer reports for the next write.</summary>
         internal CommandOutcome Outcome { get; set; } = CommandOutcome.AppliedVerified;
+
+        internal TaskCompletionSource<CapabilityCommandResult>? PendingWrite { get; set; }
 
         internal List<Write> Writes { get; } = [];
 

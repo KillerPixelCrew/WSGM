@@ -420,6 +420,22 @@ internal sealed record RtssOsdMetrics(
         null, null, null, null, null, null, null, null, null, null, null, null, null, false);
 }
 
+/// <summary>What the richer OSD levels show about the sustained power limit and AutoTDP.</summary>
+/// <param name="TdpWatts">The current sustained power limit, when the device reports one.</param>
+/// <param name="AutoTdpEnabled">Whether AutoTDP is switched on.</param>
+/// <param name="AutoTdpRunning">Whether AutoTDP is actively controlling the limit.</param>
+/// <param name="AutoTdpWatts">The limit AutoTDP currently holds or is moving toward.</param>
+/// <param name="AutoTdpActivity">Short, display-ready text describing what AutoTDP is doing.</param>
+internal sealed record RtssOsdPowerStatus(
+    int? TdpWatts,
+    bool AutoTdpEnabled,
+    bool AutoTdpRunning,
+    int? AutoTdpWatts,
+    string AutoTdpActivity)
+{
+    internal static readonly RtssOsdPowerStatus Empty = new(null, false, false, null, string.Empty);
+}
+
 /// <summary>The custom overlay's configuration — selector level 4, HandheldCompanion's Custom
 /// level: which widgets render, in which order, at which detail. Configured in WSGM's Settings
 /// rather than through any RTSS-side mechanism.</summary>
@@ -995,19 +1011,28 @@ internal static class RtssOsdContent
     private const string CpuColor = "80FF";
     private const string RamColor = "FF80C0";
     private const string BattColor = "FF8000";
+    private const string TdpColor = "FFD000";
+    private const string AutoTdpColor = "00FF80";
 
     /// <summary>Builds the OSD text for one rendered level.</summary>
     /// <param name="level">1 to 3; anything else yields an empty display.</param>
     /// <param name="metrics">The current sample.</param>
+    /// <param name="powerStatus">Current device-power status for levels above 1.</param>
     /// <returns>The RTSS-tagged text.</returns>
-    internal static string Build(int level, RtssOsdMetrics metrics)
+    internal static string Build(
+        int level,
+        RtssOsdMetrics metrics,
+        RtssOsdPowerStatus? powerStatus = null)
     {
         ArgumentNullException.ThrowIfNull(metrics);
+        powerStatus ??= RtssOsdPowerStatus.Empty;
         return level switch
         {
             1 => Compose(MinimalFpsRow()),
-            2 => Compose(ExtendedRow(metrics)),
+            2 => Compose(ExtendedRow(metrics, powerStatus)),
             3 => Compose(
+                Row(TdpEntry(powerStatus, true)),
+                Row(AutoTdpEntry(powerStatus, true)),
                 Row(Entry("GPU", GpuColor, true, GpuElements(metrics, full: true))),
                 Row(Entry("CPU", CpuColor, true, CpuElements(metrics, full: true))),
                 Row(Entry("RAM", RamColor, true, RamElements(metrics, full: true))),
@@ -1021,9 +1046,13 @@ internal static class RtssOsdContent
     private static string MinimalFpsRow() =>
         Row(Entry("<APP>", FpsColor, false, FpsElements(full: false)));
 
-    // HC's Extended order: FPS, GPU, VRAM, CPU, RAM, BATT — every entry at its minimal detail.
-    private static string ExtendedRow(RtssOsdMetrics metrics) => Row(
+    // Keep HC's subject order after WSGM's live power entries; every entry uses minimal detail.
+    private static string ExtendedRow(
+        RtssOsdMetrics metrics,
+        RtssOsdPowerStatus powerStatus) => Row(
         Entry("<APP>", FpsColor, false, FpsElements(full: true)),
+        TdpEntry(powerStatus, false),
+        AutoTdpEntry(powerStatus, false),
         Entry("GPU", GpuColor, false, GpuElements(metrics, full: false)),
         Entry("VRAM", VramColor, false, VramElements(metrics, full: false)),
         Entry("CPU", CpuColor, false, CpuElements(metrics, full: false)),
@@ -1034,12 +1063,27 @@ internal static class RtssOsdContent
     /// one row per configured widget name, each at its own detail.</summary>
     /// <param name="custom">The order and per-widget detail from WSGM's Settings.</param>
     /// <param name="metrics">The current sample.</param>
+    /// <param name="powerStatus">Current device-power status, prepended when available.</param>
     /// <returns>The RTSS-tagged text.</returns>
-    internal static string BuildCustom(RtssOsdCustomSettings custom, RtssOsdMetrics metrics)
+    internal static string BuildCustom(
+        RtssOsdCustomSettings custom,
+        RtssOsdMetrics metrics,
+        RtssOsdPowerStatus? powerStatus = null)
     {
         ArgumentNullException.ThrowIfNull(custom);
         ArgumentNullException.ThrowIfNull(metrics);
         List<string> rows = [];
+        powerStatus ??= RtssOsdPowerStatus.Empty;
+        string tdpRow = Row(TdpEntry(powerStatus, true));
+        string autoTdpRow = Row(AutoTdpEntry(powerStatus, true));
+        if (tdpRow.Length > 0)
+        {
+            rows.Add(tdpRow);
+        }
+        if (autoTdpRow.Length > 0)
+        {
+            rows.Add(autoTdpRow);
+        }
         foreach (string name in custom.Order)
         {
             // HC's CustomStrategy shows the widget's literal name, FPS included.
@@ -1069,6 +1113,30 @@ internal static class RtssOsdContent
         }
 
         return Compose([.. rows]);
+    }
+
+    private static string? TdpEntry(RtssOsdPowerStatus status, bool indent)
+    {
+        List<string> elements = [];
+        AddIfNotNull(elements, status.TdpWatts, "W");
+        return Entry("TDP", TdpColor, indent, elements);
+    }
+
+    private static string? AutoTdpEntry(RtssOsdPowerStatus status, bool indent)
+    {
+        if (!status.AutoTdpEnabled || !status.AutoTdpRunning)
+        {
+            return null;
+        }
+
+        List<string> elements = [];
+        AddIfNotNull(elements, status.AutoTdpWatts, "W");
+        if (!string.IsNullOrWhiteSpace(status.AutoTdpActivity))
+        {
+            elements.Add(Element(status.AutoTdpActivity.ToUpperInvariant(), string.Empty));
+        }
+
+        return Entry("AUTO TDP", AutoTdpColor, indent, elements);
     }
 
     private static List<string> TimeElements(bool full) =>
@@ -1245,6 +1313,7 @@ internal sealed class RtssOsdRenderer : IDisposable
     private readonly SemaphoreSlim _wake = new(0, 1);
     private readonly Task _loop;
     private volatile RtssOsdCustomSettings _custom = RtssOsdCustomSettings.Default;
+    private volatile RtssOsdPowerStatus _powerStatus = RtssOsdPowerStatus.Empty;
     private volatile int _level;
     private bool _disposed;
 
@@ -1261,6 +1330,14 @@ internal sealed class RtssOsdRenderer : IDisposable
     {
         ArgumentNullException.ThrowIfNull(settings);
         _custom = settings;
+    }
+
+    /// <summary>Applies the latest device and AutoTDP projection; live on the next tick.</summary>
+    /// <param name="status">The cached power status from the session owner.</param>
+    internal void ApplyPowerStatus(RtssOsdPowerStatus status)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+        _powerStatus = status;
     }
 
     /// <summary>Gets the level currently rendered — the adapter's overlay readback.</summary>
@@ -1346,9 +1423,10 @@ internal sealed class RtssOsdRenderer : IDisposable
                 try
                 {
                     RtssOsdMetrics sample = _metrics.Sample();
+                    RtssOsdPowerStatus powerStatus = _powerStatus;
                     _writer.TryUpdate(level == 4
-                        ? RtssOsdContent.BuildCustom(_custom, sample)
-                        : RtssOsdContent.Build(level, sample));
+                        ? RtssOsdContent.BuildCustom(_custom, sample, powerStatus)
+                        : RtssOsdContent.Build(level, sample, powerStatus));
                 }
                 catch (Exception ex)
                 {

@@ -136,13 +136,13 @@ state is the verified readback. On the wire it is Valve's `EGraphicsPerfOverlayL
 the notch order; `SteamOverlayLevelWire` (toolkit, `SteamPerformanceSurface.cs`) translates at the
 QAM boundary in both directions, and everything behind it speaks notches.
 
-| Notch | Rendered                    | Wire value               |
-| ----- | --------------------------- | ------------------------ |
-| 0     | nothing                     | Hidden = 0               |
-| 1     | Minimal (FPS)               | Basic = 1                |
-| 2     | Extended (one combined row) | Medium = 2               |
-| 3     | Full (one row per subject)  | Full = 3                 |
-| 4     | Custom                      | Minimal = 4 (added last) |
+| Notch | Rendered                      | Wire value               |
+| ----- | ----------------------------- | ------------------------ |
+| 0     | nothing                       | Hidden = 0               |
+| 1     | Minimal (FPS)                 | Basic = 1                |
+| 2     | Extended (one combined row)   | Medium = 2               |
+| 3     | Full (one row per subject)    | Full = 3                 |
+| 4     | Custom plus live power status | Minimal = 4 (added last) |
 
 Those notch names are what the overlay's Performance overlay row offers, as a dropdown built from
 the levels the adapter actually publishes. It used to be a cycling button reading "On" for every one
@@ -193,6 +193,15 @@ The slot is OSD data, not a window: it is visible only inside a rendering proces
 and whose RTSS profile permits OSD (HandheldCompanion creates its OSD only from RTSS's `Hooked`
 notification). "OSD slot claimed and updating" proves half the feature; the profile gate must also
 be open.
+
+Levels 2–4 also show the current sustained `TDP` limit from the device capability readback. While
+AutoTDP is switched on and has an accepted current wattage, that controller value takes precedence
+until device readback catches up. A separate `AUTO TDP` entry shows the controller's current watts
+and a short live activity such as `HOLDING`, `RAISING`, `LOWERING`, `TESTING`, `RESTORING`, or
+`SETTLING`. It appears only while AutoTDP is actively controlling the limit, so idle, paused,
+startup, unavailable, and disabled states do not leave a misleading row behind. The session pushes
+this projection only when device or AutoTDP state changes; the 100 ms renderer does not poll the
+device capability router.
 
 ### EnableOSD is a one-way gate
 

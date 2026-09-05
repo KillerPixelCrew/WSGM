@@ -39,6 +39,9 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
     public void ApplyOsdCustomization(RtssOsdCustomSettings settings) => _osd.ApplyCustom(settings);
 
     /// <inheritdoc/>
+    public void ApplyOsdPowerStatus(RtssOsdPowerStatus status) => _osd.ApplyPowerStatus(status);
+
+    /// <inheritdoc/>
     /// <remarks>
     /// Answered from the installation's <c>Profiles</c> directory rather than the profile API,
     /// because the API's LoadProfile cannot distinguish "absent" from "present with defaults" —
@@ -342,6 +345,12 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
 {
     /// <inheritdoc/>
     public void ApplyOsdCustomization(RtssOsdCustomSettings settings)
+    {
+        // No renderer here; the simulated adapter never draws.
+    }
+
+    /// <inheritdoc/>
+    public void ApplyOsdPowerStatus(RtssOsdPowerStatus status)
     {
         // No renderer here; the simulated adapter never draws.
     }

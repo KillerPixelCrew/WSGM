@@ -35,7 +35,8 @@ internal sealed record AutoTdpStatus(
     double? FrametimeMs,
     double? TargetFrametimeMs,
     string? ApplicationId,
-    string Detail);
+    string Detail,
+    AutoTdpAction? Action = null);
 
 /// <summary>
 /// The one AutoTDP session service.
@@ -72,6 +73,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     private Task _worker = Task.CompletedTask;
     private Task<bool> _lastStop = Task.FromResult(true);
     private CancellationTokenSource? _generation;
+    private CancellationTokenSource _applicationWrites = new();
     private RunningApplicationTargetSnapshot? _running;
     private int? _restoreTo;
     private bool _controllerStarted;
@@ -108,6 +110,9 @@ internal sealed class AutoTdpService : IAsyncDisposable
         null,
         "AutoTDP is off.");
 
+    /// <summary>Whether automatic control is currently enabled for this session.</summary>
+    internal bool Enabled => Volatile.Read(ref _enabled);
+
     /// <summary>Enables or disables automatic control.</summary>
     /// <param name="enabled">Whether AutoTDP should run.</param>
     /// <remarks>
@@ -122,6 +127,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         Task worker;
         Task<bool> stop;
         CancellationTokenSource? generation;
+        CancellationTokenSource applicationWrites;
         lock (_gate)
         {
             if (_disposed || _enabled == enabled)
@@ -154,10 +160,14 @@ internal sealed class AutoTdpService : IAsyncDisposable
             generation = _generation;
             _worker = Task.CompletedTask;
             _generation = null;
+            applicationWrites = _applicationWrites;
+            _applicationWrites = new CancellationTokenSource();
             stop = StopGenerationAsync(worker, generation);
             _lastStop = stop;
         }
 
+        applicationWrites.Cancel();
+        applicationWrites.Dispose();
         Log.Observe(stop, "AutoTDP stop");
     }
 
@@ -166,9 +176,42 @@ internal sealed class AutoTdpService : IAsyncDisposable
     internal void ApplyRunningApplication(RunningApplicationTargetSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
+        bool enabled;
+        int? watts;
+        CancellationTokenSource? previousApplicationWrites = null;
         lock (_gate)
         {
+            if (_disposed || _running?.Generation > snapshot.Generation)
+            {
+                return;
+            }
+
+            if (_running?.Generation != snapshot.Generation)
+            {
+                previousApplicationWrites = _applicationWrites;
+                _applicationWrites = new CancellationTokenSource();
+            }
+
             _running = snapshot;
+            enabled = _enabled;
+            watts = Status.Watts;
+        }
+
+        previousApplicationWrites?.Cancel();
+        previousApplicationWrites?.Dispose();
+        if (enabled)
+        {
+            // Retire the previous application's visible status immediately. A tick may still be
+            // awaiting its device write, but its generation guard below prevents that older result
+            // from replacing this one when the write completes.
+            Publish(
+                AutoTdpState.Idle,
+                watts,
+                null,
+                null,
+                snapshot.ApplicationId,
+                "context-changed",
+                expectedRunningGeneration: snapshot.Generation);
         }
     }
 
@@ -183,6 +226,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
     {
         lock (_gate)
         {
+            if (!_enabled)
+            {
+                return;
+            }
+
             _controller.PauseForManualChange(watts);
         }
 
@@ -221,6 +269,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         Task worker;
         Task<bool> lastStop;
         CancellationTokenSource? generation;
+        CancellationTokenSource applicationWrites;
         lock (_gate)
         {
             if (_disposed)
@@ -235,7 +284,10 @@ internal sealed class AutoTdpService : IAsyncDisposable
             generation = _generation;
             _worker = Task.CompletedTask;
             _generation = null;
+            applicationWrites = _applicationWrites;
         }
+
+        applicationWrites.Cancel();
 
         // A disable may already be restoring the previous value. Let that finish before stopping a
         // newer generation or disposing the shared write gate; otherwise its late write would race
@@ -254,6 +306,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             unrestored = _restoreTo;
         }
         (_frametimes as IDisposable)?.Dispose();
+        applicationWrites.Dispose();
         _write.Dispose();
         _shutdown.Dispose();
         if (unrestored is { } watts)
@@ -318,9 +371,54 @@ internal sealed class AutoTdpService : IAsyncDisposable
             return;
         }
 
+        RunningApplicationTargetSnapshot? running;
+        long runningGeneration;
+        CancellationTokenSource writeCancellation;
+        lock (_gate)
+        {
+            if (!_enabled)
+            {
+                return;
+            }
+
+            running = _running;
+            runningGeneration = running?.Generation ?? -1;
+            writeCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                _applicationWrites.Token);
+        }
+        using (writeCancellation)
+        {
+            await TickForApplicationAsync(
+                running,
+                runningGeneration,
+                writeCancellation,
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Runs one tick against a captured application and its cancellation lifetime.</summary>
+    /// <param name="running">The application snapshot captured for this tick.</param>
+    /// <param name="runningGeneration">The snapshot generation that may publish its result.</param>
+    /// <param name="writeCancellation">Cancels the write when this application is retired.</param>
+    /// <param name="cancellationToken">Cancels the AutoTDP worker or caller.</param>
+    private async Task TickForApplicationAsync(
+        RunningApplicationTargetSnapshot? running,
+        long runningGeneration,
+        CancellationTokenSource writeCancellation,
+        CancellationToken cancellationToken)
+    {
+
         if (FindPowerCapability() is not { } power)
         {
-            Publish(AutoTdpState.Unavailable, null, null, null, "No primary power limit is available.");
+            Publish(
+                AutoTdpState.Unavailable,
+                null,
+                null,
+                null,
+                running?.ApplicationId,
+                "No primary power limit is available.",
+                expectedRunningGeneration: runningGeneration);
             return;
         }
 
@@ -330,19 +428,27 @@ internal sealed class AutoTdpService : IAsyncDisposable
             power.Descriptor.Step ?? 0);
         if (!limits.IsUsable || power.Projection.State.ObservedValue?.IntegerValue is not { } current)
         {
-            Publish(AutoTdpState.Unavailable, null, null, null, "The power limit reports no usable range.");
+            Publish(
+                AutoTdpState.Unavailable,
+                null,
+                null,
+                null,
+                running?.ApplicationId,
+                "The power limit reports no usable range.",
+                expectedRunningGeneration: runningGeneration);
             return;
-        }
-
-        RunningApplicationTargetSnapshot? running;
-        lock (_gate)
-        {
-            running = _running;
         }
 
         if (SelectSample(running) is not { } frametime)
         {
-            Publish(AutoTdpState.Idle, current, null, null, "No application is rendering.");
+            Publish(
+                AutoTdpState.Idle,
+                current,
+                null,
+                null,
+                running?.ApplicationId,
+                "No application is rendering.",
+                expectedRunningGeneration: runningGeneration);
             return;
         }
 
@@ -352,6 +458,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
         bool rebased;
         lock (_gate)
         {
+            if (!_enabled || (_running?.Generation ?? -1) != runningGeneration)
+            {
+                return;
+            }
+
             rebased = _resync && _controllerStarted;
             if (!_controllerStarted || _resync)
             {
@@ -377,11 +488,25 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
         if (decision.RequiresWrite)
         {
-            lock (_gate)
+            bool applied;
+            try
             {
-                _restoreTo ??= current;
+                applied = await WriteAsync(
+                    power,
+                    decision,
+                    writeCancellation.Token,
+                    runningGeneration,
+                    current).ConfigureAwait(false);
             }
-            if (!await WriteAsync(power, decision, cancellationToken).ConfigureAwait(false))
+            catch (OperationCanceledException) when (
+                writeCancellation.IsCancellationRequested
+                && !cancellationToken.IsCancellationRequested)
+            {
+                MarkWriteUnapplied();
+                return;
+            }
+
+            if (!applied)
             {
                 Publish(
                     AutoTdpState.Unavailable,
@@ -389,7 +514,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
                     frametime.MeanFrametimeMs,
                     target,
                     running?.ApplicationId,
-                    "The power limit did not accept the last write; control holds for one window.");
+                    "The power limit did not accept the last write; control holds for one window.",
+                    expectedRunningGeneration: runningGeneration);
                 return;
             }
         }
@@ -400,13 +526,17 @@ internal sealed class AutoTdpService : IAsyncDisposable
             frametime.MeanFrametimeMs,
             target,
             running?.ApplicationId,
-            decision.Reason);
+            decision.Reason,
+            decision.Action,
+            runningGeneration);
     }
 
     /// <summary>Writes one power limit and reports whether it reached the hardware.</summary>
     /// <param name="power">The primary power-limit capability.</param>
     /// <param name="decision">The decision being applied.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
+    /// <param name="expectedRunningGeneration">The application generation allowed to dispatch.</param>
+    /// <param name="restoreFrom">The user's prior limit to capture when the write is admitted.</param>
     /// <returns><see langword="true"/> when the device accepted the value.</returns>
     /// <remarks>
     /// The outcome is acted on, not merely logged. <see cref="AutoTdpController"/> has already moved
@@ -417,7 +547,9 @@ internal sealed class AutoTdpService : IAsyncDisposable
     private async Task<bool> WriteAsync(
         DeviceCapabilityView power,
         AutoTdpDecision decision,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        long? expectedRunningGeneration = null,
+        int? restoreFrom = null)
     {
         // One power command at a time. An overlapping write would leave the controller unable to say
         // which value the hardware actually ended up with, and an uncertain hardware write is never
@@ -431,15 +563,38 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
         try
         {
-            CapabilityCommandResult result = await _writeAsync(
-                power.Descriptor.CapabilityId,
-                power.Descriptor.InstanceId,
-                new CapabilityValue
+            Task<CapabilityCommandResult> command;
+            lock (_gate)
+            {
+                if (expectedRunningGeneration is long expected
+                    && (!_enabled || (_running?.Generation ?? -1) != expected))
                 {
-                    Kind = CapabilityValueKind.Integer,
-                    IntegerValue = decision.Watts,
-                },
-                cancellationToken).ConfigureAwait(false);
+                    _resync = true;
+                    return false;
+                }
+
+                // Application changes take this same gate before retiring their write token. The
+                // final generation check and admission into the capability router are therefore
+                // one operation: an old application can be cancelled before or after dispatch,
+                // but never in the gap between them.
+                cancellationToken.ThrowIfCancellationRequested();
+                if (restoreFrom is int watts)
+                {
+                    _restoreTo ??= watts;
+                }
+
+                command = _writeAsync(
+                    power.Descriptor.CapabilityId,
+                    power.Descriptor.InstanceId,
+                    new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Integer,
+                        IntegerValue = decision.Watts,
+                    },
+                    cancellationToken);
+            }
+
+            CapabilityCommandResult result = await command.ConfigureAwait(false);
             bool applied = IsApplied(result.Outcome);
             lock (_gate)
             {
@@ -607,8 +762,17 @@ internal sealed class AutoTdpService : IAsyncDisposable
         int? watts,
         double? frametimeMs,
         double? targetFrametimeMs,
-        string detail) =>
-        Publish(state, watts, frametimeMs, targetFrametimeMs, Status.ApplicationId, detail);
+        string detail,
+        AutoTdpAction? action = null)
+    {
+        string? applicationId;
+        lock (_gate)
+        {
+            applicationId = Status.ApplicationId;
+        }
+
+        Publish(state, watts, frametimeMs, targetFrametimeMs, applicationId, detail, action);
+    }
 
     private void Publish(
         AutoTdpState state,
@@ -616,7 +780,9 @@ internal sealed class AutoTdpService : IAsyncDisposable
         double? frametimeMs,
         double? targetFrametimeMs,
         string? applicationId,
-        string detail)
+        string detail,
+        AutoTdpAction? action = null,
+        long? expectedRunningGeneration = null)
     {
         AutoTdpStatus status = new(
             state,
@@ -624,13 +790,25 @@ internal sealed class AutoTdpService : IAsyncDisposable
             frametimeMs,
             targetFrametimeMs,
             applicationId,
-            detail);
-        if (status == Status)
+            detail,
+            action);
+        lock (_gate)
         {
-            return;
+            bool stateMatchesEnabled = state is AutoTdpState.Off ? !_enabled : _enabled;
+            if (!stateMatchesEnabled
+                || (expectedRunningGeneration is long expected
+                    && (_running?.Generation ?? -1) != expected))
+            {
+                return;
+            }
+            if (status == Status)
+            {
+                return;
+            }
+
+            Status = status;
         }
 
-        Status = status;
         StatusChanged?.Invoke(status);
     }
 
