@@ -3353,19 +3353,9 @@
       };
       return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, native, own);
     };
-    const ensurePatched = () => {
-      if (
-        controlRuntime &&
-        performanceRoot &&
-        patchedUseMemo &&
-        controlRuntime.react.useMemo === patchedUseMemo
-      )
-        return true;
+    // Resolve every dependency before changing React or registering a component.
+    const resolveControls = () => {
       runtime = getWebpackRuntime("native-components");
-      if (!runtime) {
-        lastPatchError = "webpack runtime unavailable";
-        return false;
-      }
       const performanceFactory = uniqueFactory([
         "#QuickAccess_Tab_Perf_Common_Settings",
         "#QuickAccess_Tab_Perf_BatteryTimeRemaining",
@@ -3438,6 +3428,22 @@
       valveTdpSliderControl = tdpExports
         ? uniqueFunction(tdpExports, ["#QuickAccess_Tab_Perf_TDPLimitUnits"])
         : null;
+      return true;
+    };
+    const ensurePatched = () => {
+      if (
+        controlRuntime &&
+        performanceRoot &&
+        patchedUseMemo &&
+        controlRuntime.react.useMemo === patchedUseMemo
+      )
+        return true;
+      try {
+        if (!resolveControls()) return false;
+      } catch {
+        lastPatchError = "native component runtime resolution failed";
+        return false;
+      }
       function SteamUiPerformanceRoot(props) {
         const [, setRevision] = controlRuntime.react.useState(0);
         controlRuntime.react.useEffect(

@@ -312,6 +312,7 @@ public sealed class SessionModes
         }
         if (Steam.ExePath is { } exe)
         {
+            SteamCdp.EnsureRemoteDebuggingEnabled(_config.Cef.Enabled);
             Log.Info("Starting Steam (desktop mode, no Big Picture).");
             AppLauncher.Start(exe, "", elevated: false);
             return;

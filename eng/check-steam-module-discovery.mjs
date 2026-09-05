@@ -5,6 +5,16 @@ import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+// Keep the desktop recovery launch wired to the configured switch before process creation.
+// The toolkit tests the flag writer against temporary directories; never launch live Steam here.
+const sessionModes = readFileSync(resolve(root, "src/WSGM/Shell/SessionModes.cs"), "utf8");
+const desktopStart = sessionModes.match(
+  /private void StartSteamDesktop\(\)([\s\S]*?)\n    \/\/\//u,
+)[1];
+assert.match(
+  desktopStart,
+  /SteamCdp\.EnsureRemoteDebuggingEnabled\(_config\.Cef\.Enabled\);\s*Log\.Info\([^;]+;\s*AppLauncher\.Start\(exe,/u,
+);
 const resolver = readFileSync(
   resolve(
     root,

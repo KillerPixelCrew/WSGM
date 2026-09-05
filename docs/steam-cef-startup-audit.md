@@ -51,7 +51,11 @@ patch/bridge lifecycle, gate probes, and injected module consumers.
 - Download-sort installation swallowed failures after partially wrapping JSX. It now records the
   owned runtime first, unwinds partial installation, and verifies both wrappers.
 - Remote-debugging opt-in incorrectly consulted the temporary transport hold. The configured master
-  switch is now passed explicitly through cold launch to the toolkit flag writer.
+  switch is now passed explicitly through Big Picture and desktop-recovery cold launches to the
+  toolkit flag writer.
+- PR review found that native-component discovery could leak resolver exceptions from `install`. The
+  toolkit now reports an incompatible runtime through the normal failure result and status, before
+  installing a React hook or registering the component.
 
 Artwork, launch options, collections, downloads, badges and the running-app observer already borrow
 the same transport. They do not open an independent attachment that bypasses its discovery gate.
@@ -62,7 +66,9 @@ patches, restart Steam, or write device state through them.
 
 Offline regressions cover target-list startup rejection, missing factories arriving later,
 source-only matching, ambiguity, load failure, feature installation/removal, partial rollback and
-explicit debug-flag opt-in. Factory presence cannot establish that every dependency is ready.
+explicit debug-flag opt-in. Emitted-host regressions also cover missing webpack and early or late
+dependency failures without hook installation. Factory presence cannot establish that every
+dependency is ready.
 
 Validation on 2026-09-05: `eng/verify.ps1` passed formatting, asset drift, ownership/startup checks,
 repository invariants, the warning-clean Release build, solution tests and coverage (2,087 WSGM
