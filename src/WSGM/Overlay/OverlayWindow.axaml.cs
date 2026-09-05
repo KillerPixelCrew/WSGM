@@ -435,15 +435,35 @@ public partial class OverlayWindow : Window
         }
 
         int refreshes = Interlocked.Exchange(ref _pendingLiveRefreshes, 0);
-        if ((refreshes & PerformanceLiveRefresh) != 0)
+        Vector offset = ContentScroller.Offset;
+        OverlayPage page = _navigation.Page;
+        string? sectionId = _navigation.SectionId;
+        void KeepViewport(object? sender, RequestBringIntoViewEventArgs args) => args.Handled = true;
+        PanelDevice.AddHandler(Control.RequestBringIntoViewEvent, KeepViewport);
+        PanelSystem.AddHandler(Control.RequestBringIntoViewEvent, KeepViewport);
+        try
         {
-            RefreshPerformancePanel();
+            if ((refreshes & PerformanceLiveRefresh) != 0)
+            {
+                RefreshPerformancePanel();
+            }
+            if ((refreshes & DeviceLiveRefresh) != 0
+                || (refreshes & PerformanceLiveRefresh) != 0
+                    && _navigation.IsVisible(OverlayDestination.Device))
+            {
+                RefreshDevicePanel();
+            }
+
+            // Replacing the anchor/focused row is an observation update, not navigation. Complete
+            // layout before restoring the offset so its temporary shorter extent cannot clamp it.
+            ContentScroller.UpdateLayout();
+            if (page == _navigation.Page && sectionId == _navigation.SectionId)
+            { ContentScroller.Offset = offset; }
         }
-        if ((refreshes & DeviceLiveRefresh) != 0
-            || (refreshes & PerformanceLiveRefresh) != 0
-                && _navigation.IsVisible(OverlayDestination.Device))
+        finally
         {
-            RefreshDevicePanel();
+            PanelDevice.RemoveHandler(Control.RequestBringIntoViewEvent, KeepViewport);
+            PanelSystem.RemoveHandler(Control.RequestBringIntoViewEvent, KeepViewport);
         }
 
         if (Volatile.Read(ref _pendingLiveRefreshes) != 0)
@@ -531,12 +551,7 @@ public partial class OverlayWindow : Window
             return;
         }
 
-        // Every row on a section page spans the sheet, one per line (maintainer-directed
-        // 2026-09-03). The page used to cap its column at 720 and pair the compact rows two to a
-        // line, which put three different content widths on the merged Power page — a full-bleed
-        // performance slider, a capped device slider, and half-width pairs of each — and no reading
-        // of it made those look deliberate. Nothing here sets MaxWidth or an alignment now, so the
-        // list keeps Avalonia's stretch and the performance section beside it matches by default.
+        // Shared sections group related controls into cards; fallback sections keep their own renderer.
         DeviceOverlaySection? openSection = DeviceOverlaySectionPages.SectionFor(_navigation.Page);
         string? openPluginSection = _navigation.Page is OverlayPage.DevicePluginSection
             ? _navigation.SectionId

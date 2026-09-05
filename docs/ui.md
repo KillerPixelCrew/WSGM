@@ -129,3 +129,7 @@ The checked-in `tests/WSGM.UiTests/Fixtures/claw-ui-publication.json` comes from
 fake transports and writes `claw-ui-publication.json` beside its test assembly. After descriptor
 changes, run that test, copy its output into the host fixture, then inspect the host captures. The
 host controls are explicit simulations; no capture test starts live hardware, Steam or RTSS.
+
+Live Device/performance refreshes preserve the current scroll offset through layout and suppress
+bring-into-view requests raised by replacement controls during that refresh. Explicit navigation
+keeps its normal focus scrolling.

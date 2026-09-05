@@ -94,6 +94,30 @@ public sealed class DevicePageCaptureTests
         Directory.CreateDirectory(directory);
         Capture(window, Path.Combine(directory, "viewport.png"));
         ScrollViewer scroll = UiFixture.Named<ScrollViewer>(window, "ContentScroller");
+        if (page == "Power" && width == 1280)
+        {
+            var details = window.GetVisualDescendants().OfType<Expander>()
+                .Single(expander => Equals(expander.Header, "Profile details and reset"));
+            details.IsExpanded = true;
+            Dispatcher.UIThread.RunJobs();
+            window.GetVisualDescendants().OfType<CardButton>()
+                .Single(card => card.Title == "Detected application").Focus(Avalonia.Input.NavigationMethod.Directional);
+            Dispatcher.UIThread.RunJobs();
+            window.MouseWheel(new Avalonia.Point(1100, 450), new Avalonia.Vector(0, -6));
+            Dispatcher.UIThread.RunJobs();
+            double before = scroll.Offset.Y;
+            Assert.True(before > 0);
+            for (int update = 0; update < 3; update++)
+            {
+                device.Notify();
+                await performanceBridge.SetValueAsync("frame-limit", 61 + update);
+                Dispatcher.UIThread.RunJobs();
+                Assert.Equal(before, scroll.Offset.Y, 1);
+            }
+            scroll.Offset = default;
+            window.GetVisualDescendants().OfType<Expander>()
+                .Single(expander => Equals(expander.Header, "Profile details and reset")).IsExpanded = false;
+        }
         window.Height += Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height);
         Dispatcher.UIThread.RunJobs();
         Capture(window, Path.Combine(directory, "full.png"));
