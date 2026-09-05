@@ -19,8 +19,14 @@ public sealed class DevicePowerPresetsTests
         internal bool IgnoreWrite;
         internal bool FailRead;
         internal Action? AfterWrite;
+        internal Action? AfterRead;
         internal int Writes;
-        public Guid Read() => FailRead ? throw new InvalidOperationException("Windows read failed.") : Mode;
+        public Guid Read()
+        {
+            if (FailRead) { throw new InvalidOperationException("Windows read failed."); }
+            AfterRead?.Invoke();
+            return Mode;
+        }
         public void Set(Guid mode)
         {
             Writes++;
@@ -291,5 +297,19 @@ public sealed class DevicePowerPresetsTests
         Assert.False(changed);
         Assert.Single(rig.Calls);
         Assert.Equal(0, rig.Api.Writes);
+    }
+
+    [Fact]
+    public async Task CancellationAfterPreflightPropagatesWithoutReportingAnUnstartedMutation()
+    {
+        Rig rig = new();
+        using CancellationTokenSource cancellation = new();
+        rig.Api.AfterRead = cancellation.Cancel;
+        var service = rig.Create();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.ApplyAsync("battery", cancellation.Token));
+        Assert.Empty(rig.Calls);
+        Assert.Equal(0, rig.Api.Writes);
+        rig.Api.AfterRead = null;
+        Assert.DoesNotContain("some values", (await service.ReadAsync()).Status);
     }
 }

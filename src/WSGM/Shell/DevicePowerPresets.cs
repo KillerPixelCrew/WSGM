@@ -55,6 +55,7 @@ internal sealed class DevicePowerPresets(
             {
                 return new(false, "The power preset is no longer available.");
             }
+            bool mutationStarted = false;
             try
             {
                 // Check Windows access before touching hardware. There is no fallback to another plan.
@@ -74,6 +75,7 @@ internal sealed class DevicePowerPresets(
                     }
                     // Send even an unchanged PL1 through the manual-value funnel, so choosing a
                     // preset pauses AutoTDP just like moving the TDP slider.
+                    mutationStarted = true;
                     CapabilityCommandResult result = await execute(write.View.Descriptor.CapabilityId, write.Watts, cycle, generation, cancellationToken)
                         .ConfigureAwait(false);
                     if (result.Outcome != CommandOutcome.AppliedVerified)
@@ -96,10 +98,17 @@ internal sealed class DevicePowerPresets(
                 _status = string.Empty;
                 return new(true, null);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                if (mutationStarted) { _status = "Preset selection was cancelled; some values may have changed."; }
+                throw;
+            }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 // No retry or rollback across independently owned Windows and device controls.
-                _status = $"Preset was not fully applied; some values may have changed. {ex.Message}";
+                _status = mutationStarted
+                    ? $"Preset was not fully applied; some values may have changed. {ex.Message}"
+                    : $"Preset could not be applied. {ex.Message}";
                 return new(false, _status);
             }
         }
