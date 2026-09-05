@@ -111,7 +111,7 @@ device. Synthetic Win releases use extended-key flags and the 40-byte x64 INPUT 
 Primary evidence and implementation paths:
 
 - `_plan/claw-8-a2vm-plugin.md` — dated measurements and remaining attended matrix.
-- `external/WSGM.Device.Msi.Claw8A2Vm/src/WSGM.Device.Msi.Claw8A2Vm/ClawInput.cs` — codec.
+- `src/WSGM.Device.Msi.Claw8A2Vm/ClawInput.cs` — codec.
 - `WindowsHidTransports.cs` — endpoint discovery, mode continuation, read/write behavior.
 - `MsiWmiPlatform.cs` and `ClawResources.cs` — WMI event source and latches/suppression.
 - Corresponding Claw tests — raw fixtures, mode, OEM, cleanup, and regression evidence.

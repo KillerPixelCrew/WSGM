@@ -42,16 +42,17 @@ Real separate boundaries
   WSGM.LogonService                  SYSTEM logon/watchdog process
   WSGM.Launch                        per-game medium-integrity wrapper
   native/SteamInput                  Steam Input lease/proxy ABI (submodule)
-  external/WSGM.Device.Sdk           public plugin and package contract (submodule, MIT)
+  src/WSGM.Device.Sdk                public plugin and package contract (MIT)
   external/windows-device-control    radio/Wi-Fi/audio/brightness library (submodule)
   external/steam-ui-toolkit          CDP transport, patch lifecycle, bridge, modules (submodule)
-  external/WSGM.DeviceLab            diagnostic/authoring GUI + CLI (submodule)
-  external/WSGM.Device.Msi.Claw8A2Vm built-in MSI Claw device package (submodule)
+  src/WSGM.DeviceLab                 diagnostic/authoring GUI + CLI (MIT)
+  src/WSGM.Device.Msi.Claw8A2Vm        built-in MSI Claw device package (MIT)
+  src/WSGM.Device.HandheldCompanion   HC integration design scaffold (MIT, unfinished)
   VIIPER                             native virtual-controller backend
 ```
 
 The solution contains WSGM, Launch, LogonService and their tests plus the production and test
-projects in the pinned library, SDK, Device Lab, and built-in-package submodules. The application
+projects for the SDK, Device Lab, Claw plugin, HC scaffold, and pinned reusable libraries. The application
 still loads the installed package dynamically. A process, project, helper, mirror, protocol or
 abstraction is not retained for future flexibility; it needs a current consumer or an OS, lifetime,
 packaging or public-contract boundary.
@@ -61,6 +62,22 @@ packaging or public-contract boundary.
 Each line is closed in source, focused tests, diagnostics and documentation. The doc named beside it
 holds the mechanism; the commit that closed it holds the reasoning.
 
+- **Device import second review, 2026-09-05.** Capture export reports leftover temporary files
+  when cleanup fails, operator markers reject malformed UTF-8, and both device packers publish
+  through one atomic archive step. Focused tests cover locked files, cancellation, destination
+  collisions, and valid Unicode; no hardware validation is claimed.
+- **Device import review fixes, 2026-09-05.** Corrected HC API metadata, bounded Claw shutdown and
+  malformed-response handling, shared capture redaction and rejection paths, and honest scaffold
+  command results. Focused SDK, Device Lab, Claw, and HC tests cover the follow-up; this is software
+  validation with no new attended hardware claim.
+- **Device projects consolidated, 2026-09-05.** SDK, Device Lab, the Claw plugin, and the HC design
+  scaffold now live under `src` and `tests` in WSGM, with one SDK project in `WSGM.slnx` and one PR
+  for contract and consumer changes. MIT licenses, dynamic plugin loading, optional Device Lab
+  installation, glyph bytes, and offline packaging are preserved. Generic PC had no implementation
+  to import and is retired; the HC scaffold remains unfinished and is not shipped. Release builds
+  have zero warnings/errors; all 2,661 solution tests and the main coverage run pass. Device Lab
+  publishing, SDK packing, and Claw installer staging pass without hardware access.
+  `docs\device-projects.md` records the layout and exact import revisions.
 - **Simplification milestone.** NativeAOT and its compensating architecture dropped; DeviceHost
   collapsed into one collectible `AssemblyLoadContext` inside WSGM; native radio and volume shims
   replaced by the WLAN API, managed WinRT, managed Core Audio and waveOut; one-consumer projects and
@@ -73,11 +90,11 @@ holds the mechanism; the commit that closed it holds the reasoning.
   installer paths. The two hardware-uncertain findings were resolved conservatively in source: the
   virtual Deck's documented digital-trigger noise threshold, and Claw rumble frames padded to the
   advertised HID output length.
-- **Repository extraction, five of six.** `steam-input-lease`, `windows-device-control`,
-  `WSGM.Device.Sdk`, `WSGM.DeviceLab` and `WSGM.Device.Msi.Claw8A2Vm` are independent
+- **Earlier repository extraction, superseded for device projects on 2026-09-05.** `steam-input-lease`, `windows-device-control`,
+  `WSGM.Device.Sdk`, `WSGM.DeviceLab` and `WSGM.Device.Msi.Claw8A2Vm` were extracted into independent
   `KillerPixelCrew` repositories pinned as submodules; the SDK, Device Lab and the Claw package are
   MIT so a plugin author or vendor is not forced to GPL-3 by linking the contract. Device Lab and the
-  Claw package now build from those pins rather than from acquired release assets, and staging
+  Claw package built from those pins rather than from acquired release assets, and staging
   asserts the staged glyph count against the source because package validation treats glyphs as
   optional. `steam-ui-toolkit` steps 1 to 7 landed and the revived Valve surfaces moved into it on
   2026-09-03; only the Extensions tab is left, below.

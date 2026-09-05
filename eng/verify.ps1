@@ -128,7 +128,7 @@ try {
         --logger "console;verbosity=normal" -m:1
     if ($LASTEXITCODE -ne 0) { throw "dotnet test failed" }
 
-    # Only WSGM.Tests carries the coverage collector. The submodule suites run above without a
+    # Only WSGM.Tests carries the coverage collector. The other project suites run above without a
     # collector request, avoiding false "collector not found" diagnostics while still keeping the
     # application's existing coverage artifact.
     dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --configuration Release --no-build `

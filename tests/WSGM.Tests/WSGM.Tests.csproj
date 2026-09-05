@@ -23,7 +23,7 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../external/WSGM.Device.Sdk/src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj" />
+    <ProjectReference Include="../../src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj" />
     <ProjectReference Include="../../src/WSGM.Launch/WSGM.Launch.csproj" />
     <ProjectReference Include="../../src/WSGM/WSGM.csproj" />
     <ProjectReference Include="../../external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiToolkit.csproj" />

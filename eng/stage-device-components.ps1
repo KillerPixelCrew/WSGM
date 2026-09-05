@@ -1,13 +1,13 @@
 <#
 .SYNOPSIS
-    Builds Device Lab and the built-in device plugin from their pinned submodules.
+    Builds Device Lab and the built-in device plugin from this WSGM checkout.
 
 .DESCRIPTION
-    Device Lab is published self-contained for the optional tools component. The plugin submodule
+    Device Lab is published self-contained for the optional tools component. The plugin packer
     assembles, validates, and packs its framework-dependent package with that exact Device Lab
     build; WSGM then expands and validates the exact package tree handed to the installer.
 
-    All inputs are source repositories pinned by Git links. This script performs no downloads and
+    All device projects share the SDK source in this repository. This script performs no downloads and
     no hardware access.
 #>
 [CmdletBinding()]
@@ -36,16 +36,16 @@ if (-not ($outputFull + [IO.Path]::DirectorySeparatorChar).StartsWith(
     throw "Device component staging must stay inside the repository workspace."
 }
 
-$deviceLabRoot = Join-Path $root "external\WSGM.DeviceLab"
-$deviceLabProject = Join-Path $deviceLabRoot "src\WSGM.DeviceLab\WSGM.DeviceLab.csproj"
-$pluginRoot = Join-Path $root "external\WSGM.Device.Msi.Claw8A2Vm"
-$pluginPack = Join-Path $pluginRoot "eng\pack.ps1"
-$pluginSource = Join-Path $pluginRoot "src\WSGM.Device.Msi.Claw8A2Vm"
+$deviceLabRoot = Join-Path $root "src\WSGM.DeviceLab"
+$deviceLabProject = Join-Path $deviceLabRoot "WSGM.DeviceLab.csproj"
+$pluginRoot = Join-Path $root "src\WSGM.Device.Msi.Claw8A2Vm"
+$pluginPack = Join-Path $root "eng\pack-claw.ps1"
+$pluginSource = $pluginRoot
 $manifestFile = Join-Path $pluginSource "plugin.wsgm.json"
 
 foreach ($requiredSource in @($deviceLabProject, $pluginPack, $manifestFile)) {
     if (-not (Test-Path -LiteralPath $requiredSource -PathType Leaf)) {
-        throw "A required submodule source is missing: $requiredSource. Run git submodule update --init --recursive."
+        throw "A required device project source is missing: $requiredSource."
     }
 }
 
@@ -145,7 +145,7 @@ try {
     $deviceLabDestination = Join-Path $temporaryRoot "Tools\DeviceLab"
     Invoke-ComponentPublish -Project $deviceLabProject -Destination $deviceLabDestination
     Copy-DotNetRuntimeNotices -AssetsPath (
-        Join-Path $deviceLabRoot "src\WSGM.DeviceLab\obj\project.assets.json") -Destination $deviceLabDestination
+        Join-Path $deviceLabRoot "obj\project.assets.json") -Destination $deviceLabDestination
 
     $deviceLabLicense = Join-Path $deviceLabRoot "LICENSE"
     Assert-RegularSourceFile $deviceLabLicense
@@ -193,7 +193,7 @@ try {
     }
     & $pluginPack @packArguments
     if ($LASTEXITCODE -ne 0) {
-        throw "Building the commit-pinned device package failed."
+        throw "Building the device package failed."
     }
 
     $archive = Join-Path $packageBuildRoot "$packageId-$packageVersion.wsgmpkg"

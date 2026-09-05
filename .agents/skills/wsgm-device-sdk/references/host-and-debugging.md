@@ -131,16 +131,16 @@ rejects, and high-rate trace spam hiding the first transition.
 | Concern                       | Start here                                                                                                                               |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | Host mechanism and rationale  | `docs/device-plugin-system.md`, `docs/device-integration.md`, `docs/device-security.md`                                                  |
-| SDK contract                  | `external/WSGM.Device.Sdk/docs/reference.md`, `src/WSGM.Device.Sdk/`                                                                     |
+| SDK contract                  | `src/WSGM.Device.Sdk/docs/reference.md`, `src/WSGM.Device.Sdk/`                                                                          |
 | Package preflight/maintenance | `src/WSGM/Program.cs`, `Core/DevicePackagePolicy.cs`, `DevicePackageSlotGate.cs`, `DevicePackageStager.cs`                               |
 | Load and lifecycle            | `Shell/DeviceCoordinator.cs`, `DevicePluginRuntime.cs`, `PluginPackageLoader.cs`                                                         |
 | Publications and commands     | `Shell/DeviceCapabilityRouter.cs`, `PluginSettingsCoordinator.cs`, `DeviceOemActionRouter.cs`                                            |
 | Controller safety             | `Shell/ControllerManager.cs`, `ControllerMakeSafe.cs`, `HidHideOwnership.cs`, `PluginHapticSink.cs`                                      |
 | Target input/output           | `Input/ManagedControllerRouter.cs`, `ViiperControllerBackend.cs`, target report encoders                                                 |
 | Host consumers                | `Shell/DeviceOverlayBridge.cs`, `DeviceProfileApplier.cs`, `AutoTdpService.cs`; `Core/DeviceConfiguration.cs`, `PhysicalGlyphCatalog.cs` |
-| Reference capability codecs   | `external/WSGM.Device.Msi.Claw8A2Vm/src/WSGM.Device.Msi.Claw8A2Vm/ClawCapabilities.cs`                                                   |
+| Reference capability codecs   | `src/WSGM.Device.Msi.Claw8A2Vm/ClawCapabilities.cs`                                                                                      |
 | Reference services/lifecycle  | `ClawResources.cs`, `Claw8A2VmPlugin.cs`, `ClawRecoveryJournal.cs`, `MsiWmiPlatform.cs`                                                  |
-| Reference plugin tests        | `external/WSGM.Device.Msi.Claw8A2Vm/tests/WSGM.Device.Msi.Claw8A2Vm.Tests/ClawPluginTests.cs`                                            |
+| Reference plugin tests        | `tests/WSGM.Device.Msi.Claw8A2Vm.Tests/ClawPluginTests.cs`                                                                               |
 
 Use focused WSGM tests for package policy, runtime, coordinator concurrency, capability router,
 integration-off, controller make-safe, HidHide, settings, desired state, profiles, OEM policy,

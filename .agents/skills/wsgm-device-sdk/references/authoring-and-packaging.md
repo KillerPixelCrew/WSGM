@@ -101,19 +101,19 @@ The SDK is a zero-dependency `net10.0-windows` leaf and every public member requ
 public change must update:
 
 - `DeviceApi.Version` and its pinning test when compatibility is deliberately broken;
-- source XML docs and `external/WSGM.Device.Sdk/docs/reference.md`;
+- source XML docs and `src/WSGM.Device.Sdk/docs/reference.md`;
 - manifest/examples and serialization metadata only where the actual wire format uses them;
-- Device Lab scaffolding/validation and its SDK gitlink;
-- every first-party plugin and its SDK/Device Lab pins;
-- WSGM host consumers, tests, and final gitlinks.
+- Device Lab scaffolding/validation;
+- every first-party plugin consumer;
+- WSGM host consumers and tests.
 
-Commit and push in dependency order. A green SDK build alone is insufficient because lifecycle,
-input, haptic, and OEM behavior is mostly proven in WSGM and real-plugin tests.
+Deliver these changes together in one WSGM pull request. A green SDK build alone is insufficient
+because lifecycle, input, haptic, and OEM behavior is mostly proven in WSGM and real-plugin tests.
 
-Standalone SDK validation from `external/WSGM.Device.Sdk`:
+Focused SDK validation from the WSGM root:
 
 ```powershell
-dotnet build WSGM.Device.Sdk.slnx --configuration Release
-dotnet test WSGM.Device.Sdk.slnx --configuration Release --no-build
+dotnet build src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj --configuration Release
+dotnet test tests/WSGM.Device.Sdk.Tests/WSGM.Device.Sdk.Tests.csproj --configuration Release
 dotnet pack src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj --configuration Release --no-build --output artifacts
 ```

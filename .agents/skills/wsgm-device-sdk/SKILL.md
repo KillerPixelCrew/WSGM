@@ -16,9 +16,9 @@ moving machine policy into the SDK.
 
 1. Resolve the WSGM root with `git rev-parse --show-toplevel`, read every applicable `AGENTS.md`,
    and inspect `git status --short --branch` plus `git submodule status --recursive`.
-2. Read `external/WSGM.Device.Sdk/docs/reference.md` and verify the compatibility integer in
-   `external/WSGM.Device.Sdk/src/WSGM.Device.Sdk/DeviceApi.cs`. It is currently API 3, but source
-   and its pinning test win over copied examples.
+2. Read `src/WSGM.Device.Sdk/docs/reference.md` and verify the compatibility integer in
+   `src/WSGM.Device.Sdk/DeviceApi.cs`. It is currently API 3, but source and its pinning test win
+   over copied examples.
 3. Read [references/contract-and-ownership.md](references/contract-and-ownership.md) before adding a
    type or changing lifecycle behavior.
 4. For plugin authoring, packaging, or an API change, read
@@ -78,8 +78,8 @@ ring-buffer, wire-message, authoring-helper, capability-registry, or generic res
 layers.
 
 For a public contract change, update XML documentation, the consolidated SDK reference, SDK tests,
-host consumers, Device Lab, and real plugin consumers. Commit and push leaf first: SDK, Device Lab,
-device packages, then WSGM gitlinks. Never leave a parent pointing to an unpublished child commit.
+host consumers, Device Lab, and real plugin consumers together in one WSGM pull request. All
+first-party device projects reference the same SDK source.
 
 ## Finish with evidence
 

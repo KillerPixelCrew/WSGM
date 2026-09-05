@@ -74,8 +74,8 @@ reviews:
     - path: "{.gitmodules,external/**,native/SteamInput,third_party/controller/**,eng/**,installer/**,build.ps1,.github/**}"
       instructions: |
         For gitlink changes, verify the child commit is the intended pushed revision and preserve the
-        leaf-first SDK -> DeviceLab -> Claw -> WSGM dependency order, including nested SDK pins. Do
-        not duplicate child source into WSGM. Keep controller locks, patches, licenses, staging, and
+        child-before-parent order for the remaining library submodules. Device projects are
+        ordinary WSGM source and must all reference src/WSGM.Device.Sdk. Keep controller locks, patches, licenses, staging, and
         installer payloads coherent. Preserve the csproj version as the release source and preserve
         update, repair, rollback, uninstall, and output-ownership rules. VIIPER source replacement and
         dev-deploy remain explicitly attended operations. Workflows require pinned actions, minimal
@@ -90,6 +90,21 @@ reviews:
       instructions: |
         Require a matching intentional package.json change and flag unrelated transitive churn,
         unexpected registry sources, or dependency movement that bypasses the pinned build toolchain.
+    - path: "src/WSGM.Device.Sdk/**"
+      instructions: |
+        Keep the SDK MIT-licensed and free of project/package dependencies. Preserve public XML
+        documentation, API/type identity, strict validation, and generation/lifecycle semantics.
+        Contract changes must update WSGM, Device Lab, plugins, tests, and the reference together.
+    - path: "src/WSGM.DeviceLab/**"
+      instructions: |
+        GUI and CLI share application services. Preserve offline static package validation, exact
+        shared-SDK scaffolding, bounded workers, output ownership, and attended hardware refusal.
+        Never treat plugin execution as sandboxed or run live hardware actions from CI.
+    - path: "{src/WSGM.Device.Msi.Claw8A2Vm/**,src/WSGM.Device.HandheldCompanion/**}"
+      instructions: |
+        Keep device behavior outside Core and preserve package identity, MIT licenses, provenance,
+        exact hardware gates, ordered restoration, and truthful uncertain results. The HC project
+        is a design scaffold and must not be presented or shipped as a working plugin.
     - path: "tests/**"
       instructions: |
         Require regression coverage for changed success, rejection, cancellation, repetition,

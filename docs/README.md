@@ -31,16 +31,16 @@ before you trust the change.
 
 ## Hardware
 
-| Read                                            | When you want to understand                                                                                                         |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `device-integration.md`                         | why the device plugin runtime is shaped as it is; controller management; authored profiles; HidHide findings                        |
-| `device-plugin-system.md`                       | the runtime mechanism: package slot, validation, load, cycle, publications, commands, glyphs                                        |
-| `device-plugin-authoring.md`                    | writing, testing, packing and installing a plugin                                                                                   |
-| `device-security.md`                            | the one-page boundary checklist                                                                                                     |
-| `..\external\WSGM.Device.Sdk\docs\reference.md` | the public SDK contract                                                                                                             |
-| `rtss.md`                                       | RivaTuner Statistics Server: frame limit, on-screen display, frametimes, AutoTDP                                                    |
-| `power-and-display.md`                          | display profiles, screen-off mute, keep-awake, refresh rates, variable refresh                                                      |
-| `radios.md`                                     | what WSGM decides about Wi-Fi, Bluetooth and audio; the library that owns the Windows calls is `..\external\windows-device-control` |
+| Read                                       | When you want to understand                                                                                                         |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `device-integration.md`                    | why the device plugin runtime is shaped as it is; controller management; authored profiles; HidHide findings                        |
+| `device-plugin-system.md`                  | the runtime mechanism: package slot, validation, load, cycle, publications, commands, glyphs                                        |
+| `device-plugin-authoring.md`               | writing, testing, packing and installing a plugin                                                                                   |
+| `device-security.md`                       | the one-page boundary checklist                                                                                                     |
+| `..\src\WSGM.Device.Sdk\docs\reference.md` | the public SDK contract                                                                                                             |
+| `rtss.md`                                  | RivaTuner Statistics Server: frame limit, on-screen display, frametimes, AutoTDP                                                    |
+| `power-and-display.md`                     | display profiles, screen-off mute, keep-awake, refresh rates, variable refresh                                                      |
+| `radios.md`                                | what WSGM decides about Wi-Fi, Bluetooth and audio; the library that owns the Windows calls is `..\external\windows-device-control` |
 
 ## Writing conventions
 
@@ -50,3 +50,6 @@ before you trust the change.
 - A fact has one home. Other docs point to it rather than restating it.
 - Name a file only when the reader has to open it. Use a table for paths, limits and log lines.
 - Keep the diagnostic log lines exact. They are how a pasted log gets read.
+
+Device project layout, shared SDK builds, and import revisions:
+[device-projects.md](device-projects.md).
