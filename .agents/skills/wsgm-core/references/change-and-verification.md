@@ -93,7 +93,8 @@ on a disposable VIIPER source tree with no work to preserve.
 
 ## Repository gate and delivery
 
-Run before delivery:
+Follow the root AGENTS.md validation policy: run the gate for initial delivery, then use focused
+checks for follow-ups unless the changes justify another full run:
 
 ```powershell
 ./eng/verify.ps1

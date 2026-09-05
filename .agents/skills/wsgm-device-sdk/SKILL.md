@@ -85,6 +85,6 @@ device packages, then WSGM gitlinks. Never leave a parent pointing to an unpubli
 
 Use the SDK TestKit for deterministic plugin behavior, but also exercise production host validation:
 the test adapter records publications and intentionally does not reproduce the host/router rules.
-Run focused SDK, plugin, Device Lab, and WSGM tests for the paths changed, then run `eng/verify.ps1`
-from the WSGM root. Separate hardware-free proof from the attended device scenarios that remain
-unverified.
+Run focused SDK, plugin, Device Lab, and WSGM tests for the paths changed. Follow the root AGENTS.md
+validation policy for full gate runs. Separate hardware-free proof from the attended device
+scenarios that remain unverified.

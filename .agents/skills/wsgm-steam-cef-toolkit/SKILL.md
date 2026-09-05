@@ -69,7 +69,7 @@ transport, bridge, or patch lifecycle.
 
 ## Finish with evidence
 
-Regenerate assets when toolkit TypeScript changes, run the narrow tests while iterating, and run the
-repository gate before delivery. Record what was established offline separately from what still
-requires a maintainer-directed live Big Picture or device pass. A successful build does not prove
-that a row rendered after a Steam client update.
+Regenerate assets when toolkit TypeScript changes, run the narrow tests while iterating, and follow
+the root AGENTS.md validation policy for full gate runs. Record what was established offline
+separately from what still requires a maintainer-directed live Big Picture or device pass. A
+successful build does not prove that a row rendered after a Steam client update.

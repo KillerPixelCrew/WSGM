@@ -37,7 +37,8 @@ codes, and safe to rerun.
   stops and restarts live WSGM or Steam processes, and stages a plugin. Never invoke it as a smoke
   test.
 
-For focused work, run the individual script you changed and then:
+For focused work, run the individual script you changed. Follow the root validation policy when
+deciding whether to run the full gate:
 
     .\eng\verify.ps1
 

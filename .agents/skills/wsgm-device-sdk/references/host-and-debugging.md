@@ -144,4 +144,5 @@ rejects, and high-rate trace spam hiding the first transition.
 
 Use focused WSGM tests for package policy, runtime, coordinator concurrency, capability router,
 integration-off, controller make-safe, HidHide, settings, desired state, profiles, OEM policy,
-glyphs, and plugin trace. Then run the standalone SDK/plugin/Device Lab suites and the root gate.
+glyphs, and plugin trace. Run the affected SDK/plugin/Device Lab tests and follow the root AGENTS.md
+validation policy for full gate runs.

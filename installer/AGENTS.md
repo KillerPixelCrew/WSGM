@@ -27,6 +27,6 @@ input document before changing behavior.
 - Uninstall removes only WSGM-owned files and restores shell, service, driver, and input state in a
   recoverable order.
 
-Validate installer work with focused tests, eng/verify.ps1, and build.ps1 when a real setup artifact
-is required. Exercise install, upgrade, repair, rollback, and uninstall paths for any ownership or
-sequencing change.
+Validate installer work with focused tests, the full gate under the root validation policy, and
+build.ps1 when a real setup artifact is required. Exercise install, upgrade, repair, rollback, and
+uninstall paths for any ownership or sequencing change.

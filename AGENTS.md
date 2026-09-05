@@ -116,9 +116,20 @@ Use the narrowest relevant test while iterating:
 
     dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~Area"
 
-Run the repository gate before delivery:
+Run the repository gate once for the initial implementation before delivery:
 
     .\eng\verify.ps1
+
+For follow-up fixes on an already verified change, run only the tests and checks affected by the
+diff. Do not rerun the full suite, coverage, or `eng/verify.ps1` (including `-Fix`) just because
+there is another review round or commit. Documentation-only follow-ups need formatting and
+guidance checks, not application tests.
+
+Repeat the full local gate only when a change has broad impact, changes shared build/test
+infrastructure or dependency versions, or a failure cannot be isolated with focused checks.
+State the reason before running it. Reuse the earlier gate result and report the focused checks
+for the follow-up honestly; do not describe the earlier pass as a fresh full run. CI stays unchanged.
+Scoped guidance and skills that mention the full gate follow this same rule.
 
 eng/verify.ps1 checks formatting, generated Steam assets and ownership claims, guidance links,
 PowerShell syntax, live-data exclusions, dependency pins, Steam Input validation, restore,

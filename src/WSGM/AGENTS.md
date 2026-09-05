@@ -23,4 +23,4 @@ guide for detailed rules.
 - Route user-facing behavior documentation through docs/README.md and add focused regression tests
   under tests/WSGM.Tests.
 
-Validate a narrow change with a filtered test, then run eng/verify.ps1 from the repository root.
+Validate a narrow change with a filtered test. Follow the root validation policy for full gate runs.

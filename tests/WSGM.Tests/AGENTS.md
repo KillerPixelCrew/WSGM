@@ -22,4 +22,4 @@ During iteration, run the narrowest filter that proves the change:
 
     dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~Area"
 
-Run eng/verify.ps1 from the repository root before delivery.
+Follow the root validation policy for initial delivery and focused follow-up checks.

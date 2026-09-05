@@ -13,5 +13,6 @@ This suite runs the real Overlay and Settings XAML on Avalonia's headless platfo
   synthetic data. Disable transitions for captures, not the controls or their bindings.
 - Baselines are selective regression references. Inspect actual/expected/diff images before using
   `eng/update-ui-baselines.ps1 -Case <case-name>`. Never update them from tests, CI or `verify.ps1`.
-- Run the focused suite, then `eng/verify.ps1`. Rendering checks do not establish native activation,
-  input capture, Steam leases or physical-device correctness.
+- Follow the root validation policy: focused checks on follow-ups, full gate for initial delivery.
+  Rendering checks do not establish native activation, input capture, Steam leases or
+  physical-device correctness.
