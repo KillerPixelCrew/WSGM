@@ -25,6 +25,7 @@ before you trust the change.
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `steam-cef.md`                                   | the findings behind driving Steam's Chromium front-end: libraries, tabs, badges, launch options, download sorting, revived Steam surfaces |
 | `steam-cef-system.md`                            | the mechanism end to end: Steam discovery, the transport gate, the session host, patches, the native Quick Access Menu                    |
+| `steam-cef-startup-audit.md`                     | the 2026-09-05 login failure, module-loading audit, corrections and remaining live checks                                                 |
 | `..\external\steam-ui-toolkit\docs\reference.md` | the toolkit the mechanism is built on                                                                                                     |
 | `sd-cards.md`                                    | the card manager and format flow                                                                                                          |
 

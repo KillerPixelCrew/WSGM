@@ -48,17 +48,7 @@
   // One reviewed runtime tap for every gate. Capturing webpack's runtime by pushing an empty
   // chunk is the proven primitive; six private copies only made it possible for their safety and
   // diagnostics to drift. This helper captures the runtime but never evaluates an unknown module.
-  const getWebpackRuntime = (scope) => {
-    let runtime;
-    window.webpackChunksteamui.push([
-      [`steam_ui_${scope}_${Date.now()}`],
-      {},
-      (value) => {
-        runtime = value;
-      },
-    ]);
-    return runtime;
-  };
+  const getWebpackRuntime = (scope) => createSteamUiModuleResolver(scope);
   const allowed = (patchId, command) => {
     const commands = config.allowed[patchId];
     return Array.isArray(commands) && commands.includes(command);
@@ -601,6 +591,67 @@
       // Intentionally ignored; see above.
     }
   };
+  // Keep this fragment valid JavaScript: the same bytes are embedded for standalone C# probes
+  // and composed into the bridge. Features supply fingerprints, never their own registry scan.
+  function createSteamUiModuleResolver(scope) {
+    let runtime;
+    window.webpackChunksteamui?.push([
+      [`steam_ui_${scope}_${Date.now()}`],
+      {},
+      (value) => {
+        runtime = value;
+      },
+    ]);
+    if (!runtime?.m) throw new Error("Steam modules unavailable");
+    const failed = new Set();
+    const requirePresent = (id) => {
+      if (typeof id !== "string" || typeof runtime.m[id] !== "function")
+        throw new Error(`Steam module absent: ${id}`);
+      if (failed.has(id)) throw new Error(`Steam module resolution previously failed: ${id}`);
+      try {
+        return runtime(id);
+      } catch (error) {
+        failed.add(id);
+        throw new Error(`Steam module resolution failed: ${id}: ${String(error)}`);
+      }
+    };
+    const matches = (tokens) => {
+      if (
+        !Array.isArray(tokens) ||
+        tokens.length < 1 ||
+        tokens.length > 16 ||
+        !tokens.every(
+          (token) => typeof token === "string" && token.length > 0 && token.length <= 512,
+        )
+      )
+        throw new Error("Steam module fingerprint invalid");
+      const ids = Object.keys(runtime.m);
+      if (ids.length > 32768) throw new Error("Steam module registry exceeds the discovery bound");
+      return ids.filter((id) => {
+        const factory = runtime.m[id];
+        if (typeof factory !== "function") return false;
+        const source = Function.prototype.toString.call(factory);
+        return tokens.every((token) => source.includes(token));
+      });
+    };
+    requirePresent.count = (tokens) => matches(tokens).length;
+    requirePresent.findUnique = (tokens) => {
+      const ids = matches(tokens);
+      return ids.length === 1
+        ? [ids[0], Function.prototype.toString.call(runtime.m[ids[0]])]
+        : null;
+    };
+    requirePresent.resolve = (tokens) => {
+      const ids = matches(tokens);
+      if (ids.length !== 1)
+        throw new Error(
+          `Steam module ${ids.length ? "ambiguous" : "absent"}: ${tokens.join(", ")}`,
+        );
+      return requirePresent(ids[0]);
+    };
+    return requirePresent;
+  }
+  // @steam-ui-module-resolver-end
   // Audio is supplied as the namespace Steam's own store looks for, rather than drawn as a row.
   // The store's availability flag is literally `null != SteamClient.System.Audio`, so defining this
   // object is the entire gate — there is nothing to patch and nothing to hide.
@@ -1283,8 +1334,9 @@
     let syntheticKeys = [];
     const store = () => {
       try {
-        const req = getWebpackRuntime("network-store");
-        return req?.("77347")?.OQ?.Get() ?? null;
+        // Steam publishes this singleton after its own module initialization. Requiring the
+        // module before its chunk arrives leaves empty exports cached for the whole session.
+        return window.SystemNetworkStore ?? null;
       } catch {
         return null;
       }
@@ -1999,13 +2051,7 @@
       listeners.add(listener);
       return () => listeners.delete(listener);
     };
-    const uniqueFactory = (requiredTokens) => {
-      const matches = Object.entries(runtime.m).filter(([, factory]) => {
-        const source = String(factory);
-        return requiredTokens.every((token) => source.includes(token));
-      });
-      return matches.length === 1 ? matches[0] : null;
-    };
+    const uniqueFactory = (requiredTokens) => runtime.findUnique(requiredTokens);
     const uniqueFunction = (exports, requiredTokens) => {
       const matches = Object.values(exports).filter(
         (value) =>
@@ -3307,19 +3353,9 @@
       };
       return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, native, own);
     };
-    const ensurePatched = () => {
-      if (
-        controlRuntime &&
-        performanceRoot &&
-        patchedUseMemo &&
-        controlRuntime.react.useMemo === patchedUseMemo
-      )
-        return true;
+    // Resolve every dependency before changing React or registering a component.
+    const resolveControls = () => {
       runtime = getWebpackRuntime("native-components");
-      if (!runtime || !runtime.m) {
-        lastPatchError = "webpack runtime unavailable";
-        return false;
-      }
       const performanceFactory = uniqueFactory([
         "#QuickAccess_Tab_Perf_Common_Settings",
         "#QuickAccess_Tab_Perf_BatteryTimeRemaining",
@@ -3392,6 +3428,22 @@
       valveTdpSliderControl = tdpExports
         ? uniqueFunction(tdpExports, ["#QuickAccess_Tab_Perf_TDPLimitUnits"])
         : null;
+      return true;
+    };
+    const ensurePatched = () => {
+      if (
+        controlRuntime &&
+        performanceRoot &&
+        patchedUseMemo &&
+        controlRuntime.react.useMemo === patchedUseMemo
+      )
+        return true;
+      try {
+        if (!resolveControls()) return false;
+      } catch {
+        lastPatchError = "native component runtime resolution failed";
+        return false;
+      }
       function SteamUiPerformanceRoot(props) {
         const [, setRevision] = controlRuntime.react.useState(0);
         controlRuntime.react.useEffect(

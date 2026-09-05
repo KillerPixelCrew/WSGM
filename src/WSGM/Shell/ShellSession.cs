@@ -459,7 +459,7 @@ public sealed class ShellSession : IAsyncDisposable
         }
         if (!_overlayTestOnly)
         {
-            _steamUiTransport = new PersistentSteamUiTransport();
+            _steamUiTransport = new PersistentSteamUiTransport(requireMainWindow: true);
             // Decide the gate BEFORE attaching: Attach copies the session flag into the
             // transport, and an open transport with a subscriber starts discovering
             // Steam's port at once.
@@ -790,6 +790,8 @@ public sealed class ShellSession : IAsyncDisposable
             // mode, so clear the flag here: the game-mode-only CEF injections must
             // not start next to a live explorer (and nothing would retract them).
             _inGameMode = false;
+            _steamUi?.ApplyNetworkIndicator(false);
+            _steamUi?.ApplyDownloadSort(false);
             RequestSteamUiTransportGateCheck();
             _monitor.Paused = true;
             WatchStartupAppsAndConfig();

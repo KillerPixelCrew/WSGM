@@ -212,7 +212,9 @@ public static class Steam
     /// Big Picture — fired as a protocol instead, the handler first brings Steam up
     /// in desktop mode and only switches after login (user-reported wonkiness).
     /// When Steam already runs, the protocol re-activates/enters BP (UIPI-proof).</summary>
-    public static AppLauncher.LaunchResult LaunchBigPicture(bool unelevated = false)
+    /// <param name="unelevated">Whether to request a de-elevated launch.</param>
+    /// <param name="cefEnabled">Whether to enable remote debugging before a cold start.</param>
+    public static AppLauncher.LaunchResult LaunchBigPicture(bool unelevated = false, bool cefEnabled = true)
     {
         if (!IsRunning && ExePath is { } exe)
         {
@@ -223,7 +225,7 @@ public static class Steam
             // Enable Steam's CEF debug port before it starts so WSGM can add
             // libraries to the live client later without a restart. Only takes
             // effect on a fresh Steam start, which this cold path is.
-            SteamCdp.EnsureRemoteDebuggingEnabled();
+            SteamCdp.EnsureRemoteDebuggingEnabled(cefEnabled);
             // The de-elevating scheduled task is only meaningful from an elevated WSGM: started
             // from a medium-integrity process, the ordinary launch already produces a
             // medium-integrity Steam without the task-scheduler round trip.

@@ -103,9 +103,14 @@ TransportShouldBeOpen(cefMaster, inGameMode, bigPictureRequestPending, bigPictur
   = cefMaster && ((!inGameMode && !pending) || bigPictureReady)
 ```
 
-Desktop mode opens on the master switch alone. `ShellSession` runs a one-second gate loop that
-re-decides on every signal (mode change, `SteamStarted`, `SteamExited`, master switch) and logs the
-transition under `Log.Change("steam-ui-transport-gate", …)`:
+Desktop mode permits discovery on the master switch. In both modes WSGM constructs the toolkit
+transport with `requireMainWindow: true`: discovery must find exactly one validated, shaped
+MainWindow before it attaches to any target, including SharedJSContext. A login popup is not a
+MainWindow. This holds desktop cold starts before the network and login services initialize; it uses
+the existing discovery connection, without evaluating JavaScript to decide readiness. `ShellSession`
+runs a one-second gate loop that re-decides on every signal (mode change, `SteamStarted`,
+`SteamExited`, master switch) and logs the transition under
+`Log.Change("steam-ui-transport-gate", …)`:
 
 | Log line                                                                                                                         | Meaning                     |
 | -------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
@@ -122,7 +127,12 @@ subscriber starts discovery at once. Overlay-test mode never attaches a transpor
 notification and scanning still start immediately so a present card and removals are not missed; the
 live library add/remove, tab and manifest sync, and download-state polling wait for the window.
 Desktop download polling and overlay-driven operations stay immediate because they do not act on a
-half-built game-mode session.
+half-built game-mode session; their shared transport still waits for a MainWindow on cold starts.
+Resuming `--shell` next to Explorer disables the game-mode indicator and download sorter before
+opening the desktop transport gate, just as a normal desktop transition does.
+
+The remote-debugging flag uses the configured `Cef.Enabled` value, not the temporary transport hold.
+A first cold start must write the flag while attachment is still prohibited.
 
 ### Retract before Big Picture
 
@@ -308,6 +318,15 @@ over the gate's `status()`; each surface class declares its instance as `Patch`.
 the webpack runtime by pushing an empty chunk and counts factories whose source contains every token
 in a conjunction, naming each module literally. Every probe accepts "absent or already ours" through
 the markers above.
+
+`SteamUiModuleResolver` owns the module boundary for probes, the injected bridge, library tabs and
+download sorting. Its single JavaScript source is embedded for standalone expressions and composed
+into the asset. Fingerprints are source-only scans; export resolution requires one match. Literal
+lookups reject missing factories before entering webpack, whose failed loads can leave empty exports
+cached. Features supply fingerprints and interpret exports, but do not scan and execute the
+registry. The network gate reads `window.SystemNetworkStore`, which Steam publishes itself, instead
+of loading its module or constructing the singleton. Factory presence alone does not prove
+dependency readiness, so these checks supplement the attachment gate.
 
 | Gate           | Verify                                  | Remove              |
 | -------------- | --------------------------------------- | ------------------- |

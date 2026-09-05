@@ -14,7 +14,7 @@ namespace WSGM.Core;
 internal static class SteamDownloadSort
 {
     internal static string InstallExpression =>
-        "(()=>{try{" + ResidentSetup
+        "(()=>{try{const steamModules=" + SteamUiModuleResolver.CreateExpression("download-sort") + ";" + ResidentSetup
         + "return W.dlSortInstall();}"
         + "catch(e){return JSON.stringify({ok:false,err:String((e&&e.stack)||e)});}})()";
 
@@ -24,43 +24,32 @@ internal static class SteamDownloadSort
         + "catch(e){return JSON.stringify({ok:false,err:String(e)});}})()";
 
     // The resident script. Guarded by dlSortVer so re-running only refreshes the
-    // functions — bump BOTH literals below ("W.dlSortVer!==1" and "W.dlSortVer=1")
+    // functions — bump BOTH literals below ("W.dlSortVer!==2" and "W.dlSortVer=2")
     // whenever this text changes, or a live Steam session keeps running the OLD
     // functions until the client restarts (same rule as the badge and Wi-Fi scripts).
     // Every shape decision in the script is a device-verified finding: docs\steam-cef.md §12.
     private const string ResidentSetup = """
         var W=window.__wsgm=window.__wsgm||{};
-        if(W.dlSortVer!==1){
-          W.dlSortVer=1;
+        if(W.dlSortVer!==2){
+          if(W.dlSortRemove)W.dlSortRemove();
+          W.dlSortVer=2;
           W.dlSortToken='#Downloads_Section_Current';
           W.dlSortState={key:null,dir:1,busy:false};
-          W.dlSortReq=function(){
-            if(!W._req){var r;window.webpackChunksteamui.push([[Symbol('wsgmdl')],{},function(q){r=q;}]);W._req=r;}
-            return W._req;
-          };
           W.dlSortSrc=function(v){try{var f=typeof v==='function'?v:(v&&v.render?v.render:null);return f?Function.prototype.toString.call(f):'';}catch(e){return '';}};
+          W.dlSortModule=steamModules.resolve;
           W.dlSortScan=function(){
-            var req=W.dlSortReq();
-            if(!req)throw new Error('no webpack require');
             if(W._react&&W._focusable&&W._dlIdx!==undefined)return;
-            for(var id of Object.keys(req.m)){
-              var e;try{e=req(id);}catch(x){continue;}
-              if(!e||typeof e!=='object')continue;
-              if(!W._react&&e.createElement&&e.useMemo&&e.version)W._react=e;
-              var ks;try{ks=Object.keys(e);}catch(x){continue;}
-              for(var k of ks){
-                var v;try{v=e[k];}catch(x){continue;}
-                if(!v)continue;
-                if(!W._focusable&&typeof v==='function'){
-                  var s=W.dlSortSrc(v);
-                  if(s.length<1500&&s.indexOf('class')!==0
-                    &&s.indexOf('"flow-children"')!==-1&&s.indexOf('onActivate:')!==-1
-                    &&s.indexOf('focusClassName')!==-1&&s.indexOf('focusWithinClassName')!==-1)W._focusable=v;
-                }
-                if(W._dlIdx===undefined&&typeof v==='object'&&v.k_EAppUpdateProgress_Download!==undefined)W._dlIdx=v.k_EAppUpdateProgress_Download;
-              }
-            }
-            if(W._dlIdx===undefined)W._dlIdx=2;
+            var react=W.dlSortModule(['react.transitional.element','useState','cloneElement','createElement']);
+            if(!react||!react.createElement||!react.useMemo||!react.version)throw new Error('React exports unavailable');
+            var focusTokens=['"flow-children"','onActivate:','focusClassName','focusWithinClassName'];
+            var focusables=Object.values(W.dlSortModule(focusTokens)).filter(function(v){
+              var s=W.dlSortSrc(v);return typeof v==='function'&&s.length<1500&&s.indexOf('class')!==0
+                &&focusTokens.every(function(token){return s.includes(token);});});
+            if(focusables.length!==1)throw new Error('Focusable export is absent or ambiguous');
+            var enums=Object.values(W.dlSortModule(['k_EAppUpdateProgress_Preallocating=','k_EAppUpdateProgress_Download='])).filter(function(v){
+              return v&&typeof v==='object'&&Number.isInteger(v.k_EAppUpdateProgress_Download);});
+            if(enums.length!==1)throw new Error('Download progress enum is absent or ambiguous');
+            W._react=react;W._focusable=focusables[0];W._dlIdx=enums[0].k_EAppUpdateProgress_Download;
           };
           // Bytes LEFT to download, not the total: the queue is about what is still
           // coming down the wire. Returns -1 for "Steam has not planned this app yet"
@@ -205,20 +194,18 @@ internal static class SteamDownloadSort
             if(!W._react)return JSON.stringify({ok:false,err:'React not found'});
             if(!W._focusable)return JSON.stringify({ok:false,err:'Focusable not found'});
             if(!W.dlSortPatched){
-              W.dlSortPatched=[];
-              var req=W.dlSortReq();
-              for(var id of Object.keys(req.m)){
-                var e;try{e=req(id);}catch(x){continue;}
-                if(!e||typeof e!=='object')continue;
-                var jx,jxs;
-                try{jx=e.jsx;jxs=e.jsxs;}catch(x){continue;}
-                if(typeof jx!=='function'||typeof jxs!=='function')continue;
-                try{
-                  var did=false;
-                  if(!jx.__wsgmDlOrig){e.jsx=W.dlSortWrap(jx);did=true;}
-                  if(!jxs.__wsgmDlOrig){e.jsxs=W.dlSortWrap(jxs);did=true;}
-                  if(did)W.dlSortPatched.push(e);
-                }catch(x){}
+              var e=W.dlSortModule(['react.transitional.element','.jsx','.jsxs']);
+              var jx=e.jsx,jxs=e.jsxs;
+              if(typeof jx!=='function'||typeof jxs!=='function')throw new Error('JSX runtime exports unavailable');
+              // Record ownership before either assignment, so removal also unwinds a partial install.
+              W.dlSortPatched=[e];
+              try{
+                if(!jx.__wsgmDlOrig)e.jsx=W.dlSortWrap(jx);
+                if(!jxs.__wsgmDlOrig)e.jsxs=W.dlSortWrap(jxs);
+                if(!e.jsx.__wsgmDlOrig||!e.jsxs.__wsgmDlOrig)throw new Error('JSX runtime is not writable');
+              }catch(error){
+                W.dlSortRemove();
+                throw error;
               }
             }
             W.dlSortRerender();
@@ -245,7 +232,7 @@ internal sealed class SteamDownloadSortPatch : ISteamUiPatch
 
     public string Id => PatchId;
 
-    public int Version => 1;
+    public int Version => 2;
 
     // The queue is rendered into the Big Picture document, but it is rendered BY SharedJSContext:
     // the jsx-runtime module this patch wraps, the module registry it comes from and the React
@@ -313,7 +300,8 @@ internal sealed class SteamDownloadSortPatch : ISteamUiPatch
         CancellationToken cancellationToken) => EvaluateAsync(
             context,
             "(()=>{const W=window.__wsgm;return JSON.stringify({ok:!!(W"
-                + "&&Array.isArray(W.dlSortPatched)&&W.dlSortPatched.length)});})()",
+                + "&&Array.isArray(W.dlSortPatched)&&W.dlSortPatched.length"
+                + "&&W.dlSortPatched.every(e=>e.jsx?.__wsgmDlOrig&&e.jsxs?.__wsgmDlOrig))});})()",
             "Download queue sort verification failed.",
             cancellationToken);
 

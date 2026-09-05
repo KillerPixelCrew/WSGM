@@ -150,6 +150,13 @@ directly, so the taskbar slider lags the OSD by one poll.
 
 ## Open work
 
+### Steam CEF startup regression
+
+- Desktop cold-start and module-resolution corrections are implemented on
+  `fix/steam-cef-cold-start`, with toolkit changes on `fix/network-probe-startup`.
+  The full offline gate passed on 2026-09-05. PR review and attended startup/UI validation remain.
+  Evidence, audit scope and remaining scenarios: `docs/steam-cef-startup-audit.md`.
+
 ### Repository extraction
 
 - [ ] **`steam-ui-toolkit`: the Extensions tab.** The extension host from step 7 is built and tested;

@@ -194,17 +194,18 @@ is removed. `SteamCollections` survives only as the read/filter bridge and a one
 collection ids created by older builds. New tabs never create collections.
 
 `Core\SteamLibraryTabs.cs` injects a resident script into `SharedJSContext` that replicates
-TabMaster without Decky. It pushes a chunk to `window.webpackChunksteamui` to capture
-`__webpack_require__`, finds React by loading candidates through `req(id)`, then installs a getter
-on React's current dispatcher slot
+TabMaster without Decky. It pushes a chunk to `window.webpackChunksteamui` to capture the toolkit's
+module resolver, finds React through a unique factory-source fingerprint, then installs a getter on
+React's current dispatcher slot
 (`__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE.H`) so every `useMemo` result
 passes through `patchTabs`. That rewrites the library tab array (found by a tab with
 `id==='AllGames'`) to append WSGM's tabs as fake in-memory collections rendered by Steam's own grid
 (found by the `Library_FilteredByHeader` source marker).
 
-**The captured require's `req.c` cache is empty (live Steam client), so React can only be found by
-loading candidates through `req(id)`.** Tried and disproven: a cache-only exports scan. A review
-once made that "safer" swap and broke all tab injection until the next device test.
+The captured require does not expose a usable `req.c` cache. That observation originally led to
+loading candidates, which was unsafe: a failed early load can poison exports for the session. The
+2026-09-05 correction matches source without execution and resolves only the unique React factory
+through the toolkit. See `steam-cef-startup-audit.md` for the new evidence and live limits.
 
 WSGM supplies only `window.__wsgm.tabs = [{id,title,appids}]`, `tabOrder` (the full strip order as
 tab keys, native ids like `AllGames` mixed with `wsgm-…` ids; unlisted tabs keep natural order after

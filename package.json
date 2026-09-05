@@ -5,7 +5,7 @@
     "format:check": "prettier --check .",
     "steam-assets:build": "node eng/build-steam-assets.mjs",
     "steam-assets:check": "node eng/build-steam-assets.mjs --check",
-    "steam-assets:claims": "node external/steam-ui-toolkit/eng/check-ownership-claims.mjs src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js && node external/steam-ui-toolkit/eng/check-power-profile.mjs src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js"
+    "steam-assets:claims": "node external/steam-ui-toolkit/eng/check-ownership-claims.mjs src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js && node external/steam-ui-toolkit/eng/check-power-profile.mjs src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js && node external/steam-ui-toolkit/eng/check-startup.mjs src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js && node eng/check-steam-module-discovery.mjs"
   },
   "devDependencies": {
     "chrome-devtools-mcp": "1.8.0",
