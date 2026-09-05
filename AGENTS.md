@@ -44,9 +44,11 @@ when the guidance conflicts.
 
 - Inspect git status before changing anything. Preserve unrelated edits and never clean, reset, or
   rewrite user work to make a task easier.
-- Work on a dedicated branch for each change and deliver it through a pull request so CodeRabbit
-  can review it. Never commit or push changes directly to the default branch. Do not create tags,
-  releases, or compatibility layers unless the maintainer asks for them.
+- Work on a dedicated branch for changes and deliver them through a pull request so CodeRabbit
+  can review them. The exception is dependency pin-only updates: these may be committed and pushed directly to
+  the default branch, including in nested repositories. Verify the intended target commits are
+  already pushed, follow the dependency order below, and keep unrelated changes out of those
+  commits. Do not create tags, releases, or compatibility layers unless the maintainer asks for them.
 - Write documentation, command examples, issues, commit messages, and pull requests in natural,
   concise language. Avoid canned AI phrasing, filler, and em dashes.
 - Prefer the smallest direct design that preserves established behavior. Remove dead paths instead
