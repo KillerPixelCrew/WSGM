@@ -22,6 +22,7 @@ public sealed class SettingsSaveMergeTests
 
         AppConfig fresh = ConfigStore.Normalize(new AppConfig
         {
+            LastSelectedPowerSchemeId = Guid.NewGuid(),
             DisplayManagement = DisplayManagementMode.AutomaticProfiles,
             DisplayProfiles = [new MonitorDisplayProfile { MonitorId = "runtime-monitor" }],
         });
@@ -41,7 +42,9 @@ public sealed class SettingsSaveMergeTests
             GlyphSelectionEdited: false,
             QuickSetupWasAnswered: false);
 
+        Guid? savedPowerScheme = fresh.LastSelectedPowerSchemeId;
         SettingsViewModel.ApplyCapturedValues(fresh, request, values.Splash);
+        Assert.Equal(savedPowerScheme, fresh.LastSelectedPowerSchemeId);
 
         Assert.True(fresh.SteamAutoRelaunch);
         Assert.Equal("#123456", fresh.AccentColor);

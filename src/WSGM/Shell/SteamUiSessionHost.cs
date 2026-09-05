@@ -31,6 +31,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly DeviceCoordinatorNativeQamAutoTdpService _autoTdp;
     private readonly DeviceCoordinatorNativeQamControllerTargetService _controllerTarget;
     private readonly NativeQamBrightnessService _brightness;
+    private readonly NativeQamPowerProfileService _powerProfiles = new(PowerSchemes.Windows,
+        id => ConfigStore.Mutate(config => config.LastSelectedPowerSchemeId = id));
 
     /// <summary>
     /// Null when no audio manager exists for this session, which is the overlay-test case.
@@ -397,6 +399,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             // The frame limit is the toolkit's unified row rather than Valve's notch slider, and
             // the Q12 retirement does not apply: a free 30-120 range made Valve's unusable.
             SteamFrameLimitRow.Module(Enabled, () => new(_performance.FrameLimit), _performance),
+            SteamPowerProfileRow.Module(Enabled, _powerProfiles.ReadAsync, _powerProfiles),
 
             SteamControllerTargetRow.Module(
                 Enabled,

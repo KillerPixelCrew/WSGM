@@ -9,6 +9,9 @@ tested. It is a mechanism reference; the device findings and the reasoning behin
 
 Related:
 
+- `docs\power-and-display.md` — Windows power-profile selection through the native Performance
+  dropdown.
+
 - `docs\steam-cef.md` — findings and disproven approaches.
 - `external\steam-ui-toolkit\docs\reference.md` — transport, patch lifecycle, bridge, surfaces.
 - `docs\boot-and-shell.md` — the desktop/game transition sequence that calls the transport gate.

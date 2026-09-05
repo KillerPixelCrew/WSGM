@@ -4,6 +4,11 @@ Settings owns persistent user policy, setup flows, configuration-facing view mod
 input claim while focused. Device-specific implementation and session-long capability ownership
 remain elsewhere.
 
+WSGM Settings is strictly for configuring WSGM itself. Do not add controls here for Windows or
+external system settings. Those belong on the overlay's relevant page or in Steam QAM; Windows
+power-scheme selection belongs on Device and QAM Performance. Configuring how WSGM manages a feature is a WSGM setting;
+manually changing the external system's current state is not.
+
 - Keep the established tab structure and the 1024 by 640 minimum window size. Pages may scroll when
   their content requires it; do not hide controls to satisfy an arbitrary no-scroll rule.
 - A save operation reads fresh configuration, applies the page's owned fields, validates, and

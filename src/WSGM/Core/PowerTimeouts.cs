@@ -1,5 +1,5 @@
 using System;
-using System.Runtime.InteropServices;
+using System.ComponentModel;
 using WSGM.Interop;
 
 namespace WSGM.Core;
@@ -63,6 +63,18 @@ public static class PowerTimeouts
     /// <param name="kind">Which timeout to write.</param>
     /// <param name="seconds">The new value.</param>
     public static bool Write(PowerTimeoutKind kind, int seconds)
+        => Write(kind, seconds, WriteCore);
+
+    internal static bool Write(PowerTimeoutKind kind, int seconds,
+        Func<PowerTimeoutKind, int, bool> writeNative)
+    {
+        lock (PowerSchemes.MutationGate)
+        {
+            return writeNative(kind, seconds);
+        }
+    }
+
+    private static bool WriteCore(PowerTimeoutKind kind, int seconds)
     {
         if (seconds < 0 || !TryGetActiveScheme(out var scheme))
         {
@@ -140,21 +152,16 @@ public static class PowerTimeouts
 
     private static bool TryGetActiveScheme(out Guid scheme)
     {
-        scheme = default;
-        var status = NativeMethods.PowerGetActiveScheme(0, out var guidPtr);
-        if (status != 0 || guidPtr == 0)
-        {
-            Log.Warn($"PowerGetActiveScheme failed (status {status}).");
-            return false;
-        }
         try
         {
-            scheme = Marshal.PtrToStructure<Guid>(guidPtr);
+            scheme = PowerSchemes.Windows.ReadActive();
             return true;
         }
-        finally
+        catch (Win32Exception ex)
         {
-            NativeMethods.LocalFree(guidPtr);
+            scheme = default;
+            Log.Warn(ex.Message);
+            return false;
         }
     }
 }
