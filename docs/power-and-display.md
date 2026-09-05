@@ -56,14 +56,16 @@ Claw A2VM supplies:
 | Super Battery       | 8 / 9 W   | Better Battery     | Eco               | Comfort                |
 | Balanced            | 17 / 18 W | Balanced           | Green             | Comfort                |
 | Extreme Performance | 30 / 31 W | Best Performance   | Sport             | Comfort                |
+| Full Power          | 37 / 37 W | Best Performance   | Sport             | Comfort                |
 
-These are the A2VM values from the local `_ref/HandheldCompanion` source. `ClawA2VM` overrides the
-watt pairs and inherits `ClawA1M.PowerProfileManager_Applied` for the scenario selection. HC's
-battery `ShiftType.None` becomes active Comfort (`0xC0`). WSGM uses the same mapping through
-optional plugin-authored AC/battery scenario targets; the host contains no MSI register knowledge. A
-Windows mode is the performance/efficiency overlay on a power plan, separate from the scheme
-selector above. CPU boost, Intel Endurance Gaming and fan controls remain independent. The exact
-firmware effects of each EC scenario still require attended AC/battery measurements.
+Full Power uses the Claw plugin's supported maximum of 37 W for both limits. The other three presets
+are the A2VM values from the local `_ref/HandheldCompanion` source. `ClawA2VM` overrides the watt
+pairs and inherits `ClawA1M.PowerProfileManager_Applied` for the scenario selection. HC's battery
+`ShiftType.None` becomes active Comfort (`0xC0`). WSGM uses the same mapping through optional
+plugin-authored AC/battery scenario targets; the host contains no MSI register knowledge. A Windows
+mode is the performance/efficiency overlay on a power plan, separate from the scheme selector above.
+CPU boost, Intel Endurance Gaming and fan controls remain independent. The exact firmware effects of
+each EC scenario still require attended AC/battery measurements.
 
 Selecting a preset applies immediately. WSGM serializes it with manual power, scenario and AutoTDP
 writes. It selects the firmware scenario first, reads the resulting watt pair, raises PL2 before PL1
