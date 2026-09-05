@@ -133,7 +133,17 @@ public partial class OverlayWindow : Window
     private bool _showingDestination;
     private readonly CancellationTokenSource _deviceLifetime = new();
     private readonly OverlayNavigation _navigation = new();
-    private static readonly OverlayFocusMemory FocusMemory = new();
+    // Window recreation retains navigation within the resident session, without persisting it.
+    private static readonly SessionState SharedSession = new();
+    private readonly SessionState _session;
+    private readonly Action<OverlayWindow> _dock;
+    private readonly Action _synchronizeTabs;
+
+    internal sealed class SessionState
+    {
+        internal OverlayFocusMemory Focus { get; } = new();
+        internal OverlayDestination Destination { get; set; } = OverlayDestination.QuickAccess;
+    }
     private IDeviceOverlaySource? _deviceBridge;
 
     /// <summary>Preview tiles by control, rebuilt with the Glyphs page and empty elsewhere.</summary>
@@ -1811,7 +1821,7 @@ public partial class OverlayWindow : Window
         if (previous == OverlayDestination.Device && !deviceAvailable)
         {
             RememberDestinationState(previous);
-            _lastDestination = OverlayDestination.Home;
+            _session.Destination = OverlayDestination.Home;
         }
 
         PlacePerformanceSection(deviceAvailable);
@@ -1927,10 +1937,6 @@ public partial class OverlayWindow : Window
         }
     }
 
-    // The destination the user last selected, restored on the next open. Static because
-    // the overlay window is recreated per open; deliberately not persisted to config.
-    private static OverlayDestination _lastDestination = OverlayDestination.QuickAccess;
-
     private readonly double _uiScale;
     private readonly PixelPoint? _preferredScreenPoint;
 
@@ -1953,12 +1959,28 @@ public partial class OverlayWindow : Window
         SystemStatus status,
         double uiScale = 1.0,
         PixelPoint? preferredScreenPoint = null)
+        : this(viewModel, switcher, status, SharedSession,
+            static window => window.DockToTopEdge(), static window => window.MaybeAutoSyncTabs(), uiScale, preferredScreenPoint)
+    { }
+
+    internal OverlayWindow(
+        OverlayViewModel viewModel,
+        AppSwitcherViewModel switcher,
+        SystemStatus status,
+        SessionState session,
+        Action<OverlayWindow> dock,
+        Action<OverlayWindow> synchronizeTabs,
+        double uiScale = 1.0,
+        PixelPoint? preferredScreenPoint = null)
     {
+        _session = session;
+        _dock = dock;
+        _synchronizeTabs = () => synchronizeTabs(this);
         _uiScale = uiScale;
         _preferredScreenPoint = preferredScreenPoint;
         _switcher = switcher;
-        InitializeComponent();
         DataContext = viewModel;
+        InitializeComponent();
         // Two subtrees bind different objects than the window (compiled bindings:
         // x:DataType on the TrayScroller / AppsStrip and StatusZone subtrees).
         TrayScroller.DataContext = switcher;
@@ -2061,10 +2083,10 @@ public partial class OverlayWindow : Window
             return;
         }
 
-        DockToTopEdge();
-        SelectDestination(_lastDestination);
+        _dock(this);
+        SelectDestination(_session.Destination);
         RestoreDestinationState(focus: true);
-        MaybeAutoSyncTabs();
+        _synchronizeTabs();
     }
 
     private void OnActivated(object? sender, EventArgs e)
@@ -2075,7 +2097,7 @@ public partial class OverlayWindow : Window
         }
 
         LeaveAllNestedPages();
-        SelectDestination(_lastDestination);
+        SelectDestination(_session.Destination);
     }
 
     private void OnClosed(object? sender, EventArgs e)
@@ -2086,6 +2108,10 @@ public partial class OverlayWindow : Window
         // skip the release and leave the subscription attached to a dead window.
         UpdateGlyphInputObservation(false);
         _closed = true;
+        _pinToastTimer?.Stop();
+        _pinToastTimer = null;
+        DevicePowerSchemeHost.Attach(null);
+        DevicePowerPresetHost.Attach(null);
         _deviceLifetime.Cancel();
         if (_deviceBridge is not null)
         {
@@ -2238,7 +2264,7 @@ public partial class OverlayWindow : Window
             return;
         }
 
-        _lastDestination = destination;
+        _session.Destination = destination;
         ShowDestination(destination, restoreFocus: true);
     }
 
@@ -2259,7 +2285,7 @@ public partial class OverlayWindow : Window
         RememberDestinationState(_navigation.Destination);
         LeaveAllNestedPages();
         _navigation.Select(destination);
-        _lastDestination = destination;
+        _session.Destination = destination;
         ShowDestination(destination, restoreFocus: true);
     }
 
@@ -2320,12 +2346,12 @@ public partial class OverlayWindow : Window
 
     private void RememberDestinationState(OverlayDestination destination)
     {
-        OverlayFocusState previous = FocusMemory.Recall(destination);
+        OverlayFocusState previous = _session.Focus.Recall(destination);
         string? semanticKey = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement()
             is Control { Tag: string key }
             ? key
             : previous.SemanticKey;
-        FocusMemory.Remember(destination, semanticKey, ContentScroller.Offset.Y);
+        _session.Focus.Remember(destination, semanticKey, ContentScroller.Offset.Y);
     }
 
     private string? CurrentSemanticFocusKey()
@@ -2336,8 +2362,8 @@ public partial class OverlayWindow : Window
 
     private void RestoreRootFocus(string? semanticKey)
     {
-        OverlayFocusState state = FocusMemory.Recall(_navigation.Destination);
-        FocusMemory.Remember(
+        OverlayFocusState state = _session.Focus.Recall(_navigation.Destination);
+        _session.Focus.Remember(
             _navigation.Destination,
             semanticKey ?? state.SemanticKey,
             state.ScrollOffset);
@@ -2346,7 +2372,7 @@ public partial class OverlayWindow : Window
 
     private void RestoreDestinationState(bool focus)
     {
-        OverlayFocusState state = FocusMemory.Recall(_navigation.Destination);
+        OverlayFocusState state = _session.Focus.Recall(_navigation.Destination);
         ContentScroller.Offset = new Vector(0, state.ScrollOffset);
         if (!focus)
         {
@@ -3618,7 +3644,7 @@ public partial class OverlayWindow : Window
             control.BringIntoView();
             if (!AnySubView && control.Tag is string semanticKey)
             {
-                FocusMemory.Remember(
+                _session.Focus.Remember(
                     _navigation.Destination,
                     semanticKey,
                     ContentScroller.Offset.Y);

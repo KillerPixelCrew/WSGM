@@ -61,7 +61,7 @@
                              mode; collapses when empty). Tiles keep a fixed size at
                              every count — reconcile-in-place must never move
                              geometry under the focused button. -->
-                        <ScrollViewer x:Name="TrayScroller"
+                        <ScrollViewer x:Name="TrayScroller" DataContext="{x:Null}"
                                       x:DataType="ov:AppSwitcherViewModel"
                                       HorizontalScrollBarVisibility="Hidden"
                                       VerticalScrollBarVisibility="Disabled"
@@ -91,7 +91,7 @@
                                 Background="{StaticResource HcCardBorderBrush}"
                                 Margin="4,0"
                                 IsVisible="{Binding #TrayScroller.IsVisible}" />
-                        <StackPanel x:Name="StatusZone"
+                        <StackPanel x:Name="StatusZone" DataContext="{x:Null}"
                                     x:DataType="sh:SystemStatus"
                                     Orientation="Horizontal"
                                     Spacing="4"
@@ -310,7 +310,7 @@
                          scoped to this window). Three states toggle by
                          visibility: pick a drive, confirm the erase, watch it
                          run. The whole sub-view is hidden from the tab strip. -->
-                    <StackPanel x:Name="PanelFormat" x:DataType="sh:SdFormatManager" Spacing="6" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                    <StackPanel x:Name="PanelFormat" DataContext="{x:Null}" x:DataType="sh:SdFormatManager" Spacing="6" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
                         <TextBlock x:Name="FormatHeading"
                                    Text="Format SD Card"
                                    FontSize="15"
@@ -570,7 +570,7 @@
                  strip scrolls sideways once they no longer fit; a chip keeps its
                  place as windows open and close (reconcile-in-place). Controller
                  focus is scrolled into view explicitly (OnStripGotFocus). -->
-            <Border Grid.Row="3" x:Name="AppsStrip" x:DataType="ov:AppSwitcherViewModel" BorderBrush="{StaticResource HcCardBorderBrush}" BorderThickness="0,1,0,0" Padding="24,8">
+            <Border Grid.Row="3" x:Name="AppsStrip" DataContext="{x:Null}" x:DataType="ov:AppSwitcherViewModel" BorderBrush="{StaticResource HcCardBorderBrush}" BorderThickness="0,1,0,0" Padding="24,8">
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                     <TextBlock Text="OPEN APPS" Classes="eyebrow" VerticalAlignment="Center" />
                     <ScrollViewer Grid.Column="1"

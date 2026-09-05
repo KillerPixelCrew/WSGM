@@ -50,6 +50,26 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private readonly AppConfig _config;
+    private readonly SettingsServices _services;
+
+    internal sealed record SettingsServices(
+        Func<IEnumerable<MonitorDisplayProfile>> ReadDisplays,
+        Func<IEnumerable<(string Label, string Path, bool Elevated)>> DetectStartupApps,
+        Action BeginImportSession,
+        Action EndImportSession,
+        Func<SaveRequest, Task<SaveResult>> Persist,
+        Func<AppConfig, Task> ApplySteamInput,
+        Action<string, Exception?> Report)
+    {
+        internal static SettingsServices Windows(SettingsViewModel owner) => new(
+            () => OperatingSystem.IsWindows() ? Core.DisplayProfiles.ReadActiveProfiles() : [],
+            KnownStartupApps.Detected,
+            SplashTheme.BeginImportSession, SplashTheme.EndImportSession,
+            request => Task.Run(() => PersistSave(request)),
+            config => Task.Run(() => owner.ApplySteamInputManagementAfterSave(config)),
+            (message, error) => { if (error is null) { Log.Info(message); } else { Log.Error(message, error); } });
+    }
+
     private bool _isSaving;
 
     /// <summary>Gets whether an asynchronous save is currently persisting its captured
@@ -90,11 +110,13 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     internal SettingsViewModel(AppConfig config, string? installedPluginId)
         : this(config, installedPluginId, filterToInstalledPlugin: true) { }
 
-    private SettingsViewModel(
+    internal SettingsViewModel(
         AppConfig config,
         string? installedPluginId,
-        bool filterToInstalledPlugin)
+        bool filterToInstalledPlugin,
+        SettingsServices? services = null)
     {
+        _services = services ?? SettingsServices.Windows(this);
         SaveCommand = new AsyncRelayCommand(SaveWithStatusAsync);
         OpenLogLocationCommand = new RelayCommand(OpenLogLocation);
         RemoveAppCommand = new RelayCommand<StartupAppRow>(row =>
@@ -173,11 +195,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         {
             DisplayProfiles.Add(profile);
         }
-        if (OperatingSystem.IsWindows())
         {
             try
             {
-                foreach (var profile in Core.DisplayProfiles.ReadActiveProfiles())
+                foreach (var profile in _services.ReadDisplays())
                 {
                     var existing = DisplayProfiles.FirstOrDefault(row => !string.IsNullOrEmpty(row.MonitorId)
                         ? string.Equals(row.MonitorId, profile.MonitorId, StringComparison.OrdinalIgnoreCase)
@@ -197,7 +218,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             }
             catch (Exception ex)
             {
-                Log.Warn($"Could not enumerate display profiles for Settings: {ex.Message}");
+                _services.Report("Could not enumerate display profiles for Settings", ex);
             }
         }
 
@@ -668,7 +689,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         var names = new List<string>();
         var targets = new List<(string, bool)>();
 
-        foreach (var (label, path, elevated) in KnownStartupApps.Detected())
+        foreach (var (label, path, elevated) in _services.DetectStartupApps())
         {
             names.Add(label);
             targets.Add((path, elevated));
@@ -1441,7 +1462,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         bool GlyphSelectionEdited,
         bool QuickSetupWasAnswered);
 
-    private sealed record SaveResult(
+    internal sealed record SaveResult(
         AppConfig Config,
         IReadOnlyList<string> FailedSlots,
         string? Failure);
@@ -1479,25 +1500,25 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             // The Settings window itself owns one import session, but it may close
             // while this asynchronous save is copying a staged theme. Take a second
             // counted lease so window cleanup cannot delete the source mid-copy.
-            SplashTheme.BeginImportSession();
+            _services.BeginImportSession();
             importLease = true;
             SaveRequest request = CaptureSaveRequest();
-            SaveResult result = await Task.Run(() => PersistSave(request));
+            SaveResult result = await _services.Persist(request);
             CompletePersistedSave(result);
-            await Task.Run(() => ApplySteamInputManagementAfterSave(result.Config));
+            await _services.ApplySteamInput(result.Config);
             Raise(nameof(SteamInputShimStatusText));
             StatusText = $"Saved {DateTime.Now:HH:mm:ss}";
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            Log.Error("Saving settings failed", ex);
+            _services.Report("Saving settings failed", ex);
             StatusText = $"Save failed: {ex.Message}";
         }
         finally
         {
             if (importLease)
             {
-                SplashTheme.EndImportSession();
+                _services.EndImportSession();
             }
 
             IsSaving = false;
@@ -1513,17 +1534,17 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// merge — so the merge has to happen here.</summary>
     public void Save()
     {
-        SplashTheme.BeginImportSession();
+        _services.BeginImportSession();
         try
         {
-            SaveResult result = PersistSave(CaptureSaveRequest());
+            SaveResult result = _services.Persist(CaptureSaveRequest()).GetAwaiter().GetResult();
             CompletePersistedSave(result);
-            ApplySteamInputManagementAfterSave(result.Config);
+            _services.ApplySteamInput(result.Config).GetAwaiter().GetResult();
             Raise(nameof(SteamInputShimStatusText));
         }
         finally
         {
-            SplashTheme.EndImportSession();
+            _services.EndImportSession();
         }
     }
 
@@ -1741,7 +1762,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             // it said, so SaveCommand must report "Save failed", never "Saved".
             throw new System.IO.IOException(result.Failure);
         }
-        Log.Info("Settings saved.");
+        _services.Report("Settings saved.", null);
     }
 
     /// <summary>Brings Steam's directory in line with the setting that was just
