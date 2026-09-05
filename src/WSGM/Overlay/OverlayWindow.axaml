@@ -411,6 +411,9 @@
                          provide markup, styles, URLs, or arbitrary commands through this surface. -->
                     <StackPanel x:Name="PanelDevice" Spacing="4" IsVisible="False">
                         <ov:PowerSchemeView x:Name="DevicePowerSchemeHost" />
+                        <StackPanel x:Name="DevicePowerPresetContainer">
+                            <ov:DevicePowerPresetView x:Name="DevicePowerPresetHost" IsVisible="False" />
+                        </StackPanel>
                         <TextBlock x:Name="DeviceStatusTitle"
                                    Text="Device integration"
                                    FontSize="16"

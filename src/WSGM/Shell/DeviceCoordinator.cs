@@ -91,6 +91,10 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         _sessionId = sessionId;
         _ownerMutex = ownerMutex;
         _capabilities = new DeviceCapabilityRouter(postToUi);
+        PowerPresets = new DevicePowerPresets(() => IntegrationEnabled ? _capabilities.Snapshot() : [],
+            (id, watts, cycle, generation, token) => ExecuteCapabilityCoreAsync(id, null,
+                new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = watts },
+                TimeSpan.FromSeconds(5), CapabilityCommandOrigin.User, token, cycle, generation), WindowsPowerModes.Windows);
         _pluginSettings = new PluginSettingsCoordinator();
         _diagnostics = new DeviceCoordinatorDiagnosticsServer(sessionId, DiagnosticsSnapshot);
         _hapticSink = new PluginHapticSink(ApplyHapticOutputAsync);
@@ -145,6 +149,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// one path that lets a manual power change pause AutoTDP.
     /// </remarks>
     internal DeviceCapabilityRouter Capabilities => _capabilities;
+
+    internal DevicePowerPresets PowerPresets { get; }
 
     /// <summary>The controller manager, for status/sample subscriptions and reads.</summary>
     /// <remarks>
@@ -1627,12 +1633,28 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         CapabilityCommandOrigin origin = CapabilityCommandOrigin.User,
         CancellationToken cancellationToken = default)
     {
+        bool power = FindDescriptor(capabilityId, instanceId)?.Role is
+            CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit;
+        if (power) { await PowerPresets.MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false); }
+        try
+        {
+            return await ExecuteCapabilityCoreAsync(capabilityId, instanceId, value, timeout, origin, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally { if (power) { PowerPresets.MutationGate.Release(); } }
+    }
+
+    private async Task<CapabilityCommandResult> ExecuteCapabilityCoreAsync(
+        string capabilityId, string? instanceId, CapabilityValue? value, TimeSpan timeout,
+        CapabilityCommandOrigin origin, CancellationToken cancellationToken,
+        long? expectedCycle = null, long? expectedDescriptors = null)
+    {
         CapabilityCommandResult result = await _capabilities.ExecuteAsync(
             capabilityId,
             instanceId,
             value,
             timeout,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken, expectedCycle, expectedDescriptors).ConfigureAwait(false);
         if (origin is CapabilityCommandOrigin.User)
         {
             NotifyManualPowerChange(capabilityId, instanceId, value, result);

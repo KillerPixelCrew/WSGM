@@ -40,11 +40,45 @@ No live power settings were changed for validation. No session-mode or per-appli
 is installed, and the selector has no device-plugin dependency. WSGM Settings configures WSGM
 itself; this Windows control belongs in the overlay and Steam QAM.
 
-Steam QAM → Performance offers a Power profile dropdown, built on Valve's dropdown field. Selecting
-an entry applies it immediately through the same Core backend and saves the verified GUID. Each
-publication reads Windows; the backend rejects unknown or removed GUIDs and requires a fresh read
-after an uncertain write. The row shows failures and disables input while its request is pending.
-The toolkit owns row placement and command validation; WSGM owns Windows access.
+Steam QAM → Performance offers a Windows power profile dropdown, built on Valve's dropdown field.
+Selecting an entry applies it immediately through the same Core backend and saves the verified GUID.
+Each publication reads Windows; the backend rejects unknown or removed GUIDs and requires a fresh
+read after an uncertain write. The row shows failures and disables input while its request is
+pending. The toolkit owns row placement and command validation; WSGM owns Windows access.
+
+## Device power presets
+
+Overlay → Device and Steam QAM → Performance also offer a Device power profile dropdown when the
+plugin declares presets. The Claw A2VM supplies:
+
+| Preset              | PL1 / PL2 | Windows power mode |
+| ------------------- | --------- | ------------------ |
+| Super Battery       | 8 / 9 W   | Better Battery     |
+| Balanced            | 17 / 18 W | Balanced           |
+| Extreme Performance | 30 / 31 W | Best Performance   |
+
+These are the A2VM values from HandheldCompanion. They change only the two watt limits and Windows
+power mode. A Windows mode is the performance/efficiency overlay on a power plan, separate from the
+scheme selector above. CPU boost, Intel Endurance Gaming and fan controls remain independent.
+
+Selecting a preset applies immediately. WSGM serializes it with manual power and AutoTDP writes,
+raises PL2 before PL1 when necessary, and lowers PL1 before PL2. Each device write must report
+verified success before the next step; Windows mode is applied last and read back. Device and
+descriptor generations are checked at command admission. The manual TDP funnel pauses AutoTDP and
+records the underlying values using their existing owners. No selected-preset policy is stored or
+reapplied at startup, on configuration reload, or when another control changes.
+
+Both UIs derive the current preset from observed PL1, PL2 and effective Windows mode. A mismatch,
+including an external Windows mode change or a resumed AutoTDP adjustment, shows Custom. Custom is a
+reading, not an action. The open overlay refreshes once per second; QAM refreshes with its regular
+state publication. Missing or stale observations disable selection instead of guessing a preset.
+Disabling Device Integration removes the preset choices and leaves the Windows scheme picker.
+
+A failure can leave some underlying values changed. WSGM reports that partial result, stops, and
+does not retry or roll back across Windows and device controls. The plugin's existing per-command
+power rollback remains intact. Preview surfaces cannot apply presets, and closing the overlay
+cancels remaining work and prevents late UI updates. Validation uses fake device/Windows backends
+and emitted dropdown fixtures; it does not change live power settings or a running Steam client.
 
 ## Display profiles
 

@@ -29,6 +29,7 @@ public sealed class OverlayController : IDisposable
     private readonly KeepAwakeService? _keepAwake;
     private readonly IDeviceOverlaySource? _device;
     private readonly PerformanceOverlayBridge? _performance;
+    private readonly DevicePowerPresets? _powerPresets;
 
     /// <summary>
     /// The session's audio manager, shared with the sheet's status pills rather than owned.
@@ -103,8 +104,10 @@ public sealed class OverlayController : IDisposable
         KeepAwakeService? keepAwake, bool previewOnly, IDeviceOverlaySource? device,
         PerformanceOverlayBridge? performance = null,
         AudioManager? audio = null,
-        RadioManager? radios = null)
+        RadioManager? radios = null,
+        DevicePowerPresets? powerPresets = null)
     {
+        _powerPresets = powerPresets;
         _sessionAudio = audio;
         _sessionRadios = radios;
         _config = config;
@@ -802,6 +805,15 @@ public sealed class OverlayController : IDisposable
         _overlay.AttachPowerSchemes(powerSchemes);
         _overlay.Opened += async (_, _) => await powerSchemes.RefreshAsync();
         _overlay.Closed += (_, _) => powerSchemes.Dispose();
+        if (_powerPresets is not null)
+        {
+            var presets = new DevicePowerPresetSelection(_powerPresets, _previewOnly);
+            _overlay.AttachPowerPresets(presets);
+            var timer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            timer.Tick += async (_, _) => await presets.RefreshAsync();
+            _overlay.Opened += async (_, _) => { timer.Start(); await presets.RefreshAsync(); };
+            _overlay.Closed += (_, _) => { timer.Stop(); presets.Dispose(); };
+        }
         powerSchemes.Changed += () =>
         {
             if (!powerSchemes.Busy && powerSchemes.ActiveId is not null && ReferenceEquals(_overlayViewModel, vm))
