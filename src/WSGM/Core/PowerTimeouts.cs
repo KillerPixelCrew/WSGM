@@ -1,5 +1,5 @@
 using System;
-using System.Runtime.InteropServices;
+using System.ComponentModel;
 using WSGM.Interop;
 
 namespace WSGM.Core;
@@ -140,21 +140,16 @@ public static class PowerTimeouts
 
     private static bool TryGetActiveScheme(out Guid scheme)
     {
-        scheme = default;
-        var status = NativeMethods.PowerGetActiveScheme(0, out var guidPtr);
-        if (status != 0 || guidPtr == 0)
-        {
-            Log.Warn($"PowerGetActiveScheme failed (status {status}).");
-            return false;
-        }
         try
         {
-            scheme = Marshal.PtrToStructure<Guid>(guidPtr);
+            scheme = PowerSchemes.Windows.ReadActive();
             return true;
         }
-        finally
+        catch (Win32Exception ex)
         {
-            NativeMethods.LocalFree(guidPtr);
+            scheme = default;
+            Log.Warn(ex.Message);
+            return false;
         }
     }
 }

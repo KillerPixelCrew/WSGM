@@ -219,6 +219,10 @@ device-specific power limit consumed by AutoTDP, but it never owns or reimplemen
       for an ordinary manual selection. If session-mode or per-application scheme policy is added,
       it belongs beside WSGM's existing performance policy and restores the applicable Core layer
       when that scope ends, never in a device profile or hardware plugin.
+      Backend implemented: GUID-based enumeration, active reads, one-shot selection with verified
+      readback, native error reporting and synthetic failure tests. Existing idle-timeout reads use
+      the shared backend. Power/Performance UI and persisted references remain open; no live power
+      settings were changed. `docs\power-and-display.md`.
 
 ### Product backlog
 

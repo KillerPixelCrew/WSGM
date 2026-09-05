@@ -547,6 +547,16 @@ internal static partial class NativeMethods
     internal static partial uint PowerSetActiveScheme(nint userRootPowerKey, in Guid schemeGuid);
 
     [LibraryImport("powrprof.dll")]
+    internal static partial uint PowerEnumerate(
+        nint rootPowerKey, nint schemeGuid, nint subGroupGuid, uint accessFlags,
+        uint index, out Guid buffer, ref uint bufferSize);
+
+    [LibraryImport("powrprof.dll")]
+    internal static partial uint PowerReadFriendlyName(
+        nint rootPowerKey, in Guid schemeGuid, nint subGroupGuid, nint powerSettingGuid,
+        nint buffer, ref uint bufferSize);
+
+    [LibraryImport("powrprof.dll")]
     internal static partial uint PowerReadACValueIndex(
         nint rootPowerKey, in Guid schemeGuid, in Guid subGroupGuid, in Guid powerSettingGuid,
         out uint acValueIndex);

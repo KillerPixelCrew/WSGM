@@ -2,8 +2,25 @@
 
 What WSGM does with the display and the power state of a handheld: display profiles and HDR, muting
 during screen-off downloads, the keep-awake wake lock, refresh-rate pairing for the frame limit, and
-variable refresh over IGCL. All of it was verified on the reference MSI Claw. Boot and shell
-transitions are in `docs\boot-and-shell.md`; the frame limit itself in `docs\rtss.md`.
+variable refresh over IGCL. The established display and wake-lock paths were verified on the
+reference MSI Claw. Boot and shell transitions are in `docs\boot-and-shell.md`; the frame limit
+itself in `docs\rtss.md`.
+
+## Windows power schemes
+
+The Core backend in `PowerSchemes` enumerates installed schemes and reads the active GUID through
+`powrprof`. GUIDs identify schemes; localized friendly names are display text only. An empty name
+falls back to the GUID. Enumeration failures are surfaced rather than returning a partial list. The
+existing idle-timeout controls share its active-scheme reader.
+
+A manual selection calls `PowerSetActiveScheme` once, then verifies the GUID with
+`PowerGetActiveScheme`. A failed write, failed readback or different active GUID is not success and
+does not trigger another write or rollback. Windows remains authoritative, including subsequent
+changes made by Settings or OEM tools. Native failures retain their error codes.
+
+The backend has synthetic tests; it has not been exercised against live power settings. The
+Power/Performance selectors and any persisted references are still pending. No session-mode or
+per-application scheme policy is installed by this backend, and it has no device-plugin dependency.
 
 ## Display profiles
 
