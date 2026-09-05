@@ -7,14 +7,13 @@ the author workflow: create, build, test, pack, install.
 
 Related:
 
-- `external\WSGM.Device.Sdk\docs\reference.md` — the contract, type by type.
+- `src\WSGM.Device.Sdk\docs\reference.md` — the contract, type by type.
 - `docs\device-plugin-system.md` — what WSGM does with each publication, command and lifecycle call,
   with the built-in Claw package as the worked example.
 
-Both tools an author needs are MIT submodules: `external\WSGM.Device.Sdk` is the contract and
-`external\WSGM.DeviceLab` is the tool. Their Git links pin exact source commits while still allowing
-changes to be committed directly in either repository. Build Device Lab from its project in this
-checkout; `wsgm-device` below means that build or an installed Device Lab.
+Both tools an author needs are MIT projects in WSGM: `src\WSGM.Device.Sdk` is the contract and
+`src\WSGM.DeviceLab` is the tool. They build against the same SDK source; contract and consumer
+changes are reviewed together in one pull request.
 
 ## 1. Create and implement
 
@@ -30,10 +29,10 @@ package layout. `LICENSE.txt` is kept beside both build and publish output.
 
 A scaffolded plugin links only the MIT SDK, never WSGM, so the author picks its licence freely,
 including a closed-source vendor plugin. Inside a WSGM checkout the project references the SDK
-through `external\WSGM.Device.Sdk`; an installed Device Lab instead writes an explicit reference to
-the exact `WSGM.Device.Sdk.dll` shipped beside the tool. That path is validated before any scaffold
-file is written, so no undefined MSBuild property is emitted. Keep the reference on that exact API
-if the scaffold is moved to another machine.
+through `src\WSGM.Device.Sdk`; an installed Device Lab instead writes an explicit reference to the
+exact `WSGM.Device.Sdk.dll` shipped beside the tool. That path is validated before any scaffold file
+is written, so no undefined MSBuild property is emitted. Keep the reference on that exact API if the
+scaffold is moved to another machine.
 
 Implement exact detection first, then add direct device-owned services. Publish only semantic
 descriptors, state, input and diagnostics through `IPluginHostAdapter`; vendor addresses, packets,

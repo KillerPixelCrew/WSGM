@@ -169,7 +169,7 @@ if (-not $SkipPlugin) {
     # rejects as api-incompatible (device features silently gone). Rebuild it from the pinned
     # submodules exactly as the installer does, then swap the validated tree into the protected
     # slot. Only this step needs elevation, so it is the one UAC prompt of a dev deploy.
-    Write-Host '== Staging device plugin from submodules ==' -ForegroundColor Cyan
+    Write-Host '== Staging device plugin from WSGM source ==' -ForegroundColor Cyan
     $pluginStage = Join-Path $root 'publish\DevDeviceComponents'
     Remove-Item -LiteralPath $pluginStage -Recurse -Force -ErrorAction SilentlyContinue
     & "$root\eng\stage-device-components.ps1" -OutputRoot $pluginStage

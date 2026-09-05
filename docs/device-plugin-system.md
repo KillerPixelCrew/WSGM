@@ -8,13 +8,13 @@ code. The reasons behind these mechanisms and the device findings are in `device
 
 Read it together with:
 
-| Document                                     | Holds                                                                |
-| -------------------------------------------- | -------------------------------------------------------------------- |
-| `external\WSGM.Device.Sdk\docs\reference.md` | Every SDK type, rule and limit: the contract a plugin links against. |
-| `docs\device-integration.md`                 | The decisions and device findings behind the runtime.                |
-| `docs\device-plugin-authoring.md`            | The author workflow: scaffold, build, test, pack, install.           |
-| `docs\device-security.md`                    | The one-page boundary checklist.                                     |
-| `_plan\2.0-decisions.md` D02–D10, D20, D22b  | The standing product decisions.                                      |
+| Document                                    | Holds                                                                |
+| ------------------------------------------- | -------------------------------------------------------------------- |
+| `src\WSGM.Device.Sdk\docs\reference.md`     | Every SDK type, rule and limit: the contract a plugin links against. |
+| `docs\device-integration.md`                | The decisions and device findings behind the runtime.                |
+| `docs\device-plugin-authoring.md`           | The author workflow: scaffold, build, test, pack, install.           |
+| `docs\device-security.md`                   | The one-page boundary checklist.                                     |
+| `_plan\2.0-decisions.md` D02–D10, D20, D22b | The standing product decisions.                                      |
 
 ## 1. Components and ownership
 
@@ -765,8 +765,8 @@ file. Levels and key style are in `docs\logging.md`.
 
 ## 18. Worked example: the built-in MSI Claw package
 
-`external\WSGM.Device.Msi.Claw8A2Vm` (MIT) is the reference plugin and the shape every rule above
-was tested against. Its manifest is `wsgm.device.msi.claw-8-a2vm`, API 3, entry
+`src\WSGM.Device.Msi.Claw8A2Vm` (MIT) is the reference plugin and the shape every rule above was
+tested against. Its manifest is `wsgm.device.msi.claw-8-a2vm`, API 3, entry
 `WSGM.Device.Msi.Claw8A2Vm.Claw8A2VmPlugin`. It targets `net10.0-windows10.0.19041.0`, references
 only the SDK and `System.Management`, ships its licence and notices beside the assembly, declares no
 settings manifest, and keeps every vendor address inside the package.
@@ -865,17 +865,17 @@ one full-controller SVG, left and right PNGs at 643×464), 20 control mappings w
 labels, no aliases, notice `THIRD_PARTY_NOTICES.md`.
 
 Tests build the plugin with fake WMI, MCU, controller, motion, chord and event services and the
-SDK's `TestPluginHostAdapter`. Packaging: `eng\pack.ps1` publishes framework-dependent `win-x64`,
-strips symbols, copies `glyphs\` verbatim, runs `wsgm-device validate` and `wsgm-device pack`.
-WSGM's `eng\stage-device-components.ps1` publishes Device Lab, invokes that packer, checks the
-archive's path safety, extracts to `Packages\<id>`, requires the licence, notices and provenance
-files, compares the staged glyph count with the source tree, and validates again. The installer
-copies `Packages\*` into `.staging` and swaps the slot during post-install.
+SDK's `TestPluginHostAdapter`. Packaging: `eng\pack-claw.ps1` publishes framework-dependent
+`win-x64`, strips symbols, copies `glyphs\` verbatim, runs `wsgm-device validate` and
+`wsgm-device pack`. WSGM's `eng\stage-device-components.ps1` publishes Device Lab, invokes that
+packer, checks the archive's path safety, extracts to `Packages\<id>`, requires the licence, notices
+and provenance files, compares the staged glyph count with the source tree, and validates again. The
+installer copies `Packages\*` into `.staging` and swaps the slot during post-install.
 
 ## 19. Device Lab
 
-`wsgm-device` (`external\WSGM.DeviceLab`, MIT) is the authoring and diagnostic tool. No argument
-opens the GUI; every command prints camelCase JSON to stdout, diagnostics to stderr, and exits 0, 64
+`wsgm-device` (`src\WSGM.DeviceLab`, MIT) is the authoring and diagnostic tool. No argument opens
+the GUI; every command prints camelCase JSON to stdout, diagnostics to stderr, and exits 0, 64
 (usage) or 70 (failure). Unknown options are rejected up front.
 
 | Command                                                                             | Arguments                                                                                                                                   | Class              |

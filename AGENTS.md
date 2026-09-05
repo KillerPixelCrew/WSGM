@@ -31,13 +31,16 @@ when the guidance conflicts.
   src/WSGM.LogonService is the minimal SYSTEM service used at logon.
 - native/SteamInput owns the Steam Input shim. external/windows-device-control and
   external/steam-ui-toolkit own their respective reusable libraries.
-- external/WSGM.Device.Sdk is the plugin contract. external/WSGM.DeviceLab is the hardware
-  validation tool. external/WSGM.Device.Msi.Claw8A2Vm is the machine-specific package.
+- src/WSGM.Device.Sdk is the plugin contract. src/WSGM.DeviceLab is the hardware
+  validation tool. src/WSGM.Device.Msi.Claw8A2Vm is the machine-specific package.
+  src/WSGM.Device.HandheldCompanion is a design scaffold, not a working plugin.
+  Their tests live under tests, and WSGM.slnx builds them against one SDK project.
 - WSGM supports exactly one installed device integration package at a time. With device integration
   disabled, there is no plugin lifecycle, controller target, hardware write, or AutoTDP;
   device-independent core and RTSS features must continue to work.
 - Keep policy and orchestration in WSGM, reusable contracts in the SDK, and machine-specific
-  behavior in the device package. Do not mirror submodule source into the main project.
+  behavior in the device package. Device projects are maintained together in this repository;
+  keep their assembly and license boundaries intact.
 - The SDK is MIT-licensed deliberately so external packages can implement its contracts. That
   narrower license boundary does not change the main product's GPL licensing.
 
@@ -81,21 +84,18 @@ Inspect both the main tree and nested repositories before work:
 
 The direct submodules are:
 
-- external/WSGM.Device.Sdk
-- external/WSGM.DeviceLab
-- external/WSGM.Device.Msi.Claw8A2Vm
 - external/steam-ui-toolkit
 - external/windows-device-control
 - native/SteamInput
 
-DeviceLab nests the SDK. The Claw package nests both the SDK and DeviceLab, and its DeviceLab nests
-the SDK again. Synchronize or fetch only when the task requires current remote state; never use an
-update command to overwrite local submodule work.
+The device projects use src/WSGM.Device.Sdk directly. Update contracts, consumers, tests, and
+documentation in the same WSGM pull request. No device gitlinks or nested SDK copies remain.
+Synchronize or fetch the remaining submodules only when the task requires current remote state;
+never use an update command to overwrite local submodule work.
 
-For a cross-repository change, work leaf first. Commit and push each child before recording its
-gitlink in its parent. The dependency order is SDK, then DeviceLab, then the Claw package, then
-WSGM; independent library or Steam Input changes must likewise be pushed before the WSGM pin. Do not
-run a submodule update after moving a child until the intended gitlink has been staged or committed.
+For a remaining library or Steam Input submodule change, commit and push the child before
+recording its gitlink in WSGM. Do not run a submodule update after moving a child until the intended
+gitlink has been staged or committed.
 
 Before reporting a push complete, confirm the intended files only were committed, each repository is
 clean, and every local branch equals its upstream.

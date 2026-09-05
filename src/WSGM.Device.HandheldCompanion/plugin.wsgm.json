@@ -1,0 +1,8 @@
+{
+  "id": "wsgm.device.handheld-companion",
+  "name": "Handheld Companion",
+  "version": "0.1.0",
+  "apiVersion": 2,
+  "entryAssembly": "WSGM.Device.HandheldCompanion.dll",
+  "entryType": "WSGM.Device.HandheldCompanion.HandheldCompanionPlugin"
+}

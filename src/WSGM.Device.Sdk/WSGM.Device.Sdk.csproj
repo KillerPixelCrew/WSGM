@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Matches the host that loads a plugin. A plugin is loaded in-process by WSGM, so there is
+         nothing to gain from multi-targeting: an assembly the host cannot load is not useful. -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <RootNamespace>WSGM.Device.Sdk</RootNamespace>
+    <AssemblyName>WSGM.Device.Sdk</AssemblyName>
+
+    <!-- Deliberately a zero-dependency leaf. This assembly is the type-identity boundary between
+         the host and a plugin: anything it references, a plugin inherits. -->
+
+    <!-- A plugin author reads this contract through IntelliSense and nothing else, so a member that
+         ships without documentation fails the build. CS1591 catches an undocumented member; CS1573
+         catches one that documents some parameters and silently omits the rest. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsAsErrors>$(WarningsAsErrors);CS1573;CS1591</WarningsAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Package">
+    <PackageId>WSGM.Device.Sdk</PackageId>
+    <!-- Pre-1.0: the contract is published so plugin authors can pin it, not because it is frozen.
+         A breaking change moves the minor version and is called out in the release notes. -->
+    <Version>0.1.0</Version>
+    <Description>The contract a WSGM Device Plugin links against: lifecycle, capability publication and commands, canonical controller input and haptic output, OEM events, glyph packages, plugin settings, diagnostics, packaging validation and a test kit.</Description>
+    <PackageTags>wsgm;handheld;device-plugin;steam;gamemode;sdk</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/KillerPixelCrew/WSGM</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Update="README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
+</Project>

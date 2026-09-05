@@ -11,14 +11,15 @@ public sealed class DeviceBoundaryTests
 
         // The SDK is the only device reference the application may hold: it is the type identity
         // the host and a plugin agree on. The solution builds the tool and package from their
-        // submodules, but the application still discovers the installed plugin dynamically.
+        // source projects, but the application still discovers the installed plugin dynamically.
         Assert.Contains("WSGM.Device.Sdk", references);
         Assert.DoesNotContain("WSGM.Device.Msi.Claw8A2Vm", references);
         Assert.DoesNotContain("WSGM.DeviceLab", references);
+        Assert.DoesNotContain("WSGM.Device.HandheldCompanion", references);
     }
 
     [Fact]
-    public void SolutionBuildsThePinnedDeviceToolAndPackageProjects()
+    public void SolutionBuildsTheDeviceProjectsWithOneSharedSdk()
     {
         string[] projects = XDocument.Load(Path.Combine(RepositoryRoot, "WSGM.slnx"))
             .Descendants("Project")
@@ -28,22 +29,41 @@ public sealed class DeviceBoundaryTests
             .ToArray();
 
         Assert.Contains(
-            "external/WSGM.DeviceLab/src/WSGM.DeviceLab/WSGM.DeviceLab.csproj",
+            "src/WSGM.DeviceLab/WSGM.DeviceLab.csproj",
             projects);
         Assert.Contains(
-            "external/WSGM.Device.Msi.Claw8A2Vm/src/WSGM.Device.Msi.Claw8A2Vm/WSGM.Device.Msi.Claw8A2Vm.csproj",
+            "src/WSGM.Device.Msi.Claw8A2Vm/WSGM.Device.Msi.Claw8A2Vm.csproj",
             projects);
+        Assert.Contains(
+            "src/WSGM.Device.HandheldCompanion/WSGM.Device.HandheldCompanion.csproj",
+            projects);
+        Assert.Equal(
+            "src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj",
+            Assert.Single(projects, path => Path.GetFileName(path) == "WSGM.Device.Sdk.csproj"));
+
+        string sdkPath = Path.GetFullPath(Path.Combine(
+            RepositoryRoot, "src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj"));
+        foreach (string projectPath in projects)
+        {
+            string projectDirectory = Path.GetDirectoryName(Path.Combine(RepositoryRoot, projectPath))!;
+            foreach (XElement reference in LoadProject(projectPath).Descendants("ProjectReference"))
+            {
+                string include = (string)reference.Attribute("Include")!;
+                if (Path.GetFileName(include) == "WSGM.Device.Sdk.csproj")
+                {
+                    Assert.Equal(sdkPath, Path.GetFullPath(Path.Combine(projectDirectory, include)));
+                }
+            }
+        }
     }
 
     [Fact]
     public void DeviceSdkHasNoProjectOrPackageDependencies()
     {
-        // The SDK lives in its own repository and guards this there too. It is re-checked from
-        // here because the pin is what WSGM actually builds: a submodule moved to a revision that
-        // acquired a dependency would hand every plugin that dependency, and this is the build
-        // that would ship it.
+        // The SDK is the shared type-identity boundary. Any dependency added here would be
+        // handed to every plugin built against it.
         XDocument sdk = LoadProject(
-            "external/WSGM.Device.Sdk/src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj");
+            "src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj");
 
         Assert.Empty(sdk.Descendants("ProjectReference"));
         Assert.Empty(sdk.Descendants("PackageReference"));

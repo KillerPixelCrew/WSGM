@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>WSGM.Device.HandheldCompanion</AssemblyName>
+    <RootNamespace>WSGM.Device.HandheldCompanion</RootNamespace>
+    <!-- Loaded by WSGM from its installed package directory, never referenced by it. The test
+         project is the only compile-time consumer. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference
+        Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="plugin.wsgm.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Update="THIRD_PARTY_NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- The package ships its licence beside the assembly, because the installed package is read
+         as a standalone directory with no repository around it. -->
+    <None Update="LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

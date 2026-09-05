@@ -17,7 +17,7 @@ source switching.
   diagnostic prefixes Gamepad added:, Controller input:, and Gamepad nav:; log lifecycle changes and
   actionable failures, not every sample.
 - Main-app input code is device-neutral. MSI Claw chord suppression belongs in
-  external/WSGM.Device.Msi.Claw8A2Vm/src/WSGM.Device.Msi.Claw8A2Vm, including
+  src/WSGM.Device.Msi.Claw8A2Vm, including
   FirmwareChordSuppressor.
 - Controls report input intent; Shell, Settings, or Overlay owns the resulting policy and lease
   transitions.

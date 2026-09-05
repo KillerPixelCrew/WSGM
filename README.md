@@ -157,5 +157,9 @@ WSGM is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY
 implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
 License for more details.
 
+The Device SDK, Device Lab, Claw reference plugin, and Handheld Companion scaffold, including their
+test projects, retain their MIT licenses under `src` and `tests`. See
+[device project layout](docs/device-projects.md) for paths and build commands.
+
 Bundled third-party components keep their own licenses; their notices ship beside the executable and
 with the installer.

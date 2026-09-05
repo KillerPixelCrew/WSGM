@@ -125,7 +125,7 @@ process change belongs to the action. Repeat isolated trials and find a negative
 
 | Concern               | Device Lab path                                                                                                        |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| CLI and exit behavior | `external/WSGM.DeviceLab/src/WSGM.DeviceLab/Cli/DeviceLabCli.cs`                                                       |
+| CLI and exit behavior | `src/WSGM.DeviceLab/Cli/DeviceLabCli.cs`                                                                               |
 | Shared GUI/CLI facade | `Application/DeviceLabApplication.cs`                                                                                  |
 | Hardware arguments    | `Cli/HardwareTestCliArguments.cs`                                                                                      |
 | Identity/inventory    | `Inventory/`, especially `KnownMsiClaw.cs`, `WindowsInventoryCollector.cs`, and `ExtendedWindowsInventoryCollector.cs` |
@@ -139,5 +139,5 @@ process change belongs to the action. Repeat isolated trials and find a negative
 Offline suite:
 
 ```powershell
-dotnet test external/WSGM.DeviceLab/WSGM.DeviceLab.slnx --configuration Release
+dotnet test tests/WSGM.DeviceLab.Tests/WSGM.DeviceLab.Tests.csproj --configuration Release
 ```

@@ -81,9 +81,9 @@ Test policy and state machines with fakes/temp roots. A compile-only build with
 ## Submodules and generated assets
 
 Before changing reusable code, inspect the child repository's status and guidance. Commit/test/push
-the child first, then stage only its gitlink in WSGM. For the nested device graph the order is SDK
--> Device Lab -> device package -> WSGM. Never run an update command that overwrites a moved or
-dirty child checkout.
+the child first, then stage only its gitlink in WSGM. Device projects are ordinary WSGM source:
+change the shared SDK and all affected consumers in the same pull request. Never run an update
+command that overwrites a moved or dirty child checkout.
 
 Steam injected source is generated into `src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js`; use the
 Steam CEF skill and `npm run steam-assets:build`, never edit the bundle/hash by hand.

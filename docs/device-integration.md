@@ -9,7 +9,7 @@ produced them. It does not describe the mechanism step by step.
 Related:
 
 - `docs\device-plugin-system.md` — how each mechanism works, with its budgets and log lines.
-- `external\WSGM.Device.Sdk\docs\reference.md` — the contract a plugin links against.
+- `src\WSGM.Device.Sdk\docs\reference.md` — the contract a plugin links against.
 - `docs\device-plugin-authoring.md` — the author workflow; `docs\device-security.md` — the boundary
   checklist.
 
@@ -66,7 +66,7 @@ in-process design, not a claim of equivalent isolation.
 Plugins publish only the public semantic SDK. WMI, HID, sensor, lighting, firmware, controller and
 recovery implementation stays inside the plugin, and a plugin cannot supply XAML, JavaScript, URLs,
 Steam selectors, shell or file operations, or a raw hardware broker. The SDK (`WSGM.Device.Sdk`,
-MIT, pinned as `external\WSGM.Device.Sdk`; `AGENTS.md` explains the licence) deliberately holds no
+MIT, maintained under `src\WSGM.Device.Sdk`; `AGENTS.md` explains the licence) deliberately holds no
 implementation modules, generic resource leases, WSGM UI policy, source-arbitration projections,
 evidence ids or locks, source generators, Steam selectors or CDP patches. Add an abstraction to it
 only when the Claw plugin and a materially different plugin both need it.
@@ -331,10 +331,10 @@ what it wrote, the duplicate in the other notation was left behind on restore. `
 
 ## Device Lab and UI ownership
 
-Device Lab (`KillerPixelCrew/WSGM.DeviceLab`, pinned as `external\WSGM.DeviceLab`) is one optional
-developer tool with GUI and CLI modes over the same operations. The main solution builds it and the
-installer's optional `devicelab` component publishes it from the same commit; change it inside the
-submodule, then commit the moved Git link here.
+Device Lab (`src\WSGM.DeviceLab`) is one optional developer tool with GUI and CLI modes over the
+same operations. The main solution builds it and the installer's optional `devicelab` component
+publishes it from the same WSGM commit. Change it together with the SDK and plugin consumers in one
+pull request.
 
 Read-only is the default. One explicit attended action may invoke plugin-owned snapshot, readback or
 restore code; it has no `--yes`, bulk, CI, imported-recipe, trial-hash, receipt, evidence-promotion

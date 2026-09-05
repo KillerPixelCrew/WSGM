@@ -27,7 +27,7 @@ QuickDevicePage.xaml and QuickPerformancePage.xaml are the exemplars.
   **MISSING and must be added from the descriptor: ValueKind, Minimum, Maximum, Step, Unit,
   Choices (IReadOnlyList<string>), Writable.** Populate where the snapshot is projected from the
   coordinator descriptor set (same file; find where DeviceOverlayCapability is constructed).
-- Descriptor source fields: `external/WSGM.Device.Sdk/.../Capabilities/CapabilityDescriptor.cs`
+- Descriptor source fields: `src/WSGM.Device.Sdk/.../Capabilities/CapabilityDescriptor.cs`
   Minimum/Maximum/Step (int?), Unit (CapabilityUnit), MaximumLength (int?); ValueKind enum in
   `Capabilities/CapabilityRole.cs` (Boolean, Integer, Choice, Text, Color, …); choices live on the
   descriptor (ChoiceDescriptor builds them — see plugin `Claw8A2VmPlugin.cs`).
@@ -54,8 +54,7 @@ QuickDevicePage.xaml and QuickPerformancePage.xaml are the exemplars.
 - Currently: Power(limits), Cooling(fans/thermals), Lighting, Input, Display, plus WSGM-side
   ControllerAndMotion/Glyphs split. Target: one **Power** (limits + thermals + fans via Categories)
   and one **Controller** (target + motion + glyphs via Categories). Use `CapabilityCategory` for
-  sub-grouping within a section rather than separate pages. This is a submodule change → commit in
-  `external/WSGM.Device.Msi.Claw8A2Vm` first, bump pin. Package apiVersion already 3, v1.2.0.
+  sub-grouping within a section rather than separate pages. Change `src/WSGM.Device.Msi.Claw8A2Vm` in the same WSGM pull request. Package apiVersion already 3, v1.2.0.
 
 ## Layout
 - Card list flows into MULTIPLE COLUMNS across the wide overlay (sheet is 1280 DIP) instead of one
@@ -69,15 +68,14 @@ QuickDevicePage.xaml and QuickPerformancePage.xaml are the exemplars.
    Left/Right. THIS IS THE HIGHEST-VALUE SLICE — do first.
 2. Dropdown row (Choice) + toggle row (Boolean) + textbox row (Text).
 3. Multi-column card layout across the wide overlay; category headers.
-4. Section regroup in the plugin submodule (Power, Controller); bump pin; refresh via dev-deploy.
+4. Section regroup in the plugin project (Power, Controller); refresh via dev-deploy.
 5. Widen the color editor.
 
 ## Deploy note
 `eng/dev-deploy.ps1` now rebuilds + installs the device plugin (elevated slot swap) unless
-`-SkipPlugin`. Plugin submodule builds clean as of the CS1573/IDE0055 fixes (uncommitted in the
-submodule working tree — commit + push + bump pin per AGENTS.md submodule rule).
+`-SkipPlugin`. The plugin now builds in WSGM.slnx; its build fixes and consumers belong in the same pull request.
 
 ## Status
 - [ ] Slice 1 (slider)  [ ] Slice 2 (dropdown/toggle/textbox)  [ ] Slice 3 (layout)
 - [ ] Slice 4 (section regroup)  [ ] Slice 5 (color width)
-- [ ] Plugin submodule build fixes committed + pin bumped
+- [ ] Plugin build fixes included in the WSGM pull request

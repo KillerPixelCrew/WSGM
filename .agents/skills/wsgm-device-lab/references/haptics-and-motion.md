@@ -143,6 +143,6 @@ Key implementation/evidence paths:
 Hardware-free validation:
 
 ```powershell
-dotnet test external/WSGM.Device.Msi.Claw8A2Vm/WSGM.Device.Msi.Claw8A2Vm.slnx --configuration Release
+dotnet test tests/WSGM.Device.Msi.Claw8A2Vm.Tests/WSGM.Device.Msi.Claw8A2Vm.Tests.csproj --configuration Release
 dotnet test tests/WSGM.Tests/WSGM.Tests.csproj --configuration Release --filter "FullyQualifiedName~SteamDeckNeptuneReportTests|FullyQualifiedName~ControllerDependencyAdapterTests|FullyQualifiedName~ManagedControllerBackendTests"
 ```

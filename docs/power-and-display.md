@@ -323,8 +323,7 @@ already in `System32`; IGCL initialises at v1.1. The internal panel reports
 restoring the saved parameter struct both succeed, and the read-back confirms each.
 
 The panel belongs to the device, so the transport belongs to the plugin
-(`external\WSGM.Device.Msi.Claw8A2Vm\src\WSGM.Device.Msi.Claw8A2Vm\ArcSyncTransport.cs`). WSGM only
-projects the capability.
+(`src\WSGM.Device.Msi.Claw8A2Vm\ArcSyncTransport.cs`). WSGM only projects the capability.
 
 Four facts that cost real time to establish:
 

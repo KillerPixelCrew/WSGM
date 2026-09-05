@@ -47,20 +47,20 @@ these boundaries for convenience or reject service boot merely because Explorer 
 with independent state/resource ownership should remain a focused manager, rooted and ordered by the
 session.
 
-## External ownership
+## Project ownership
 
-| Concern                                            | Repository/path                      |
-| -------------------------------------------------- | ------------------------------------ |
-| Semantic device-plugin contract                    | `external/WSGM.Device.Sdk`           |
-| Hardware authoring/evidence tool                   | `external/WSGM.DeviceLab`            |
-| MSI Claw device behavior                           | `external/WSGM.Device.Msi.Claw8A2Vm` |
-| Reusable Steam CEF transport/patch/surfaces        | `external/steam-ui-toolkit`          |
-| Reusable Windows radio/audio/brightness primitives | `external/windows-device-control`    |
-| Native Steam Input shim/lease                      | `native/SteamInput`                  |
+| Concern                                            | Repository/path                   |
+| -------------------------------------------------- | --------------------------------- |
+| Semantic device-plugin contract                    | `src/WSGM.Device.Sdk`             |
+| Hardware authoring/evidence tool                   | `src/WSGM.DeviceLab`              |
+| MSI Claw device behavior                           | `src/WSGM.Device.Msi.Claw8A2Vm`   |
+| Reusable Steam CEF transport/patch/surfaces        | `external/steam-ui-toolkit`       |
+| Reusable Windows radio/audio/brightness primitives | `external/windows-device-control` |
+| Native Steam Input shim/lease                      | `native/SteamInput`               |
 
-WSGM owns policy, orchestration, session state, and adapters. Do not mirror child source into the
-main project. A cross-repository change is committed and pushed leaf first, then each parent gitlink
-is advanced to an already published commit.
+WSGM owns policy, orchestration, session state, and adapters. Device projects share this repository
+and one SDK project reference. Keep them separate assemblies. Only the reusable libraries and Steam
+Input remain submodules; publish a child change before advancing its WSGM gitlink.
 
 ## Documentation router
 

@@ -45,8 +45,9 @@ release build.
 - `Input` owns canonical input and virtual-target encoding/routing. `Interop` owns native ABI calls.
 - `Controls` and `Themes` own presentation primitives; `App.axaml.cs` only composes application/UI
   lifetime.
-- Reusable Steam, Windows-device-control, SDK, Device Lab, device-package, and Steam Input behavior
-  belongs in the corresponding submodule, not a copied WSGM implementation.
+- SDK, Device Lab, and device-package behavior belongs in its own src project, with changes
+  delivered together in WSGM. Reusable Steam, Windows-device-control, and Steam Input behavior
+  belongs in the corresponding submodule.
 
 For Steam CEF work use `wsgm-steam-cef-toolkit` or `wsgm-steam-cef-debugging`. For the semantic
 device contract/host use `wsgm-device-sdk`; for hardware discovery use `wsgm-device-lab`.
