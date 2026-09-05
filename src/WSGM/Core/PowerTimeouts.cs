@@ -63,10 +63,14 @@ public static class PowerTimeouts
     /// <param name="kind">Which timeout to write.</param>
     /// <param name="seconds">The new value.</param>
     public static bool Write(PowerTimeoutKind kind, int seconds)
+        => Write(kind, seconds, WriteCore);
+
+    internal static bool Write(PowerTimeoutKind kind, int seconds,
+        Func<PowerTimeoutKind, int, bool> writeNative)
     {
         lock (PowerSchemes.MutationGate)
         {
-            return WriteCore(kind, seconds);
+            return writeNative(kind, seconds);
         }
     }
 

@@ -8,6 +8,9 @@ itself in `docs\rtss.md`.
 
 ## Windows power schemes
 
+Disabling Device Integration while a plugin section is open returns the overlay to the Device root
+and releases the nested page, keeping the Windows power-profile picker reachable.
+
 The Core backend in `PowerSchemes` enumerates installed schemes and reads the active GUID through
 `powrprof`. GUIDs identify schemes; localized friendly names are display text only. An empty name
 falls back to the GUID. Enumeration failures are surfaced rather than returning a partial list. The

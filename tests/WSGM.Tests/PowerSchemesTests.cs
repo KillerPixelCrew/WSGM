@@ -86,18 +86,19 @@ public sealed class PowerSchemesTests
         using ManualResetEventSlim releaseTimeout = new(false);
         TaskCompletionSource timeoutEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource selectionStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        Task timeout = Task.Run(() =>
-        {
-            lock (PowerSchemes.MutationGate)
+        Task timeout = Task.Run(() => PowerTimeouts.Write(PowerTimeoutKind.SleepAc, 60,
+            (kind, seconds) =>
             {
+                Assert.Equal(PowerTimeoutKind.SleepAc, kind);
+                Assert.Equal(60, seconds);
                 timeoutEntered.SetResult();
                 if (!releaseTimeout.Wait(TimeSpan.FromSeconds(10)))
                 {
                     throw new TimeoutException();
                 }
                 api.Active = Balanced;
-            }
-        });
+                return true;
+            }));
         Task? selection = null;
         try
         {
@@ -108,6 +109,7 @@ public sealed class PowerSchemesTests
                 new PowerSchemes(api).Select(Custom);
             });
             await selectionStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.NotSame(selection, await Task.WhenAny(selection, Task.Delay(100)));
             Assert.Equal(0, api.Writes);
         }
         finally { releaseTimeout.Set(); }

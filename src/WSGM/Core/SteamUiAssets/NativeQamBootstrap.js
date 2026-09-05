@@ -2568,17 +2568,17 @@
       const ids = new Set();
       const options = [];
       for (const item of value.options) {
+        const label = normalizeText(item?.label);
         if (
           !item ||
           typeof item.id !== "string" ||
           !/^[A-Za-z0-9._-]{1,64}$/.test(item.id) ||
-          typeof item.label !== "string" ||
-          !item.label.trim() ||
+          !label.trim() ||
           ids.has(item.id)
         )
           return null;
         ids.add(item.id);
-        options.push({ id: item.id, label: item.label });
+        options.push({ id: item.id, label });
       }
       return {
         available: value.available,

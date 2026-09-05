@@ -5,6 +5,23 @@ namespace WSGM.Tests;
 public sealed class OverlayNavigationTests
 {
     [Fact]
+    public void RemovingAPluginRequestsTheDeviceRootWhileCoreControlsRemain()
+    {
+        OverlayNavigation navigation = new();
+        navigation.SetDeviceVisible(true, coreControlsAvailable: true);
+        navigation.Select(OverlayDestination.Device);
+        navigation.Push(OverlayPage.DevicePluginSection, "power", "plugin-power");
+        Assert.False(navigation.NeedsDeviceRoot(pluginVisible: true));
+        Assert.True(navigation.NeedsDeviceRoot(pluginVisible: false));
+        navigation.Select(OverlayDestination.Device);
+        navigation.SetDeviceVisible(false, coreControlsAvailable: true);
+        Assert.False(navigation.NeedsDeviceRoot(pluginVisible: false));
+        Assert.Equal(OverlayPage.Device, navigation.Page);
+        Assert.Null(navigation.SectionId);
+        Assert.Equal(1, navigation.Depth);
+        Assert.True(navigation.IsVisible(OverlayDestination.Device));
+    }
+    [Fact]
     public void DeviceDestinationIsAbsentUntilItsCapabilitySourceIsVisible()
     {
         OverlayNavigation navigation = new();

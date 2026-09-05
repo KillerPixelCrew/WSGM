@@ -1783,6 +1783,12 @@ public partial class OverlayWindow : Window
 
     private void ConfigureTabs(bool showDevice)
     {
+        if (_powerSchemeSelection is not null && _navigation.NeedsDeviceRoot(showDevice))
+        {
+            // Keep Core controls reachable when the plugin owning the open section disappears.
+            // The normal root transition also releases nested-page resources and restores focus.
+            SelectDestination(OverlayDestination.Device);
+        }
         if (!showDevice)
         {
             // A coordinator can retract Device while the Glyphs page is still selected. No tab

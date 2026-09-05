@@ -94,6 +94,9 @@ internal sealed class OverlayNavigation
 
     internal int Depth => _stack.Count;
 
+    internal bool NeedsDeviceRoot(bool pluginVisible)
+        => !pluginVisible && Page == OverlayPage.DevicePluginSection;
+
     internal IReadOnlyList<OverlayDestination> VisibleDestinations => _deviceVisible
         ? [OverlayDestination.QuickAccess, OverlayDestination.Home, OverlayDestination.Steam,
             OverlayDestination.Device, OverlayDestination.System, OverlayDestination.Power]
