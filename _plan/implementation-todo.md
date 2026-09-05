@@ -240,6 +240,17 @@ device-specific power limit consumed by AutoTDP, but it never owns or reimplemen
 Capabilities that were already incomplete or explicitly future work. None was removed to make the
 architecture smaller.
 
+- [x] **Fix two SD cards showing under one card's name.** Steam's `libraryfolders.vdf` `label`
+      belongs to a path registration, not a card, so re-registering a reader path left the previous
+      card's label on the new card's content id; discovery's two-way name sync then adopted it and
+      renamed one card to the other (reference Claw, 2026-09-05, two distinct content ids). The
+      card's own `libraryfolder.vdf` marker is now the only name discovery follows, `LastSteamLabel`
+      and the follow-Steam rule are gone, a rename writes the marker whether or not Steam is
+      running, and the card volume monitor labels the registration it adds so Steam's storage page
+      agrees. Regression tests cover the merge rule, cross-card isolation, unlabelled cards,
+      forgetting and the marker reader. `eng/verify.ps1` passed: 2,056 managed tests, coverage and a
+      Release build with zero warnings/errors. No live card-swap validation was run.
+      `docs\sd-cards.md`.
 - [x] **Fix the Claw OEM button opening Xbox Game Bar on the Windows desktop.** Corrected the
       plugin's x64 `INPUT` layout from 32 to 40 bytes. Windows rejected the undersized synthetic
       Win-key release, which made `FirmwareChordSuppressor` pass the measured orphan `G UP` through.

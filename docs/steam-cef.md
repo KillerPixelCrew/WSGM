@@ -127,6 +127,9 @@ two blocks at one path. Ejecting does not clear the phantom and `RefreshFolders(
 Only `RemoveInstallFolder(index)` drops it. A Steam restart rebuilds the list from disk, which is
 why the bug appears to fix itself after a reboot.
 
+The `label` on a registration belongs to the path too, and survives a swap onto the new card's
+content id. Nothing that names a card may be read from it; see `docs\sd-cards.md`.
+
 Two more measured facts. When a registration at the path is mounted, a second add is refused with
 `NotWritableFolder` (not `DriveAlreadyHasLibrary`) even though the folder is writable, so that code
 means "already registered" here. A registration stays `bIsMounted:true` with `nCapacity:0` when its

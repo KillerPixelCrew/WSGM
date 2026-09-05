@@ -250,14 +250,14 @@ internal sealed class CardVolumeMonitor : IDisposable
         var present = ScanCardLibraryPaths();
         var changed = false;
 
-        foreach (var (libraryPath, cardContentId) in present)
+        foreach (var card in present)
         {
-            var key = SteamLibraryVdf.NormalizePath(libraryPath);
+            var key = SteamLibraryVdf.NormalizePath(card.LibraryPath);
             // Remembering the path while the card is HERE is the only way the
             // removal pass below can know it was a card at all: once the media is
             // out, the volume is gone and nothing can be asked whether it was
             // hot-pluggable. See RemoveDepartedCardsAsync.
-            _knownCardPaths[key] = libraryPath;
+            _knownCardPaths[key] = card.LibraryPath;
         }
 
         if (!SteamUiReadiness.IsReady)
@@ -277,7 +277,7 @@ internal sealed class CardVolumeMonitor : IDisposable
             Log.Info("Card volumes: Big Picture is ready; resuming deferred library reconcile.");
         }
 
-        foreach (var (libraryPath, cardContentId) in present)
+        foreach (var (libraryPath, cardContentId, _) in present)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var key = SteamLibraryVdf.NormalizePath(libraryPath);
@@ -287,9 +287,20 @@ internal sealed class CardVolumeMonitor : IDisposable
             {
                 continue;
             }
+            // Every earlier card in this pass cost a CEF round trip, so the scan can be
+            // seconds old by now and the reader takes a new card in far less than that.
+            // Re-read the marker and abandon the decision if the media changed: acting
+            // on it would register the card that left, or hand the card that arrived
+            // the previous one's label. The swap raised its own notification, so the
+            // pass it schedules decides again on what is actually there.
+            if (!StillInTheReader(libraryPath, cardContentId, out var cardLabel))
+            {
+                Schedule();
+                continue;
+            }
             Log.Info($"Card volumes: {libraryPath} needs {action} "
                 + $"(card {cardContentId ?? "none"}, Steam has {ids.Count} registration(s)).");
-            changed |= await ApplyAsync(action, libraryPath, cancellationToken)
+            changed |= await ApplyAsync(action, libraryPath, cardLabel, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -299,6 +310,46 @@ internal sealed class CardVolumeMonitor : IDisposable
         changed |= await RemoveDepartedCardsAsync(here, registered, cancellationToken)
             .ConfigureAwait(false);
         return changed;
+    }
+
+    /// <summary>Re-reads the marker at a card path and reports whether it still carries
+    /// the identity the scan saw, handing back the label to apply with it.</summary>
+    /// <param name="libraryPath">The card library, e.g. <c>E:\SteamLibrary</c>.</param>
+    /// <param name="scannedContentId">What the scan read there, null for a volume that
+    /// carried no library — for which "still true" means still no library.</param>
+    /// <param name="label">The marker's current label, empty when it has none or when
+    /// the media changed.</param>
+    /// <returns>False when the media no longer matches the scan, or could not be read.
+    /// </returns>
+    private static bool StillInTheReader(
+        string libraryPath, string? scannedContentId, out string label)
+    {
+        label = "";
+        string? currentContentId;
+        try
+        {
+            currentContentId =
+                SteamLibraryVdf.TryReadMarker(libraryPath, out var id, out var current)
+                    ? id
+                    : null;
+            label = current;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Card volumes: {libraryPath} became unreadable before Steam was "
+                + $"changed; the decision is abandoned: {ex.Message}");
+            label = "";
+            return false;
+        }
+        if (string.Equals(currentContentId, scannedContentId, StringComparison.Ordinal))
+        {
+            return true;
+        }
+        Log.Info($"Card volumes: {libraryPath} now holds {currentContentId ?? "no library"} "
+            + $"instead of {scannedContentId ?? "no library"}; the card changed mid-pass, so "
+            + "this decision is abandoned and a fresh pass is scheduled.");
+        label = "";
+        return false;
     }
 
     /// <summary>Drops Steam's library for every card this session has seen that is no
@@ -346,7 +397,7 @@ internal sealed class CardVolumeMonitor : IDisposable
             }
             Log.Info($"Card volumes: {libraryPath} left the reader; "
                 + "removing the library Steam still holds for it.");
-            if (await ApplyAsync(CardLibraryAction.Purge, libraryPath, cancellationToken)
+            if (await ApplyAsync(CardLibraryAction.Purge, libraryPath, "", cancellationToken)
                 .ConfigureAwait(false))
             {
                 changed = true;
@@ -396,8 +447,17 @@ internal sealed class CardVolumeMonitor : IDisposable
                 : CardLibraryAction.Replace;
     }
 
+    /// <param name="action">What the registrations at this path need.</param>
+    /// <param name="libraryPath">The card library, e.g. <c>E:\SteamLibrary</c>.</param>
+    /// <param name="cardLabel">The label the card's own marker carries, empty when it
+    /// has none. Passed on an add because Steam's <c>label</c> belongs to the PATH
+    /// registration, not the card: re-registering a reader path leaves the previous
+    /// card's label in place, and Steam's storage page then names this card after the
+    /// last one. An empty label is left as null so Steam keeps its own default.</param>
+    /// <param name="cancellationToken">Cancels the exchange.</param>
     private static async Task<bool> ApplyAsync(
-        CardLibraryAction action, string libraryPath, CancellationToken cancellationToken)
+        CardLibraryAction action, string libraryPath, string cardLabel,
+        CancellationToken cancellationToken)
     {
         if (action == CardLibraryAction.Purge)
         {
@@ -409,24 +469,27 @@ internal sealed class CardVolumeMonitor : IDisposable
         // whatever is registered at the path first, which is exactly Replace; for Add
         // there is nothing there to drop, so one call covers both.
         var add = await SteamCdp.AddLibraryAsync(
-            libraryPath, label: null, replaceExisting: action == CardLibraryAction.Replace,
+            libraryPath,
+            label: string.IsNullOrWhiteSpace(cardLabel) ? null : cardLabel,
+            replaceExisting: action == CardLibraryAction.Replace,
             cancellationToken).ConfigureAwait(false);
         return add.Status is SteamLibraryAddStatus.Added or SteamLibraryAddStatus.AlreadyPresent;
     }
 
     /// <summary>Every mounted card's <c>&lt;X&gt;:\SteamLibrary</c> path, paired with
-    /// the content id its marker carries — null when the volume has no library on it,
-    /// which is the state a freshly inserted blank card is in.</summary>
+    /// the content id and label its marker carries — a null id when the volume has no
+    /// library on it, which is the state a freshly inserted blank card is in.</summary>
     /// <remarks>
     /// Only volumes that are removable AND not part of a system disk are considered,
     /// so a fixed second drive is never touched by an insert of something else. A
     /// path with no library still has to be reported: that is precisely the case where
     /// Steam is holding a registration for a card that has gone.
     /// </remarks>
-    private static List<(string LibraryPath, string? ContentId)> ScanCardLibraryPaths()
+    private static List<(string LibraryPath, string? ContentId, string Label)>
+        ScanCardLibraryPaths()
     {
         var systemDisks = RemovableDriveManager.ResolveSystemDisks();
-        var found = new List<(string, string?)>();
+        var found = new List<(string, string?, string)>();
         foreach (var volume in NativeStorage.MountedVolumes())
         {
             if (volume.DriveType != DriveType.Removable || !volume.Ready
@@ -438,10 +501,8 @@ internal sealed class CardVolumeMonitor : IDisposable
             var libraryPath = $@"{volume.Letter}:\SteamLibrary";
             try
             {
-                var contentId = SteamLibraryVdf.TryReadMarkerContentId(libraryPath, out var id)
-                    ? id
-                    : null;
-                found.Add((libraryPath, contentId));
+                var read = SteamLibraryVdf.TryReadMarker(libraryPath, out var id, out var label);
+                found.Add((libraryPath, read ? id : null, read ? label : ""));
             }
             catch (Exception ex)
             {

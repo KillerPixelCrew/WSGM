@@ -19,6 +19,18 @@ docs/device-integration.md, and docs/sd-cards.md before changing these paths.
   unelevated applications reach elevated WSGM.
 - Removable-card ownership is keyed by contentId rather than drive letter. Steam VDF edits are
   shape-checked, renumbered, backed up once, and atomically replaced.
+- A card's name comes from its own libraryfolder.vdf marker. The label in Steam's libraryfolders.vdf
+  belongs to a path registration and survives a card swap, so it must never name a card. A rename
+  writes the marker whether or not Steam is running, and writes nothing else until that succeeds; an
+  unmounted library cannot be renamed.
+- A tracked library may sit on a card, an internal disk, USB or iSCSI. A drive letter is a mount
+  point that the system re-points on its own, so resolve it to a volume GUID path once, validate
+  identity through that path, and address every later file write to the volume. Never validate on a
+  letter and then write to it.
+- A drive scan goes stale as soon as anything is mounted or removed. Re-read the marker and require
+  the content id to still match before acting on a scanned decision, and abandon the decision rather
+  than apply it to whatever holds the path now. Steam registration is the one path that must still
+  pass a drive-letter path, so its re-read has to sit immediately before the call.
 
 ## SD-card formatting
 
