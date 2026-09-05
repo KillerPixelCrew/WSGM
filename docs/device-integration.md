@@ -227,6 +227,19 @@ global C-API mutex across the blocking driver request. That order keeps a final 
 from re-entering WSGM during synchronous removal or reaching the physical controller or the
 replacement target.
 
+### Claw OEM chord suppression also runs on Desktop
+
+The Claw plugin suppresses the measured OEM-button orphan `G UP` / `Tab UP` Windows-key bursts while
+its OEM service is active, including on the Windows desktop. Its synthetic Win release uses the full
+40-byte x64 `INPUT` record with a 32-byte union. The old keyboard-only union made Windows reject the
+release and the hook pass the burst through. Normal physical shortcuts, modified chords, injected
+input, volume keys and unknown sequences remain unfiltered. Hardware-free tests pin the native
+layout and sequence behavior; this correction does not claim a new live device pass. The maintainer
+reports that Game Mode already works and switching the same running WSGM session to Desktop opens
+Game Bar. That transition leaves the plugin and hook running; the ABI defect is confirmed in
+software, while the reason the visible symptom differs between modes has not been established by a
+device trace.
+
 ## Authored profiles
 
 A setting is one value WSGM keeps and hands the plugin. A profile is a named shape the user builds
