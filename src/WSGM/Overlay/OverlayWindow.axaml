@@ -410,10 +410,6 @@
                          vocabulary; WSGM-owned commands are separate view models. Packages cannot
                          provide markup, styles, URLs, or arbitrary commands through this surface. -->
                     <StackPanel x:Name="PanelDevice" Spacing="4" IsVisible="False">
-                        <ov:PowerSchemeView x:Name="DevicePowerSchemeHost" />
-                        <StackPanel x:Name="DevicePowerPresetContainer">
-                            <ov:DevicePowerPresetView x:Name="DevicePowerPresetHost" IsVisible="False" />
-                        </StackPanel>
                         <TextBlock x:Name="DeviceStatusTitle"
                                    Text="Device integration"
                                    FontSize="16"
@@ -424,8 +420,18 @@
                                    Classes="caption"
                                    TextWrapping="Wrap"
                                    Margin="2,0,2,6" />
-                        <TextBlock Text="DEVICE CONTROLS" Classes="eyebrow" Margin="2,2,2,2" />
+                        <Grid x:Name="DevicePowerOverview" ColumnDefinitions="*,*" ColumnSpacing="16" IsVisible="False">
+                            <StackPanel x:Name="DevicePowerPresetContainer">
+                                <ov:DevicePowerPresetView x:Name="DevicePowerPresetHost" IsVisible="False" />
+                            </StackPanel>
+                            <Border x:Name="DevicePerformanceCard" Grid.Column="1" Classes="device-group" VerticalAlignment="Top">
+                                <StackPanel x:Name="DevicePerformanceColumn" />
+                            </Border>
+                        </Grid>
                         <StackPanel x:Name="DeviceCapabilityList" Spacing="4" />
+                        <Expander x:Name="DeviceWindowsPower" Header="Windows energy plan" IsVisible="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Margin="0,12,0,0">
+                            <ov:PowerSchemeView x:Name="DevicePowerSchemeHost" />
+                        </Expander>
                     </StackPanel>
 
                     <!-- Tools (the System destination): what is left once Steam, Device

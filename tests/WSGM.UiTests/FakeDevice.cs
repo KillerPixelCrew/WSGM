@@ -8,6 +8,7 @@ namespace WSGM.UiTests;
 
 internal sealed class FakeDevice : IDeviceOverlaySource
 {
+    internal IDeviceOverlaySource? SampleSource { get; init; }
     private Action? _changed;
     internal int Subscribers { get; private set; }
     public event Action? Changed
@@ -17,8 +18,8 @@ internal sealed class FakeDevice : IDeviceOverlaySource
     }
     public event Action<CanonicalControllerSample>? PhysicalSampleReceived
     {
-        add => throw new InvalidOperationException("Unexpected physical input subscription");
-        remove => throw new InvalidOperationException("Unexpected physical input subscription removal");
+        add { if (SampleSource is { } source) { source.PhysicalSampleReceived += value; } else { throw new InvalidOperationException("Unexpected physical input subscription"); } }
+        remove { if (SampleSource is { } source) { source.PhysicalSampleReceived -= value; } else { throw new InvalidOperationException("Unexpected physical input subscription removal"); } }
     }
     internal DeviceOverlaySnapshot State { get; set; } = new(true, "Fixture handheld", "Ready", null,
         [new("fixture.temperature", null, DeviceOverlaySection.Overview, DescriptorStatus.Available,
@@ -26,7 +27,7 @@ internal sealed class FakeDevice : IDeviceOverlaySource
     public DeviceOverlaySnapshot Snapshot() => State;
     internal void Notify() => _changed?.Invoke();
     public PhysicalGlyphRenderPlan? NavigationHint(GlyphControlId control) => null;
-    public IDisposable ObservePhysicalSamples() => throw new InvalidOperationException("Unexpected physical input");
+    public IDisposable ObservePhysicalSamples() => SampleSource?.ObservePhysicalSamples() ?? throw new InvalidOperationException("Unexpected physical input");
     internal Func<DeviceOverlayCapability, CancellationToken, Task>? Invoke { get; set; }
     public Task InvokeAsync(DeviceOverlayCapability capability, CancellationToken cancellationToken = default) =>
         Invoke?.Invoke(capability, cancellationToken) ?? throw new InvalidOperationException("Unexpected device write");

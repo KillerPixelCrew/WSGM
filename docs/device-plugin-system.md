@@ -635,12 +635,14 @@ carries them.
 
 ## 14. Overlay, Settings, QAM and diagnostics
 
-The overlay's Device destination (`DeviceOverlayBridge`, `DeviceOverlaySectionPages`) shows
-plugin-declared sections first, in declared order, dropping empty ones, then WSGM's fixed sections
-`Overview`, `PowerAndThermals`, `ControllerAndMotion`, `Oem`, `LightingAndFeatures`, `Diagnostics`.
-An unplaced capability lands in the section its role implies. WSGM's own rows join them: AutoTDP,
-hardware profile and authored profile under power; controller target and glyph selection, plus the
-glyph preview and input test, under controller; recovery under diagnostics.
+The overlay's Device destination (`DeviceOverlayBridge`, `DeviceOverlaySectionPages`) shows the SDK
+shared Power, RGB, Controller and Info sections, followed by custom sections, dropping empty ones.
+Windows energy plans keep Power available with integration off. Unplaced controls can still use
+WSGM's fallback sections `Overview`, `PowerAndThermals`, `ControllerAndMotion`, `Oem`,
+`LightingAndFeatures`, `Diagnostics`. An unplaced capability lands in the section its role implies.
+WSGM's own rows join them: AutoTDP, hardware profile and authored profile under power; controller
+target and glyph selection, plus the glyph preview and input test, under controller; recovery under
+diagnostics.
 
 **A WSGM section whose subject the plugin already declares is not a second page.** `DeclaredKeyFor`
 maps each WSGM section to the `SettingSectionKey` that means the same thing — `Power`, `Controller`,
@@ -800,8 +802,8 @@ Capabilities (one descriptor set per cycle, generation 1):
 | `haptic.rumble`            | –                              | `HapticSink`          | action      | –                                | action | Volatile         | info / ownership                            |
 | `display.variable-refresh` | –                              | `VariableRefreshRate` | Boolean     | –                                | R/W    | DevicePersistent | power, only when an Arc Sync panel answered |
 
-The declared sections are `power` (icon Power; categories limits, charging, control titled "Fans"),
-`lighting` (category zones) and `info` (icon Gauge; categories ownership, readings). Fan RPM is
+The declared shared sections are `power` (icon Power; categories limits, charging, control titled
+"Fans"), `rgb` (category zones) and `info` (icon Gauge; categories ownership, readings). Fan RPM is
 `480000 / raw`. Every WMI write is bracketed by the recovery journal with a 2 s minimum write
 budget, and "verified without readback" is normalized to `AppliedUnverified`.
 

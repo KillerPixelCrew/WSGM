@@ -123,7 +123,7 @@ public sealed class PerformanceOverlayBridgeTests
         int toggleRows = before.ProfileRows.Count(row =>
             row.Id == DeviceOverlaySectionPages.ApplicationProfileRowId);
         Assert.Equal(1, toggleRows);
-        Assert.Equal(before.ProfileRows.Count - toggleRows + before.Rows.Count, power.Count);
+        Assert.Equal(before.ProfileRows.Count - toggleRows + before.Rows.Count + 1, power.Count);
 
         await bridge.InvokeAsync(before.ProfileRows.Single(row =>
             row.Id == "application-profile"));

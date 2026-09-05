@@ -7,6 +7,53 @@ namespace WSGM.Tests;
 /// <summary>Pure final-overlay projection coverage; no device package or host is started.</summary>
 public sealed class DeviceOverlayProjectionTests
 {
+    [Theory]
+    [InlineData(37, null, 37)]
+    [InlineData(26, null, 26)]
+    [InlineData(37, 35, 35)]
+    public void PowerControlShowsReadbackOverSavedIntentUnlessACommandIsPending(
+        int observedWatts, int? pendingWatts, int displayedWatts)
+    {
+        CapabilityDescriptor descriptor = new()
+        {
+            CapabilityId = "power.boost-limit",
+            Role = CapabilityRole.PowerSlowLimit,
+            ValueKind = CapabilityValueKind.Integer,
+            Display = new CapabilityDisplay { Key = DisplayKey.BoostPowerLimit },
+            SupportsRead = true,
+            SupportsWrite = true,
+            Minimum = 8,
+            Maximum = 37,
+            Step = 1,
+            Unit = CapabilityUnit.Watt,
+            Persistence = CapabilityPersistence.Volatile,
+        };
+        CapabilityState state = new()
+        {
+            CapabilityId = descriptor.CapabilityId,
+            Available = true,
+            Quality = HardwareStateQuality.Observed,
+            ObservedValue = new() { Kind = CapabilityValueKind.Integer, IntegerValue = observedWatts },
+            DescriptorGeneration = 1,
+            CycleGeneration = 1,
+        };
+        CapabilityProjection projection = new()
+        {
+            State = state,
+            DesiredValue = new() { Kind = CapabilityValueKind.Integer, IntegerValue = 31 },
+            PendingValue = pendingWatts is { } pending
+                ? new() { Kind = CapabilityValueKind.Integer, IntegerValue = pending }
+                : null,
+        };
+
+        DeviceOverlayCapability capability = DeviceOverlayBridge.ToOverlayCapability(
+            new DeviceCapabilityView(descriptor, projection, LastResult: null),
+            new HashSet<string>(StringComparer.Ordinal));
+
+        Assert.Equal(displayedWatts, capability.CurrentValue?.IntegerValue);
+        Assert.Equal($"{displayedWatts} W", capability.TrailingText);
+    }
+
     [Fact]
     public void SimulatedDeviceGroupsEveryCapabilityIntoAStableSemanticSection()
     {
@@ -15,6 +62,8 @@ public sealed class DeviceOverlayProjectionTests
         DeviceOverlaySnapshot snapshot = source.Snapshot();
 
         Assert.True(snapshot.Visible);
+        Assert.Equal(DeviceOverlaySection.PowerAndThermals,
+            DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, DeviceSections.PowerId));
         Assert.Contains(snapshot.Capabilities,
             capability => capability.Section == DeviceOverlaySection.PowerAndThermals);
         Assert.Contains(snapshot.Capabilities,
@@ -104,10 +153,10 @@ public sealed class DeviceOverlayProjectionTests
         DeviceOverlaySnapshot snapshot = source.Snapshot();
 
         Assert.Equal(
-            ["power", "cooling", "lighting"],
+            ["power", "cooling", "rgb"],
             snapshot.PluginSections.Select(section => section.SectionId));
         Assert.Contains(snapshot.Capabilities, capability =>
-            capability.PluginSectionId == "lighting"
+            capability.PluginSectionId == DeviceSections.RgbId
             && capability.Role == CapabilityRole.LightingZoneColor);
         Assert.Contains(snapshot.Capabilities, capability =>
             capability.Role == CapabilityRole.LightingBrightness);

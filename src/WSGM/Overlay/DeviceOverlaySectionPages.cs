@@ -196,7 +196,8 @@ internal static class DeviceOverlaySectionPages
         PerformanceOverlaySnapshot? performance = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        Dictionary<DeviceOverlaySection, int> counts = [];
+        // Windows energy plans keep Power available even with device integration disabled.
+        Dictionary<DeviceOverlaySection, int> counts = new() { [DeviceOverlaySection.PowerAndThermals] = 1 };
         Dictionary<DeviceOverlaySection, DescriptorStatus> statuses = [];
         Dictionary<string, int> pluginCounts = [];
         Dictionary<string, DescriptorStatus> pluginStatuses = [];
@@ -290,7 +291,7 @@ internal static class DeviceOverlaySectionPages
             }
 
             entries.Add(new DeviceOverlaySectionEntry(
-                DeviceOverlaySection.Overview,
+                absorbed.GetValueOrDefault(pluginSection.SectionId, DeviceOverlaySection.Overview),
                 OverlayPage.DevicePluginSection,
                 pluginSection.Title,
                 pluginSection.Description,

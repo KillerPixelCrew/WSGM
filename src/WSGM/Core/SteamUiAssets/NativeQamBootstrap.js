@@ -1988,7 +1988,8 @@
       }),
       powerPreset: Object.freeze({
         patchId: "steam-ui.power-preset",
-        command: "setPowerPreset",
+        acCommand: "setAcPowerPreset",
+        batteryCommand: "setBatteryPowerPreset",
       }),
       // Hand-built for the same reason resolution is: Valve ships a component, and its gate is a
       // namespace this client does not have. See createVrrControl.
@@ -2638,17 +2639,17 @@
         statusText: normalizeText(value.statusText),
       };
     };
-    const createPowerProfileControl = (controlRuntime, kind = "powerProfile") =>
+    const createPowerProfileControl = (controlRuntime) =>
       function SteamUiPowerProfileControl() {
+        const kind = "powerProfile";
         const state = useSemanticState(controlRuntime, kind, normalizePowerProfileState);
         const [pending, setPending] = controlRuntime.react.useState(false);
-        if (!state || (kind === "powerPreset" && !state.options.length))
-          return note(kind, "no state");
+        if (!state) return note(kind, "no state");
         const options = state.options.map((option) => ({ data: option.id, label: option.label }));
         const definition = definitions[kind];
         renderOutcomes[kind] = "rendered";
         return controlRuntime.react.createElement(controlRuntime.dropdown, {
-          label: kind === "powerPreset" ? "Device power profile" : "Windows power profile",
+          label: "Windows power profile",
           rgOptions: options,
           selectedOption: options.some((option) => option.data === state.current)
             ? state.current
@@ -2662,7 +2663,6 @@
               !state.available ||
               !option ||
               option.data === state.current ||
-              (kind === "powerPreset" && option.data === "custom") ||
               !options.some((candidate) => candidate.data === option.data)
             )
               return;
@@ -2677,6 +2677,77 @@
               .finally(() => setPending(false));
           },
         });
+      };
+    const normalizePowerPresetState = (value) => {
+      const state = normalizePowerProfileState(value);
+      if (!state || typeof value.ac !== "string" || typeof value.battery !== "string") return null;
+      const valid = (id) => id === "" || state.options.some((option) => option.id === id);
+      if (
+        !valid(value.ac) ||
+        !valid(value.battery) ||
+        state.options.some((option) => option.id === "custom")
+      )
+        return null;
+      return {
+        ...state,
+        ac: value.ac,
+        battery: value.battery,
+        scope: normalizeText(value.scope),
+        unsetLabel: normalizeText(value.unsetLabel),
+      };
+    };
+    const createPowerPresetControl = (controlRuntime) =>
+      function SteamUiPowerAssignments() {
+        const state = useSemanticState(controlRuntime, "powerPreset", normalizePowerPresetState);
+        const [pending, setPending] = controlRuntime.react.useState(false);
+        if (!state || !state.options.length) return note("powerPreset", "no state");
+        const options = [
+          { data: "", label: state.unsetLabel || "Manual selection" },
+          ...state.options.map((option) => ({ data: option.id, label: option.label })),
+        ];
+        const definition = definitions.powerPreset;
+        const assignment = (label, selected, command) =>
+          controlRuntime.react.createElement(controlRuntime.dropdown, {
+            label,
+            layout: "below",
+            rgOptions: options,
+            selectedOption: selected,
+            disabled: pending || !state.available,
+            onChange: (option) => {
+              if (
+                pending ||
+                !state.available ||
+                !option ||
+                !options.some((item) => item.data === option.data)
+              )
+                return;
+              setPending(true);
+              void request(
+                definition.patchId,
+                command,
+                { target: option.data || null },
+                nextActionGeneration(definition.patchId),
+              )
+                .catch(() => {})
+                .finally(() => setPending(false));
+            },
+          });
+        renderOutcomes.powerPreset = "rendered";
+        return controlRuntime.react.createElement(
+          controlRuntime.react.Fragment,
+          null,
+          controlRuntime.react.createElement(
+            "div",
+            { role: "status" },
+            `Active profile: ${state.current}`,
+          ),
+          controlRuntime.react.createElement("div", null, state.scope),
+          assignment("When plugged in", state.ac, definition.acCommand),
+          assignment("On battery", state.battery, definition.batteryCommand),
+          state.statusText
+            ? controlRuntime.react.createElement("div", { role: "status" }, state.statusText)
+            : null,
+        );
       };
     const createControllerControl = (controlRuntime) =>
       function SteamUiControllerTargetControl() {
@@ -2963,6 +3034,7 @@
           send(definition.colorCommand, { zone, color }),
         );
         const [selectedZone, setSelectedZone] = controlRuntime.react.useState("");
+        const [editingColor, setEditingColor] = controlRuntime.react.useState(false);
         const chargeValue = state?.chargeLimit
           ? (state.chargeLimit.observed ?? state.chargeLimit.desired)
           : null;
@@ -3009,6 +3081,7 @@
               ),
           });
         }
+        const chargingRows = rows.splice(0);
         if (state.lightingBrightness?.available && brightnessEcho.value !== null) {
           const range = state.lightingBrightness;
           appendSlider("steam-ui-lighting-brightness", {
@@ -3029,7 +3102,21 @@
               ),
           });
         }
-        if (zone && hsv) {
+        if (zone && hsv && controlRuntime.toggle) {
+          rows.push(
+            controlRuntime.react.createElement(
+              controlRuntime.row,
+              { key: "steam-ui-lighting-edit" },
+              controlRuntime.react.createElement(controlRuntime.toggle, {
+                label: "Edit color",
+                checked: editingColor,
+                controlled: true,
+                onChange: setEditingColor,
+              }),
+            ),
+          );
+        }
+        if (zone && hsv && controlRuntime.toggle && editingColor) {
           const options = zones.map((candidate) => ({
             data: candidate.id,
             label: candidate.label,
@@ -3141,9 +3228,27 @@
               ),
           });
         }
-        if (!rows.length) return note("deviceControls", "no compatible charge or lighting rows");
-        renderOutcomes.deviceControls = `rendered ${rows.length} row(s)`;
-        return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, ...rows);
+        if (!rows.length && !chargingRows.length)
+          return note("deviceControls", "no compatible charge or lighting rows");
+        renderOutcomes.deviceControls = `rendered ${rows.length + chargingRows.length} row(s)`;
+        return controlRuntime.react.createElement(
+          controlRuntime.react.Fragment,
+          null,
+          chargingRows.length
+            ? controlRuntime.react.createElement(
+                controlRuntime.section,
+                { title: "Charging", key: "charging" },
+                ...chargingRows,
+              )
+            : null,
+          rows.length
+            ? controlRuntime.react.createElement(
+                controlRuntime.section,
+                { title: "RGB lighting", key: "lighting" },
+                ...rows,
+              )
+            : null,
+        );
       };
     // Steam's own FPS counter rows, which the host replaces with its RTSS-driven overlay. Identified by
     // localising the same tokens Steam did rather than by CSS class or visible text: the classes
@@ -3236,10 +3341,22 @@
     const appendControls = (controlRuntime, tree, placement = "perf") => {
       // Rendered React elements from Steam's own untyped runtime.
       const controls = [];
-      // The one visible ordering table. It is the device-set order: profile identity, observation,
-      // pacing, VRR, power, automatic power, display, controller, reset. A kind's registration,
-      // component and placement are checked in one loop instead of three parallel structures and
-      // ten almost-identical append branches.
+      const groups = new Map();
+      const groupFor = (kind) =>
+        ({
+          valveProfileHeader: "Profile scope",
+          powerPreset: "Power profiles",
+          powerProfile: "Power profiles",
+          valveOverlayLevel: "Display and frame rate",
+          frameLimit: "Display and frame rate",
+          vrr: "Display and frame rate",
+          valveTdp: "Power limits",
+          autoTdp: "Power limits",
+          controllerTarget: "Controller",
+          valveReset: "Reset",
+        })[kind] || "Display";
+      // Registration, component and placement share one table. The group order below determines
+      // section placement; this table determines the order of controls within each group.
       const rows = [
         ["valveProfileHeader", "steam-ui-valve-profile-header", valveProfileHeaderControl, "perf"],
         ["valveProfileHeader", "steam-ui-valve-profile-toggle", valveProfileToggleControl, "perf"],
@@ -3263,19 +3380,22 @@
       ];
       for (const [kind, key, component, rowPlacement] of rows) {
         if (rowPlacement !== placement || !registrations.has(kind) || !component) continue;
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key },
-            controlRuntime.react.createElement(component),
-          ),
+        const element = controlRuntime.react.createElement(
+          controlRuntime.row,
+          { key },
+          controlRuntime.react.createElement(component),
         );
+        controls.push(element);
+        const group = groupFor(kind);
+        if (!groups.has(group)) groups.set(group, []);
+        groups.get(group).push(element);
       }
       if (
         placement === "quickSettings" &&
         registrations.has("deviceControls") &&
         deviceControlsControl
       ) {
+        // Device controls render their own Charging and RGB sections after Valve's common settings.
         controls.push(
           controlRuntime.react.createElement(deviceControlsControl, {
             key: "steam-ui-device-controls",
@@ -3286,15 +3406,17 @@
         appendDiagnostics[placement] = { controls: 0, inserted: false, ownSection: false };
         return tree;
       }
-      // Quick Settings takes a plain appended section and nothing else. The native-row filtering
+      // Quick Settings keeps Valve's common controls intact. The native-row filtering
       // below is about Steam's FPS counter rows on the PERFORMANCE panel; running it against a
       // different tab's tree would be hiding rows this code has never even looked at.
       if (placement === "quickSettings") {
-        const section = controlRuntime.react.createElement(
-          controlRuntime.section,
-          { key: "steam-ui-quick-settings-section" },
-          ...controls,
-        );
+        const section = groups.has("Display")
+          ? controlRuntime.react.createElement(
+              controlRuntime.section,
+              { key: "steam-ui-quick-settings-section", title: "Display" },
+              ...(groups.get("Display") || []),
+            )
+          : null;
         appendDiagnostics[placement] = {
           controls: controls.length,
           inserted: true,
@@ -3308,9 +3430,14 @@
           null,
           section,
           tree,
+          registrations.has("deviceControls") && deviceControlsControl
+            ? controlRuntime.react.createElement(deviceControlsControl, {
+                key: "steam-ui-device-controls",
+              })
+            : null,
         );
       }
-      // The host's rows go into a PanelSection of their own, appended after whatever the native
+      // The host's rows go into titled PanelSections, appended after whatever the native
       // performance panel rendered.
       //
       // The previous implementation searched the tree for a component identical to
@@ -3325,9 +3452,24 @@
       // Appending a section instead depends on nothing about Steam's internal tree shape, so it
       // cannot be broken by a Steam UI change or by the fields Windows hides.
       const own = controlRuntime.react.createElement(
-        controlRuntime.section,
-        { key: "steam-ui-section" },
-        ...controls,
+        controlRuntime.react.Fragment,
+        null,
+        ...[
+          "Profile scope",
+          "Power profiles",
+          "Display and frame rate",
+          "Power limits",
+          "Controller",
+          "Reset",
+        ]
+          .filter((title) => groups.has(title))
+          .map((title) =>
+            controlRuntime.react.createElement(
+              controlRuntime.section,
+              { key: title, title },
+              ...groups.get(title),
+            ),
+          ),
       );
       // Shape of what Steam's performance root returned, so the rows it renders can be identified
       // without guessing. Needed to suppress Steam's own FPS counter rows in favour of the host's
@@ -3379,7 +3521,7 @@
       frameLimitControl = createFrameLimitControl(controlRuntime);
       controllerControl = createControllerControl(controlRuntime);
       powerProfileControl = createPowerProfileControl(controlRuntime);
-      powerPresetControl = createPowerProfileControl(controlRuntime, "powerPreset");
+      powerPresetControl = createPowerPresetControl(controlRuntime);
       resolutionControl = createResolutionControl(controlRuntime);
       vrrControl = createVrrControl(controlRuntime);
       deviceControlsControl = createDeviceControlsControl(controlRuntime);

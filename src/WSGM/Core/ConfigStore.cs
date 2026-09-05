@@ -613,6 +613,8 @@ public static class ConfigStore
 
     private static void NormalizePerformance(PerformanceConfig performance)
     {
+        performance.AcPowerPreset = NormalizePowerPreset(performance.AcPowerPreset);
+        performance.BatteryPowerPreset = NormalizePowerPreset(performance.BatteryPowerPreset);
         performance.FrameLimitStrategy = Definite(
             performance.FrameLimitStrategy, Defaults.Performance.FrameLimitStrategy);
         performance.Applications ??= [];
@@ -623,6 +625,8 @@ public static class ConfigStore
             !identities.Add(application.ApplicationId.Trim()));
         foreach (PerformanceApplicationConfig application in performance.Applications)
         {
+            application.AcPowerPreset = NormalizePowerPreset(application.AcPowerPreset);
+            application.BatteryPowerPreset = NormalizePowerPreset(application.BatteryPowerPreset);
             application.ApplicationId = application.ApplicationId.Trim();
             application.RtssProfileName ??= string.Empty;
             application.RtssProfileName = application.RtssProfileName.Trim();
@@ -647,7 +651,21 @@ public static class ConfigStore
             && application.FrameLimit is null
             && application.OverlayLevel is null
             && application.TdpWatts is null
+            && application.AcPowerPreset is null
+            && application.BatteryPowerPreset is null
             && application.VariableRefreshRate is null);
+    }
+
+    private static DevicePowerPresetReference? NormalizePowerPreset(DevicePowerPresetReference? reference)
+    {
+        if (reference is null) { return null; }
+        string pluginId = reference.PluginId?.Trim() ?? string.Empty;
+        string presetId = reference.PresetId?.Trim() ?? string.Empty;
+        if (pluginId.Length is 0 or > 128 || presetId.Length is 0 or > 64)
+        { return null; }
+        reference.PluginId = pluginId;
+        reference.PresetId = presetId;
+        return reference;
     }
 
     private static void NormalizeDisplayMode(DisplayModeValues mode)

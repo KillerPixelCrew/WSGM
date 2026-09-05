@@ -127,6 +127,10 @@ records only temporary plugin-owned state that was actually changed and could no
 persistent desired RGB and profile state is kept separately. An indeterminate hardware write is
 reported to the plugin owner and never blindly retried.
 
+Device controls show a pending command's requested value while it runs, then the plugin's observed
+value. Saved desired values are only a fallback when no observation exists; they must not hide a
+power preset's readback or later firmware changes.
+
 ## Controller management
 
 `ControllerManager` is the one WSGM-side owner of the virtual target and its replacement, the haptic

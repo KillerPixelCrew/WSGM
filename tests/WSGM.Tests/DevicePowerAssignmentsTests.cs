@@ -1,0 +1,263 @@
+using System.Text.Json;
+using WSGM.Core;
+using WSGM.Shell;
+
+namespace WSGM.Tests;
+
+public sealed class DevicePowerAssignmentsTests
+{
+    private static DevicePowerPresetReference Reference(string preset) => new() { PluginId = "fixture", PresetId = preset };
+
+    private sealed class Rig
+    {
+        internal readonly DevicePowerPresetsTests.Rig Device = new();
+        internal PerformanceConfig Config = new() { AcPowerPreset = Reference("extreme"), BatteryPowerPreset = Reference("battery") };
+        internal string? Application;
+        internal bool Enabled = true;
+        internal string Plugin = "fixture";
+        internal int Saves;
+        internal long Cycle = 1;
+        internal DevicePowerAssignments Create() => new(Device.Create(),
+            () => new(Config, Application, Plugin, Cycle, Enabled, Device.OnAc),
+            (context, ac, reference) =>
+            {
+                Saves++;
+                var application = DevicePowerAssignments.Application(context);
+                if (application is not null)
+                {
+                    if (ac) { application.AcPowerPreset = reference; }
+                    else { application.BatteryPowerPreset = reference; }
+                }
+                else if (ac) { Config.AcPowerPreset = reference; }
+                else { Config.BatteryPowerPreset = reference; }
+                return Task.CompletedTask;
+            });
+    }
+
+    [Theory]
+    [InlineData("application")]
+    [InlineData("plugin")]
+    [InlineData("cycle")]
+    [InlineData("enabled")]
+    [InlineData("source")]
+    public async Task ScopeChangesDuringReadRejectAssignmentBeforeSaving(string change)
+    {
+        Rig rig = new();
+        rig.Device.Api.AfterRead = () =>
+        {
+            switch (change)
+            {
+                case "application": rig.Application = "steam:42"; break;
+                case "plugin": rig.Plugin = "replacement"; break;
+                case "cycle": rig.Cycle++; break;
+                case "enabled": rig.Enabled = false; break;
+                case "source": rig.Device.OnAc = false; break;
+            }
+        };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Create().AssignAsync(true, "balanced", default));
+        Assert.Equal(0, rig.Saves);
+        Assert.Empty(rig.Device.Calls);
+        Assert.Equal("extreme", rig.Config.AcPowerPreset!.PresetId);
+    }
+
+    [Fact]
+    public async Task ScopeFlagDrivesQamInheritanceLabels()
+    {
+        Rig rig = new();
+        var assignments = rig.Create();
+        var qam = new NativeQamPowerPresetService(rig.Device.Create(), assignments);
+        Assert.True(assignments.Snapshot().IsGlobal);
+        Assert.Equal("Manual selection", (await qam.ReadAsync())!.UnsetLabel);
+        rig.Application = "steam:42";
+        rig.Config.Applications.Add(new() { ApplicationId = rig.Application, UsePerGameProfile = true });
+        Assert.False(assignments.Snapshot().IsGlobal);
+        Assert.Equal("Use global assignment", (await qam.ReadAsync())!.UnsetLabel);
+    }
+
+    [Theory]
+    [InlineData(" fixture ", " balanced ", true)]
+    [InlineData(" ", "balanced", false)]
+    [InlineData("fixture", " ", false)]
+    public void SavedIdentifiersAreTrimmedBeforeValidation(string plugin, string preset, bool valid)
+    {
+        AppConfig config = new();
+        config.Performance.AcPowerPreset = new() { PluginId = plugin, PresetId = preset };
+        ConfigStore.Normalize(config);
+        if (!valid) { Assert.Null(config.Performance.AcPowerPreset); return; }
+        Assert.Equal("fixture", config.Performance.AcPowerPreset!.PluginId);
+        Assert.Equal("balanced", config.Performance.AcPowerPreset.PresetId);
+    }
+
+    [Theory]
+    [InlineData(128, 64, true)]
+    [InlineData(129, 64, false)]
+    [InlineData(128, 65, false)]
+    public void AssignmentLengthLimitsApplyAfterTrimming(int pluginLength, int presetLength, bool valid)
+    {
+        AppConfig config = new();
+        config.Performance.Applications.Add(new()
+        {
+            ApplicationId = "steam:42",
+            UsePerGameProfile = true,
+            BatteryPowerPreset = new() { PluginId = " " + new string('p', pluginLength) + " ", PresetId = " " + new string('b', presetLength) + " " },
+        });
+        ConfigStore.Normalize(config);
+        var reference = Assert.Single(config.Performance.Applications).BatteryPowerPreset;
+        Assert.Equal(valid, reference is not null);
+        if (valid)
+        {
+            Assert.Equal(pluginLength, reference!.PluginId.Length);
+            Assert.Equal(presetLength, reference.PresetId.Length);
+        }
+    }
+
+    [Fact]
+    public async Task QamAssignmentsShareTheDevicePagePolicyAndClearLocalOverrides()
+    {
+        Rig rig = new();
+        rig.Config.AcPowerPreset = null;
+        var assignments = rig.Create();
+        var qam = new NativeQamPowerPresetService(rig.Device.Create(), assignments);
+        Assert.True((await qam.SetAssignmentAsync(false, "balanced", default)).Succeeded);
+        Assert.Equal("balanced", rig.Config.BatteryPowerPreset?.PresetId);
+        Assert.Empty(rig.Device.Calls);
+        var state = (await qam.ReadAsync())!;
+        Assert.Equal("", state.Ac);
+        Assert.Equal("balanced", state.Battery);
+        Assert.DoesNotContain(state.Options, option => option.Id == "custom");
+        Assert.True((await qam.SetAssignmentAsync(true, "extreme", default)).Succeeded);
+        Assert.Equal(2, rig.Device.Calls.Count);
+        Assert.True((await qam.SetAssignmentAsync(true, null, default)).Succeeded);
+        Assert.Null(rig.Config.AcPowerPreset);
+        Assert.False((await qam.SetAssignmentAsync(false, "missing", default)).Succeeded);
+    }
+
+    [Fact]
+    public async Task ReplacedPerGameConfigurationCannotSaveIntoTheGlobalFallback()
+    {
+        Rig rig = new() { Application = "steam:42" };
+        rig.Config.Applications.Add(new() { ApplicationId = "steam:42", UsePerGameProfile = true });
+        rig.Device.Api.AfterRead = () => rig.Config = new() { AcPowerPreset = Reference("extreme") };
+        var assignments = rig.Create();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => assignments.AssignAsync(true, "balanced", default));
+        Assert.Equal(0, rig.Saves);
+        Assert.Equal("extreme", rig.Config.AcPowerPreset?.PresetId);
+        Assert.Empty(rig.Device.Calls);
+    }
+
+    [Fact]
+    public async Task FailedSecondWriteIsNotRetriedByPolling()
+    {
+        Rig rig = new();
+        rig.Device.FailAt = 2;
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(31, rig.Device.Views[1].Projection.State.ObservedValue!.IntegerValue);
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(2, rig.Device.Calls.Count);
+        Assert.Equal(0, rig.Device.Api.Writes);
+    }
+
+    [Fact]
+    public async Task CancelledPartialAssignmentIsNotRetriedByPolling()
+    {
+        Rig rig = new();
+        using CancellationTokenSource cancellation = new();
+        TaskCompletionSource laterWrite = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Device.OnWriteEntered = count => { if (count == 2) { entered.TrySetResult(); } };
+        rig.Device.AfterDeviceWrite = _ =>
+        {
+            rig.Device.WaitForWrite = laterWrite;
+        };
+        var assignments = rig.Create();
+        Task applying = assignments.ReconcileAsync(cancellation.Token);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => applying);
+        Assert.Equal(2, rig.Device.Calls.Count);
+        Assert.Equal(31, rig.Device.Views[1].Projection.State.ObservedValue!.IntegerValue);
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(2, rig.Device.Calls.Count);
+        Assert.Equal(0, rig.Device.Api.Writes);
+    }
+
+    [Fact]
+    public async Task SourceTransitionsApplyOnceAndDoNotFightManualDrift()
+    {
+        Rig rig = new();
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(2, rig.Device.Calls.Count);
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(2, rig.Device.Calls.Count);
+        rig.Device.OnAc = false;
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(4, rig.Device.Calls.Count);
+        Assert.Equal(8, rig.Device.Views[0].Projection.State.ObservedValue!.IntegerValue);
+        Assert.Equal(0, rig.Saves);
+    }
+
+    [Fact]
+    public async Task FailureIsNotRetriedUntilAnExplicitAssignment()
+    {
+        Rig rig = new();
+        rig.Device.FailAt = 1;
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(default);
+        await assignments.ReconcileAsync(default);
+        Assert.Single(rig.Device.Calls);
+        Assert.NotEmpty(assignments.Snapshot().Status);
+        rig.Device.FailAt = 0;
+        await assignments.AssignAsync(true, "extreme", default);
+        Assert.Equal(3, rig.Device.Calls.Count);
+        Assert.Equal(1, rig.Saves);
+    }
+
+    [Fact]
+    public async Task PerGameAssignmentsOverrideAndInheritIndependently()
+    {
+        Rig rig = new() { Application = "steam:42" };
+        rig.Config.Applications.Add(new() { ApplicationId = "steam:42", UsePerGameProfile = true, AcPowerPreset = Reference("balanced") });
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(17, rig.Device.Views[0].Projection.State.ObservedValue!.IntegerValue);
+        rig.Device.OnAc = false;
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(8, rig.Device.Views[0].Projection.State.ObservedValue!.IntegerValue);
+        await assignments.AssignAsync(false, "balanced", default);
+        Assert.Equal("balanced", rig.Config.Applications[0].BatteryPowerPreset!.PresetId);
+        Assert.Equal("battery", rig.Config.BatteryPowerPreset!.PresetId);
+        rig.Application = null;
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(8, rig.Device.Views[0].Projection.State.ObservedValue!.IntegerValue);
+    }
+
+    [Fact]
+    public async Task DisabledIntegrationUnknownSourceAndOtherPluginNeverWrite()
+    {
+        Rig rig = new() { Enabled = false };
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(default);
+        rig.Enabled = true;
+        rig.Device.OnAc = null;
+        await assignments.ReconcileAsync(default);
+        rig.Device.OnAc = true;
+        rig.Plugin = "replacement";
+        await assignments.ReconcileAsync(default);
+        Assert.Empty(rig.Device.Calls);
+        Assert.Contains("another device", assignments.Snapshot().Status);
+    }
+
+    [Fact]
+    public void SavedAssignmentsSurviveJsonAndRtssPolicyMerges()
+    {
+        Rig rig = new();
+        rig.Config.Applications.Add(new() { ApplicationId = "steam:42", UsePerGameProfile = true, AcPowerPreset = Reference("balanced") });
+        string json = JsonSerializer.Serialize(rig.Config, ConfigJsonContext.Default.PerformanceConfig);
+        var restored = JsonSerializer.Deserialize(json, ConfigJsonContext.Default.PerformanceConfig)!;
+        ShellSession.MergePerformancePolicy(restored, new PerformancePolicy(new PerformanceValues(60, 1), [], true));
+        Assert.Equal("extreme", restored.AcPowerPreset!.PresetId);
+        Assert.Equal("balanced", Assert.Single(restored.Applications).AcPowerPreset!.PresetId);
+    }
+}

@@ -377,7 +377,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             }
 
             _descriptorGeneration = descriptors.Generation;
-            _sections = descriptors.Sections;
+            _sections = DeviceSections.IncludePredefined(descriptors.Sections);
             _descriptors.Clear();
             foreach (CapabilityDescriptor descriptor in descriptors.Descriptors)
             {
@@ -802,7 +802,8 @@ internal static class DeviceCapabilityValidation
             return false;
         }
 
-        Dictionary<string, CapabilitySection> sections = new(StringComparer.Ordinal);
+        Dictionary<string, CapabilitySection> sections = DeviceSections.All.ToDictionary(section => section.SectionId, StringComparer.Ordinal);
+        HashSet<string> declaredIds = new(StringComparer.Ordinal);
         foreach (CapabilitySection section in set.Sections)
         {
             if (section is null)
@@ -816,11 +817,12 @@ internal static class DeviceCapabilityValidation
                 return false;
             }
 
-            if (!sections.TryAdd(section.SectionId, section))
+            if (!declaredIds.Add(section.SectionId))
             {
                 error = $"Descriptor set declares section '{section.SectionId}' more than once.";
                 return false;
             }
+            sections[section.SectionId] = section;
         }
 
         HashSet<DeviceCapabilityKey> keys = [];

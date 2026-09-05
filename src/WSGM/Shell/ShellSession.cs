@@ -408,7 +408,7 @@ public sealed class ShellSession : IAsyncDisposable
                 {
                     _autoTdp?.NoteManualChange(watts);
                     PersistManualPowerLimit(watts);
-                });
+                }, assigned: watts => _autoTdp?.NoteManualChange(watts));
 
                 // Variable refresh is stored the same way and for the same reason. Rooted on the
                 // coordinator rather than on the one control that used to save it, because the
@@ -536,7 +536,8 @@ public sealed class ShellSession : IAsyncDisposable
             performance: _performanceOverlay,
             audio: _audio,
             radios: _radios,
-            powerPresets: _deviceCoordinator?.PowerPresets);
+            powerPresets: _deviceCoordinator?.PowerPresets,
+            powerAssignments: _deviceCoordinator?.PowerAssignments);
         // The sheet is recreated per open, so its one-time cost — compiled-XAML populate JIT for
         // the process's largest window — lands on the user's first swipe (~1.5 s on the Claw).
         // Pay it at idle instead; every later open constructs against warm code.
@@ -2364,7 +2365,7 @@ public sealed class ShellSession : IAsyncDisposable
             : null;
         bool perGameActive = entry?.UsePerGameProfile ?? false;
 
-        if (power is not null)
+        if (power is not null && !coordinator.PowerAssignments.HasCurrentAssignment)
         {
             await ReconcileApplicationPowerLimitAsync(
                 power,
@@ -2934,6 +2935,8 @@ public sealed class ShellSession : IAsyncDisposable
                 FrameLimit = application.FrameLimit,
                 OverlayLevel = application.OverlayLevel,
                 TdpWatts = application.TdpWatts,
+                AcPowerPreset = application.AcPowerPreset,
+                BatteryPowerPreset = application.BatteryPowerPreset,
                 VariableRefreshRate = application.VariableRefreshRate,
             })
             .ToList();
@@ -2949,6 +2952,8 @@ public sealed class ShellSession : IAsyncDisposable
                 OverlayLevel = application.Values.OverlayLevel,
                 UsePerGameProfile = true,
                 TdpWatts = prior?.TdpWatts,
+                AcPowerPreset = prior?.AcPowerPreset,
+                BatteryPowerPreset = prior?.BatteryPowerPreset,
                 VariableRefreshRate = prior?.VariableRefreshRate,
             });
         }

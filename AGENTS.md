@@ -7,6 +7,11 @@ when the guidance conflicts.
 
 - Treat tracked files and WSGM.slnx as the current topology. Ignore retired projects that exist only
   under bin, obj, publish, or other untracked output.
+- `_ref` contains local reference source repositories, including the complete Handheld Companion
+  (HC) source at `_ref/HandheldCompanion`. Use these local sources first for implementation
+  comparisons. Search ignored reference trees explicitly with `rg --hidden --no-ignore`; do not
+  fetch or clone another copy unless the task requires newer upstream evidence. Reference source
+  is evidence, not part of WSGM's build topology.
 - Start documentation work at docs/README.md. Product decisions live in docs/decisions.md and
   _plan/2.0-decisions.md.
 - _plan/implementation-todo.md is the progress tracker. Do not infer status from requirements lists,

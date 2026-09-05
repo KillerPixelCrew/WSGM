@@ -500,6 +500,12 @@ public sealed class NativeTabConfig
 /// <summary>Persistent shared RTSS policy projected into overlay and native QAM.</summary>
 public sealed class PerformanceConfig
 {
+    /// <summary>Device preset selected on AC power, or null for manual selection.</summary>
+    public DevicePowerPresetReference? AcPowerPreset { get; set; }
+
+    /// <summary>Device preset selected on battery power, or null for manual selection.</summary>
+    public DevicePowerPresetReference? BatteryPowerPreset { get; set; }
+
     /// <summary>Whether WSGM may observe and change supported RTSS profile properties.</summary>
     public bool Enabled { get; set; }
 
@@ -555,6 +561,12 @@ public sealed class PerformanceConfig
 /// <summary>One persistent RTSS application-profile override.</summary>
 public sealed class PerformanceApplicationConfig
 {
+    /// <summary>Per-game AC assignment, or null to inherit the global assignment.</summary>
+    public DevicePowerPresetReference? AcPowerPreset { get; set; }
+
+    /// <summary>Per-game battery assignment, or null to inherit the global assignment.</summary>
+    public DevicePowerPresetReference? BatteryPowerPreset { get; set; }
+
     /// <summary>Canonical WSGM application identity.</summary>
     public string ApplicationId { get; set; } = string.Empty;
 

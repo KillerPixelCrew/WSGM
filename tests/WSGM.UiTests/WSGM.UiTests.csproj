@@ -19,5 +19,6 @@
     <ProjectReference Include="../../src/WSGM/WSGM.csproj" />
     <Using Include="Xunit" />
     <None Update="Baselines/*.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures/*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

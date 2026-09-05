@@ -225,6 +225,10 @@ Scenario is a bitfield: bit 7 supported, bit 6 active, low six bits select the m
 The clean stock capture was active Green. Earlier Sport state came from prior user/application
 configuration. Validate scenario-imposed power ceilings on AC and battery before relying on them.
 
+The current preset implementation also uses HC's AC/battery scenario mapping. Its source evidence,
+write order and restoration behavior are documented in `docs/power-and-display.md`; this does not
+turn the stock capture above into a fresh scenario-switching pass.
+
 ### Temperature
 
 `Get_Temperature` subfeature 0 is the live device temperature source. It tracked approximately
