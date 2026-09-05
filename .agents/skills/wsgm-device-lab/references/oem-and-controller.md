@@ -23,10 +23,11 @@
 7. Publish one closed `OemControlDescriptor` set and events with stable deduplication IDs. If two
    sources report one press, deduplicate; do not invoke the action twice.
 
-Never disable ACPI/keyboard devices, suppress a broad chord, or allocate/log/do WMI work inside a
-hook callback. A suppressor recognizes only the measured malformed sequence, fails open on unknown
-or well-formed input, cleans unmatched modifiers precisely, and resets on disable, lock, suspend,
-desktop/session changes, handoff, and fault.
+Never disable ACPI/keyboard devices or allocate/log/do WMI work inside a hook callback. Broader
+shortcut suppression requires a deliberate product decision, as with the Claw Win+G rule below. A
+suppressor follows its explicit sequence policy, fails open on unknown input, cleans unmatched
+modifiers precisely, and resets on disable, lock, suspend, desktop/session changes, handoff, and
+fault.
 
 ## Generic raw controller mapping
 
@@ -101,9 +102,11 @@ no release, so the plugin uses independent 120 ms latches. A later event for one
 extend the other and fabricate a chord.
 
 OEM2 also emits a malformed keyboard side effect through `ACPI\MSNB1001`: short is Win-down, orphan
-G-up, Win-up; long substitutes orphan Tab-up. WMI is the action source. The hook suppresses only the
-observed orphan-up sequence while Win is held and no modifier is active; it never blocks all
-Win+G/Win+Tab or the full ACPI device.
+G-up, Win-up; long substitutes orphan Tab-up. WMI is the action source. The hook suppresses the
+observed orphan-up sequence while Win is held and no modifier is active. Following the maintainer's
+2026-09-05 request, it also intercepts Win+G on key-down as HC does, including ordinary keyboard
+Win+G with modifiers. Normal Win+Tab and injected input pass through. Never filter the full ACPI
+device. Synthetic Win releases use extended-key flags and the 40-byte x64 INPUT ABI.
 
 Primary evidence and implementation paths:
 

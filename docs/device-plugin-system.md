@@ -781,7 +781,8 @@ status byte; the `MSI_Event` WMI event source for the front buttons; a HID vendo
 MCU (profile read and write, mode switch with a 1 s acknowledgement and 50 ms topology polling); the
 HID gamepad collection for DirectInput reports at about 125 Hz; the WinRT gyrometer at a 10 ms
 report interval; Intel IGCL through `ControlLib.dll` for Arc Sync; and a low-level keyboard hook
-that suppresses the firmware's orphan key-up chords and fails open.
+that intercepts Win+G key-down and the firmware's orphan key-up chords. The shortcut policy and
+software-only validation limits are in `device-integration.md`, "Claw OEM chord suppression".
 
 Capabilities (one descriptor set per cycle, generation 1):
 

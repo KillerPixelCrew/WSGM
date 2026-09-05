@@ -233,16 +233,25 @@ replacement target.
 
 ### Claw OEM chord suppression also runs on Desktop
 
-The Claw plugin suppresses the measured OEM-button orphan `G UP` / `Tab UP` Windows-key bursts while
+The Claw plugin targets the measured OEM-button orphan `G UP` / `Tab UP` Windows-key bursts while
 its OEM service is active, including on the Windows desktop. Its synthetic Win release uses the full
 40-byte x64 `INPUT` record with a 32-byte union. The old keyboard-only union made Windows reject the
-release and the hook pass the burst through. Normal physical shortcuts, modified chords, injected
+release and the hook pass the burst through. Normal Win+Tab, modified orphan-up sequences, injected
 input, volume keys and unknown sequences remain unfiltered. Hardware-free tests pin the native
 layout and sequence behavior; this correction does not claim a new live device pass. The maintainer
 reports that Game Mode already works and switching the same running WSGM session to Desktop opens
 Game Bar. That transition leaves the plugin and hook running; the ABI defect is confirmed in
 software, while the reason the visible symptom differs between modes has not been established by a
 device trace.
+
+The follow-up comparison with local HC revision `5c94abca83f8711ff5620906871b31a41c76bf05` found
+another difference: Win releases lacked `KEYEVENTF_EXTENDEDKEY`. That flag is now set and covered by
+focused tests. Following the maintainer's request, WSGM now also intercepts `G DOWN` while Win is
+held as HC does, including ordinary keyboard Win+G with Ctrl/Alt/Shift. It consumes repeats and G up
+after an accepted synthetic release, even if physical Win up arrives first. Failed releases fail
+open without retry on held-key repeats. The measured G/Tab orphan-up path remains. The maintainer's
+continued desktop failure reopened the tracker item; the correction still needs an attended check on
+the updated installed plugin. No live fix is claimed.
 
 ## Authored profiles
 

@@ -262,11 +262,16 @@ architecture smaller.
       forgetting and the marker reader. `eng/verify.ps1` passed: 2,056 managed tests, coverage and a
       Release build with zero warnings/errors. No live card-swap validation was run.
       `docs\sd-cards.md`.
-- [x] **Fix the Claw OEM button opening Xbox Game Bar on the Windows desktop.** Corrected the
+- [ ] **Fix the Claw OEM button opening Xbox Game Bar on the Windows desktop.** Reopened after
+      the maintainer reported continued Game Bar activation on 2026-09-05. The follow-up adds
+      missing extended-key flag and HC's Win+G key-down interception, including ordinary keyboard
+      Win+G with modifiers, as requested by the maintainer. Tests cover repeats, release ordering,
+      partial/failed injection and reset; 32 focused tests pass. Attended desktop validation remains.
+      Earlier work corrected the
       plugin's x64 `INPUT` layout from 32 to 40 bytes. Windows rejected the undersized synthetic
       Win-key release, which made `FirmwareChordSuppressor` pass the measured orphan `G UP` through.
-      The existing device-specific matcher also covers the long-press `Tab UP`; physical keyboard
-      chords, modifiers, injected input, volume keys and unknown sequences still pass through.
+      The existing device-specific matcher also covers the long-press `Tab UP`; normal Win+Tab,
+      modified orphan-up sequences, injected input, volume keys and unknown sequences pass through.
       Regression tests cover the ABI, shortcut preservation, failed release and hook reset/startup
       state. `eng/verify.ps1` passed: 2,445 managed tests, 45 native tests, coverage and a Release
       build with zero warnings/errors. No live device validation was run. `docs\device-integration.md`.

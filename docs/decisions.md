@@ -57,6 +57,12 @@ cleanly onto a Steam Deck controller with no buttons or functions left over, so 
 would answer a problem no supported device has while making WSGM responsible for input policy that
 belongs to Steam. See `docs\device-plugin-system.md`, "OEM controls".
 
+**The Claw OEM workaround also blocks keyboard Win+G.** After continued desktop Game Bar activation,
+the maintainer requested HC's key-down interception on 2026-09-05. The global hook cannot
+distinguish the OEM button from ordinary Win+G, so that shortcut, including with modifiers, is
+suppressed while the Claw OEM service is active. Normal Win+Tab remains available. Details and the
+remaining attended validation are in `docs\device-integration.md`.
+
 **A device control the user moves is remembered.** A `User` capability write the device accepted is
 stored as the desired value of the layer that press means — the running application's when a game is
 running, the global default otherwise. The sustained power limit and variable refresh are the two

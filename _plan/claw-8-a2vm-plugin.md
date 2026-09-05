@@ -438,16 +438,18 @@ suppression-only.
 
 The suppressor:
 
-- Recognizes the verified orphan-up sequence rather than blocking all Win+G or Win+Tab.
+- Recognizes the verified orphan-up sequence and intercepts Win+G on key-down as HC does.
+  The maintainer requested HC behavior on 2026-09-05 after continued desktop failures; this
+  also blocks ordinary keyboard Win+G with modifiers while the OEM service is active.
 - Runs on the interactive desktop from the elevated plugin process.
 - Uses a dedicated bounded callback thread.
 - Keeps tagged `SendInput`, accepted-prefix accounting, and precise unmatched-down cleanup.
 - Never performs WMI, HID, logging, or allocation-heavy work in the hook callback.
-- Fails open on unknown or well-formed keyboard sequences.
+- Preserves normal Win+Tab, injected input and unknown keyboard sequences.
 - Resets/unhooks on disable, lock, suspend, desktop/session change, handoff, and host failure.
 - Never strands Win, G, Tab, Ctrl, Alt, or Shift and never filters the full ACPI device.
 
-Future BIOS versions that produce a different or well-formed chord must fail open until observed.
+Future BIOS versions that produce a chord outside these explicit rules fail open until observed.
 
 ## RGB lighting
 
