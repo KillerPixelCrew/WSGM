@@ -473,8 +473,15 @@ public static class SteamLibraryVdf
         var text = File.ReadAllText(marker);
         contentId = ValuesOf(text, "contentid")
             .FirstOrDefault(id => !string.IsNullOrWhiteSpace(id));
-        label = (ValuesOf(text, "label").FirstOrDefault() ?? "").Trim();
-        return contentId is not null;
+        if (contentId is null)
+        {
+            return false;
+        }
+        // Selected by content id, not "the first label in the file": a marker that
+        // somehow carries more than one block must not hand one card's label to
+        // another card's identity.
+        label = (LabelForContentId(text, contentId) ?? "").Trim();
+        return true;
     }
 
     /// <summary>Canonical form used to decide whether two registrations name the

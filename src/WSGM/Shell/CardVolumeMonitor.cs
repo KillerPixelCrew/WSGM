@@ -277,7 +277,7 @@ internal sealed class CardVolumeMonitor : IDisposable
             Log.Info("Card volumes: Big Picture is ready; resuming deferred library reconcile.");
         }
 
-        foreach (var (libraryPath, cardContentId, cardLabel) in present)
+        foreach (var (libraryPath, cardContentId, _) in present)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var key = SteamLibraryVdf.NormalizePath(libraryPath);
@@ -285,6 +285,17 @@ internal sealed class CardVolumeMonitor : IDisposable
             var action = Decide(cardContentId, ids);
             if (action == CardLibraryAction.None)
             {
+                continue;
+            }
+            // Every earlier card in this pass cost a CEF round trip, so the scan can be
+            // seconds old by now and the reader takes a new card in far less than that.
+            // Re-read the marker and abandon the decision if the media changed: acting
+            // on it would register the card that left, or hand the card that arrived
+            // the previous one's label. The swap raised its own notification, so the
+            // pass it schedules decides again on what is actually there.
+            if (!StillInTheReader(libraryPath, cardContentId, out var cardLabel))
+            {
+                Schedule();
                 continue;
             }
             Log.Info($"Card volumes: {libraryPath} needs {action} "
@@ -299,6 +310,46 @@ internal sealed class CardVolumeMonitor : IDisposable
         changed |= await RemoveDepartedCardsAsync(here, registered, cancellationToken)
             .ConfigureAwait(false);
         return changed;
+    }
+
+    /// <summary>Re-reads the marker at a card path and reports whether it still carries
+    /// the identity the scan saw, handing back the label to apply with it.</summary>
+    /// <param name="libraryPath">The card library, e.g. <c>E:\SteamLibrary</c>.</param>
+    /// <param name="scannedContentId">What the scan read there, null for a volume that
+    /// carried no library — for which "still true" means still no library.</param>
+    /// <param name="label">The marker's current label, empty when it has none or when
+    /// the media changed.</param>
+    /// <returns>False when the media no longer matches the scan, or could not be read.
+    /// </returns>
+    private static bool StillInTheReader(
+        string libraryPath, string? scannedContentId, out string label)
+    {
+        label = "";
+        string? currentContentId;
+        try
+        {
+            currentContentId =
+                SteamLibraryVdf.TryReadMarker(libraryPath, out var id, out var current)
+                    ? id
+                    : null;
+            label = current;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Card volumes: {libraryPath} became unreadable before Steam was "
+                + $"changed; the decision is abandoned: {ex.Message}");
+            label = "";
+            return false;
+        }
+        if (string.Equals(currentContentId, scannedContentId, StringComparison.Ordinal))
+        {
+            return true;
+        }
+        Log.Info($"Card volumes: {libraryPath} now holds {currentContentId ?? "no library"} "
+            + $"instead of {scannedContentId ?? "no library"}; the card changed mid-pass, so "
+            + "this decision is abandoned and a fresh pass is scheduled.");
+        label = "";
+        return false;
     }
 
     /// <summary>Drops Steam's library for every card this session has seen that is no

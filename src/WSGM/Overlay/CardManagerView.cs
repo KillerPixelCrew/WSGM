@@ -115,8 +115,10 @@ public sealed class CardManagerView : OverlaySubView
                 EditText("Card name", card.Name, 40, v => _ = RunCardMutationAsync(
                     async () =>
                     {
-                        // Renames the tab, the Steam library label, and the Windows
-                        // volume; a partial failure comes back as a note to show.
+                        // Renames the card itself first, then the tab, the Steam library
+                        // label and the Windows volume. A refusal (an absent card, or
+                        // one the write could not reach) and a partial failure both come
+                        // back as a note to show.
                         var note = await _manager.RenameCardAsync(card.ContentId, v);
                         if (note is not null)
                         {

@@ -1,4 +1,5 @@
 using WSGM.Core;
+using WSGM.Device.Tests;
 using WSGM.Shell;
 
 namespace WSGM.Tests;
@@ -142,6 +143,122 @@ public class CardNameAuthorityTests
             [new LibraryTabManager.Discovered("777", "Library (E:)", [3L], 'E', "Indies")]);
 
         Assert.Equal([3L], config.CardLibraries[0].AppIds);
+    }
+
+    // ---- the rename's authoritative write ----
+    //
+    // RenameCardAsync itself orchestrates ConfigStore, Steam's CEF client and the
+    // Windows volume label, none of which the unattended suite may touch. Its one
+    // decisive step is the marker write: everything else in that method is now
+    // conditional on this returning null, so this is where the contract is proven.
+
+    private static string NewLibrary(TemporaryDirectory temp, string contentId, string label)
+    {
+        var library = Directory.CreateDirectory(temp.GetPath("SteamLibrary")).FullName;
+        File.WriteAllText(
+            Path.Combine(library, "libraryfolder.vdf"),
+            SteamLibraryVdf.BuildMarker(contentId, @"C:\Steam\steam.exe", label));
+        return library;
+    }
+
+    [Fact]
+    public void RenamingWritesTheNewNameOntoTheCard()
+    {
+        using var temp = new TemporaryDirectory();
+        var library = NewLibrary(temp, "777", "SDCard9");
+
+        Assert.Null(LibraryTabManager.TrySetMarkerLabel(library, "777", "Handhelds"));
+
+        Assert.True(SteamLibraryVdf.TryReadMarker(library, out var id, out var label));
+        Assert.Equal("777", id);
+        Assert.Equal("Handhelds", label);
+    }
+
+    [Fact]
+    public void RenamingIsRefusedWhenTheCardInTheReaderIsADifferentOne()
+    {
+        // The card was swapped between resolving its drive letter and the write. The
+        // letter still resolves, so only the identity check stands between the rename
+        // and relabelling somebody else's card.
+        using var temp = new TemporaryDirectory();
+        var library = NewLibrary(temp, "1010", "SDCard10");
+
+        var note = LibraryTabManager.TrySetMarkerLabel(library, "9696", "Handhelds");
+
+        Assert.Equal("The card still carries its old name.", note);
+        Assert.True(SteamLibraryVdf.TryReadMarker(library, out var id, out var label));
+        Assert.Equal("1010", id);
+        Assert.Equal("SDCard10", label);
+    }
+
+    [Fact]
+    public void RenamingIsRefusedWhenTheMarkerHasGone()
+    {
+        using var temp = new TemporaryDirectory();
+
+        Assert.Equal(
+            "The card still carries its old name.",
+            LibraryTabManager.TrySetMarkerLabel(temp.Root, "777", "Handhelds"));
+    }
+
+    [Fact]
+    public void RenamingAnUnlabelledCardGivesItsMarkerALabel()
+    {
+        using var temp = new TemporaryDirectory();
+        var library = Directory.CreateDirectory(temp.GetPath("SteamLibrary")).FullName;
+        File.WriteAllText(
+            Path.Combine(library, "libraryfolder.vdf"),
+            "\"libraryfolder\"\n{\n\t\"contentid\"\t\t\"777\"\n}\n");
+
+        Assert.Null(LibraryTabManager.TrySetMarkerLabel(library, "777", "Handhelds"));
+
+        Assert.True(SteamLibraryVdf.TryReadMarker(library, out _, out var label));
+        Assert.Equal("Handhelds", label);
+    }
+
+    [Fact]
+    public void RenamingTwiceLeavesOneLabelAndTheSameIdentity()
+    {
+        using var temp = new TemporaryDirectory();
+        var library = NewLibrary(temp, "777", "SDCard9");
+
+        Assert.Null(LibraryTabManager.TrySetMarkerLabel(library, "777", "Handhelds"));
+        Assert.Null(LibraryTabManager.TrySetMarkerLabel(library, "777", "Retro"));
+
+        var marker = File.ReadAllText(Path.Combine(library, "libraryfolder.vdf"));
+        Assert.Single(SteamLibraryVdf.ValuesOf(marker, "label"));
+        Assert.True(SteamLibraryVdf.TryReadMarker(library, out var id, out var label));
+        Assert.Equal("777", id);
+        Assert.Equal("Retro", label);
+    }
+
+    [Fact]
+    public void RenamingLeavesNoTemporaryFileBehind()
+    {
+        using var temp = new TemporaryDirectory();
+        var library = NewLibrary(temp, "777", "SDCard9");
+
+        Assert.Null(LibraryTabManager.TrySetMarkerLabel(library, "777", "Handhelds"));
+
+        Assert.Equal(
+            ["libraryfolder.vdf"],
+            Directory.GetFiles(library).Select(Path.GetFileName));
+    }
+
+    [Fact]
+    public void ARenamedCardKeepsItsNameThroughTheNextScan()
+    {
+        // The whole point of writing the media: discovery reads the name back and must
+        // agree with it rather than revert.
+        using var temp = new TemporaryDirectory();
+        var library = NewLibrary(temp, "777", "SDCard9");
+        var config = ConfigWith(("777", "SDCard9"));
+
+        Assert.Null(LibraryTabManager.TrySetMarkerLabel(library, "777", "Handhelds"));
+        Assert.True(SteamLibraryVdf.TryReadMarker(library, out _, out var label));
+        LibraryTabManager.MergeDiscovery(config, [Card("777", label)]);
+
+        Assert.Equal("Handhelds", NameOf(config, "777"));
     }
 
     [Fact]
