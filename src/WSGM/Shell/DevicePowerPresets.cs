@@ -120,9 +120,14 @@ internal sealed class DevicePowerPresets(
                 CheckCurrent();
                 if (Project(confirmedViews, confirmedMode, onAc: onAc).Current != preset.Id)
                 {
-                    throw new InvalidOperationException("The final observed values do not match the preset.");
+                    string observed = string.Join(", ", confirmedViews.Where(view => view.Descriptor.Role is
+                        CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit or CapabilityRole.ScenarioMode)
+                        .Select(view => $"{view.Descriptor.Role}={view.Projection.State.ObservedValue?.IntegerValue?.ToString()
+                            ?? view.Projection.State.ObservedValue?.ChoiceValue ?? "unknown"}"));
+                    throw new InvalidOperationException($"The final observed values do not match the preset: {observed}, Windows mode={confirmedMode}.");
                 }
                 _status = string.Empty;
+                Log.Info($"Power preset {id} applied and verified (AC={onAc}, persist={persistValues}).");
                 return new(true, null);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -136,6 +141,7 @@ internal sealed class DevicePowerPresets(
                 _status = mutationStarted
                     ? $"Preset was not fully applied; some values may have changed. {ex.Message}"
                     : $"Preset could not be applied. {ex.Message}";
+                Log.Warn($"Power preset {id}: {_status}");
                 return new(false, _status);
             }
         }

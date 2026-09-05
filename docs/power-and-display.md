@@ -48,8 +48,8 @@ pending. The toolkit owns row placement and command validation; WSGM owns Window
 
 ## Device power presets
 
-Overlay → Device → Power and Steam QAM → Performance also offer a Device power profile dropdown when
-the plugin declares presets. The Claw A2VM supplies:
+Steam QAM → Performance offers a Device power profile dropdown when the plugin declares presets. The
+Claw A2VM supplies:
 
 | Preset              | PL1 / PL2 | Windows power mode | EC scenario on AC | EC scenario on battery |
 | ------------------- | --------- | ------------------ | ----------------- | ---------------------- |
@@ -91,11 +91,12 @@ and emitted dropdown fixtures; it does not change live power settings or a runni
 
 ## AC and battery assignments
 
-Device → Power provides **When plugged in** and **On battery** profile assignments. Global
-assignments are the defaults; enabling the existing per-game profile switch exposes overrides for
-the running game. An unset per-game value inherits its global assignment. References include the
-plugin ID so changing device packages cannot silently apply another package's similarly named
-preset.
+Device → Power provides **When plugged in** and **On battery** profile assignments and a read-only
+active-profile status. There is no separate active-profile selector. Background reads do not block
+assignment selection or overwrite an open dropdown. Global assignments are the defaults; enabling
+the existing per-game profile switch exposes overrides for the running game. An unset per-game value
+inherits its global assignment. References include the plugin ID so changing device packages cannot
+silently apply another package's similarly named preset.
 
 The session applies an assignment once on source, application, assignment or device-cycle changes.
 Unknown power sources and unavailable device observations defer application. A failed or uncertain

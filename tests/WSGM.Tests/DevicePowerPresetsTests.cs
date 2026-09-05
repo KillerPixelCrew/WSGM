@@ -8,6 +8,19 @@ namespace WSGM.Tests;
 
 public sealed class DevicePowerPresetsTests
 {
+    private static DevicePowerPresetSelection Selection(DevicePowerPresets service, bool readOnly)
+    {
+        PerformanceConfig config = new();
+        DevicePowerAssignments assignments = new(service, () => new(config, null, "fixture", 1, true, true),
+            (_, ac, reference) =>
+            {
+                if (ac) { config.AcPowerPreset = reference; }
+                else { config.BatteryPowerPreset = reference; }
+                return Task.CompletedTask;
+            });
+        return new(service, readOnly, assignments);
+    }
+
     private static readonly DevicePowerPreset Battery = new("battery", "Battery", 8, 9, DevicePowerMode.BetterBattery);
     private static readonly DevicePowerPreset Balanced = new("balanced", "Balanced", 17, 18, DevicePowerMode.Balanced);
     private static readonly DevicePowerPreset Extreme = new("extreme", "Extreme", 30, 31, DevicePowerMode.BestPerformance);
@@ -177,7 +190,7 @@ public sealed class DevicePowerPresetsTests
         Rig rig = new();
         var service = rig.Create();
         var qam = new NativeQamPowerPresetService(service);
-        using var overlay = new DevicePowerPresetSelection(service, false);
+        using var overlay = Selection(service, false);
         await overlay.RefreshAsync();
         Assert.Equal("balanced", overlay.State.Current);
         rig.Views[0] = View(CapabilityRole.PowerSustainedLimit, 16);
@@ -252,9 +265,9 @@ public sealed class DevicePowerPresetsTests
         var service = rig.Create();
         Assert.False((await service.ApplyAsync("custom", default)).Succeeded);
         Assert.False((await service.ApplyAsync("unknown", default)).Succeeded);
-        using var overlay = new DevicePowerPresetSelection(service, true);
+        using var overlay = Selection(service, true);
         await overlay.RefreshAsync();
-        await overlay.ApplyAsync("battery");
+        await overlay.AssignAsync(true, "battery");
         Assert.Empty(rig.Calls);
     }
 
@@ -305,14 +318,14 @@ public sealed class DevicePowerPresetsTests
     {
         Rig rig = new();
         var service = rig.Create();
-        using var overlay = new DevicePowerPresetSelection(service, false);
+        using var overlay = Selection(service, false);
         await overlay.RefreshAsync();
         Assert.NotEmpty(overlay.State.Presets);
         rig.Views = [];
         await overlay.RefreshAsync();
         Assert.Empty(overlay.State.Presets);
         Assert.Empty((await new NativeQamPowerPresetService(service).ReadAsync())!.Options);
-        await overlay.ApplyAsync("battery");
+        await overlay.AssignAsync(true, "battery");
         Assert.Empty(rig.Calls);
     }
 
@@ -320,9 +333,9 @@ public sealed class DevicePowerPresetsTests
     public async Task ClosingOverlayCancelsRemainingWritesAndSuppressesLatePublication()
     {
         Rig rig = new() { WaitForWrite = new(TaskCreationOptions.RunContinuationsAsynchronously) };
-        var overlay = new DevicePowerPresetSelection(rig.Create(), false);
+        var overlay = Selection(rig.Create(), false);
         await overlay.RefreshAsync();
-        Task apply = overlay.ApplyAsync("battery");
+        Task apply = overlay.AssignAsync(true, "battery");
         await rig.Entered.Task;
         overlay.Dispose();
         bool changed = false;
@@ -331,6 +344,35 @@ public sealed class DevicePowerPresetsTests
         Assert.False(changed);
         Assert.Single(rig.Calls);
         Assert.Equal(0, rig.Api.Writes);
+    }
+
+    [Fact]
+    public async Task SelectionDuringBackgroundReadIsAcceptedAndWinsOverOldObservation()
+    {
+        Rig rig = new();
+        using var overlay = Selection(rig.Create(), false);
+        await overlay.RefreshAsync();
+        using ManualResetEventSlim release = new(false);
+        TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Api.AfterRead = () =>
+        {
+            rig.Api.AfterRead = null;
+            entered.TrySetResult();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(5)));
+        };
+        Task refresh = overlay.RefreshAsync();
+        await entered.Task;
+        Task apply;
+        try
+        {
+            Assert.True(overlay.CanAssign);
+            apply = overlay.AssignAsync(true, "battery");
+            Assert.True(overlay.Busy);
+        }
+        finally { release.Set(); }
+        await Task.WhenAll(refresh, apply);
+        Assert.Equal("battery", overlay.State.Current);
+        Assert.Equal(2, rig.Calls.Count);
     }
 
     [Fact]

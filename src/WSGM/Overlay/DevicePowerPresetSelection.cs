@@ -10,16 +10,18 @@ internal sealed class DevicePowerPresetSelection(DevicePowerPresets service, boo
 {
     private readonly CancellationTokenSource _lifetime = new();
     private bool _disposed;
+    private bool _refreshing;
+    private long _revision;
     internal event Action? Changed;
     internal DevicePowerPresetState State { get; private set; } = new([], false, string.Empty, string.Empty);
     internal bool Busy { get; private set; }
-    internal bool CanSelect => !_disposed && !readOnly && !Busy && State.Available;
     internal bool CanAssign => !_disposed && !readOnly && !Busy && State.Presets.Count > 0 && assignments is not null;
     internal DevicePowerAssignmentState? Assignments { get; private set; }
 
     internal async Task AssignAsync(bool ac, string? id)
     {
         if (!CanAssign) { return; }
+        _revision++;
         Busy = true;
         Changed?.Invoke();
         CancellationToken token = _lifetime.Token;
@@ -36,40 +38,39 @@ internal sealed class DevicePowerPresetSelection(DevicePowerPresets service, boo
         {
             Busy = false;
             if (!_disposed) { Changed?.Invoke(); }
-            else { _lifetime.Dispose(); }
+            else if (!_refreshing) { _lifetime.Dispose(); }
         }
     }
 
-    internal Task RefreshAsync() => RunAsync(null);
-    internal Task ApplyAsync(string id) => CanSelect ? RunAsync(id) : Task.CompletedTask;
-
-    private async Task RunAsync(string? id)
+    internal async Task RefreshAsync()
     {
-        if (_disposed || Busy) { return; }
-        Busy = true;
+        if (_disposed || Busy || _refreshing) { return; }
+        _refreshing = true;
+        long revision = _revision;
         CancellationToken token = _lifetime.Token;
-        if (id is not null) { Changed?.Invoke(); }
         try
         {
-            if (id is not null) { await service.ApplyAsync(id, token); }
-            DevicePowerPresetState state = await service.ReadAsync(token);
-            if (!_disposed) { State = state; Assignments = assignments?.Snapshot(); }
+            var state = await service.ReadAsync(token);
+            if (!_disposed && !Busy && revision == _revision)
+            {
+                State = state;
+                Assignments = assignments?.Snapshot();
+                Changed?.Invoke();
+            }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         finally
         {
-            Busy = false;
-            if (!_disposed) { Changed?.Invoke(); }
-            else { _lifetime.Dispose(); }
+            _refreshing = false;
+            if (_disposed && !Busy) { _lifetime.Dispose(); }
         }
     }
-
     public void Dispose()
     {
         if (_disposed) { return; }
         _disposed = true;
         _lifetime.Cancel();
-        if (!Busy) { _lifetime.Dispose(); }
+        if (!Busy && !_refreshing) { _lifetime.Dispose(); }
         // In-flight work owns its token until it completes.
         Changed = null;
     }

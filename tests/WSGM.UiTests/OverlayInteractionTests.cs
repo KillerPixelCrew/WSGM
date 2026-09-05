@@ -8,6 +8,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Interop;
 using WSGM.Overlay;
 using WSGM.Shell;
@@ -16,6 +17,80 @@ namespace WSGM.UiTests;
 
 public sealed class OverlayInteractionTests
 {
+    [AvaloniaFact]
+    public async Task BatteryAssignmentDuringRefreshIsSavedOnFirstSelection()
+    {
+        using FakeDevice device = new();
+        using UiFixture fixture = new();
+        DeviceCapabilityView Power(CapabilityRole role, int watts) => new(new CapabilityDescriptor
+        {
+            CapabilityId = role.ToString(),
+            Role = role,
+            Persistence = CapabilityPersistence.Volatile,
+            ValueKind = CapabilityValueKind.Integer,
+            Display = new() { Key = DisplayKey.SustainedPowerLimit },
+            SupportsRead = true,
+            SupportsWrite = true,
+            Unit = CapabilityUnit.Watt,
+            Minimum = 8,
+            Maximum = 37,
+            Step = 1,
+            PowerPresets = role == CapabilityRole.PowerSustainedLimit
+                ? [new("balanced", "Balanced", 17, 18, DevicePowerMode.Balanced)] : [],
+        }, new CapabilityProjection
+        {
+            State = new CapabilityState
+            {
+                CapabilityId = role.ToString(),
+                Available = true,
+                Quality = HardwareStateQuality.Verified,
+                ObservedValue = new() { Kind = CapabilityValueKind.Integer, IntegerValue = watts },
+                CycleGeneration = 1,
+                DescriptorGeneration = 1,
+                ObservedAt = DateTimeOffset.UtcNow,
+            }
+        }, null);
+        DeviceCapabilityView[] views = [Power(CapabilityRole.PowerSustainedLimit, 17), Power(CapabilityRole.PowerSlowLimit, 18)];
+        var service = new DevicePowerPresets(() => views,
+            (_, _, _, _, _, _) => throw new InvalidOperationException("Inactive source must not write hardware"),
+            new WindowsPowerModes(new BalancedModeApi()));
+        PerformanceConfig config = new();
+        int saves = 0;
+        var assignments = new DevicePowerAssignments(service, () => new(config, null, "fixture", 1, true, true),
+            (_, ac, reference) => { Assert.False(ac); config.BatteryPowerPreset = reference; saves++; return Task.CompletedTask; });
+        using var model = new DevicePowerPresetSelection(service, false, assignments);
+        await model.RefreshAsync();
+        OverlayWindow window = fixture.Overlay();
+        window.AttachDeviceBridge(device);
+        window.AttachPowerPresets(model);
+        UiFixture.Click(window, UiFixture.Tab(window, 3));
+        UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
+            .Single(card => card.IsEffectivelyVisible && card.Title == "Power"));
+        var dropdowns = window.GetVisualDescendants().OfType<ComboBox>().ToArray();
+        Assert.DoesNotContain(dropdowns, control => Equals(control.Tag, "device.power-preset.choice"));
+        var battery = dropdowns.Single(control => Equals(control.Tag, "device.power-assignment.battery"));
+        await service.MutationGate.WaitAsync();
+        Task refresh = model.RefreshAsync();
+        TaskCompletionSource finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        model.Changed += () => { if (!model.Busy && saves > 0) { finished.TrySetResult(); } };
+        try
+        {
+            Assert.True(battery.IsEnabled);
+            battery.SelectedIndex = 1;
+            Assert.True(model.Busy);
+        }
+        finally { service.MutationGate.Release(); }
+        await Task.WhenAll(refresh, finished.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(1, saves);
+        Assert.Equal("balanced", config.BatteryPowerPreset?.PresetId);
+    }
+
+    private sealed class BalancedModeApi : IPowerModeApi
+    {
+        public Guid Read() => Guid.Empty;
+        public void Set(Guid mode) => throw new InvalidOperationException("Inactive source must not change Windows mode");
+    }
+
     [AvaloniaFact]
     public void KeyboardFocusBringsTheLastSteamRowIntoTheViewport()
     {
