@@ -113,7 +113,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(toggleQuickAccess);
         _toggleQuickAccess = toggleQuickAccess;
         _tdp = new DeviceCoordinatorNativeQamTdpService(deviceCoordinator);
-        _powerPresets = new NativeQamPowerPresetService(deviceCoordinator?.PowerPresets);
+        _powerPresets = new NativeQamPowerPresetService(deviceCoordinator?.PowerPresets, deviceCoordinator?.PowerAssignments);
         _deviceControls = new DeviceCoordinatorNativeQamDeviceControlsService(deviceCoordinator);
         _performanceService = performance;
         _performance = new PerformanceServiceNativeQamAdapter(performance)

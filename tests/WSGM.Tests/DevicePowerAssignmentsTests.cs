@@ -34,6 +34,27 @@ public sealed class DevicePowerAssignmentsTests
     }
 
     [Fact]
+    public async Task QamAssignmentsShareTheDevicePagePolicyAndClearLocalOverrides()
+    {
+        Rig rig = new();
+        rig.Config.AcPowerPreset = null;
+        var assignments = rig.Create();
+        var qam = new NativeQamPowerPresetService(rig.Device.Create(), assignments);
+        Assert.True((await qam.SetAssignmentAsync(false, "balanced", default)).Succeeded);
+        Assert.Equal("balanced", rig.Config.BatteryPowerPreset?.PresetId);
+        Assert.Empty(rig.Device.Calls);
+        var state = (await qam.ReadAsync())!;
+        Assert.Equal("", state.Ac);
+        Assert.Equal("balanced", state.Battery);
+        Assert.DoesNotContain(state.Options, option => option.Id == "custom");
+        Assert.True((await qam.SetAssignmentAsync(true, "extreme", default)).Succeeded);
+        Assert.Equal(2, rig.Device.Calls.Count);
+        Assert.True((await qam.SetAssignmentAsync(true, null, default)).Succeeded);
+        Assert.Null(rig.Config.AcPowerPreset);
+        Assert.False((await qam.SetAssignmentAsync(false, "missing", default)).Succeeded);
+    }
+
+    [Fact]
     public async Task ReplacedPerGameConfigurationCannotSaveIntoTheGlobalFallback()
     {
         Rig rig = new() { Application = "steam:42" };

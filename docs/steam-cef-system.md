@@ -282,13 +282,18 @@ through a memo, two panels are replaced by wrappers. The Performance panel is fo
 identity through `#QuickAccess_Tab_Perf_Common_Settings`,
 `#QuickAccess_Tab_Perf_BatteryTimeRemaining` and `TS.ON_FRAME`; the Quick Settings panel by source
 containing `#QuickAccess_Tab_Settings_Section_Other_Title` and
-`#QuickAccess_ReorderControllers_Button`. The wrappers append a WSGM-owned `PanelSection` after
-Valve's Performance tree and before the Quick Settings tree. Steam's two FPS-counter rows are hidden
-only while WSGM has rows to add. `useMemo` is restored when the last kind is removed.
+`#QuickAccess_ReorderControllers_Button`. The wrappers use titled native `PanelSection` groups after
+Valve's Performance tree. Quick Settings places Display before the native controls, then Charging
+and RGB lighting after them. Performance groups profile scope, power profiles, display/frame rate,
+power limits, controller and reset. Steam's two FPS-counter rows are hidden only while WSGM has rows
+to add. `useMemo` is restored when the last kind is removed. RGB brightness stays visible; Edit
+color reveals the zone and HSV sliders only when needed.
 
 | Kind                 | Row                                                                                      | Placement      |
 | -------------------- | ---------------------------------------------------------------------------------------- | -------------- |
 | `valveProfileHeader` | Valve's "Use profile from" header and the per-game toggle                                | Performance    |
+| `powerPreset`        | AC/battery assignments and read-only active device profile                               | Performance    |
+| `powerProfile`       | Windows power-plan dropdown                                                              | Performance    |
 | `valveOverlayLevel`  | Valve's overlay-level selector                                                           | Performance    |
 | `frameLimit`         | WSGM slider with a "Disable frame limit" switch                                          | Performance    |
 | `vrr`                | WSGM toggle labelled by `#QuickAccess_Tab_Perf_EnableVRR`                                | Performance    |

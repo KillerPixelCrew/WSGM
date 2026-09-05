@@ -49,8 +49,8 @@ pending. The toolkit owns row placement and command validation; WSGM owns Window
 
 ## Device power presets
 
-Steam QAM → Performance offers a Device power profile dropdown when the plugin declares presets. The
-Claw A2VM supplies:
+Steam QAM → Performance offers AC and battery profile assignments when the plugin declares presets.
+The Claw A2VM supplies:
 
 | Preset              | PL1 / PL2 | Windows power mode | EC scenario on AC | EC scenario on battery |
 | ------------------- | --------- | ------------------ | ----------------- | ---------------------- |
@@ -68,16 +68,16 @@ mode is the performance/efficiency overlay on a power plan, separate from the sc
 CPU boost, Intel Endurance Gaming and fan controls remain independent. The exact firmware effects of
 each EC scenario still require attended AC/battery measurements.
 
-Selecting a preset applies immediately. WSGM serializes it with manual power, scenario and AutoTDP
-writes. It selects the firmware scenario first, reads the resulting watt pair, raises PL2 before PL1
-when necessary, and lowers PL1 before PL2. Each device write must report verified success before the
-next step; Windows mode is applied last and read back. Device and descriptor generations and power
-source are checked between steps; an unknown power source blocks scenario presets, and a source
-change stops remaining writes without retry. The manual TDP funnel pauses AutoTDP and records the
-underlying values using their existing owners. Manual selection does not create an automatic
-assignment. Preset scenario commands are not persisted as desired values. The plugin journals the
-exact original scenario and watt pair and restores the scenario first, then the pair, when releasing
-its temporary state.
+Changing the assignment for the active power source applies it immediately. WSGM serializes it with
+manual power, scenario and AutoTDP writes. It selects the firmware scenario first, reads the
+resulting watt pair, raises PL2 before PL1 when necessary, and lowers PL1 before PL2. Each device
+write must report verified success before the next step; Windows mode is applied last and read back.
+Device and descriptor generations and power source are checked between steps; an unknown power
+source blocks scenario presets, and a source change stops remaining writes without retry. The manual
+TDP funnel pauses AutoTDP and records the underlying values using their existing owners. Preset
+scenario commands are not persisted as desired values. The plugin journals the exact original
+scenario and watt pair and restores the scenario first, then the pair, when releasing its temporary
+state.
 
 Both UIs derive the current preset from observed PL1, PL2, firmware scenario for the current power
 source, and effective Windows mode. A mismatch, including an external Windows mode change or a
@@ -94,22 +94,22 @@ and emitted dropdown fixtures; it does not change live power settings or a runni
 
 ## AC and battery assignments
 
-Device → Power provides **When plugged in** and **On battery** profile assignments and a read-only
-active-profile status. There is no separate active-profile selector. Background reads do not block
-assignment selection or overwrite an open dropdown. Global assignments are the defaults; enabling
-the existing per-game profile switch exposes overrides for the running game. An unset per-game value
-inherits its global assignment. References include the plugin ID so changing device packages cannot
-silently apply another package's similarly named preset.
+Device → Power and Steam QAM → Performance provide **When plugged in** and **On battery** profile
+assignments and a read-only active-profile status. There is no separate active-profile selector.
+Background reads do not block assignment selection or overwrite an open dropdown. Global assignments
+are the defaults; enabling the existing per-game profile switch exposes overrides for the running
+game. An unset per-game value inherits its global assignment. References include the plugin ID so
+changing device packages cannot silently apply another package's similarly named preset.
 
 The session applies an assignment once on source, application, assignment or device-cycle changes.
-Every preset checks the selected power source before each device or Windows write, including
-presets without firmware targets. A source change stops the remaining steps. Assignment saves
-reject a replaced performance configuration instead of falling back into a different scope.
-Unknown power sources and unavailable device observations defer application. A failed or uncertain
-write is recorded before dispatch and never retried by polling; explicitly saving an assignment
-permits another attempt. Manual changes remain in place until the next transition. Automatic
-application pauses AutoTDP without overwriting the saved manual watt limit. Windows power-plan
-selection remains independent of these device preset assignments.
+Every preset checks the selected power source before each device or Windows write, including presets
+without firmware targets. A source change stops the remaining steps. Assignment saves reject a
+replaced performance configuration instead of falling back into a different scope. Unknown power
+sources and unavailable device observations defer application. A failed or uncertain write is
+recorded before dispatch and never retried by polling; explicitly saving an assignment permits
+another attempt. Manual changes remain in place until the next transition. Automatic application
+pauses AutoTDP without overwriting the saved manual watt limit. Windows power-plan selection remains
+independent of these device preset assignments.
 
 ## Display profiles
 

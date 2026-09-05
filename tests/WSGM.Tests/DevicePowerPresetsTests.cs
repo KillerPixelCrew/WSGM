@@ -193,17 +193,17 @@ public sealed class DevicePowerPresetsTests
     {
         Rig rig = new();
         var service = rig.Create();
-        var qam = new NativeQamPowerPresetService(service);
+        var qam = new NativeQamPowerPresetService(service, null);
         using var overlay = Selection(service, false);
         await overlay.RefreshAsync();
         Assert.Equal("balanced", overlay.State.Current);
         rig.Views[0] = View(CapabilityRole.PowerSustainedLimit, 16);
         await overlay.RefreshAsync();
         Assert.Equal("custom", overlay.State.Current);
-        Assert.Equal("custom", (await qam.ReadAsync())!.Current);
+        Assert.Equal("Custom", (await qam.ReadAsync())!.Current);
         rig.Views[0] = View(CapabilityRole.PowerSustainedLimit, 17);
         rig.Api.Mode = WindowsPowerModes.Id(DevicePowerMode.BestPerformance);
-        Assert.Equal("custom", (await qam.ReadAsync())!.Current);
+        Assert.Equal("Custom", (await qam.ReadAsync())!.Current);
         Assert.Empty(rig.Calls);
         Assert.Equal(0, rig.Api.Writes);
     }
@@ -289,7 +289,7 @@ public sealed class DevicePowerPresetsTests
         rig.Api.FailRead = true;
         var service = rig.Create();
         Assert.False((await service.ReadAsync()).Available);
-        Assert.False((await new NativeQamPowerPresetService(service).ReadAsync())!.Available);
+        Assert.False((await new NativeQamPowerPresetService(service, null).ReadAsync())!.Available);
         Assert.False((await service.ApplyAsync("battery", default)).Succeeded);
         Assert.Empty(rig.Calls);
     }
@@ -328,7 +328,7 @@ public sealed class DevicePowerPresetsTests
         rig.Views = [];
         await overlay.RefreshAsync();
         Assert.Empty(overlay.State.Presets);
-        Assert.Empty((await new NativeQamPowerPresetService(service).ReadAsync())!.Options);
+        Assert.Empty((await new NativeQamPowerPresetService(service, null).ReadAsync())!.Options);
         await overlay.AssignAsync(true, "battery");
         Assert.Empty(rig.Calls);
     }
