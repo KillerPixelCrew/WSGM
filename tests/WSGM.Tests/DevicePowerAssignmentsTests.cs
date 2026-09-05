@@ -16,8 +16,9 @@ public sealed class DevicePowerAssignmentsTests
         internal bool Enabled = true;
         internal string Plugin = "fixture";
         internal int Saves;
+        internal long Cycle = 1;
         internal DevicePowerAssignments Create() => new(Device.Create(),
-            () => new(Config, Application, Plugin, 1, Enabled, Device.OnAc),
+            () => new(Config, Application, Plugin, Cycle, Enabled, Device.OnAc),
             (context, ac, reference) =>
             {
                 Saves++;
@@ -31,6 +32,83 @@ public sealed class DevicePowerAssignmentsTests
                 else { Config.BatteryPowerPreset = reference; }
                 return Task.CompletedTask;
             });
+    }
+
+    [Theory]
+    [InlineData("application")]
+    [InlineData("plugin")]
+    [InlineData("cycle")]
+    [InlineData("enabled")]
+    [InlineData("source")]
+    public async Task ScopeChangesDuringReadRejectAssignmentBeforeSaving(string change)
+    {
+        Rig rig = new();
+        rig.Device.Api.AfterRead = () =>
+        {
+            switch (change)
+            {
+                case "application": rig.Application = "steam:42"; break;
+                case "plugin": rig.Plugin = "replacement"; break;
+                case "cycle": rig.Cycle++; break;
+                case "enabled": rig.Enabled = false; break;
+                case "source": rig.Device.OnAc = false; break;
+            }
+        };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Create().AssignAsync(true, "balanced", default));
+        Assert.Equal(0, rig.Saves);
+        Assert.Empty(rig.Device.Calls);
+        Assert.Equal("extreme", rig.Config.AcPowerPreset!.PresetId);
+    }
+
+    [Fact]
+    public async Task ScopeFlagDrivesQamInheritanceLabels()
+    {
+        Rig rig = new();
+        var assignments = rig.Create();
+        var qam = new NativeQamPowerPresetService(rig.Device.Create(), assignments);
+        Assert.True(assignments.Snapshot().IsGlobal);
+        Assert.Equal("Manual selection", (await qam.ReadAsync())!.UnsetLabel);
+        rig.Application = "steam:42";
+        rig.Config.Applications.Add(new() { ApplicationId = rig.Application, UsePerGameProfile = true });
+        Assert.False(assignments.Snapshot().IsGlobal);
+        Assert.Equal("Use global assignment", (await qam.ReadAsync())!.UnsetLabel);
+    }
+
+    [Theory]
+    [InlineData(" fixture ", " balanced ", true)]
+    [InlineData(" ", "balanced", false)]
+    [InlineData("fixture", " ", false)]
+    public void SavedIdentifiersAreTrimmedBeforeValidation(string plugin, string preset, bool valid)
+    {
+        AppConfig config = new();
+        config.Performance.AcPowerPreset = new() { PluginId = plugin, PresetId = preset };
+        ConfigStore.Normalize(config);
+        if (!valid) { Assert.Null(config.Performance.AcPowerPreset); return; }
+        Assert.Equal("fixture", config.Performance.AcPowerPreset!.PluginId);
+        Assert.Equal("balanced", config.Performance.AcPowerPreset.PresetId);
+    }
+
+    [Theory]
+    [InlineData(128, 64, true)]
+    [InlineData(129, 64, false)]
+    [InlineData(128, 65, false)]
+    public void AssignmentLengthLimitsApplyAfterTrimming(int pluginLength, int presetLength, bool valid)
+    {
+        AppConfig config = new();
+        config.Performance.Applications.Add(new()
+        {
+            ApplicationId = "steam:42",
+            UsePerGameProfile = true,
+            BatteryPowerPreset = new() { PluginId = " " + new string('p', pluginLength) + " ", PresetId = " " + new string('b', presetLength) + " " },
+        });
+        ConfigStore.Normalize(config);
+        var reference = Assert.Single(config.Performance.Applications).BatteryPowerPreset;
+        Assert.Equal(valid, reference is not null);
+        if (valid)
+        {
+            Assert.Equal(pluginLength, reference!.PluginId.Length);
+            Assert.Equal(presetLength, reference.PresetId.Length);
+        }
     }
 
     [Fact]

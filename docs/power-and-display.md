@@ -103,13 +103,15 @@ changing device packages cannot silently apply another package's similarly named
 
 The session applies an assignment once on source, application, assignment or device-cycle changes.
 Every preset checks the selected power source before each device or Windows write, including presets
-without firmware targets. A source change stops the remaining steps. Assignment saves reject a
-replaced performance configuration instead of falling back into a different scope. Unknown power
-sources and unavailable device observations defer application. A failed or uncertain write is
-recorded before dispatch and never retried by polling; explicitly saving an assignment permits
-another attempt. Manual changes remain in place until the next transition. Automatic application
-pauses AutoTDP without overwriting the saved manual watt limit. Windows power-plan selection remains
-independent of these device preset assignments.
+without firmware targets. A source change stops the remaining steps. Assignment saves reject changes
+to the application, plugin, device cycle, enabled state, power source or performance configuration
+during the read. The coordinator checks the assignment scope again under its transition gate before
+persistence. Saved plugin and preset IDs are trimmed before validation. Unknown power sources and
+unavailable device observations defer application. A failed or uncertain write is recorded before
+dispatch and never retried by polling; explicitly saving an assignment permits another attempt.
+Manual changes remain in place until the next transition. Automatic application pauses AutoTDP
+without overwriting the saved manual watt limit. Windows power-plan selection remains independent of
+these device preset assignments.
 
 ## Display profiles
 

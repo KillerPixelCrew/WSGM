@@ -237,9 +237,10 @@ device-specific power limit consumed by AutoTDP, but it never owns or reimplemen
 
 - [x] **Shared device sections and power-source assignments.** SDK Power, RGB, Controller and Info IDs combine host and plugin controls. Device > Power contains Windows plans, presets and AC/battery assignments, with global defaults and per-game inheritance. Automatic transitions do not retry uncertain writes or overwrite manual watt preferences.
 - [x] **Claw A2VM power presets on Device and QAM Performance.** Plugin-defined Super Battery,
-      Balanced and Extreme Performance apply firmware scenario, PL1/PL2 and Windows power mode
+      Balanced, Extreme Performance and Full Power apply firmware scenario, PL1/PL2 and Windows power mode
       through the shared host. HC's AC mapping is Eco/Green/Sport; battery uses Comfort for all
-      three. Scenario readback and refreshed watt limits precede ordered watt writes. Observed drift
+      four. Full Power uses 37/37 W and Windows Best Performance, with Sport on AC and Comfort on battery.
+      Scenario readback and refreshed watt limits precede ordered watt writes. Observed drift
       displays Custom without reapplying the preset. Safe write order, power-source changes,
       generation changes, partial failures, cancellation, preview and UI synchronization have
       deterministic coverage. The Windows scheme picker stays independent. No live deployment or

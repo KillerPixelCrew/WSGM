@@ -17,7 +17,7 @@ internal sealed class NativeQamPowerPresetService(DevicePowerPresets? presets, D
         return new(state.Available && assignments is not null, options, current,
             string.IsNullOrEmpty(selection?.Status) ? state.Status : selection.Status,
             selection?.AcPreset ?? "", selection?.BatteryPreset ?? "", selection?.Scope ?? "",
-            selection?.Scope.StartsWith("Per-game", System.StringComparison.Ordinal) == true ? "Use global assignment" : "Manual selection");
+            selection?.IsGlobal == false ? "Use global assignment" : "Manual selection");
     }
 
     public async Task<SteamUiCommandResult> SetAssignmentAsync(bool ac, string? option, CancellationToken cancellationToken)

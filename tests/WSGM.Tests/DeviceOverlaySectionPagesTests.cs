@@ -111,7 +111,7 @@ public sealed class DeviceOverlaySectionPagesTests
         };
 
         DeviceOverlaySectionEntry entry = Assert.Single(DeviceOverlaySectionPages.Build(snapshot),
-            entry => entry.PluginSectionId == "controller");
+            candidate => candidate.PluginSectionId == "controller");
 
         // It is WSGM's own control, not a plugin capability, so it never reaches the capability
         // list and has to be counted into its section explicitly. Glyphs is no longer a page of its

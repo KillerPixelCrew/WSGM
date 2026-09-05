@@ -658,10 +658,13 @@ public static class ConfigStore
 
     private static DevicePowerPresetReference? NormalizePowerPreset(DevicePowerPresetReference? reference)
     {
-        if (reference is null || string.IsNullOrWhiteSpace(reference.PluginId)
-            || string.IsNullOrWhiteSpace(reference.PresetId)
-            || reference.PluginId.Length > 128 || reference.PresetId.Length > 64)
+        if (reference is null) { return null; }
+        string pluginId = reference.PluginId?.Trim() ?? string.Empty;
+        string presetId = reference.PresetId?.Trim() ?? string.Empty;
+        if (pluginId.Length is 0 or > 128 || presetId.Length is 0 or > 64)
         { return null; }
+        reference.PluginId = pluginId;
+        reference.PresetId = presetId;
         return reference;
     }
 

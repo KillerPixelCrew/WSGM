@@ -9,7 +9,7 @@ namespace WSGM.Shell;
 internal sealed record DevicePowerAssignmentContext(
     PerformanceConfig Config, string? ApplicationId, string? PluginId, long Cycle, bool Enabled, bool? OnAc);
 
-internal sealed record DevicePowerAssignmentState(string Scope, string? AcPreset, string? BatteryPreset, string Status);
+internal sealed record DevicePowerAssignmentState(string Scope, string? AcPreset, string? BatteryPreset, string Status, bool IsGlobal);
 
 /// <summary>Applies a saved assignment once per source, application, configuration or device-cycle change.</summary>
 internal sealed class DevicePowerAssignments(
@@ -29,7 +29,7 @@ internal sealed class DevicePowerAssignments(
         var battery = application is null ? current.Config.BatteryPowerPreset : application.BatteryPowerPreset;
         return new(application is null ? "Global assignments" : "Per-game assignments (unset values use global)",
             ac is not null && ac.PluginId == current.PluginId ? ac.PresetId : null,
-            battery is not null && battery.PluginId == current.PluginId ? battery.PresetId : null, _status);
+            battery is not null && battery.PluginId == current.PluginId ? battery.PresetId : null, _status, application is null);
     }
 
     internal bool HasCurrentAssignment
@@ -48,8 +48,11 @@ internal sealed class DevicePowerAssignments(
     {
         var current = context();
         var state = await presets.ReadAsync(cancellationToken).ConfigureAwait(false);
-        if (!ReferenceEquals(current.Config, context().Config))
-        { throw new InvalidOperationException("The performance configuration changed before saving the assignment."); }
+        var confirmed = context();
+        if (!ReferenceEquals(current.Config, confirmed.Config) || current.ApplicationId != confirmed.ApplicationId
+            || current.PluginId != confirmed.PluginId || current.Cycle != confirmed.Cycle
+            || current.Enabled != confirmed.Enabled || current.OnAc != confirmed.OnAc)
+        { throw new InvalidOperationException("The application, device, power source or configuration changed before saving the assignment."); }
         if (id is not null && (current.PluginId is null || !state.Presets.Any(preset => preset.Id == id)))
         {
             throw new InvalidOperationException("This device power profile is no longer available.");

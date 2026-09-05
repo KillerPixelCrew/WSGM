@@ -139,7 +139,7 @@ public sealed class DeviceOverlayDirectRowTests
             Recovery: null);
 
         DeviceOverlaySectionEntry entry = Assert.Single(DeviceOverlaySectionPages.Build(snapshot),
-            entry => entry.PluginSectionId == "controller");
+            candidate => candidate.PluginSectionId == "controller");
 
         Assert.Equal(DeviceOverlaySection.ControllerAndMotion, entry.Section);
         Assert.Equal(1, entry.Count);

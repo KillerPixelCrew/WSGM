@@ -88,7 +88,7 @@ public sealed class DevicePowerPresetView : UserControl
             if (assignments is not null)
             {
                 _scope.Text = assignments.Scope;
-                DevicePowerPreset[] choices = [new("", assignments.Scope.StartsWith("Global", System.StringComparison.Ordinal)
+                DevicePowerPreset[] choices = [new("", assignments.IsGlobal
                     ? "Manual selection" : "Use global assignment", 0, 0, DevicePowerMode.Balanced), .. state!.Presets];
                 if (!_ac.IsDropDownOpen && !_battery.IsDropDownOpen && _model?.Busy != true
                     && !_assignmentItems.SequenceEqual(choices))
