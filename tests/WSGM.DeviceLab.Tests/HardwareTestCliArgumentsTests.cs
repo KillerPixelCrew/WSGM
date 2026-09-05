@@ -37,6 +37,7 @@ public sealed class HardwareTestCliArgumentsTests
 
     [Theory]
     [InlineData("haptic", "HapticPulse")]
+    [InlineData("haptic-sweep", "HapticSweep")]
     [InlineData("controller", "ControllerManagement")]
     public void FixedAction_ParsesWithoutCapabilityOptions(
         string actionName,

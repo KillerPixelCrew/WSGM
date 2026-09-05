@@ -1,7 +1,12 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.Loader;
 using System.Xml.Linq;
 using WSGM.Device.Sdk;
+using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Identity;
+using WSGM.Device.Sdk.Plugin;
+using WSGM.Device.Sdk.Testing;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Packaging;
@@ -172,6 +177,56 @@ public sealed class DeviceLabScaffoldingTests
         Assert.True(
             validation.Valid,
             string.Join("; ", validation.Issues.Select(issue => $"{issue.Path}: {issue.Message}")));
+
+        AssemblyLoadContext loader = new("scaffold-command-test", isCollectible: true);
+        try
+        {
+            using FileStream assemblyBytes = File.OpenRead(Path.Combine(buildOutput, $"{result.RootNamespace}.dll"));
+            Assembly assembly = loader.LoadFromStream(assemblyBytes);
+            await using IDevicePlugin plugin = Assert.IsAssignableFrom<IDevicePlugin>(
+                Activator.CreateInstance(assembly.GetType($"{result.RootNamespace}.DevicePlugin", throwOnError: true)!));
+            PluginDetectionResult detection = await plugin.DetectAsync(new PluginDetectionContext
+            {
+                Identity = new DeviceIdentitySnapshot
+                {
+                    SystemManufacturer = result.Identity.SystemManufacturer,
+                    BaseboardProduct = result.Identity.BaseboardProduct,
+                    SystemSku = result.Identity.SystemSku,
+                    BiosVersion = result.Identity.BiosVersion,
+                    UsbEndpoints = [new()
+                    {
+                        VendorId = result.Identity.UsbVendorId,
+                        ProductId = result.Identity.UsbProductId,
+                        DeviceRelease = result.Identity.UsbDeviceRelease,
+                    }],
+                },
+            }, CancellationToken.None);
+            Assert.True(detection.Matched);
+            await plugin.StartAsync(new PluginStartContext
+            {
+                Host = new TestPluginHostAdapter(1),
+                CycleGeneration = 1,
+                DeviceDefinitionId = detection.DeviceDefinitionId!,
+                StateDirectory = temporary.GetPath("test-state"),
+                ControllerManagementEnabled = false,
+            }, CancellationToken.None);
+            CapabilityCommandResult commandResult = await plugin.ExecuteCommandAsync(new CapabilityCommand
+            {
+                CommandId = Guid.NewGuid(),
+                CapabilityId = "example.integration-toggle",
+                RequestedValue = new() { Kind = CapabilityValueKind.Boolean, BooleanValue = true },
+                ExpectedCycleGeneration = 1,
+                ExpectedDescriptorGeneration = 1,
+                Deadline = DateTimeOffset.UtcNow.AddSeconds(2),
+            }, CancellationToken.None);
+
+            Assert.Equal(CommandOutcome.AppliedUnverified, commandResult.Outcome);
+            Assert.Null(commandResult.ReadbackValue);
+        }
+        finally
+        {
+            loader.Unload();
+        }
     }
 
     [Fact]

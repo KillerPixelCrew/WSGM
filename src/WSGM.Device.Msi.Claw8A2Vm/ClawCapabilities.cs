@@ -27,6 +27,10 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
             "Get_Data",
             ClawHardwareFacts.ScenarioAddress,
             cancellationToken).ConfigureAwait(false);
+        if (scenario.Length < 2)
+        {
+            throw new InvalidOperationException("The scenario getter returned a truncated response.");
+        }
         return new PowerPair(ReadInt32(sustained), ReadInt32(boost), scenario[1]);
     }
 
@@ -242,8 +246,14 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
         return _transport.InvokeSetterAsync("Set_Data", package, cancellationToken);
     }
 
-    private static int ReadInt32(byte[] response) =>
-        BinaryPrimitives.ReadInt32LittleEndian(response.AsSpan(1, sizeof(int)));
+    private static int ReadInt32(byte[] response)
+    {
+        if (response.Length < 1 + sizeof(int))
+        {
+            throw new InvalidOperationException("The power getter returned a truncated response.");
+        }
+        return BinaryPrimitives.ReadInt32LittleEndian(response.AsSpan(1, sizeof(int)));
+    }
 
     private static CapabilityCommandResult Verified(CapabilityCommand command, CapabilityValue value) => new()
     {
@@ -421,6 +431,10 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
             "Get_Data",
             ClawHardwareFacts.FanFullSpeedAddress,
             cancellationToken).ConfigureAwait(false);
+        if (custom.Length < 2 || full.Length < 2)
+        {
+            throw new InvalidOperationException("The fan mode getter returned a truncated response.");
+        }
         return new FanSnapshot(left, right, custom[1], full[1]);
     }
 
@@ -430,6 +444,10 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
             .ConfigureAwait(false);
         byte[] temperature = await _transport.InvokeGetterAsync("Get_Temperature", 0, cancellationToken)
             .ConfigureAwait(false);
+        if (fan.Length < 5 || temperature.Length < 2)
+        {
+            throw new InvalidOperationException("The fan telemetry getter returned a truncated response.");
+        }
         return new FanTelemetry(
             DecodeRpm(fan[1], fan[2]),
             DecodeRpm(fan[3], fan[4]),
@@ -441,14 +459,17 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
         string mode,
         CancellationToken cancellationToken)
     {
-        FanSnapshot before = await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
+        if (mode is not ("automatic" or "custom" or "full-speed"))
+        {
+            return Rejected(command, "Unknown fan mode.");
+        }
         (bool custom, bool full) = mode switch
         {
             "automatic" => (false, false),
             "custom" => (true, false),
-            "full-speed" => (false, true),
-            _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+            _ => (false, true),
         };
+        FanSnapshot before = await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
 
         try
         {

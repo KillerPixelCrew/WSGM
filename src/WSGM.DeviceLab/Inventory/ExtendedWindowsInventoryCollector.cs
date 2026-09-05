@@ -1127,14 +1127,19 @@ internal static partial class WindowsInventoryCollector
     private static byte? Byte(ManagementBaseObject source, string property) =>
         byte.TryParse(Text(source, property), CultureInfo.InvariantCulture, out byte value) ? value : null;
 
-    private static string? ExtractExecutablePath(string? command)
+    internal static string? ExtractExecutablePath(string? command)
     {
         if (string.IsNullOrWhiteSpace(command))
         {
             return null;
         }
 
-        string trimmed = Environment.ExpandEnvironmentVariables(command.Trim());
+        string trimmed = Environment.ExpandEnvironmentVariables(command.Trim()).Trim();
+        if (trimmed.Length == 0)
+        {
+            return null;
+        }
+
         if (trimmed[0] == '"')
         {
             int close = trimmed.IndexOf('"', 1);

@@ -590,11 +590,11 @@ internal static class CaptureSchemaValidator
     }
 
     private static void ValidateSha256(
-        string hash,
+        string? hash,
         string path,
         ICollection<CaptureValidationError> errors)
     {
-        if (hash.Length != 64 || hash.Any(c => c is not (>= '0' and <= '9') and not (>= 'a' and <= 'f')))
+        if (hash is null || hash.Length != 64 || hash.Any(c => c is not (>= '0' and <= '9') and not (>= 'a' and <= 'f')))
         {
             errors.Add(new(path, "SHA-256 must be 64 lowercase hexadecimal characters."));
         }

@@ -29,6 +29,11 @@ It is also **the reference implementation of the
 plugin to read, and copy from, when writing one for another handheld. That is why it is MIT: a
 reference nobody may copy is not a reference.
 
+Motion shutdown waits up to two seconds and honors caller cancellation. If a worker is still
+running, the session keeps its sensor until both workers finish and refuses another start. Cleanup
+failures remain visible. Truncated power/fan responses fail before decoding; unknown fan modes are
+rejected before transport access. These paths are covered with fakes, without a new hardware pass.
+
 ## What a plugin actually does
 
 WSGM owns the session and the UI; the plugin owns the hardware. It publishes _semantic capabilities_

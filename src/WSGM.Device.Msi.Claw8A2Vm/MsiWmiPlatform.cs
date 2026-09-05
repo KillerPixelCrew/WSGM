@@ -181,8 +181,9 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
         using ManagementObjectSearcher searcher = new(
             "root\\WMI",
             "SELECT * FROM MSI_ACPI WHERE Active = TRUE");
+        using ManagementObjectCollection candidates = searcher.Get();
         ManagementObject? found = null;
-        foreach (ManagementBaseObject candidate in searcher.Get())
+        foreach (ManagementBaseObject candidate in candidates)
         {
             if (found is not null)
             {
@@ -319,13 +320,27 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
             && IsControllerProduct(endpoint.ProductId)
             && string.Equals(endpoint.DeviceRelease, ClawHardwareFacts.McuFirmware, StringComparison.OrdinalIgnoreCase));
 
+        bool onAcPower;
+        try
+        {
+            onAcPower = await Task.Run(_readOnAcPower, CancellationToken.None)
+                .WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is ManagementException or IOException
+            or InvalidDataException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException
+            || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
+        {
+            PluginTrace.Failure("power", "AC-power observation failed", ex);
+            onAcPower = false;
+        }
+
         return new ClawIdentityState
         {
             Snapshot = snapshot,
             ExactMachineMatch = true,
             WmiFirmwareVerified = wmiFirmwareVerified,
             McuFirmwareVerified = mcuFirmwareVerified,
-            OnAcPower = _readOnAcPower(),
+            OnAcPower = onAcPower,
         };
     }
 
@@ -365,7 +380,8 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
         using ManagementObjectSearcher searcher = new(
             "root\\CIMV2",
             "SELECT DeviceID, HardwareID FROM Win32_PnPEntity WHERE DeviceID LIKE 'USB\\\\VID_0DB0&PID_19%' ");
-        foreach (ManagementObject item in searcher.Get().Cast<ManagementObject>())
+        using ManagementObjectCollection candidates = searcher.Get();
+        foreach (ManagementObject item in candidates.Cast<ManagementObject>())
         {
             using (item)
             {
@@ -395,34 +411,19 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
     private static ManagementObject QuerySingle(string scope, string query)
     {
         using ManagementObjectSearcher searcher = new(scope, query);
-        return searcher.Get().Cast<ManagementObject>().FirstOrDefault()
+        using ManagementObjectCollection candidates = searcher.Get();
+        return candidates.Cast<ManagementObject>().FirstOrDefault()
             ?? throw new FileNotFoundException($"Inventory query returned no rows: {query}");
     }
 
     private static bool ReadOnAcPower()
     {
-        try
-        {
-            using ManagementObjectSearcher searcher = new(
-                "root\\WMI",
-                "SELECT PowerOnline FROM BatteryStatus");
-            ManagementObject? battery = searcher.Get().Cast<ManagementObject>().FirstOrDefault();
-            if (battery is null)
-            {
-                return true;
-            }
-
-            using (battery)
-            {
-                return Convert.ToBoolean(battery["PowerOnline"], CultureInfo.InvariantCulture);
-            }
-        }
-        catch (ManagementException)
-        {
-            // The descriptor permits both AC and DC. Failure to observe the source does not widen a
-            // range or authorize a write that would otherwise be forbidden.
-            return false;
-        }
+        using ManagementObjectSearcher searcher = new(
+            "root\\WMI",
+            "SELECT PowerOnline FROM BatteryStatus");
+        using ManagementObjectCollection candidates = searcher.Get();
+        using ManagementObject? battery = candidates.Cast<ManagementObject>().FirstOrDefault();
+        return battery is null || Convert.ToBoolean(battery["PowerOnline"], CultureInfo.InvariantCulture);
     }
 
     private static string? Normalize(object? value)

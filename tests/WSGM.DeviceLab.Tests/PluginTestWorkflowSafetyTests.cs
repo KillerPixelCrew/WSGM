@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using WSGM.Device.Sdk;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Identity;
@@ -15,6 +16,22 @@ namespace WSGM.Device.Tests;
 
 public sealed class PluginTestWorkflowSafetyTests
 {
+    private static string WorkerExecutablePath()
+    {
+        string repositoryRoot = Assert.IsType<string>(
+            DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory));
+        return Path.Combine(
+            repositoryRoot,
+            "src",
+            "WSGM.DeviceLab",
+            "bin",
+            typeof(PluginTestWorkflowSafetyTests).Assembly
+                .GetCustomAttributes<System.Reflection.AssemblyConfigurationAttribute>().Single().Configuration,
+            "net10.0-windows",
+            "win-x64",
+            "wsgm-device.exe");
+    }
+
     [Fact]
     public async Task Detection_RunsThroughTheAuthorizedDisposableWorker()
     {
@@ -24,17 +41,7 @@ public sealed class PluginTestWorkflowSafetyTests
             OwnerReservationLifetimePlugin.Id,
             typeof(OwnerReservationLifetimePlugin).FullName!);
 
-        string repositoryRoot = Assert.IsType<string>(
-            DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory));
-        string executablePath = Path.Combine(
-            repositoryRoot,
-            "src",
-            "WSGM.DeviceLab",
-            "bin",
-            "Release",
-            "net10.0-windows",
-            "win-x64",
-            "wsgm-device.exe");
+        string executablePath = WorkerExecutablePath();
         PluginTestReport report = await PluginTestWorkerSupervisor.TestDetectionAsync(
             package,
             new DeviceIdentitySnapshot(),
@@ -54,17 +61,7 @@ public sealed class PluginTestWorkflowSafetyTests
             temporary,
             HangingDetectionPlugin.Id,
             typeof(HangingDetectionPlugin).FullName!);
-        string repositoryRoot = Assert.IsType<string>(
-            DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory));
-        string executablePath = Path.Combine(
-            repositoryRoot,
-            "src",
-            "WSGM.DeviceLab",
-            "bin",
-            "Release",
-            "net10.0-windows",
-            "win-x64",
-            "wsgm-device.exe");
+        string executablePath = WorkerExecutablePath();
         Stopwatch elapsed = Stopwatch.StartNew();
         string descendantMarker = Path.Combine(package, HangingDetectionPlugin.DescendantMarker);
 

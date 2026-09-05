@@ -54,6 +54,7 @@ public enum OemControlPlacement
 }
 
 /// <summary>Which press duration an assignment applies to.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<OemPressKind>))]
 public enum OemPressKind
 {
     /// <summary>A short press.</summary>

@@ -18,7 +18,8 @@ project references the exact SDK used by Device Lab: a source project when scaff
 WSGM checkout, or the shipped SDK assembly otherwise. Keep that explicit reference valid if the
 scaffold is moved to another machine. The checked-in `example.*` implementation is hardware-free
 teaching code. It is safe for local detection/lifecycle tests, but replace it with verified device
-behavior before installation.
+behavior before installation. The demo toggle reports `AppliedUnverified`, leaves readback absent,
+and publishes unknown state quality because an in-memory assignment proves nothing about hardware.
 
 This plugin is your own work and you choose its licence. It links `WSGM.Device.Sdk`, which is MIT,
 so nothing here obliges you to any particular one — a closed-source vendor plugin is fine. The

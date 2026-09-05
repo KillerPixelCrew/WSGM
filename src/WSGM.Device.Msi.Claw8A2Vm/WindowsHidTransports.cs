@@ -16,7 +16,7 @@ namespace WSGM.Device.Msi.Claw8A2Vm;
 internal sealed class WindowsClawMcuTransport : IClawMcuTransport
 {
     private readonly SemaphoreSlim _serializer = new(1, 1);
-    private bool _disposed;
+    private volatile bool _disposed;
 
     public ValueTask<bool> IsAvailableAsync(CancellationToken cancellationToken)
     {
@@ -40,6 +40,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         await _serializer.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             using HidEndpoint endpoint = HidEndpointEnumerator.FindMcu()
                 ?? throw new FileNotFoundException("The exact A2VM MCU HID collection was not present.");
             await using FileStream stream = endpoint.OpenReadWrite();
@@ -85,6 +86,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         await _serializer.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             using HidEndpoint endpoint = HidEndpointEnumerator.FindMcu()
                 ?? throw new FileNotFoundException("The exact A2VM MCU HID collection was not present.");
             await using FileStream stream = endpoint.OpenReadWrite();
@@ -124,6 +126,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         await _serializer.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             using (HidEndpoint endpoint = HidEndpointEnumerator.FindMcu()
                 ?? throw new FileNotFoundException("The exact A2VM MCU HID collection was not present."))
             {
@@ -172,7 +175,8 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
     public ValueTask DisposeAsync()
     {
         _disposed = true;
-        _serializer.Dispose();
+        // An in-flight operation still owns Release, and waiters must resume to observe disposal.
+        // No wait handle is created, so the managed semaphore can be left to the GC.
         return ValueTask.CompletedTask;
     }
 

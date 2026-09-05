@@ -99,6 +99,10 @@ internal static class ReadProbeExecutor
         {
             return Response(ReadProbeWorkerStatus.Disconnected, samples, exception.Message);
         }
+        catch (InvalidDataException exception)
+        {
+            return Response(ReadProbeWorkerStatus.Rejected, samples, exception.Message);
+        }
         catch (ManagementException exception)
         {
             ReadProbeWorkerStatus status = exception.ErrorCode switch

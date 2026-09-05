@@ -8,6 +8,13 @@ only a real machine can answer.
 
 A GUI and a CLI over the same code — `wsgm-device` is the executable.
 
+Capture exports use one redaction token map across inventory, recipe, and streams. If redaction
+merges source identifiers, export stops with an error before creating a bundle or preview. Imported
+markers require named kinds, and explicit restart/resume segments retain their reason even when a
+receipt arrives late. Malformed read-probe data returns a rejection with any earlier samples;
+declared numeric bounds require an in-range numeric value, including for version responses.
+Cancelled inventory writes report the leftover temporary path if cleanup fails.
+
 ## Why it is a separate tool
 
 Writing a device plugin means answering questions about a specific machine that no documentation
@@ -38,7 +45,7 @@ wsgm-device scaffold --from capture.wsgmcap --out-dir my-plugin `
 # 4. Prove it, offline first.
 wsgm-device validate my-plugin
 wsgm-device test sample
-wsgm-device test plugin my-plugin --from inventory.json
+wsgm-device test plugin my-plugin --from inventory/inventory.json
 
 # 5. Ship it.
 wsgm-device pack my-plugin --out plugin.wsgmpkg

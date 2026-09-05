@@ -358,8 +358,8 @@ public interface IDevicePlugin
 ```
 
 - A **default interface member**, so every existing plugin keeps compiling and behaving; the
-  additive change fits inside API version 2 the same way `HapticCapabilities.MinimumStartIntensity`
-  did. Bumping to 3 is the SDK owner's call.
+  proposal targets the current SDK API level 3. Whether it needs a new API level must be decided
+  when the extension is implemented and its host behavior is reviewed.
 - A **type-level declaration, not a publication**: it must be known _before_
   `EnsureHidHideReadableAsync`, which runs before `StartAsync`, and it never changes during a cycle.
   The manifest is the wrong place (it is deliberately six fields and carries no capability facts); a

@@ -49,14 +49,15 @@ session.
 
 ## Project ownership
 
-| Concern                                            | Repository/path                   |
-| -------------------------------------------------- | --------------------------------- |
-| Semantic device-plugin contract                    | `src/WSGM.Device.Sdk`             |
-| Hardware authoring/evidence tool                   | `src/WSGM.DeviceLab`              |
-| MSI Claw device behavior                           | `src/WSGM.Device.Msi.Claw8A2Vm`   |
-| Reusable Steam CEF transport/patch/surfaces        | `external/steam-ui-toolkit`       |
-| Reusable Windows radio/audio/brightness primitives | `external/windows-device-control` |
-| Native Steam Input shim/lease                      | `native/SteamInput`               |
+| Concern                                            | Repository/path                     |
+| -------------------------------------------------- | ----------------------------------- |
+| Semantic device-plugin contract                    | `src/WSGM.Device.Sdk`               |
+| Hardware authoring/evidence tool                   | `src/WSGM.DeviceLab`                |
+| Handheld Companion scaffold (unfinished)           | `src/WSGM.Device.HandheldCompanion` |
+| MSI Claw device behavior                           | `src/WSGM.Device.Msi.Claw8A2Vm`     |
+| Reusable Steam CEF transport/patch/surfaces        | `external/steam-ui-toolkit`         |
+| Reusable Windows radio/audio/brightness primitives | `external/windows-device-control`   |
+| Native Steam Input shim/lease                      | `native/SteamInput`                 |
 
 WSGM owns policy, orchestration, session state, and adapters. Device projects share this repository
 and one SDK project reference. Keep them separate assemblies. Only the reusable libraries and Steam

@@ -3,10 +3,56 @@ using System.Text;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Inventory;
 
-namespace WSGM.Tests;
+namespace WSGM.Device.Tests;
 
 public sealed class CaptureBundleReaderTests
 {
+    [Fact]
+    public void NullBlobHashReturnsAStructuredSchemaFailure()
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes("blob");
+        CaptureBlobDescriptor descriptor = new()
+        {
+            BlobId = "blob-1",
+            Path = "blobs/blob-1.bin",
+            MediaType = "application/octet-stream",
+            Length = bytes.Length,
+            Sha256 = CaptureHashFile.Hash(bytes),
+        };
+        SanitizedCaptureBundle original = Bundle();
+        using MemoryStream valid = new();
+        CaptureBundleWriter.Write(valid, original with
+        {
+            Manifest = original.Manifest with { Blobs = [descriptor] },
+            Blobs = [new CaptureBlobFile { Descriptor = descriptor, Bytes = bytes }],
+        });
+        valid.Position = 0;
+        List<(string Path, string Content)> entries = [];
+        using (ZipArchive archive = new(valid, ZipArchiveMode.Read, leaveOpen: true))
+        {
+            foreach (ZipArchiveEntry entry in archive.Entries.Where(entry => entry.FullName != CaptureBundleLayout.HashesPath))
+            {
+                using StreamReader reader = new(entry.Open(), Encoding.UTF8);
+                string content = reader.ReadToEnd();
+                if (entry.FullName == CaptureBundleLayout.ManifestPath)
+                {
+                    content = content.Replace($"\"{descriptor.Sha256}\"", "null", StringComparison.Ordinal);
+                }
+                entries.Add((entry.FullName, content));
+            }
+        }
+        string hashes = string.Join('\n', entries.Select(entry =>
+            $"{CaptureHashFile.Hash(Encoding.UTF8.GetBytes(entry.Content))}  {entry.Path}")) + "\n";
+        entries.Add((CaptureBundleLayout.HashesPath, hashes));
+        using MemoryStream malformed = Archive(entries);
+
+        Assert.Equal(CaptureBundleReadFailure.MalformedContent, CaptureBundleReader.Read(malformed).Failure);
+        Assert.Contains(CaptureSchemaValidator.Validate(original.Manifest with
+        {
+            Blobs = [descriptor with { Sha256 = null! }],
+        }), error => error.Message.Contains("SHA-256", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void WriterOutputRoundTripsThroughTheBoundedReader()
     {

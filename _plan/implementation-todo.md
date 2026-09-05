@@ -62,6 +62,10 @@ packaging or public-contract boundary.
 Each line is closed in source, focused tests, diagnostics and documentation. The doc named beside it
 holds the mechanism; the commit that closed it holds the reasoning.
 
+- **Device import review fixes, 2026-09-05.** Corrected HC API metadata, bounded Claw shutdown and
+  malformed-response handling, shared capture redaction and rejection paths, and honest scaffold
+  command results. Focused SDK, Device Lab, Claw, and HC tests cover the follow-up; this is software
+  validation with no new attended hardware claim.
 - **Device projects consolidated, 2026-09-05.** SDK, Device Lab, the Claw plugin, and the HC design
   scaffold now live under `src` and `tests` in WSGM, with one SDK project in `WSGM.slnx` and one PR
   for contract and consumer changes. MIT licenses, dynamic plugin loading, optional Device Lab

@@ -171,7 +171,11 @@ internal static class DeviceLabInventoryWorkflow
         }
         catch (OperationCanceledException)
         {
-            _ = TryDeleteTemporaryFile(tempPath);
+            DeviceLabInventoryResult? cleanupFailure = CleanupCancelledWrite(tempPath);
+            if (cleanupFailure is not null)
+            {
+                return cleanupFailure;
+            }
             throw;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
@@ -192,6 +196,13 @@ internal static class DeviceLabInventoryWorkflow
             OutputPath = outputPath,
             Redactions = redactions,
         };
+    }
+
+    internal static DeviceLabInventoryResult? CleanupCancelledWrite(string tempPath)
+    {
+        string? cleanupError = TryDeleteTemporaryFile(tempPath);
+        return cleanupError is null ? null : Failure(DeviceLabInventoryStatus.WriteFailed,
+            $"Cancelled; temporary cleanup failed for {tempPath}: {cleanupError}");
     }
 
     private static string? TryDeleteTemporaryFile(string path)

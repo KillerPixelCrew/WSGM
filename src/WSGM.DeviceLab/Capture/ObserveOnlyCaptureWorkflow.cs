@@ -130,6 +130,33 @@ internal sealed record CaptureExportResult
 /// </remarks>
 internal static class ObserveOnlyCaptureWorkflow
 {
+    internal static IReadOnlyList<CaptureStreamFile> RedactStreams(
+        IReadOnlyList<CaptureStreamFile> streams,
+        CaptureRedactor redactor)
+    {
+        HashSet<string> sourceIds = new(StringComparer.Ordinal);
+        List<CaptureStreamFile> shareable = [];
+        foreach (CaptureStreamFile stream in streams)
+        {
+            string sourceId = redactor.Redact(stream.SourceId);
+            if (!sourceIds.Add(sourceId))
+            {
+                throw new InvalidDataException(
+                    "Redaction produced duplicate capture source identifiers; the capture cannot be exported.");
+            }
+            shareable.Add(new CaptureStreamFile
+            {
+                SourceId = sourceId,
+                Events = [.. stream.Events.Select(captureEvent => captureEvent with
+                {
+                    SourceId = redactor.Redact(captureEvent.SourceId),
+                    RecipeStepId = redactor.Redact(captureEvent.RecipeStepId),
+                })],
+            });
+        }
+        return shareable;
+    }
+
     private const int MaximumRecipeBytes = 2 * 1024 * 1024;
 
     /// <summary>Reads and validates one inert recipe for operator scope review.</summary>
@@ -250,10 +277,8 @@ internal static class ObserveOnlyCaptureWorkflow
                 SourceId = group.Key,
                 Events = [.. group.OrderBy(captureEvent => captureEvent.SourceSequence)],
             })];
-        MachineInventory shareableInventory = InventoryRedaction.ToShareable(
-            privateInventory,
-            out IReadOnlyList<RedactionSummary> inventoryReplacements);
         CaptureRedactor recipeRedactor = new();
+        MachineInventory shareableInventory = InventoryRedaction.ToShareable(privateInventory, recipeRedactor);
         ObserveOnlyRecipe shareableRecipe = recipe with
         {
             RecipeId = recipeRedactor.Redact(recipe.RecipeId),
@@ -267,18 +292,16 @@ internal static class ObserveOnlyCaptureWorkflow
                     : recipeRedactor.Redact(step.OperatorPrompt),
             })],
         };
-        IReadOnlyList<CaptureStreamFile> shareableStreams = [.. streams.Select(stream => new CaptureStreamFile
+        IReadOnlyList<CaptureStreamFile> shareableStreams;
+        try
         {
-            SourceId = recipeRedactor.Redact(stream.SourceId),
-            Events = [.. stream.Events.Select(captureEvent => captureEvent with
-            {
-                SourceId = recipeRedactor.Redact(captureEvent.SourceId),
-                RecipeStepId = recipeRedactor.Redact(captureEvent.RecipeStepId),
-            })],
-        })];
-        IReadOnlyList<RedactionSummary> replacements = MergeRedactions(
-            inventoryReplacements,
-            recipeRedactor.Summarize());
+            shareableStreams = RedactStreams(streams, recipeRedactor);
+        }
+        catch (InvalidDataException exception)
+        {
+            return Failure(ObserveOnlyCaptureStatus.CaptureFailed, exception.Message);
+        }
+        IReadOnlyList<RedactionSummary> replacements = recipeRedactor.Summarize();
         CaptureRedactionManifest redaction = new()
         {
             SchemaVersion = CaptureSchema.CurrentVersion,
@@ -484,14 +507,6 @@ internal static class ObserveOnlyCaptureWorkflow
             Redaction = redaction,
         };
     }
-
-    private static IReadOnlyList<RedactionSummary> MergeRedactions(
-        IReadOnlyList<RedactionSummary> left,
-        IReadOnlyList<RedactionSummary> right) => [.. left
-        .Concat(right)
-        .GroupBy(summary => summary.Category)
-        .OrderBy(group => group.Key)
-        .Select(group => new RedactionSummary(group.Key, group.Sum(summary => summary.Occurrences)))];
 
     private static void PersistPrivateSession(
         string directory,

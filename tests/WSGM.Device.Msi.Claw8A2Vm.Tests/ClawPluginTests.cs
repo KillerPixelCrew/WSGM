@@ -1237,6 +1237,11 @@ internal sealed class FakeWmiTransport : IMsiWmiTransport
 
     public List<(string Method, byte[] Package)> Writes { get; } = [];
 
+    public int Reads { get; private set; }
+
+    public void SetResponse(string method, byte selector, byte[] response) =>
+        _responses[(method, selector)] = response;
+
     public bool FailNextSetter { get; set; }
 
     public Action<string, byte[]>? AfterSetter { get; set; }
@@ -1264,6 +1269,7 @@ internal sealed class FakeWmiTransport : IMsiWmiTransport
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        Reads++;
         return ValueTask.FromResult((byte[])[.. _responses[(methodName, selector)]]);
     }
 

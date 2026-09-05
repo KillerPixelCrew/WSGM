@@ -3,7 +3,8 @@
     Assembles the device package, validates it offline, and packs the distributable archive.
 
 .DESCRIPTION
-    This produces the exact bytes a release ships. The order matters: the package is assembled
+    Reserved for the unfinished HC scaffold, which is excluded from installer staging. Once the
+    plugin is implemented, the package is assembled
     first, then validated by the Device Lab from this WSGM checkout, then packed from the validated
     tree. Validating after packing would prove nothing about what was packed.
 

@@ -141,7 +141,8 @@ internal static class ReadProbeResponseValidator
                 return Reject("response.timing", "A response exceeded the whole-probe deadline.");
             }
 
-            if (expected.ValueKind is ReadProbeValueKind.Integer
+            if ((expected.ValueKind is ReadProbeValueKind.Integer
+                || expected.MinimumValue is not null || expected.MaximumValue is not null)
                 && (sample.NumericValue is null
                     || expected.MinimumValue is { } minimum && sample.NumericValue.Value < minimum
                     || expected.MaximumValue is { } maximum && sample.NumericValue.Value > maximum))

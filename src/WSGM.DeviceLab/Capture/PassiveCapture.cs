@@ -129,7 +129,7 @@ internal sealed class PassiveCaptureTimeline
                 discontinuity = EventDiscontinuity.DeviceGenerationChanged;
                 explicitSegment = true;
             }
-            else if (qpc < _maximumQpc)
+            else if (!explicitSegment && qpc < _maximumQpc)
             {
                 discontinuity = EventDiscontinuity.LateArrival;
             }
@@ -400,6 +400,8 @@ internal static class GuidedOperatorMarkers
         if (parts.Length != 4
             || parts[0] != "v1"
             || !Enum.TryParse(parts[1], ignoreCase: false, out kind)
+            || !Enum.IsDefined(kind)
+            || !string.Equals(parts[1], kind.ToString(), StringComparison.Ordinal)
             || parts[2].Length == 0
             || parts[3].Length == 0)
         {

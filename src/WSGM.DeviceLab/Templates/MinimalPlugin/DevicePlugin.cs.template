@@ -172,15 +172,14 @@ public sealed class DevicePlugin : IDevicePlugin
         }
 
         // Replace this in-memory assignment with identity/range revalidation, a serialized hardware
-        // write, and independent readback. Keep publishing only the verified semantic result.
+        // write, and independent readback before reporting a verified semantic result.
         _exampleValue = command.RequestedValue.BooleanValue.Value;
         await _host!.PublishCapabilityStateAsync(ExampleState(_exampleValue), cancellationToken)
             .ConfigureAwait(false);
         return new CapabilityCommandResult
         {
             CommandId = command.CommandId,
-            Outcome = CommandOutcome.AppliedVerified,
-            ReadbackValue = command.RequestedValue,
+            Outcome = CommandOutcome.AppliedUnverified,
             CompletedAt = DateTimeOffset.UtcNow,
         };
     }
@@ -307,7 +306,7 @@ public sealed class DevicePlugin : IDevicePlugin
             Kind = CapabilityValueKind.Boolean,
             BooleanValue = value,
         },
-        Quality = HardwareStateQuality.Verified,
+        Quality = HardwareStateQuality.Unknown,
         ObservedAt = DateTimeOffset.UtcNow,
         DescriptorGeneration = 1,
         CycleGeneration = _cycleGeneration,

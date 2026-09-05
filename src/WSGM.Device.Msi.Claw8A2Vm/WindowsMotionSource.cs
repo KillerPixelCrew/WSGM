@@ -11,11 +11,19 @@ namespace WSGM.Device.Msi.Claw8A2Vm;
 internal sealed class WindowsClawMotionSource : IClawMotionSource
 {
     private readonly object _gate = new();
-    private LegacyPhysicalMotionSensors? _sensors;
-    private Channel<MotionSample>? _samples;
-    private CancellationTokenSource? _cancellation;
-    private Task? _producer;
-    private Task? _pump;
+    private readonly Func<Func<MotionSample, ValueTask>, MotionWorkerSession?> _open;
+    private readonly TimeSpan _stopTimeout;
+    private MotionWorkerSession? _session;
+    private Task? _stopTask;
+    private bool _disposed;
+
+    internal WindowsClawMotionSource(
+        Func<Func<MotionSample, ValueTask>, MotionWorkerSession?>? open = null,
+        TimeSpan? stopTimeout = null)
+    {
+        _open = open ?? OpenSession;
+        _stopTimeout = stopTimeout ?? TimeSpan.FromSeconds(2);
+    }
 
     /// <summary>
     /// Poll faster than the physical sensor's 10 ms minimum report interval so scheduler jitter
@@ -43,94 +51,68 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
         cancellationToken.ThrowIfCancellationRequested();
         lock (_gate)
         {
-            if (_sensors is not null)
-            {
-                return ValueTask.FromResult(true);
-            }
-
-            LegacyPhysicalMotionSensors? sensors = LegacyPhysicalMotionSensors.TryOpen();
-            if (sensors is null)
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_stopTask is { IsCompletedSuccessfully: false })
             {
                 return ValueTask.FromResult(false);
             }
-
-            Channel<MotionSample> samples = Channel.CreateBounded<MotionSample>(new BoundedChannelOptions(8)
+            if (_stopTask is not null)
             {
-                FullMode = BoundedChannelFullMode.DropOldest,
-                SingleReader = true,
-                SingleWriter = true,
-            });
-            CancellationTokenSource sourceCancellation = new();
-            _sensors = sensors;
-            _samples = samples;
-            _cancellation = sourceCancellation;
-            _producer = Task.Run(
-                () => ProduceAsync(sensors, samples.Writer, sourceCancellation.Token),
-                CancellationToken.None);
-            _pump = PumpAsync(samples.Reader, publish, sourceCancellation.Token);
-            return ValueTask.FromResult(true);
+                _session = null;
+                _stopTask = null;
+            }
+            _session ??= _open(publish);
+            return ValueTask.FromResult(_session is not null);
         }
     }
 
     public async ValueTask StopAsync(CancellationToken cancellationToken)
     {
-        LegacyPhysicalMotionSensors? sensors;
-        CancellationTokenSource? sourceCancellation;
-        Task? producer;
-        Task? pump;
+        Task stopTask;
         lock (_gate)
         {
-            if (_sensors is null)
+            if (_session is null)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 return;
             }
-
-            sensors = _sensors;
-            sourceCancellation = _cancellation;
-            producer = _producer;
-            pump = _pump;
-            _sensors = null;
-            sourceCancellation?.Cancel();
+            // Keep ownership until both workers and disposal finish, even if this wait expires.
+            _stopTask ??= Task.Run(_session.DrainAsync, CancellationToken.None);
+            stopTask = _stopTask;
         }
 
-        try
-        {
-            if (producer is not null)
-            {
-                await producer.ConfigureAwait(false);
-            }
-
-            if (pump is not null)
-            {
-                await pump.ConfigureAwait(false);
-            }
-        }
-        catch (OperationCanceledException) when (sourceCancellation?.IsCancellationRequested == true)
-        {
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            PluginTrace.Failure("motion", "Physical IMU teardown observed a failed worker", ex);
-        }
-        finally
-        {
-            sensors.Dispose();
-            sourceCancellation?.Dispose();
-        }
-
-        lock (_gate)
-        {
-            _samples = null;
-            _cancellation = null;
-            _producer = null;
-            _pump = null;
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
+        await stopTask.WaitAsync(_stopTimeout, cancellationToken).ConfigureAwait(false);
     }
 
-    public async ValueTask DisposeAsync() =>
+    public async ValueTask DisposeAsync()
+    {
+        lock (_gate)
+        {
+            _disposed = true;
+        }
         await StopAsync(CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private static MotionWorkerSession? OpenSession(Func<MotionSample, ValueTask> publish)
+    {
+        LegacyPhysicalMotionSensors? sensors = LegacyPhysicalMotionSensors.TryOpen();
+        if (sensors is null)
+        {
+            return null;
+        }
+
+        Channel<MotionSample> samples = Channel.CreateBounded<MotionSample>(new BoundedChannelOptions(8)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = true,
+        });
+        CancellationTokenSource cancellation = new();
+        Task producer = Task.Run(
+            () => ProduceAsync(sensors, samples.Writer, cancellation.Token), CancellationToken.None);
+        Task pump = PumpAsync(samples.Reader, publish, cancellation.Token);
+        return new MotionWorkerSession(sensors, cancellation, producer, pump);
+    }
 
     /// <summary>Builds one canonical sample from physical LSM6DSO sensor-space vectors.</summary>
     /// <remarks>

@@ -461,23 +461,6 @@ internal static class PluginTestWorkflow
         return deadline;
     }
 
-    private static bool IsElevated()
-    {
-        using System.Security.Principal.WindowsIdentity identity =
-            System.Security.Principal.WindowsIdentity.GetCurrent();
-        return new System.Security.Principal.WindowsPrincipal(identity).IsInRole(
-            System.Security.Principal.WindowsBuiltInRole.Administrator);
-    }
-
-    private static bool IsContinuousIntegration() =>
-        IsTruthy(Environment.GetEnvironmentVariable("CI"))
-        || IsTruthy(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"));
-
-    private static bool IsTruthy(string? value) =>
-        string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
-
     private static PluginTestReport Failed(
         PluginTestMode mode,
         string? packageId,

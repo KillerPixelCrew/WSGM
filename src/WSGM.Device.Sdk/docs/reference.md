@@ -546,10 +546,10 @@ placement.
 | `RequiresControllerAcquisition` | Whether the control disappears when controller management is off. Declared, not inferred: on the reference handheld the rear paddles are visible only in the acquisition mode the plugin selects, while the front buttons arrive over a separate vendor channel. |
 
 `OemControlEvent(ControlId, OemPressKind Press, long SourceGeneration, DateTimeOffset Timestamp, string DeduplicationId, OemControlEdge Edge = Pressed)`.
-`OemPressKind` is `Short` or `Long`; `OemControlEdge` is `Pressed` or `Released`. The deduplication
-id must be equal across every source reporting the same physical press: a vendor event channel and a
-raw-input path can both see it, and without a shared id one press would toggle the QAM open and
-closed.
+`OemPressKind` is `Short` or `Long`. JSON writes those names and still accepts the legacy numeric
+values 0 and 1; `OemControlEdge` is `Pressed` or `Released`. The deduplication id must be equal
+across every source reporting the same physical press: a vendor event channel and a raw-input path
+can both see it, and without a shared id one press would toggle the QAM open and closed.
 
 ### `PhysicalDeviceIdentity`
 
@@ -854,6 +854,9 @@ an automatic retry. No plugin gets Windows handles or UI responsibilities throug
 
 The optional preset metadata was added within API 3 with an empty default; no existing descriptor
 changes meaning.
+
+During consolidation, `OemPressKind` gained the same JSON string converter as the other OEM enums.
+It writes `Short`/`Long` and preserves numeric reads and the existing enum ordinals within API 3.
 
 ## Version history
 

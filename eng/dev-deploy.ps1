@@ -166,8 +166,8 @@ foreach ($pattern in 'WSGM.Launch.exe', '*.dll') {
 if (-not $SkipPlugin) {
     # The installed device plugin is a separate package under Program Files that the WSGM bin swap
     # never touches, so a dev loop that changes the SDK leaves a stale plugin the running host
-    # rejects as api-incompatible (device features silently gone). Rebuild it from the pinned
-    # submodules exactly as the installer does, then swap the validated tree into the protected
+    # rejects as api-incompatible (device features silently gone). Rebuild it from the device
+    # projects in this checkout exactly as the installer does, then swap the validated tree into the protected
     # slot. Only this step needs elevation, so it is the one UAC prompt of a dev deploy.
     Write-Host '== Staging device plugin from WSGM source ==' -ForegroundColor Cyan
     $pluginStage = Join-Path $root 'publish\DevDeviceComponents'

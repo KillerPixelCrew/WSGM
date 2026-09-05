@@ -29,6 +29,19 @@ internal static class InventoryRedaction
         ArgumentNullException.ThrowIfNull(inventory);
 
         CaptureRedactor redactor = new();
+        MachineInventory shareable = ToShareable(inventory, redactor);
+        removed = redactor.Summarize();
+        return shareable;
+    }
+
+    /// <summary>Redacts inventory with the same token map used by the rest of a capture bundle.</summary>
+    /// <param name="inventory">Private inventory.</param>
+    /// <param name="redactor">Token map shared by all bundle projections.</param>
+    /// <returns>The shareable inventory.</returns>
+    public static MachineInventory ToShareable(MachineInventory inventory, CaptureRedactor redactor)
+    {
+        ArgumentNullException.ThrowIfNull(inventory);
+        ArgumentNullException.ThrowIfNull(redactor);
         inventory = MachineInventoryNormalizer.Normalize(inventory);
 
         MachineInventory shareable = inventory with
@@ -113,7 +126,6 @@ internal static class InventoryRedaction
             })],
         };
 
-        removed = redactor.Summarize();
         return shareable;
     }
 
