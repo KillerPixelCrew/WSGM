@@ -181,10 +181,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $hash = (Get-FileHash -LiteralPath $stagedArchive -Algorithm SHA256).Hash
-if (Test-Path -LiteralPath $archive) {
-    Remove-Item -LiteralPath $archive -Force
-}
-Move-Item -LiteralPath $stagedArchive -Destination $archive
+. (Join-Path $PSScriptRoot "device-package-output.ps1")
+Publish-DevicePackageArchive -StagedArchive $stagedArchive -Archive $archive `
+    -ReplaceExisting:(Test-Path -LiteralPath $archive)
 Set-Content -LiteralPath $archiveMarker -Value $archiveMarkerValue -NoNewline
 Write-Host "Packed $archive"
 Write-Host "SHA-256 $hash"

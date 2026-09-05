@@ -31,6 +31,9 @@ codes, and safe to rerun.
   uncommitted work.
 - Keep third_party exclusions distinct from external Git submodules. Do not format or rewrite
   dependency source from a main-repository gate.
+- Device packers share `device-package-output.ps1` for archive publication. Keep staging on the
+  destination volume, replace owned archives atomically, and use create-new semantics otherwise.
+  Never delete the previous archive before its replacement commits.
 - Staging must validate package identity, version, architecture, and required files before copying
   anything into the installer tree.
 - eng/dev-deploy.ps1 is an attended, machine-specific operation. It checks the supported board,

@@ -371,6 +371,8 @@ internal enum GuidedOperatorMarkerKind
 /// <summary>Decodes passive operator-marker observations found in imported captures.</summary>
 internal static class GuidedOperatorMarkers
 {
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
     /// <summary>Stable source ID for guided operator markers.</summary>
     public const string SourceId = "operator.marker";
 
@@ -396,7 +398,15 @@ internal static class GuidedOperatorMarkers
             return false;
         }
 
-        string[] parts = Encoding.UTF8.GetString(bytes).Split('\t');
+        string[] parts;
+        try
+        {
+            parts = StrictUtf8.GetString(bytes).Split('\t');
+        }
+        catch (DecoderFallbackException)
+        {
+            return false;
+        }
         if (parts.Length != 4
             || parts[0] != "v1"
             || !Enum.TryParse(parts[1], ignoreCase: false, out kind)

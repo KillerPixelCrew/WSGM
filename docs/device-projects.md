@@ -38,12 +38,15 @@ dotnet pack src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj --configuration Release -
 ```
 
 `eng/stage-device-components.ps1` builds installer components from these same sources. The HC
-packaging script is retained as `eng/pack-handheld-companion.ps1` for future implementation.
+packaging script is retained as `eng/pack-handheld-companion.ps1` for future implementation. Both
+packers use `eng/device-package-output.ps1` to replace an existing archive atomically or publish a
+new one without overwriting a competing file. A failed replacement preserves the previous archive.
 
 The four imported source trees and their matching test trees retain their original MIT licenses.
 Each has a `LICENSE` file. The imported packaging scripts (`eng/publish-device-lab.ps1`,
 `eng/pack-claw.ps1`, and `eng/pack-handheld-companion.ps1`) retain the MIT license of their
-respective source projects. WSGM's main application remains GPL-3.0-or-later.
+respective source projects. Their shared `eng/device-package-output.ps1` helper is also
+MIT-licensed. WSGM's main application remains GPL-3.0-or-later.
 
 The Generic PC repository contained only a design scaffold, with no implemented behavior to move. It
 is retired. Windows-wide features belong in Core; device-specific integrations still belong in

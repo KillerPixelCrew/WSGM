@@ -44,6 +44,44 @@ public sealed class CaptureRegressionTests
         Assert.Equal(accepted, GuidedOperatorMarkers.TryDecode(captureEvent, out _, out _, out _));
     }
 
+    [Theory]
+    [InlineData(new byte[] { 0xFF })]
+    [InlineData(new byte[] { 0xC0, 0xAF })]
+    [InlineData(new byte[] { 0xE2, 0x82 })]
+    [InlineData(new byte[] { 0xED, 0xA0, 0x80 })]
+    public void OperatorMarkersRejectMalformedUtf8(byte[] invalidSuffix)
+    {
+        byte[] bytes = [.. "v1\tBaseline\taction\tlabel"u8.ToArray(), .. invalidSuffix];
+        CaptureStreamEvent captureEvent = new PassiveCaptureTimeline(new ReceiptClock()).Record(
+            Observation(1) with
+            {
+                SourceId = GuidedOperatorMarkers.SourceId,
+                Payload = new CapturedPayload { Disposition = PayloadDisposition.Included, Length = bytes.Length, Bytes = bytes },
+            });
+
+        Assert.False(GuidedOperatorMarkers.TryDecode(captureEvent, out _, out string action, out string label));
+        Assert.Empty(action);
+        Assert.Empty(label);
+    }
+
+    [Theory]
+    [InlineData("Möwe 日本語")]
+    [InlineData("valid replacement character: \uFFFD")]
+    public void OperatorMarkersPreserveValidUnicodeLabels(string label)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes($"v1\tBaseline\taction\t{label}");
+        CaptureStreamEvent captureEvent = new PassiveCaptureTimeline(new ReceiptClock()).Record(
+            Observation(1) with
+            {
+                SourceId = GuidedOperatorMarkers.SourceId,
+                Payload = new CapturedPayload { Disposition = PayloadDisposition.Included, Length = bytes.Length, Bytes = bytes },
+            });
+
+        Assert.True(GuidedOperatorMarkers.TryDecode(captureEvent, out _, out string action, out string decoded));
+        Assert.Equal("action", action);
+        Assert.Equal(label, decoded);
+    }
+
     [Fact]
     public void RedactionRejectsDifferentSourceIdsThatBecomeTheSameToken()
     {

@@ -62,6 +62,10 @@ packaging or public-contract boundary.
 Each line is closed in source, focused tests, diagnostics and documentation. The doc named beside it
 holds the mechanism; the commit that closed it holds the reasoning.
 
+- **Device import second review, 2026-09-05.** Capture export reports leftover temporary files
+  when cleanup fails, operator markers reject malformed UTF-8, and both device packers publish
+  through one atomic archive step. Focused tests cover locked files, cancellation, destination
+  collisions, and valid Unicode; no hardware validation is claimed.
 - **Device import review fixes, 2026-09-05.** Corrected HC API metadata, bounded Claw shutdown and
   malformed-response handling, shared capture redaction and rejection paths, and honest scaffold
   command results. Focused SDK, Device Lab, Claw, and HC tests cover the follow-up; this is software

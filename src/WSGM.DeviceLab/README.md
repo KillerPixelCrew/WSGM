@@ -10,10 +10,11 @@ A GUI and a CLI over the same code — `wsgm-device` is the executable.
 
 Capture exports use one redaction token map across inventory, recipe, and streams. If redaction
 merges source identifiers, export stops with an error before creating a bundle or preview. Imported
-markers require named kinds, and explicit restart/resume segments retain their reason even when a
-receipt arrives late. Malformed read-probe data returns a rejection with any earlier samples;
-declared numeric bounds require an in-range numeric value, including for version responses.
-Cancelled inventory writes report the leftover temporary path if cleanup fails.
+markers require valid UTF-8 and named kinds, and explicit restart/resume segments retain their
+reason even when a receipt arrives late. Malformed read-probe data returns a rejection with any
+earlier samples; declared numeric bounds require an in-range numeric value, including for version
+responses. Cancelled inventory writes and failed or cancelled capture exports report the leftover
+temporary path if cleanup fails. Export cancellation is preserved when temporary cleanup succeeds.
 
 ## Why it is a separate tool
 

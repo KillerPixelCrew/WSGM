@@ -365,9 +365,19 @@ internal static class ObserveOnlyCaptureWorkflow
         CaptureExportPlan plan,
         bool exportPreviewConfirmed,
         string? repositoryRoot,
+        CancellationToken cancellationToken = default) =>
+        Export(plan, exportPreviewConfirmed, repositoryRoot, File.Move, cancellationToken);
+
+    // The publisher commits a closed, flushed temporary file with create-new semantics.
+    internal static CaptureExportResult Export(
+        CaptureExportPlan plan,
+        bool exportPreviewConfirmed,
+        string? repositoryRoot,
+        Action<string, string> publishFile,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(publishFile);
         cancellationToken.ThrowIfCancellationRequested();
         if (!exportPreviewConfirmed)
         {
@@ -407,19 +417,27 @@ internal static class ObserveOnlyCaptureWorkflow
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            File.Move(temporaryPath, decision.FullPath);
+            publishFile(temporaryPath, decision.FullPath);
             return new CaptureExportResult { Exported = true, OutputPath = decision.FullPath };
         }
         catch (OperationCanceledException)
         {
-            TryDelete(temporaryPath);
+            string? cleanupError = TryDelete(temporaryPath);
+            if (cleanupError is not null)
+            {
+                return new CaptureExportResult { Exported = false, Error = $"Export cancelled. {cleanupError}" };
+            }
             throw;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
             or NotSupportedException or ArgumentException or InvalidDataException)
         {
-            TryDelete(temporaryPath);
-            return new CaptureExportResult { Exported = false, Error = exception.Message };
+            string? cleanupError = TryDelete(temporaryPath);
+            return new CaptureExportResult
+            {
+                Exported = false,
+                Error = cleanupError is null ? exception.Message : $"{exception.Message} {cleanupError}",
+            };
         }
     }
 
@@ -625,18 +643,16 @@ internal static class ObserveOnlyCaptureWorkflow
         return name.Length == 0 ? "source" : name.ToString();
     }
 
-    private static void TryDelete(string path)
+    private static string? TryDelete(string path)
     {
         try
         {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
+            File.Delete(path);
+            return null;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            // A failed temporary-file cleanup is reported by the next new-file path check.
+            return $"Temporary export cleanup failed for '{path}': {exception.Message}";
         }
     }
 
