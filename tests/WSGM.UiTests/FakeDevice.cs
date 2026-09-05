@@ -27,7 +27,9 @@ internal sealed class FakeDevice : IDeviceOverlaySource
     internal void Notify() => _changed?.Invoke();
     public PhysicalGlyphRenderPlan? NavigationHint(GlyphControlId control) => null;
     public IDisposable ObservePhysicalSamples() => throw new InvalidOperationException("Unexpected physical input");
-    public Task InvokeAsync(DeviceOverlayCapability capability, CancellationToken cancellationToken = default) => throw new InvalidOperationException("Unexpected device write");
+    internal Func<DeviceOverlayCapability, CancellationToken, Task>? Invoke { get; set; }
+    public Task InvokeAsync(DeviceOverlayCapability capability, CancellationToken cancellationToken = default) =>
+        Invoke?.Invoke(capability, cancellationToken) ?? throw new InvalidOperationException("Unexpected device write");
     public Task CyclePhysicalGlyphSelectionAsync(CancellationToken cancellationToken = default) => throw new InvalidOperationException("Unexpected glyph write");
     public Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default) => throw new InvalidOperationException("Unexpected AutoTDP write");
     public Task CycleControllerTargetAsync(CancellationToken cancellationToken = default) => throw new InvalidOperationException("Unexpected controller write");

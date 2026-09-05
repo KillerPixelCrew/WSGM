@@ -67,8 +67,9 @@ Steam Input handoffs or device behavior.
 Twelve PNG baselines cover Quick Access, Core Device, synthetic Device rows, and Settings System,
 Quick Access and Appearance. Overlay captures use 1280×800 and 1920×1080 screens with the normal
 sheet-height fraction. Settings uses 1024×700 (its supported minimum width) and 1280×800 client
-sizes. Culture, dark theme, accent, scale and embedded Inter fonts are fixed; transitions and
-pointer hover are removed before capture. Comparisons use decoded pixels with no tolerance.
+sizes. Culture, dark theme, accent, scale and embedded Inter fonts are fixed; transitions, focus and
+pointer hover are removed before capture. Focus behavior is covered by interaction tests.
+Comparisons use decoded pixels with no tolerance.
 
 Missing or changed baselines fail `eng/verify.ps1`. Each case writes `actual.png` and, when
 available, `expected.png` and `diff.png` under `TestResults/ui/<case-name>`, included in the CI test

@@ -53,7 +53,6 @@ public sealed class VisualTests
         using UiFixture fixture = new();
         Window window = fixture.Settings(width, height);
         UiFixture.Click(window, UiFixture.Tab(window, page));
-        window.FocusManager?.Focus(null);
         Assert.Equal(width, window.ClientSize.Width);
         Assert.Equal(height, window.ClientSize.Height);
         VisualBaseline.Verify(window, name);

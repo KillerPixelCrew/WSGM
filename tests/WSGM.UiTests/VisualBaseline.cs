@@ -10,6 +10,8 @@ internal static class VisualBaseline
 {
     internal static void Verify(Window window, string name)
     {
+        // Capture resting controls. Focus visuals and caret timing belong to interaction tests.
+        window.FocusManager?.Focus(null);
         foreach (var visual in window.GetVisualDescendants().OfType<Avalonia.Animation.Animatable>())
         {
             visual.Transitions = null;

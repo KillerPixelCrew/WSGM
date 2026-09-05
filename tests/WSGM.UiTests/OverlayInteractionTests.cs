@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
@@ -9,6 +10,7 @@ using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Interop;
 using WSGM.Overlay;
+using WSGM.Shell;
 
 namespace WSGM.UiTests;
 
@@ -103,6 +105,71 @@ public sealed class OverlayInteractionTests
         OverlayWindow reopened = fixture.Overlay();
         Assert.True(UiFixture.Named<Control>(reopened, "PanelHome").IsVisible);
         Assert.Equal("home.desktop", (reopened.FocusManager?.GetFocusedElement() as Control)?.Tag);
+    }
+
+    [AvaloniaFact]
+    public async Task ClosingStopsTheToastDetachesPowerHostsAndCancelsTheDeviceAction()
+    {
+        using FakeDevice device = new();
+        using UiFixture fixture = new();
+        using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()),
+            _ => throw new InvalidOperationException("Unexpected power scheme write"));
+        DevicePowerPresets service = new(() => [],
+            (_, _, _, _, _) => throw new InvalidOperationException("Unexpected preset write"),
+            new WindowsPowerModes(new UnusedPowerModeApi()));
+        using DevicePowerPresetSelection presets = new(service, false);
+        TaskCompletionSource operation = new();
+        TaskCompletionSource completed = new();
+        CancellationToken observed = default;
+        device.State = device.State with
+        {
+            Capabilities = [device.State.Capabilities[0] with { CanInvoke = true }],
+        };
+        device.Invoke = async (_, token) =>
+        {
+            observed = token;
+            using var registration = token.Register(() => operation.TrySetCanceled(token));
+            try { await operation.Task; }
+            finally { completed.TrySetResult(); }
+        };
+        OverlayWindow window = fixture.Overlay();
+        window.AttachDeviceBridge(device);
+        window.AttachPowerSchemes(schemes);
+        window.AttachPowerPresets(presets);
+        Assert.NotNull(PrivateField<Delegate>(schemes, "Changed"));
+        Assert.NotNull(PrivateField<Delegate>(presets, "Changed"));
+        UiFixture.Click(window, UiFixture.Tab(window, 3));
+        UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
+            .Single(card => card.IsEffectivelyVisible && card.Title == "Overview"));
+        UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
+            .Single(card => card.IsEffectivelyVisible && card.Title == "Processor temperature"));
+        Assert.True(observed.CanBeCanceled);
+        Assert.False(operation.Task.IsCompleted);
+
+        window.SetPins(["home.steam"]);
+        Assert.True(UiFixture.Named<Control>(window, "PinToast").IsVisible);
+        DispatcherTimer timer = Assert.IsType<DispatcherTimer>(PrivateField<DispatcherTimer>(window, "_pinToastTimer"));
+        Assert.True(timer.IsEnabled);
+        window.Close();
+
+        Assert.False(timer.IsEnabled);
+        Assert.Null(PrivateField<Delegate>(schemes, "Changed"));
+        Assert.Null(PrivateField<Delegate>(presets, "Changed"));
+        Assert.True(observed.IsCancellationRequested);
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(operation.Task.IsCanceled);
+        Assert.Equal(0, device.Subscribers);
+    }
+
+    // Inspect the actual owned resources without adding production-only test accessors.
+    private static T? PrivateField<T>(object owner, string name) where T : class =>
+        (T?)(owner.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingFieldException(owner.GetType().Name, name)).GetValue(owner);
+
+    private sealed class UnusedPowerModeApi : IPowerModeApi
+    {
+        public Guid Read() => throw new InvalidOperationException("Unexpected Windows power-mode read");
+        public void Set(Guid mode) => throw new InvalidOperationException("Unexpected Windows power-mode write");
     }
 
     [AvaloniaFact]
