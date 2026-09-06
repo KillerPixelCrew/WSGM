@@ -651,6 +651,8 @@
       // gap between them and the whole glyph reads as a rounded block.
       ["rect", { x: 7, y: 9, width: 5, height: 6, rx: 0.8 }],
     ],
+    // The profile actually in effect right now, above the two assignments that choose it.
+    check: [["path", { d: "M8.2 15.4 3.6 10.8 1.5 12.9 8.2 19.6 20.9 6.9 18.8 4.8 8.2 15.4Z" }]],
     // -- Charging -------------------------------------------------------------------------------
     // The same casing as `battery` with a bolt in it, because the Charging section and the On battery
     // assignment are related but not the same thing, and the eye should read both at once.
@@ -718,12 +720,35 @@
       ["rect", { x: 11.1, y: 8.6, width: 1.8, height: 5.4 }],
       ["rect", { x: 11.1, y: 13.1, width: 6, height: 1.8 }],
     ],
+    // Valve's performance-overlay level, which is how much of the overlay is drawn. Stacked layers
+    // rather than a rectangle: `display`, `profile` and `aspect` are already frames, and a fourth
+    // would be the shape all four get confused for.
+    layers: [
+      ["path", { d: "M12 2.2 22.4 7.9 12 13.6 1.6 7.9 12 2.2Z" }],
+      ["path", { d: "M4.3 11.2 1.6 12.7 12 18.4 22.4 12.7 19.7 11.2 12 15.4 4.3 11.2Z" }],
+      ["path", { d: "M4.3 15.6 1.6 17.1 12 22.8 22.4 17.1 19.7 15.6 12 19.8 4.3 15.6Z" }],
+    ],
     // Rising bars for the frame-rate row: the same shape reads as a cap while one is set and as the
     // refresh rate once the cap is off, which is exactly what that one slider does.
     frameRate: [
       ["rect", { x: 3, y: 13, width: 4, height: 8, rx: 1.2 }],
       ["rect", { x: 10, y: 8, width: 4, height: 13, rx: 1.2 }],
       ["rect", { x: 17, y: 3, width: 4, height: 18, rx: 1.2 }],
+    ],
+    // Switching the frame cap off is the slider's own negation, so the glyph is the cap removed
+    // rather than a second frame-rate shape.
+    infinity: [
+      [
+        "path",
+        {
+          d: "M8.6 8.4a3.6 3.6 0 1 0 0 7.2c3.6 0 5.2-7.2 6.8-7.2a3.6 3.6 0 1 1 0 7.2c-3.6 0-5.2-7.2-6.8-7.2Z",
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 2.2,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+        },
+      ],
     ],
     // Variable refresh: an uneven trace rather than a steady one. Stroked, not filled — a 2px line is
     // the only honest way to draw a waveform at this size.
@@ -2171,6 +2196,21 @@
       // changes with every client build. Live-verified 2026-08-29: exactly one export matches, and
       // the provider that names the module's fields lists that same class as ToggleField.
       const toggle = uniqueFunction(fields, ["OnToggleChange", "this.Toggle()"]);
+      // Valve's read-only label/value row, from the Field module rather than the fields module: it
+      // is what a figure the panel only reports — the profile actually in effect — is supposed to
+      // look like. Without it that line was a bare div with none of Steam's type, spacing or
+      // separator, which is exactly how it read. `#Field_MoreInfo_Action` occurs once in the whole
+      // client bundle, so the module is unambiguous, and only this export draws LabelFieldValue.
+      const labelFieldFactory = uniqueFactory([
+        "#Field_MoreInfo_Action",
+        "spacingBetweenLabelAndChild",
+      ]);
+      const labelField = labelFieldFactory
+        ? uniqueFunction(runtime(labelFieldFactory[0]), [
+            "LabelFieldValue",
+            "spacingBetweenLabelAndChild",
+          ])
+        : null;
       const section = uniqueFunction(layout, ["PanelSectionTitle", "spinner"]);
       const row = uniqueObject(
         layout,
@@ -2178,13 +2218,13 @@
       );
       const localize = uniqueFunction(localization, ["LocalizeString(e)", "void 0===r?e"]);
       if (!slider || !dropdown || !section || !row || !localize) return null;
-      // The toggle is deliberately not in that guard. It arrived after the other four, so a client
-      // whose toggle cannot be found still gets every control that does not need one, rather than
-      // losing the whole native surface.
+      // The toggle and the label field are deliberately not in that guard. They arrived after the
+      // other four, so a client where either cannot be found still gets every control that does not
+      // need one, rather than losing the whole native surface.
       // The icon renderer is built once per control runtime and closes over Steam's React, so a row
       // asks for a glyph by name and never touches element construction itself.
       const icon = createIconRenderer(react);
-      return { react, slider, dropdown, toggle, section, row, localize, icon };
+      return { react, slider, dropdown, toggle, labelField, section, row, localize, icon };
     };
     const normalizeText = (value) => (typeof value === "string" ? value.slice(0, 240) : "");
     // Deliberately small. Everything the row needs is a switch position and a reason, because the
@@ -2810,20 +2850,31 @@
             },
           });
         renderOutcomes.powerPreset = "rendered";
+        // What is in effect, and why. The scope and the status belong to that one fact, so they are
+        // its description rather than two more unlabelled lines: every other row in this host puts
+        // its status there, and three stacked bare divs were the one place the panel stopped
+        // looking like Steam.
+        const detail = [state.scope, state.statusText].filter(Boolean).join(" · ");
+        const active = !state.current
+          ? null
+          : controlRuntime.labelField
+            ? controlRuntime.react.createElement(
+                controlRuntime.labelField,
+                {
+                  label: "Active profile",
+                  icon: controlRuntime.icon("check"),
+                  description: detail || undefined,
+                  bottomSeparator: "standard",
+                },
+                state.current,
+              )
+            : note("powerPresetActive", "Steam LabelField was not resolved");
         return controlRuntime.react.createElement(
           controlRuntime.react.Fragment,
           null,
-          controlRuntime.react.createElement(
-            "div",
-            { role: "status" },
-            `Active profile: ${state.current}`,
-          ),
-          controlRuntime.react.createElement("div", null, state.scope),
+          active,
           assignment("When plugged in", "plug", state.ac, definition.acCommand),
           assignment("On battery", "battery", state.battery, definition.batteryCommand),
-          state.statusText
-            ? controlRuntime.react.createElement("div", { role: "status" }, state.statusText)
-            : null,
         );
       };
     const createControllerControl = (controlRuntime) =>
@@ -2990,6 +3041,7 @@
               // first STOP and localizes to bare "Off" ("AUS"), which reads as a row with no
               // subject once it is a switch of its own. SteamOS names this switch outright.
               label: "Disable frame limit",
+              icon: controlRuntime.icon("infinity"),
               description: refreshMode
                 ? "The slider sets the refresh rate while the limit is off."
                 : undefined,
@@ -3550,6 +3602,24 @@
       }
       return controlRuntime.react.createElement(filteredNative.component, tree.props);
     };
+    // Valve's own rows take no props, so the only way to put a glyph on one is to render it here and
+    // clone what it returned. Calling the component as a plain function makes its hooks this
+    // wrapper's hooks, which is safe because the call is unconditional, and is what the native-row
+    // filter above already does.
+    //
+    // Only the overlay-level row is wrapped. It returns Valve's own slider wrapper, which spreads
+    // every prop it does not recognize into SliderField and on into Field, so `icon` arrives where
+    // a row's icon belongs. The other Valve rows cannot take one this way: the per-game toggle
+    // returns a Fragment, which drops any prop but `key`; the reset row is a button rather than a
+    // field; and the profile header already draws the game's own capsule art as its icon.
+    const withIcon = (controlRuntime, component, iconName) =>
+      function SteamUiValveRowWithIcon() {
+        const rendered = component({});
+        const icon = controlRuntime.icon(iconName);
+        return icon && controlRuntime.react.isValidElement(rendered)
+          ? controlRuntime.react.cloneElement(rendered, { icon, iconLocation: "front" })
+          : rendered;
+      };
     // The glyph beside each section header, keyed by the header text so every placement — the
     // Performance groups, the Quick Settings Display group and the device sections — reads from one
     // table instead of carrying its icon at its own call site. PanelSection renders whatever `title`
@@ -3797,8 +3867,11 @@
       valveRefreshRateControl = perfExports
         ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_RefreshRate"])
         : null;
-      valveOverlayLevelControl = perfExports
+      const valveOverlayLevel = perfExports
         ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_Overlay_Level"])
+        : null;
+      valveOverlayLevelControl = valveOverlayLevel
+        ? withIcon(controlRuntime, valveOverlayLevel, "layers")
         : null;
       return true;
     };

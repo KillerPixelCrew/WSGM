@@ -291,10 +291,15 @@ Rows and section headers carry a glyph from `icons.ts`, drawn by the toolkit on 
 than taken from the client, filled with `currentColor` so it inherits the row's colour. A row passes
 it as Field's `icon`, which every Valve field forwards; sliders add `iconLocation: "front"` so the
 glyph sits with the label instead of beside the track. A header pairs an 18px glyph with its title,
-which `PanelSection` accepts because `title` is rendered as-is. Valve's own rows — the profile
-header, overlay level, refresh rate and reset — draw themselves and are left alone. No glyph is used
-twice: a header never repeats one from a row inside it, and no two rows share one, because the panel
-is navigated by shape before the label is read.
+which `PanelSection` accepts because `title` is rendered as-is. No glyph is used twice: a header
+never repeats one from a row inside it, and no two rows share one, because the panel is navigated by
+shape before the label is read.
+
+Valve's rows take no props. The overlay-level row is rendered and cloned with an icon, which works
+because Valve's slider wrapper spreads unknown props into `SliderField`; the per-game toggle returns
+a Fragment, the reset row is a button, and the profile header already draws the game's capsule art,
+so those three keep Valve's own appearance. The profile a preset row reports is Valve's `LabelField`
+with the scope and status as its description, rather than the unstyled divs it used to be.
 
 | Kind                 | Row                                                                                           | Placement      |
 | -------------------- | --------------------------------------------------------------------------------------------- | -------------- |
