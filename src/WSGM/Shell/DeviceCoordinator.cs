@@ -185,7 +185,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         {
             if (_runningApplicationId != applicationId || InstalledPackage?.Manifest?.Id != selection.PluginId
                 || IntegrationEnabled != selection.Enabled || Interlocked.Read(ref _cycleGeneration) != selection.Cycle
-                || !ReferenceEquals(selection.Config, _config.Performance))
+                || !ReferenceEquals(selection.Config, _config.Performance) || selection.OnAc != ReadOnAcPower())
             { throw new InvalidOperationException("The running application, device or configuration changed before saving the assignment."); }
             await PersistConfigurationAsync(config =>
             {

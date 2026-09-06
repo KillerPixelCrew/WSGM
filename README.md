@@ -13,7 +13,8 @@ Windows shell the whole time.
   Shared SDK Power, RGB, Controller and Info pages combine Windows and device controls.
 - **Device power profiles**: select a plugin-defined TDP, firmware scenario and Windows mode preset
   from the Device page or Steam QAM Performance. The Claw A2VM offers Super Battery, Balanced,
-  Extreme Performance and Full Power; independent changes show Custom.
+  Extreme Performance and Full Power; independent changes save Custom for the active AC or battery
+  source, and switching back restores those custom values.
 
 - **Boot to Big Picture** — a logon service starts game mode at sign-in behind a splash screen;
   switching to the desktop and back is one press, any time.

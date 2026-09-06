@@ -2685,7 +2685,9 @@
       if (
         !valid(value.ac) ||
         !valid(value.battery) ||
-        state.options.some((option) => option.id === "custom")
+        (state.options.some((option) => option.id === "custom") &&
+          value.ac !== "custom" &&
+          value.battery !== "custom")
       )
         return null;
       return {
@@ -2710,7 +2712,9 @@
           controlRuntime.react.createElement(controlRuntime.dropdown, {
             label,
             layout: "below",
-            rgOptions: options,
+            rgOptions: options.filter(
+              (option) => option.data !== "custom" || selected === "custom",
+            ),
             selectedOption: selected,
             disabled: pending || !state.available,
             onChange: (option) => {
@@ -2718,6 +2722,7 @@
                 pending ||
                 !state.available ||
                 !option ||
+                option.data === "custom" ||
                 !options.some((item) => item.data === option.data)
               )
                 return;

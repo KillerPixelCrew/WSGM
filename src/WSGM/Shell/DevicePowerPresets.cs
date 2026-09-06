@@ -9,7 +9,8 @@ using WSGM.Device.Sdk.Capabilities;
 namespace WSGM.Shell;
 
 internal sealed record DevicePowerPresetState(
-    IReadOnlyList<DevicePowerPreset> Presets, bool Available, string Current, string Status);
+    IReadOnlyList<DevicePowerPreset> Presets, bool Available, string Current, string Status,
+    DevicePowerCustomValues? Values = null);
 
 /// <summary>One-shot device presets shared by the overlay and Steam. Nothing is reapplied on drift.</summary>
 internal sealed class DevicePowerPresets(
@@ -45,13 +46,16 @@ internal sealed class DevicePowerPresets(
         finally { MutationGate.Release(); }
     }
 
-    internal async Task<SteamUiCommandResult> ApplyAsync(string id, CancellationToken cancellationToken, bool persistValues = true, bool? expectedOnAc = null)
+    internal async Task<SteamUiCommandResult> ApplyAsync(string id, CancellationToken cancellationToken, bool persistValues = true, bool? expectedOnAc = null,
+        DevicePowerCustomValues? customValues = null)
     {
         await MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             IReadOnlyList<DeviceCapabilityView> views = snapshot();
-            DevicePowerPreset? preset = Presets(views).FirstOrDefault(item => item.Id == id);
+            DevicePowerPreset? preset = id == "custom" && customValues is not null
+                ? customValues.ToPreset() : Presets(views).FirstOrDefault(item => item.Id == id);
+            if (preset is not null && !ValidTarget(views, preset, customValues is not null)) { preset = null; }
             if (preset is null || !TryPair(views, out DeviceCapabilityView? sustained, out DeviceCapabilityView? slow))
             {
                 return new(false, "The power preset is no longer available.");
@@ -67,7 +71,7 @@ internal sealed class DevicePowerPresets(
                 void CheckCurrent()
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (!SameGeneration(snapshot(), cycle, generation, preset)
+                    if (!SameGeneration(snapshot(), cycle, generation, preset, customValues is not null)
                         || readOnAc?.Invoke() != onAc
                         || (preset.ScenarioOnAc is not null && onAc is null))
                     {
@@ -119,7 +123,8 @@ internal sealed class DevicePowerPresets(
                 Guid confirmedMode = await Task.Run(modes.Read, cancellationToken).ConfigureAwait(false);
                 IReadOnlyList<DeviceCapabilityView> confirmedViews = snapshot();
                 CheckCurrent();
-                if (Project(confirmedViews, confirmedMode, onAc: onAc).Current != preset.Id)
+                var projected = Project(confirmedViews, confirmedMode, onAc: onAc);
+                if (customValues is not null ? projected.Values != customValues : projected.Current != preset.Id)
                 {
                     string observed = string.Join(", ", confirmedViews.Where(view => view.Descriptor.Role is
                         CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit or CapabilityRole.ScenarioMode)
@@ -167,17 +172,34 @@ internal sealed class DevicePowerPresets(
             && WindowsPowerModes.Id(preset.WindowsMode) == mode
             && (preset.ScenarioOnAc is null || ScenarioView(views)?.Projection.State.ObservedValue?.ChoiceValue
                 == (onAc == true ? preset.ScenarioOnAc : preset.ScenarioOnDc)));
+        DevicePowerMode? observedMode = Enum.GetValues<DevicePowerMode>().Cast<DevicePowerMode?>()
+            .FirstOrDefault(item => WindowsPowerModes.Id(item!.Value) == mode);
+        var values = observedMode is { } knownMode ? new DevicePowerCustomValues
+        {
+            SustainedWatts = sustained!.Projection.State.ObservedValue!.IntegerValue!.Value,
+            SlowWatts = slow!.Projection.State.ObservedValue!.IntegerValue!.Value,
+            WindowsMode = knownMode,
+            Scenario = presets.Any(preset => preset.ScenarioOnAc is not null)
+                ? ScenarioView(views)!.Projection.State.ObservedValue!.ChoiceValue : null,
+        } : null;
         return new(presets, presets.Length > 0, match?.Id ?? "custom", status.Length > 0 ? status
             : match is null ? "Custom: current power limits, firmware scenario or Windows mode do not match a preset."
-            : $"{match.SustainedWatts}/{match.SlowWatts} W · {WindowsPowerModes.Label(match.WindowsMode)}");
+            : $"{match.SustainedWatts}/{match.SlowWatts} W · {WindowsPowerModes.Label(match.WindowsMode)}", values);
     }
 
     private static DevicePowerPreset[] Presets(IReadOnlyList<DeviceCapabilityView> views) =>
         DevicePowerPreset.TryValidate(views.Select(view => view.Descriptor).ToArray(), out _)
             ? views.SelectMany(view => view.Descriptor.PowerPresets).ToArray() : [];
 
-    private static bool SameGeneration(IReadOnlyList<DeviceCapabilityView> views, long cycle, long generation, DevicePowerPreset preset) =>
-        Presets(views).Contains(preset) && TryPair(views, out DeviceCapabilityView? sustained, out DeviceCapabilityView? slow)
+    private static bool ValidTarget(IReadOnlyList<DeviceCapabilityView> views, DevicePowerPreset preset, bool custom) =>
+        custom ? Presets(views).Length > 0
+            && Presets(views).Any(item => item.ScenarioOnAc is not null) == (preset.ScenarioOnAc is not null)
+            && DevicePowerPreset.TryValidate(views.Select(view => view.Descriptor with
+            { PowerPresets = view.Descriptor.Role == CapabilityRole.PowerSustainedLimit ? [preset] : [] }).ToArray(), out _)
+        : Presets(views).Contains(preset);
+
+    private static bool SameGeneration(IReadOnlyList<DeviceCapabilityView> views, long cycle, long generation, DevicePowerPreset preset, bool custom) =>
+        ValidTarget(views, preset, custom) && TryPair(views, out DeviceCapabilityView? sustained, out DeviceCapabilityView? slow)
         && sustained!.Projection.State.CycleGeneration == cycle && sustained.Projection.State.DescriptorGeneration == generation
         && slow!.Projection.State.CycleGeneration == cycle && slow.Projection.State.DescriptorGeneration == generation
         && (preset.ScenarioOnAc is null || (Current(ScenarioView(views))

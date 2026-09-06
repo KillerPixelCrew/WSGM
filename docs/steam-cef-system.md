@@ -289,21 +289,21 @@ power limits, controller and reset. Steam's two FPS-counter rows are hidden only
 to add. `useMemo` is restored when the last kind is removed. RGB brightness stays visible; Edit
 color reveals the zone and HSV sliders only when needed.
 
-| Kind                 | Row                                                                                      | Placement      |
-| -------------------- | ---------------------------------------------------------------------------------------- | -------------- |
-| `valveProfileHeader` | Valve's "Use profile from" header and the per-game toggle                                | Performance    |
-| `powerPreset`        | AC/battery assignments and read-only active device profile                               | Performance    |
-| `powerProfile`       | Windows power-plan dropdown                                                              | Performance    |
-| `valveOverlayLevel`  | Valve's overlay-level selector                                                           | Performance    |
-| `frameLimit`         | WSGM slider with a "Disable frame limit" switch                                          | Performance    |
-| `vrr`                | WSGM toggle labelled by `#QuickAccess_Tab_Perf_EnableVRR`                                | Performance    |
-| `valveTdp`           | Valve's TDP toggle and slider                                                            | Performance    |
-| `autoTdp`            | WSGM toggle "Automatic TDP"                                                              | Performance    |
-| `controllerTarget`   | Valve dropdown labelled by the controller section title                                  | Performance    |
-| `valveReset`         | Valve's reset button                                                                     | Performance    |
-| `resolution`         | WSGM dropdown "Display resolution"                                                       | Quick Settings |
-| `valveRefreshRate`   | Valve's manual refresh row                                                               | Quick Settings |
-| `deviceControls`     | charge limit, lighting brightness, zone dropdown, colour preview, hue, saturation, value | Quick Settings |
+| Kind                 | Row                                                                                           | Placement      |
+| -------------------- | --------------------------------------------------------------------------------------------- | -------------- |
+| `valveProfileHeader` | Valve's "Use profile from" header and the per-game toggle                                     | Performance    |
+| `powerPreset`        | AC/battery assignments, including source-specific Custom, and read-only active device profile | Performance    |
+| `powerProfile`       | Windows power-plan dropdown                                                                   | Performance    |
+| `valveOverlayLevel`  | Valve's overlay-level selector                                                                | Performance    |
+| `frameLimit`         | WSGM slider with a "Disable frame limit" switch                                               | Performance    |
+| `vrr`                | WSGM toggle labelled by `#QuickAccess_Tab_Perf_EnableVRR`                                     | Performance    |
+| `valveTdp`           | Valve's TDP toggle and slider                                                                 | Performance    |
+| `autoTdp`            | WSGM toggle "Automatic TDP"                                                                   | Performance    |
+| `controllerTarget`   | Valve dropdown labelled by the controller section title                                       | Performance    |
+| `valveReset`         | Valve's reset button                                                                          | Performance    |
+| `resolution`         | WSGM dropdown "Display resolution"                                                            | Quick Settings |
+| `valveRefreshRate`   | Valve's manual refresh row                                                                    | Quick Settings |
+| `deviceControls`     | charge limit, lighting brightness, zone dropdown, colour preview, hue, saturation, value      | Quick Settings |
 
 | Bound              | Value                                                   |
 | ------------------ | ------------------------------------------------------- |

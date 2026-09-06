@@ -12,6 +12,8 @@ internal sealed class NativeQamPowerPresetService(DevicePowerPresets? presets, D
         DevicePowerPresetState state = await presets.ReadAsync().ConfigureAwait(false);
         SteamPowerProfileOption[] options = state.Presets.Select(item => new SteamPowerProfileOption(item.Id, item.Name)).ToArray();
         DevicePowerAssignmentState? selection = assignments?.Snapshot();
+        if (selection?.AcPreset == "custom" || selection?.BatteryPreset == "custom")
+        { options = [.. options, new("custom", "Custom")]; }
         string current = state.Presets.FirstOrDefault(item => item.Id == state.Current)?.Name
             ?? (state.Current == "custom" ? "Custom" : "Unavailable");
         return new(state.Available && assignments is not null, options, current,

@@ -253,6 +253,14 @@ device-specific power limit consumed by AutoTDP, but it never owns or reimplemen
       `docs\power-and-display.md`.
 
 - [x] **Shared device sections and power-source assignments.** SDK Power, RGB, Controller and Info IDs combine host and plugin controls. Device > Power contains Windows plans, presets and AC/battery assignments, with global defaults and per-game inheritance. Automatic transitions do not retry uncertain writes or overwrite manual watt preferences.
+- [x] **Keep Custom power profiles per source.** A confirmed deviation after successful profile
+      application saves PL1, PL2, Windows mode and any included firmware scenario to the current
+      AC/battery assignment. Both dropdowns show Custom, and source/game/cycle transitions restore
+      those values with current descriptor validation. Inherited edits create per-game overrides;
+      the other source and global defaults remain intact. Software tests cover restoration,
+      persistence, failed/stale observations and dropdown selection. The initial full repository
+      gate passed; final UI refinements passed 86 focused managed tests, three UI tests and emitted
+      Steam dropdown/ownership checks. No live validation is claimed.
 - [x] **Claw A2VM power presets on Device and QAM Performance.** Plugin-defined Super Battery,
       Balanced, Extreme Performance and Full Power apply firmware scenario, PL1/PL2 and Windows power mode
       through the shared host. HC's AC mapping is Eco/Green/Sport; battery uses Comfort for all

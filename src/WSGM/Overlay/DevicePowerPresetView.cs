@@ -16,7 +16,6 @@ public sealed class DevicePowerPresetView : UserControl
     private readonly ComboBox _battery = AssignmentChoice("device.power-assignment.battery", "On battery");
     private readonly TextBlock _scope = new() { Classes = { "caption" } };
     private readonly StackPanel _assignments = new() { Spacing = 6 };
-    private DevicePowerPreset[] _assignmentItems = [];
     private DevicePowerPresetSelection? _model;
     private bool _rendering;
 
@@ -46,12 +45,12 @@ public sealed class DevicePowerPresetView : UserControl
         _ac.SelectionChanged += async (_, _) =>
         {
             if (!_rendering && _model is { CanAssign: true } model && _ac.SelectedItem is DevicePowerPreset choice)
-            { await model.AssignAsync(true, choice.Id.Length == 0 ? null : choice.Id); }
+            { if (choice.Id != "custom") { await model.AssignAsync(true, choice.Id.Length == 0 ? null : choice.Id); } }
         };
         _battery.SelectionChanged += async (_, _) =>
         {
             if (!_rendering && _model is { CanAssign: true } model && _battery.SelectedItem is DevicePowerPreset choice)
-            { await model.AssignAsync(false, choice.Id.Length == 0 ? null : choice.Id); }
+            { if (choice.Id != "custom") { await model.AssignAsync(false, choice.Id.Length == 0 ? null : choice.Id); } }
         };
     }
 
@@ -90,17 +89,10 @@ public sealed class DevicePowerPresetView : UserControl
                 _scope.Text = assignments.Scope;
                 DevicePowerPreset[] choices = [new("", assignments.IsGlobal
                     ? "Manual selection" : "Use global assignment", 0, 0, DevicePowerMode.Balanced), .. state!.Presets];
-                if (!_ac.IsDropDownOpen && !_battery.IsDropDownOpen && _model?.Busy != true
-                    && !_assignmentItems.SequenceEqual(choices))
-                {
-                    _assignmentItems = choices;
-                    _ac.ItemsSource = choices;
-                    _battery.ItemsSource = choices;
-                }
-                if (!_ac.IsDropDownOpen && _model?.Busy != true)
-                { _ac.SelectedItem = _assignmentItems.FirstOrDefault(item => item.Id == (assignments.AcPreset ?? "")); }
-                if (!_battery.IsDropDownOpen && _model?.Busy != true)
-                { _battery.SelectedItem = _assignmentItems.FirstOrDefault(item => item.Id == (assignments.BatteryPreset ?? "")); }
+                if (assignments.AcPreset == "custom" || assignments.BatteryPreset == "custom")
+                { choices = [.. choices, new("custom", "Custom", 0, 0, DevicePowerMode.Balanced)]; }
+                RenderAssignment(_ac, assignments.AcPreset, choices);
+                RenderAssignment(_battery, assignments.BatteryPreset, choices);
                 _ac.IsEnabled = _battery.IsEnabled = _model?.CanAssign == true;
             }
             _status.Text = _model?.Busy == true ? "Applying power profile..."
@@ -108,5 +100,14 @@ public sealed class DevicePowerPresetView : UserControl
             IsVisible = state?.Presets.Count > 0;
         }
         finally { _rendering = false; }
+    }
+
+    private void RenderAssignment(ComboBox dropdown, string? assigned, DevicePowerPreset[] choices)
+    {
+        if (dropdown.IsDropDownOpen || _model?.Busy == true) { return; }
+        var items = choices.Where(item => item.Id != "custom" || assigned == "custom").ToArray();
+        if (dropdown.ItemsSource is not DevicePowerPreset[] existing || !existing.SequenceEqual(items))
+        { dropdown.ItemsSource = items; }
+        dropdown.SelectedItem = ((DevicePowerPreset[])dropdown.ItemsSource).FirstOrDefault(item => item.Id == (assigned ?? ""));
     }
 }

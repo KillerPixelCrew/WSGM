@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
@@ -17,6 +18,68 @@ namespace WSGM.UiTests;
 
 public sealed class OverlayInteractionTests
 {
+    [AvaloniaTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CustomAssignmentIsSelectedOnlyForItsPowerSource(bool ac)
+    {
+        DeviceCapabilityView Power(CapabilityRole role, int watts) => new(new CapabilityDescriptor
+        {
+            CapabilityId = role.ToString(),
+            Role = role,
+            InstanceId = null,
+            Persistence = CapabilityPersistence.Volatile,
+            ValueKind = CapabilityValueKind.Integer,
+            Unit = CapabilityUnit.Watt,
+            Display = new() { Key = DisplayKey.SustainedPowerLimit },
+            SupportsRead = true,
+            SupportsWrite = true,
+            Minimum = 8,
+            Maximum = 37,
+            Step = 1,
+            PowerPresets = role == CapabilityRole.PowerSustainedLimit
+                ? [new("balanced", "Balanced", 17, 18, DevicePowerMode.Balanced)] : [],
+        }, new CapabilityProjection
+        {
+            State = new()
+            {
+                CapabilityId = role.ToString(),
+                Available = true,
+                Quality = HardwareStateQuality.Verified,
+                CycleGeneration = 1,
+                DescriptorGeneration = 1,
+                ObservedAt = DateTimeOffset.UtcNow,
+                ObservedValue = new() { Kind = CapabilityValueKind.Integer, IntegerValue = watts },
+            },
+        }, null);
+        DevicePowerPresetReference custom = new()
+        {
+            PluginId = "fixture",
+            PresetId = "custom",
+            CustomValues = new() { SustainedWatts = 16, SlowWatts = 18, WindowsMode = DevicePowerMode.Balanced },
+        };
+        DevicePowerPresetReference balanced = new() { PluginId = "fixture", PresetId = "balanced" };
+        PerformanceConfig config = new() { AcPowerPreset = ac ? custom : balanced, BatteryPowerPreset = ac ? balanced : custom };
+        DevicePowerPresets service = new(() => [Power(CapabilityRole.PowerSustainedLimit, 16), Power(CapabilityRole.PowerSlowLimit, 18)],
+            (_, _, _, _, _, _) => throw new InvalidOperationException("Rendering must not write hardware"),
+            new WindowsPowerModes(new BalancedModeApi()));
+        DevicePowerAssignments assignments = new(service, () => new(config, null, "fixture", 1, true, ac),
+            (_, _, _) => throw new InvalidOperationException("Rendering must not save assignments"));
+        using DevicePowerPresetSelection model = new(service, false, assignments);
+        using UiFixture fixture = new();
+        DevicePowerPresetView view = new();
+        view.Attach(model);
+        await model.RefreshAsync();
+        var choices = view.GetLogicalDescendants().OfType<ComboBox>().ToArray();
+        foreach (var choice in choices)
+        {
+            bool isAc = Equals(choice.Tag, "device.power-assignment.ac");
+            Assert.Equal(isAc == ac ? "custom" : "balanced", Assert.IsType<DevicePowerPreset>(choice.SelectedItem).Id);
+            Assert.Equal(isAc == ac, choice.Items.Cast<DevicePowerPreset>().Any(item => item.Id == "custom"));
+        }
+        Assert.Equal(2, choices.Length);
+    }
+
     [AvaloniaFact]
     public void LosingIntegrationExpandsWindowsPlansOnTheOpenPowerPage()
     {

@@ -81,10 +81,12 @@ state.
 
 Both UIs derive the current preset from observed PL1, PL2, firmware scenario for the current power
 source, and effective Windows mode. A mismatch, including an external Windows mode change or a
-resumed AutoTDP adjustment, shows Custom. Custom is a reading, not an action. The open overlay
-refreshes once per second; QAM refreshes with its regular state publication. Missing or stale
-observations disable selection instead of guessing a preset. Disabling Device Integration removes
-the preset choices and leaves the Windows scheme picker.
+resumed AutoTDP adjustment, shows Custom. After a successful assignment, a complete current reading
+that differs from it replaces that source's assignment with Custom, including PL1, PL2, Windows mode
+and the firmware scenario when the preset includes it. The other source remains unchanged. The open
+overlay refreshes once per second; QAM refreshes with its regular state publication. Missing or
+stale observations disable selection instead of guessing a preset. Disabling Device Integration
+removes the preset choices and leaves the Windows scheme picker.
 
 A failure can leave some underlying values changed. WSGM reports that partial result, stops, and
 does not retry or roll back across Windows and device controls. The plugin's existing per-command
@@ -109,9 +111,16 @@ during the read. The coordinator checks the assignment scope again under its tra
 persistence. Saved plugin and preset IDs are trimmed before validation. Unknown power sources and
 unavailable device observations defer application. A failed or uncertain write is recorded before
 dispatch and never retried by polling; explicitly saving an assignment permits another attempt.
-Manual changes remain in place until the next transition. Automatic application pauses AutoTDP
-without overwriting the saved manual watt limit. Windows power-plan selection remains independent of
-these device preset assignments.
+Custom values persist per source and are restored on the next source, application or device-cycle
+transition through the same validated, ordered write path as named presets. Manual changes to an
+inherited assignment create a per-game Custom override without changing the global default. Further
+changes update that source's Custom values; unchanged observations do not save or write hardware.
+Missing, stale or uncertain readings and partially failed applications never become saved Custom
+profiles. Each assignment dropdown displays Custom only when saved for that source. Custom is a
+reading; selecting a named preset replaces that source's Custom values. Editing an inactive
+assignment never reapplies the active preset. Automatic application pauses AutoTDP without
+overwriting the saved manual watt limit. Windows power-plan selection remains independent of these
+device preset assignments.
 
 ## Display profiles
 
