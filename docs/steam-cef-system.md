@@ -287,6 +287,15 @@ power limits, controller and reset. Steam's two FPS-counter rows are hidden only
 to add. `useMemo` is restored when the last kind is removed. RGB brightness stays visible; Edit
 color reveals the zone and HSV sliders only when needed.
 
+Rows and section headers carry a glyph from `icons.ts`, drawn by the toolkit on a 24x24 grid rather
+than taken from the client, filled with `currentColor` so it inherits the row's colour. A row passes
+it as Field's `icon`, which every Valve field forwards; sliders add `iconLocation: "front"` so the
+glyph sits with the label instead of beside the track. A header pairs an 18px glyph with its title,
+which `PanelSection` accepts because `title` is rendered as-is. Valve's own rows — the profile
+header, overlay level, refresh rate and reset — draw themselves and are left alone. No glyph is used
+twice: a header never repeats one from a row inside it, and no two rows share one, because the panel
+is navigated by shape before the label is read.
+
 | Kind                 | Row                                                                                           | Placement      |
 | -------------------- | --------------------------------------------------------------------------------------------- | -------------- |
 | `valveProfileHeader` | Valve's "Use profile from" header and the per-game toggle                                     | Performance    |
