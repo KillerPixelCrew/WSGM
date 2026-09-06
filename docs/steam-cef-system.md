@@ -372,6 +372,11 @@ Results travel back as a response envelope; every refusal is logged once under
 
 ### State flow
 
+The bridge isolates subscriber exceptions during cached replay and later delivery. A failing
+module callback cannot interrupt another subscriber or prevent installation from retaining its
+cleanup handle. The TDP gate keeps query-refresh failures separate from its command watcher;
+verification requires both the service overlay and the watcher that forwards QAM changes.
+
 Every semantic service raises `StateChanged`; the host coalesces one publication round, and the
 bridge replays the latest state to new subscribers. Polling exists only where Windows offers no
 event: brightness every 2 s, network first after 2 s then every 10 s with a 400 ms scan debounce. A

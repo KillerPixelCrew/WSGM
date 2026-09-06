@@ -14,6 +14,15 @@ Related:
 - `docs\sd-cards.md` — the card manager and format UI that call into library registration.
 - `docs\elevation.md` — the launch wrapper and the non-Steam shortcut rules.
 
+## TDP command watcher failure, 2026-09-06
+
+A read-only inspection found QAM storing 23 W with the limit enabled while the toolkit gate
+reported `installed=true`, `getStateOverlaid=true`, `settingsWatched=false` and no accepted watts.
+The log showed `Steam modules unavailable` during synchronous cached-state replay in `subscribe`,
+followed by an Applied/Verified result. Installation had stopped before starting the settings
+watcher. The fix isolates cached subscriber failures and TDP query refresh, and requires the
+watcher for verification. Offline fixtures reproduce this exception and test forwarding and cleanup.
+
 ## Steam Input handheld glyphs
 
 ### Physical glyphs are CSS, like CSSLoader's Handheld Controller Glyphs theme

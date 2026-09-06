@@ -127,7 +127,13 @@
     let set = subscribers.get(patchId);
     if (!set) subscribers.set(patchId, (set = new Set()));
     set.add(callback);
-    if (latestStates.has(patchId)) callback(latestStates.get(patchId));
+    // Cached replay has the same isolation as later publications. A consumer callback must
+    // not prevent its installer from receiving the unsubscribe handle and finishing setup.
+    if (latestStates.has(patchId)) {
+      try {
+        callback(latestStates.get(patchId));
+      } catch {}
+    }
     return () => set.delete(callback);
   };
   const deliver = (envelope) => {
@@ -1713,7 +1719,15 @@
       }
       return null;
     };
-    const invalidate = (req) => invalidateQuery(req, queryKey);
+    const invalidate = (req) => {
+      try {
+        invalidateQuery(req ?? modules(), queryKey);
+      } catch (error) {
+        // Query refresh is independent of command routing and subscription cleanup. Steam can
+        // temporarily lose its runtime while cached bridge state is replayed during installation.
+        lastError = "power limit query refresh failed: " + String(error);
+      }
+    };
     const onState = (state) => {
       if (!installed || !state) return;
       latest = {
@@ -1721,7 +1735,7 @@
         min: Number(state.minimumWatts) || 0,
         max: Number(state.maximumWatts) || 0,
       };
-      invalidate(modules());
+      invalidate();
     };
     // Valve's TDP rows do not call a namespace. The toggle and the slider are bound to the
     // steamos_tdp_limit_enabled and steamos_tdp_limit CLIENT SETTINGS, Steam persists them, and
@@ -1876,7 +1890,7 @@
         return { ok: false, error: lastError };
       }
       latest = { available: false, min: 0, max: 0 };
-      invalidate(modules());
+      invalidate();
       manager = null;
       originalGetState = null;
       return { ok: true, removed: true };

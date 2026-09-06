@@ -1,7 +1,7 @@
 # WSGM 2.0 implementation tracker
 
-Status: 2.0 is complete in source. `master` carries it and the `2.0` branch is equal to it; new work
-lands on a feature branch and arrives through a pull request.
+Status: 2.0 is complete in source and carried on `master`. Hotfixes and dependency pin-only updates
+use direct commits; other changes use a feature branch and pull request under the root guide.
 
 This is the repository's only progress tracker. Mechanism details and device findings live in the
 focused `docs\` topics, and product decisions in `docs\decisions.md` and `_plan\2.0-decisions.md`.
