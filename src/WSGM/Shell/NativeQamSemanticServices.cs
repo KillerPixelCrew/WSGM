@@ -614,7 +614,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
     };
 }
 
-/// <summary>Projects the primary power limit into Steam's TDP surface.</summary>
+/// <summary>Projects sustained and boost readback into Steam's power sliders.</summary>
 /// <remarks>
 /// With a null coordinator (device integration not active this session) the state is the constant
 /// unavailable one and every write is refused with its reason, so the surface stays honest without
@@ -622,7 +622,6 @@ internal sealed class PerformanceServiceNativeQamAdapter :
 /// </remarks>
 internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBackend, IDisposable
 {
-    private const string CapabilityId = "power.primary-limit";
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(5);
     private static readonly NativeQamTdpState UnavailableState = new(
         false,
@@ -651,44 +650,26 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
         ? UnavailableState
         : Project(_coordinator.Capabilities.Snapshot()).State;
 
-    /// <summary>What Valve's TDP rows read: whether a limit exists, and its range.</summary>
-    internal SteamPowerLimitState PowerLimit
-    {
-        get
-        {
-            NativeQamTdpState state = Current;
-            return new SteamPowerLimitState(state.Available, state.MinimumWatts, state.MaximumWatts);
-        }
-    }
+    /// <summary>Both sliders follow device readback, including profile changes.</summary>
+    internal SteamPowerLimitState PowerLimit => ProjectPowerLimits(
+        _coordinator?.Capabilities.Snapshot() ?? []);
 
-    /// <inheritdoc />
-    /// <remarks>
-    /// Releasing the limit applies the device ceiling, because the hardware has no "no limit"
-    /// write.
-    /// </remarks>
-    public async Task<SteamUiCommandResult> SetPrimaryLimitAsync(
-        int watts,
-        bool enabled,
-        CancellationToken cancellationToken)
-    {
-        if (enabled)
-        {
-            return await SetPrimaryLimitAsync(watts, cancellationToken).ConfigureAwait(false);
-        }
-        if (Current.MaximumWatts is not int ceiling)
-        {
-            const string error = "The device does not report a power-limit ceiling to release to.";
-            Log.Warn($"Native QAM power limit release refused: {error}");
-            return new(false, error);
-        }
+    internal static SteamPowerLimitState ProjectPowerLimits(IReadOnlyList<DeviceCapabilityView> views) => new(
+        ToRange(Project(views).State),
+        ToRange(Project(views, CapabilityRole.PowerSlowLimit).State));
 
-        Log.Info(
-            "Native QAM power limit released to the device ceiling "
-            + $"{ceiling} W: Steam's TDP toggle is off (slider holds {watts} W).");
-        return await SetPrimaryLimitAsync(ceiling, cancellationToken).ConfigureAwait(false);
-    }
+    private static SteamPowerLimitRangeState ToRange(NativeQamTdpState state) => new(
+        state.Available, state.MinimumWatts, state.MaximumWatts, state.StepWatts,
+        state.ObservedWatts, state.Progress, state.StatusText);
 
-    public async Task<SteamUiCommandResult> SetPrimaryLimitAsync(
+    public Task<SteamUiCommandResult> SetPrimaryLimitAsync(int watts, CancellationToken cancellationToken) =>
+        SetLimitAsync(CapabilityRole.PowerSustainedLimit, watts, cancellationToken);
+
+    public Task<SteamUiCommandResult> SetBoostLimitAsync(int watts, CancellationToken cancellationToken) =>
+        SetLimitAsync(CapabilityRole.PowerSlowLimit, watts, cancellationToken);
+
+    private async Task<SteamUiCommandResult> SetLimitAsync(
+        CapabilityRole role,
         int watts,
         CancellationToken cancellationToken)
     {
@@ -699,7 +680,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
             return new SteamUiCommandResult(false, UnavailableState.StatusText);
         }
 
-        TdpProjection projection = Project(_coordinator.Capabilities.Snapshot());
+        TdpProjection projection = Project(_coordinator.Capabilities.Snapshot(), role);
         if (!projection.State.Available
             || projection.State.MinimumWatts is not int minimum
             || projection.State.MaximumWatts is not int maximum
@@ -709,11 +690,11 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
             || (watts - minimum) % step != 0)
         {
             return new SteamUiCommandResult(false,
-                "The primary power limit is unavailable or outside its current descriptor.");
+                "The requested power limit is unavailable or outside its current descriptor.");
         }
 
         CapabilityCommandResult result = await _coordinator.ExecuteCapabilityAsync(
-            CapabilityId,
+            projection.CapabilityId!,
             projection.InstanceId,
             new CapabilityValue
             {
@@ -745,19 +726,18 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
         }
     }
 
-    internal static TdpProjection Project(IReadOnlyList<DeviceCapabilityView> views)
+    internal static TdpProjection Project(
+        IReadOnlyList<DeviceCapabilityView> views,
+        CapabilityRole role = CapabilityRole.PowerSustainedLimit)
     {
         DeviceCapabilityView[] matches = views
-            .Where(view => string.Equals(
-                view.Descriptor.CapabilityId,
-                CapabilityId,
-                StringComparison.Ordinal))
+            .Where(view => view.Descriptor.Role == role)
             .ToArray();
         if (matches.Length != 1)
         {
             string detail = matches.Length == 0
-                ? "The active device does not publish a primary power limit."
-                : "The active device published an ambiguous primary power limit.";
+                ? "The active device does not publish a requested power limit."
+                : "The active device published an ambiguous requested power limit.";
             return new TdpProjection(Unavailable(detail), null);
         }
 
@@ -765,7 +745,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
         CapabilityDescriptor descriptor = view.Descriptor;
         CapabilityProjection projection = view.Projection;
         CapabilityState state = projection.State;
-        if (descriptor.Role is not CapabilityRole.PowerSustainedLimit
+        if (descriptor.Role != role
             || descriptor.ValueKind is not CapabilityValueKind.Integer
             || descriptor.Unit is not CapabilityUnit.Watt
             || !descriptor.SupportsRead
@@ -780,15 +760,15 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
             || step > maximum - minimum)
         {
             return new TdpProjection(
-                Unavailable("The primary power-limit descriptor is incompatible."),
-                descriptor.InstanceId);
+                Unavailable("The requested power-limit descriptor is incompatible."),
+                descriptor.InstanceId, descriptor.CapabilityId);
         }
 
         int? desired = ValidInteger(projection.DesiredValue, minimum, maximum, step);
         int? observed = ValidInteger(state.ObservedValue, minimum, maximum, step);
         bool available = state.Available
             && state.Quality is HardwareStateQuality.Observed or HardwareStateQuality.Verified
-            && (desired.HasValue || observed.HasValue);
+            && observed.HasValue;
         string status = StatusText(view, available);
         return new TdpProjection(
             new NativeQamTdpState(
@@ -800,7 +780,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
                 observed,
                 ProgressText(projection.Progress),
                 status),
-            descriptor.InstanceId);
+            descriptor.InstanceId, descriptor.CapabilityId);
     }
 
     private void OnCapabilityViewsChanged(IReadOnlyList<DeviceCapabilityView> views) =>
@@ -839,7 +819,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
             ?? view.Projection.State.Reason?.Detail;
         if (!available && string.IsNullOrWhiteSpace(detail))
         {
-            detail = "The primary power limit is not currently available.";
+            detail = "The requested power limit is not currently available.";
         }
         else if (view.Projection.DesiredValueOutOfRange)
         {
@@ -861,13 +841,13 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
 
     private static string OutcomeText(CommandOutcome outcome) => outcome switch
     {
-        CommandOutcome.Rejected => "The primary power-limit command was rejected.",
-        CommandOutcome.TimedOut => "The primary power-limit command timed out.",
-        CommandOutcome.Indeterminate => "The primary power-limit result is indeterminate.",
-        _ => "The primary power-limit command did not complete.",
+        CommandOutcome.Rejected => "The requested power-limit command was rejected.",
+        CommandOutcome.TimedOut => "The requested power-limit command timed out.",
+        CommandOutcome.Indeterminate => "The requested power-limit result is indeterminate.",
+        _ => "The requested power-limit command did not complete.",
     };
 
-    internal sealed record TdpProjection(NativeQamTdpState State, string? InstanceId);
+    internal sealed record TdpProjection(NativeQamTdpState State, string? InstanceId, string? CapabilityId = null);
 }
 
 /// <summary>Projects charge-limit and persistent lighting capabilities into Quick Settings.</summary>

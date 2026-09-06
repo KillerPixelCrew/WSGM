@@ -198,7 +198,7 @@ while the header indicator is on.
 | `steam-ui.bridge`               | `SteamUiBridgePatch` (toolkit)       | SharedJSContext | `steam-ui.bridge-binding`            | QAM or network indicator   |
 | `steam-ui.performance`          | gate `perf`                          | SharedJSContext | `steam-ui.performance-namespace`     | QAM                        |
 | `steam-ui.audio`                | gate `audio`                         | SharedJSContext | `steam-ui.audio-namespace`           | QAM, audio manager present |
-| `steam-ui.power-limit`          | gate `steamOsManager`                | SharedJSContext | `steam-ui.steamos-manager-state`     | QAM                        |
+| `steam-ui.power-limit`          | row `powerLimit`                     | SharedJSContext | `steam-ui.performance-root`          | QAM                        |
 | `steam-ui.brightness`           | gate `brightness`                    | SharedJSContext | `steam-ui.brightness-availability`   | QAM                        |
 | `steam-ui.bluetooth`            | gate `bluetooth`                     | SharedJSContext | `steam-ui.bluetooth-manager-service` | QAM, radio manager present |
 | `steam-ui.network`              | gate `network`                       | SharedJSContext | `steam-ui.network-availability`      | QAM or network indicator   |
@@ -246,17 +246,16 @@ Both run in `eng\verify.ps1` and in CI.
 
 ### Anatomy
 
-| Region                      | Origin  | Content                                                                                                                  |
-| --------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------ |
-| prelude                     | toolkit | reuse check, request/subscribe/deliver/dispose, gate registry, ownership primitives, `transportReply`, `invalidateQuery` |
-| `gates\audio.ts`            | toolkit | supplies `SteamClient.System.Audio`                                                                                      |
-| `gates\bluetooth.ts`        | toolkit | replaces the Bluetooth service stub's methods                                                                            |
-| `gates\brightness.ts`       | toolkit | reveals brightness and claims `SetBrightness`                                                                            |
-| `gates\network.ts`          | toolkit | overrides `networkManagementAvailable`, feeds the network store                                                          |
-| `gates\performance.ts`      | toolkit | supplies `SteamClient.System.Perf`                                                                                       |
-| `gates\steam-os-manager.ts` | toolkit | overlays the SteamOS manager `GetState` and watches the TDP settings                                                     |
-| `components.ts`             | toolkit | the React component host that mounts rows into Valve's panels                                                            |
-| `epilogue.ts`               | toolkit | `return installResult;`                                                                                                  |
+| Region                 | Origin  | Content                                                                                                                  |
+| ---------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------ |
+| prelude                | toolkit | reuse check, request/subscribe/deliver/dispose, gate registry, ownership primitives, `transportReply`, `invalidateQuery` |
+| `gates\audio.ts`       | toolkit | supplies `SteamClient.System.Audio`                                                                                      |
+| `gates\bluetooth.ts`   | toolkit | replaces the Bluetooth service stub's methods                                                                            |
+| `gates\brightness.ts`  | toolkit | reveals brightness and claims `SetBrightness`                                                                            |
+| `gates\network.ts`     | toolkit | overrides `networkManagementAvailable`, feeds the network store                                                          |
+| `gates\performance.ts` | toolkit | supplies `SteamClient.System.Perf`                                                                                       |
+| `components.ts`        | toolkit | the React component host that mounts rows into Valve's panels                                                            |
+| `epilogue.ts`          | toolkit | `return installResult;`                                                                                                  |
 
 Every gate returns `{install, remove, status}` and registers itself under its name. The C# side
 reaches a gate through `window[namespace].gate(name)`; a missing gate reads the same as a missing
@@ -264,14 +263,13 @@ bridge.
 
 ### Gates
 
-| Gate             | Literal module                            | What it does                                                                                                                                                                                                                                                                                                           | Markers                                                                                                 |
-| ---------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `perf`           | `74514` (perf store holder)               | `supplyNamespace(SteamClient.System, "Perf")` with `UpdateSettings(base64)` decoded through the store's own message class and forwarded as `updateSettings {delta}`; state written into `SystemPerfStore.m_msgState`                                                                                                   | `__steamUiOwnedNamespace`                                                                               |
-| `audio`          | `1409` (audio store)                      | supplies `System.Audio` (`GetDevices`, `SetDefaultDeviceOverride`, `SetDeviceVolume(id, direction, volume)`, no-op app volume, eight `RegisterFor*`); state feeds the running store through `RegisterOrUpdateDevice` and sets `m_bAvailable`; dispatches a volume change only above 0.004                              | `__steamUiOwnedNamespace`                                                                               |
-| `steamOsManager` | `90389` (manager), `21371` (query client) | claims `GetState` and merges `is_tdp_limit_available`, `tdp_limit_min`, `tdp_limit_max` into the real reply; invalidates `["SteamOSService","State","Manager"]`; watches `steamos_tdp_limit` and `steamos_tdp_limit_enabled` (settings change plus a 1 s timer) and sends `setPrimaryLimit {watts, enabled}` on change | `__steamUiOwnedGetState`, `__steamUiOriginalGetState`                                                   |
-| `brightness`     | `59547` (display settings)                | `claimValue` on `is_display_brightness_available`, `claimMember` on `SetBrightness` → `setBrightness {percent}`; state sets the slider                                                                                                                                                                                 | `__steamUiBrightnessRevealed`, `__steamUiOriginalBrightnessAvailability`, `__steamUiOwnedSetBrightness` |
-| `network`        | `77347` (network store)                   | `claimAccessor` on the prototype getter `networkManagementAvailable`; wraps start/stop scanning and always calls through; writes up to 24 synthetic access points (ids 990001+) through `SetDeviceInfo`; removal deletes them and calls `ForceRefresh`                                                                 | `__steamUiOwnedGetter`, `__steamUiOriginalGetterDescriptor`, `__steamUiOwnedNetworkScan`                |
-| `bluetooth`      | `60517` (service stub), `21371`           | replaces eleven methods on the stub; one synthetic adapter; invalidates `["BluetoothManagerService","State"]`                                                                                                                                                                                                          | `__steamUiOwnedBluetoothService`, `__steamUiOriginalBluetoothServiceMethod`                             |
+| Gate         | Literal module                  | What it does                                                                                                                                                                                                                                                                              | Markers                                                                                                 |
+| ------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `perf`       | `74514` (perf store holder)     | `supplyNamespace(SteamClient.System, "Perf")` with `UpdateSettings(base64)` decoded through the store's own message class and forwarded as `updateSettings {delta}`; state written into `SystemPerfStore.m_msgState`                                                                      | `__steamUiOwnedNamespace`                                                                               |
+| `audio`      | `1409` (audio store)            | supplies `System.Audio` (`GetDevices`, `SetDefaultDeviceOverride`, `SetDeviceVolume(id, direction, volume)`, no-op app volume, eight `RegisterFor*`); state feeds the running store through `RegisterOrUpdateDevice` and sets `m_bAvailable`; dispatches a volume change only above 0.004 | `__steamUiOwnedNamespace`                                                                               |
+| `brightness` | `59547` (display settings)      | `claimValue` on `is_display_brightness_available`, `claimMember` on `SetBrightness` → `setBrightness {percent}`; state sets the slider                                                                                                                                                    | `__steamUiBrightnessRevealed`, `__steamUiOriginalBrightnessAvailability`, `__steamUiOwnedSetBrightness` |
+| `network`    | `77347` (network store)         | `claimAccessor` on the prototype getter `networkManagementAvailable`; wraps start/stop scanning and always calls through; writes up to 24 synthetic access points (ids 990001+) through `SetDeviceInfo`; removal deletes them and calls `ForceRefresh`                                    | `__steamUiOwnedGetter`, `__steamUiOriginalGetterDescriptor`, `__steamUiOwnedNetworkScan`                |
+| `bluetooth`  | `60517` (service stub), `21371` | replaces eleven methods on the stub; one synthetic adapter; invalidates `["BluetoothManagerService","State"]`                                                                                                                                                                             | `__steamUiOwnedBluetoothService`, `__steamUiOriginalBluetoothServiceMethod`                             |
 
 ### The component host
 
@@ -297,7 +295,7 @@ color reveals the zone and HSV sliders only when needed.
 | `valveOverlayLevel`  | Valve's overlay-level selector                                                                | Performance    |
 | `frameLimit`         | WSGM slider with a "Disable frame limit" switch                                               | Performance    |
 | `vrr`                | WSGM toggle labelled by `#QuickAccess_Tab_Perf_EnableVRR`                                     | Performance    |
-| `valveTdp`           | Valve's TDP toggle and slider                                                                 | Performance    |
+| `powerLimit`         | Sustained power (PL1) and Boost power (PL2), driven by observed device values                 | Performance    |
 | `autoTdp`            | WSGM toggle "Automatic TDP"                                                                   | Performance    |
 | `controllerTarget`   | Valve dropdown labelled by the controller section title                                       | Performance    |
 | `valveReset`         | Valve's reset button                                                                          | Performance    |
@@ -333,13 +331,12 @@ registry. The network gate reads `window.SystemNetworkStore`, which Steam publis
 of loading its module or constructing the singleton. Factory presence alone does not prove
 dependency readiness, so these checks supplement the attachment gate.
 
-| Gate           | Verify                                  | Remove              |
-| -------------- | --------------------------------------- | ------------------- |
-| perf, audio    | `installed && namespacePresent`         | `!namespacePresent` |
-| steamOsManager | `installed && getStateOverlaid`         | `!getStateOverlaid` |
-| brightness     | `installed && available && setterOwned` | `!available`        |
-| bluetooth      | `installed && replaced > 0`             | `!installed`        |
-| network        | `installed && available`                | `!available`        |
+| Gate        | Verify                                  | Remove              |
+| ----------- | --------------------------------------- | ------------------- |
+| perf, audio | `installed && namespacePresent`         | `!namespacePresent` |
+| brightness  | `installed && available && setterOwned` | `!available`        |
+| bluetooth   | `installed && replaced > 0`             | `!installed`        |
+| network     | `installed && available`                | `!available`        |
 
 `SteamUiBridgePatch` probes four token conjunctions that must each match exactly one module (TDP
 availability, TDP component, performance actions, read-only profile projection) and never retains a
@@ -372,10 +369,12 @@ Results travel back as a response envelope; every refusal is logged once under
 
 ### State flow
 
-The bridge isolates subscriber exceptions during cached replay and later delivery. A failing
-module callback cannot interrupt another subscriber or prevent installation from retaining its
-cleanup handle. The TDP gate keeps query-refresh failures separate from its command watcher;
-verification requires both the service overlay and the watcher that forwards QAM changes.
+The bridge isolates subscriber exceptions during cached replay and later delivery. A failing module
+callback cannot interrupt another subscriber or prevent installation from retaining its cleanup
+handle. The power-limit rows subscribe to observed PL1/PL2 state, so profile changes refresh both
+sliders. Completed user edits send one explicit command for the selected limit. A failed or
+uncertain command is shown without an automatic retry. The old SteamOS Manager overlay, saved TDP
+setting watcher and single toggle/slider pair are removed.
 
 Every semantic service raises `StateChanged`; the host coalesces one publication round, and the
 bridge replays the latest state to new subscribers. Polling exists only where Windows offers no
@@ -422,7 +421,7 @@ says whether it applies.
 | Deltas        | `UpdateSettings` receives a base64 protobuf, decoded with the message's own `deserializeBinary` and read by `SteamPerformanceDeltaReader`. Recognized: `fps_limit`, `is_fps_limit_enabled`, `perf_overlay_level`, `is_vrr_enabled`, `display_refresh_manual_hz`, `is_game_perf_profile_enabled`, `is_advanced_settings_enabled`, `reset_to_default`; anything else is logged as unbacked. A delta naming another AppID is refused as stale. Fields apply in arrival order, echoes skipped, the first failure collected; `AppliedUnverified` counts as success. |
 | Frame limit   | `FrameLimitStrategy` is `FrameLimitOnly` (default; the refresh rate stays the user's), `NativeModes` or `FrameDoubling`. Bookends are the lowest and highest option, else RTSS's caps; the manual refresh row exists only under `FrameLimitOnly`; the switch writes zero or the displayed cap.                                                                                                                                                                                                                                                                 |
 | Header        | Driven by Steam's AppID as soon as Steam names a game, only later by the RTSS executable.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| TDP           | Selects `power.primary-limit` once; requires a `PowerSustainedLimit` integer descriptor in watts with `1 ≤ min < max ≤ 200`; executes with `CapabilityCommandOrigin.User` and a 5 s timeout so AutoTDP steps aside. Toggle off releases the limit to the device ceiling.                                                                                                                                                                                                                                                                                       |
+| TDP           | Selects sustained and boost descriptors by SDK roles `PowerSustainedLimit` and `PowerSlowLimit`; requires readable/writable integer watts with valid observed state, range and step. Independent PL1/PL2 sliders send user-origin commands with a 5 s timeout through the coordinator. Profile readback updates both; Steam's saved TDP setting is never replayed.                                                                                                                                                                                             |
 
 Other rows: the controller-target dropdown offers the intersection of the three managed targets with
 what the backend can build, is disabled below two options, and tells the user to restart the

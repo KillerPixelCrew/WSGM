@@ -38,6 +38,67 @@ public sealed class NativeQamSemanticServicesTests
     }
 
     [Fact]
+    public void PowerSlidersPublishIndependentObservedValuesAndTrackProfiles()
+    {
+        DeviceCapabilityView pl1 = PrimaryLimitView("pl1");
+        DeviceCapabilityView pl2 = pl1 with
+        {
+            Descriptor = pl1.Descriptor with
+            {
+                CapabilityId = "vendor.boost",
+                InstanceId = "pl2",
+                Role = CapabilityRole.PowerSlowLimit,
+                Maximum = 37,
+            },
+            Projection = pl1.Projection with
+            {
+                State = pl1.Projection.State with
+                {
+                    CapabilityId = "vendor.boost",
+                    InstanceId = "pl2",
+                    ObservedValue = Integer(30),
+                },
+            },
+        };
+        SteamPowerLimitState state = DeviceCoordinatorNativeQamTdpService.ProjectPowerLimits([pl1, pl2]);
+        Assert.Equal(17, state.Sustained.ObservedWatts);
+        Assert.Equal(30, state.Boost.ObservedWatts);
+        Assert.Equal("vendor.boost", DeviceCoordinatorNativeQamTdpService.Project(
+            [pl1, pl2], CapabilityRole.PowerSlowLimit).CapabilityId);
+
+        pl1 = pl1 with
+        {
+            Descriptor = pl1.Descriptor with { Maximum = 37 },
+            Projection = pl1.Projection with
+            {
+                State = pl1.Projection.State with { ObservedValue = Integer(37) },
+            },
+        };
+        pl2 = pl2 with
+        {
+            Projection = pl2.Projection with
+            {
+                State = pl2.Projection.State with { ObservedValue = Integer(37) },
+            },
+        };
+        state = DeviceCoordinatorNativeQamTdpService.ProjectPowerLimits([pl1, pl2]);
+        Assert.Equal(37, state.Sustained.ObservedWatts);
+        Assert.Equal(37, state.Boost.ObservedWatts);
+        Assert.False(DeviceCoordinatorNativeQamTdpService.ProjectPowerLimits([pl1]).Boost.Available);
+        Assert.False(DeviceCoordinatorNativeQamTdpService.ProjectPowerLimits([pl1, pl2, pl2]).Boost.Available);
+    }
+
+    [Fact]
+    public async Task PowerSlidersRefuseBothWritesWhenDeviceIntegrationIsOff()
+    {
+        using DeviceCoordinatorNativeQamTdpService service = new(null);
+        Assert.False(service.PowerLimit.Sustained.Available);
+        Assert.False(service.PowerLimit.Boost.Available);
+        Assert.False((await service.SetPrimaryLimitAsync(20, CancellationToken.None)).Succeeded);
+        Assert.False((await service.SetBoostLimitAsync(25, CancellationToken.None)).Succeeded);
+    }
+
+    [Fact]
     public void DeviceControlsProjectionUsesSemanticRolesAndIndependentLightingZones()
     {
         SteamDeviceControlsState state =

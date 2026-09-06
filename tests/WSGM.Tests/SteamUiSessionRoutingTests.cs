@@ -40,14 +40,14 @@ public sealed class SteamUiSessionRoutingTests
             "setPrimaryLimit",
             sequence: 2,
             actionGeneration: 1,
-            payload: new { watts = "not-a-number", enabled = true });
+            payload: new { watts = "not-a-number" });
         await WaitForAsync(() => transport.Responses.Count >= 2);
 
         Assert.Equal(1, toggles);
         Assert.True(transport.Responses[0].GetProperty("ok").GetBoolean());
         Assert.False(transport.Responses[1].GetProperty("ok").GetBoolean());
         Assert.Equal(
-            "The primary power-limit payload is invalid.",
+            "The sustained power-limit payload is invalid.",
             transport.Responses[1].GetProperty("error").GetString());
     }
 

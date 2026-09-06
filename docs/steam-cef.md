@@ -14,14 +14,22 @@ Related:
 - `docs\sd-cards.md` — the card manager and format UI that call into library registration.
 - `docs\elevation.md` — the launch wrapper and the non-Steam shortcut rules.
 
+## Independent power sliders, 2026-09-06
+
+The maintainer reported that selecting Full Power left the QAM slider at its previous value, and
+that the single slider changed only sustained power. QAM now uses separate PL1 and PL2 controls
+bound to device observations. The former SteamOS Manager setting watcher described below is retired.
+Offline fixtures cover a 23/30 W state changing to 37/37 W without echoing a write, independent
+edits, rejected commands and unavailable readback.
+
 ## TDP command watcher failure, 2026-09-06
 
-A read-only inspection found QAM storing 23 W with the limit enabled while the toolkit gate
-reported `installed=true`, `getStateOverlaid=true`, `settingsWatched=false` and no accepted watts.
-The log showed `Steam modules unavailable` during synchronous cached-state replay in `subscribe`,
-followed by an Applied/Verified result. Installation had stopped before starting the settings
-watcher. The fix isolates cached subscriber failures and TDP query refresh, and requires the
-watcher for verification. Offline fixtures reproduce this exception and test forwarding and cleanup.
+A read-only inspection found QAM storing 23 W with the limit enabled while the toolkit gate reported
+`installed=true`, `getStateOverlaid=true`, `settingsWatched=false` and no accepted watts. The log
+showed `Steam modules unavailable` during synchronous cached-state replay in `subscribe`, followed
+by an Applied/Verified result. Installation had stopped before starting the settings watcher. The
+fix isolates cached subscriber failures and TDP query refresh, and requires the watcher for
+verification. Offline fixtures reproduce this exception and test forwarding and cleanup.
 
 ## Steam Input handheld glyphs
 

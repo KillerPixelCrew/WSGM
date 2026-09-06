@@ -14,7 +14,8 @@ Windows shell the whole time.
 - **Device power profiles**: select a plugin-defined TDP, firmware scenario and Windows mode preset
   from the Device page or Steam QAM Performance. The Claw A2VM offers Super Battery, Balanced,
   Extreme Performance and Full Power; independent changes save Custom for the active AC or battery
-  source, and switching back restores those custom values.
+  source, and switching back restores those custom values. QAM has separate sustained (PL1) and
+  boost (PL2) sliders that follow device readback when a profile changes.
 
 - **Boot to Big Picture** — a logon service starts game mode at sign-in behind a splash screen;
   switching to the desktop and back is one press, any time.
