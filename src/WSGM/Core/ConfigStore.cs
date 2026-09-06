@@ -665,6 +665,13 @@ public static class ConfigStore
         { return null; }
         reference.PluginId = pluginId;
         reference.PresetId = presetId;
+        if (presetId == "custom")
+        {
+            if (reference.CustomValues is not { } values || values.SustainedWatts <= 0
+                || values.SlowWatts < values.SustainedWatts || !Enum.IsDefined(values.WindowsMode)
+                || values.Scenario is { Length: 0 or > 128 }) { return null; }
+        }
+        else { reference.CustomValues = null; }
         return reference;
     }
 

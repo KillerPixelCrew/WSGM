@@ -70,6 +70,12 @@ exceptions, stored under `Performance` because that owner also decides how each 
 application closes; one value never gets two homes. Mechanism in `docs\device-plugin-system.md`,
 §11.
 
+**Custom power profiles belong to their power source.** Changing a value included in an applied
+device power profile saves the complete observed profile as Custom for AC or battery. Returning to
+that source restores those custom values. Per-game changes override only that game; the inactive
+source and global defaults remain unchanged. The assignment mechanism and validation boundaries are
+in `docs\power-and-display.md`.
+
 **Toolchain pins.** .NET 10 and Avalonia 12.1.1. `LoadingIndicators.Avalonia` is vendored under
 `third_party\LoadingIndicators.Avalonia` and built from source, because its published Avalonia 11
 package has precompiled XAML that fails on Avalonia 12; its Unlicense text ships from

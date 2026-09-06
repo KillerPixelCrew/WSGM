@@ -1,5 +1,6 @@
 using System.Text.Json;
 using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
 
 namespace WSGM.Tests;
@@ -32,6 +33,183 @@ public sealed class DevicePowerAssignmentsTests
                 else { Config.BatteryPowerPreset = reference; }
                 return Task.CompletedTask;
             });
+    }
+
+    [Theory]
+    [InlineData(true, "pl1")]
+    [InlineData(false, "pl1")]
+    [InlineData(true, "pl2")]
+    [InlineData(false, "pl2")]
+    [InlineData(true, "mode")]
+    [InlineData(false, "mode")]
+    [InlineData(true, "scenario")]
+    [InlineData(false, "scenario")]
+    public async Task DriftSavesOnlyTheActiveSourceAndRestoresItsCompleteCustomProfile(bool ac, string change)
+    {
+        Rig rig = new();
+        rig.Device.OnAc = ac;
+        rig.Device.AddScenarios();
+        var presets = rig.Device.Create();
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(default);
+        switch (change)
+        {
+            case "pl1":
+                ChangeValue(rig, 0, new() { Kind = CapabilityValueKind.Integer, IntegerValue = ac ? 29 : 9 });
+                break;
+            case "pl2": ChangeValue(rig, 1, new() { Kind = CapabilityValueKind.Integer, IntegerValue = ac ? 32 : 10 }); break;
+            case "mode": rig.Device.Api.Mode = WindowsPowerModes.Id(DevicePowerMode.Balanced); break;
+            case "scenario": ChangeValue(rig, 2, new() { Kind = CapabilityValueKind.Choice, ChoiceValue = "green" }); break;
+        }
+        var expected = (await presets.ReadAsync()).Values;
+        int writes = rig.Device.Calls.Count;
+        await assignments.ReconcileAsync(default);
+        var saved = ac ? rig.Config.AcPowerPreset : rig.Config.BatteryPowerPreset;
+        Assert.Equal("custom", saved!.PresetId);
+        Assert.Equal(expected, saved.CustomValues);
+        Assert.Equal(ac ? "battery" : "extreme", (ac ? rig.Config.BatteryPowerPreset : rig.Config.AcPowerPreset)!.PresetId);
+        Assert.Equal(writes, rig.Device.Calls.Count);
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(1, rig.Saves);
+        var qam = (await new NativeQamPowerPresetService(presets, assignments).ReadAsync())!;
+        Assert.Equal("custom", ac ? qam.Ac : qam.Battery);
+        Assert.Contains(qam.Options, item => item.Id == "custom" && item.Label == "Custom");
+
+        rig.Device.OnAc = !ac;
+        await assignments.ReconcileAsync(default);
+        rig.Device.OnAc = ac;
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(expected, (await presets.ReadAsync()).Values);
+        Assert.Equal("custom", (ac ? assignments.Snapshot().AcPreset : assignments.Snapshot().BatteryPreset));
+        Assert.Equal(1, rig.Saves);
+    }
+
+    private static void ChangeValue(Rig rig, int index, CapabilityValue value)
+    {
+        var view = rig.Device.Views[index];
+        rig.Device.Views[index] = view with
+        { Projection = view.Projection with { State = view.Projection.State with { ObservedValue = value } } };
+    }
+
+    [Fact]
+    public async Task CustomInheritedFromGlobalBecomesALocalOverrideWithoutChangingGlobalOrOtherGames()
+    {
+        Rig rig = new() { Application = "steam:42" };
+        rig.Config.Applications.Add(new() { ApplicationId = rig.Application, UsePerGameProfile = true });
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(default);
+        ChangeValue(rig, 0, new() { Kind = CapabilityValueKind.Integer, IntegerValue = 29 });
+        await assignments.ReconcileAsync(default);
+        Assert.Equal("custom", rig.Config.Applications[0].AcPowerPreset!.PresetId);
+        Assert.Equal("extreme", rig.Config.AcPowerPreset!.PresetId);
+        Assert.Null(rig.Config.Applications[0].BatteryPowerPreset);
+        rig.Application = null;
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(30, rig.Device.Views[0].Projection.State.ObservedValue!.IntegerValue);
+        rig.Application = "steam:42";
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(29, rig.Device.Views[0].Projection.State.ObservedValue!.IntegerValue);
+    }
+
+    [Fact]
+    public async Task CustomSurvivesSerializationAndSubsequentEditsWithoutPollingWritesToHardware()
+    {
+        Rig rig = new();
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(default);
+        ChangeValue(rig, 0, new() { Kind = CapabilityValueKind.Integer, IntegerValue = 29 });
+        await assignments.ReconcileAsync(default);
+        ChangeValue(rig, 1, new() { Kind = CapabilityValueKind.Integer, IntegerValue = 32 });
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(2, rig.Device.Calls.Count);
+        Assert.Equal(2, rig.Saves);
+        string json = JsonSerializer.Serialize(rig.Config, ConfigJsonContext.Default.PerformanceConfig);
+        rig.Config = JsonSerializer.Deserialize(json, ConfigJsonContext.Default.PerformanceConfig)!;
+        var restored = rig.Create();
+        await restored.ReconcileAsync(default);
+        Assert.Equal(29, rig.Device.Views[0].Projection.State.ObservedValue!.IntegerValue);
+        Assert.Equal(32, rig.Device.Views[1].Projection.State.ObservedValue!.IntegerValue);
+        await restored.AssignAsync(true, "balanced", default);
+        Assert.Null(rig.Config.AcPowerPreset!.CustomValues);
+        Assert.Equal("balanced", rig.Config.AcPowerPreset.PresetId);
+    }
+
+    [Fact]
+    public async Task FailedAssignmentNeverSavesPartialReadingsAsCustom()
+    {
+        Rig rig = new();
+        rig.Device.FailAt = 2;
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(default);
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(0, rig.Saves);
+        Assert.Equal("extreme", rig.Config.AcPowerPreset!.PresetId);
+    }
+
+    [Fact]
+    public async Task EditingInactiveAssignmentDoesNotReplayActivePresetOverManualChanges()
+    {
+        Rig rig = new();
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(default);
+        ChangeValue(rig, 0, new() { Kind = CapabilityValueKind.Integer, IntegerValue = 29 });
+        await assignments.AssignAsync(false, "balanced", default);
+        Assert.Equal(2, rig.Device.Calls.Count);
+        Assert.Equal("custom", rig.Config.AcPowerPreset!.PresetId);
+        Assert.Equal(29, rig.Config.AcPowerPreset.CustomValues!.SustainedWatts);
+        Assert.Equal("balanced", rig.Config.BatteryPowerPreset!.PresetId);
+    }
+
+    [Theory]
+    [InlineData("stale")]
+    [InlineData("source")]
+    [InlineData("application")]
+    public async Task UnreliableOrReassignedObservationsNeverReplaceTheSavedProfile(string change)
+    {
+        Rig rig = new();
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(default);
+        ChangeValue(rig, 0, new() { Kind = CapabilityValueKind.Integer, IntegerValue = 29 });
+        if (change == "stale")
+        {
+            var view = rig.Device.Views[0];
+            rig.Device.Views[0] = view with
+            { Projection = view.Projection with { State = view.Projection.State with { Quality = HardwareStateQuality.Stale } } };
+        }
+        else { rig.Device.Api.AfterRead = () => { if (change == "source") { rig.Device.OnAc = false; } else { rig.Application = "steam:42"; } }; }
+        await assignments.ReconcileAsync(default);
+        Assert.Equal(0, rig.Saves);
+        Assert.Equal("extreme", rig.Config.AcPowerPreset!.PresetId);
+    }
+
+    [Fact]
+    public async Task SavedCustomOutsideCurrentDeviceLimitsIsRejectedWithoutWritesOrPollingRetries()
+    {
+        Rig rig = new();
+        rig.Config.AcPowerPreset = Reference("custom") with
+        { CustomValues = new() { SustainedWatts = 38, SlowWatts = 38, WindowsMode = DevicePowerMode.Balanced } };
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(default);
+        await assignments.ReconcileAsync(default);
+        Assert.Empty(rig.Device.Calls);
+        Assert.NotEmpty(assignments.Snapshot().Status);
+        Assert.Equal(0, rig.Saves);
+    }
+
+    [Fact]
+    public void NormalizationRejectsIncompleteCustomAndClearsValuesFromNamedPresets()
+    {
+        AppConfig config = new();
+        config.Performance.AcPowerPreset = Reference("custom");
+        config.Performance.BatteryPowerPreset = Reference("balanced") with
+        { CustomValues = new() { SustainedWatts = 17, SlowWatts = 18 } };
+        ConfigStore.Normalize(config);
+        Assert.Null(config.Performance.AcPowerPreset);
+        Assert.Null(config.Performance.BatteryPowerPreset!.CustomValues);
+        config.Performance.AcPowerPreset = Reference("custom") with
+        { CustomValues = new() { SustainedWatts = 18, SlowWatts = 17 } };
+        ConfigStore.Normalize(config);
+        Assert.Null(config.Performance.AcPowerPreset);
     }
 
     [Theory]
