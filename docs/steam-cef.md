@@ -22,6 +22,9 @@ bound to device observations. The former SteamOS Manager setting watcher describ
 Offline fixtures cover a 23/30 W state changing to 37/37 W without echoing a write, independent
 edits, rejected commands and unavailable readback.
 
+After deployment, read-only QAM DOM inspection found both sliders at 26 W and 31 W. Following the
+maintainer's Full Power selection (verified in the 11:03:09 log), both slider values read 37 W.
+
 ## TDP command watcher failure, 2026-09-06
 
 A read-only inspection found QAM storing 23 W with the limit enabled while the toolkit gate reported
