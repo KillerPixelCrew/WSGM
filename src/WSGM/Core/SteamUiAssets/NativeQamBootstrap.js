@@ -2819,11 +2819,12 @@
           ...state.options.map((option) => ({ data: option.id, label: option.label })),
         ];
         const definition = definitions.powerPreset;
-        const assignment = (label, iconName, selected, command) =>
+        const assignment = (label, iconName, selected, command, description) =>
           controlRuntime.react.createElement(controlRuntime.dropdown, {
             label,
             icon: controlRuntime.icon(iconName),
             layout: "below",
+            description,
             rgOptions: options.filter(
               (option) => option.data !== "custom" || selected === "custom",
             ),
@@ -2864,16 +2865,20 @@
                   label: "Active profile",
                   icon: controlRuntime.icon("check"),
                   description: detail || undefined,
-                  bottomSeparator: "standard",
                 },
                 state.current,
               )
             : note("powerPresetActive", "Steam LabelField was not resolved");
+        // A refusal has to stay visible when there is no active profile to hang it on. Readback can
+        // fail with `available: false`, a reason, and no current profile at all, and on a client
+        // where LabelField could not be resolved there is no row here either; both left two
+        // disabled dropdowns and no explanation for why.
+        const orphaned = active || !detail ? undefined : detail;
         return controlRuntime.react.createElement(
           controlRuntime.react.Fragment,
           null,
           active,
-          assignment("When plugged in", "plug", state.ac, definition.acCommand),
+          assignment("When plugged in", "plug", state.ac, definition.acCommand, orphaned),
           assignment("On battery", "battery", state.battery, definition.batteryCommand),
         );
       };
@@ -3612,11 +3617,18 @@
     // a row's icon belongs. The other Valve rows cannot take one this way: the per-game toggle
     // returns a Fragment, which drops any prop but `key`; the reset row is a button rather than a
     // field; and the profile header already draws the game's own capsule art as its icon.
-    const withIcon = (controlRuntime, component, iconName) =>
+    // The icon is built by the caller rather than named here, so the glyph gate sees this placement
+    // as the same `icon("name")` shape as every other one instead of needing a rule of its own.
+    const withIcon = (controlRuntime, component, icon) =>
       function SteamUiValveRowWithIcon() {
         const rendered = component({});
-        const icon = controlRuntime.icon(iconName);
-        return icon && controlRuntime.react.isValidElement(rendered)
+        // Only a component element can carry the prop onward. Valve's row is a function that spreads
+        // what it does not recognize into SliderField, and that is the whole reason this works; a
+        // future build returning a Fragment or a host element would take the icon nowhere and warn
+        // on every render instead, so those are handed back untouched.
+        return icon &&
+          controlRuntime.react.isValidElement(rendered) &&
+          typeof rendered.type === "function"
           ? controlRuntime.react.cloneElement(rendered, { icon, iconLocation: "front" })
           : rendered;
       };
@@ -3643,15 +3655,17 @@
     // 18px is the size Valve's own header rule gives a section icon, against a 16px header. A
     // section with no glyph of its own keeps the plain string, so the header is never wrapped in
     // markup that buys it nothing.
+    // Hoisted, because a header is rebuilt on every render of the panel root and a fresh style
+    // object each time would hand React new props for a div that never changes.
+    const SectionTitleStyle = Object.freeze({
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+    });
     const sectionTitle = (controlRuntime, title) => {
       const icon = controlRuntime.icon(SectionIcons[title], 18);
       return icon
-        ? controlRuntime.react.createElement(
-            "div",
-            { style: { display: "flex", alignItems: "center", gap: "8px" } },
-            icon,
-            title,
-          )
+        ? controlRuntime.react.createElement("div", { style: SectionTitleStyle }, icon, title)
         : title;
     };
     const appendControls = (controlRuntime, tree, placement = "perf") => {
@@ -3871,7 +3885,7 @@
         ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_Overlay_Level"])
         : null;
       valveOverlayLevelControl = valveOverlayLevel
-        ? withIcon(controlRuntime, valveOverlayLevel, "layers")
+        ? withIcon(controlRuntime, valveOverlayLevel, controlRuntime.icon("layers"))
         : null;
       return true;
     };
