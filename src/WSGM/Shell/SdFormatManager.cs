@@ -198,14 +198,9 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             {
                 continue;
             }
-            using var handle = NativeStorage.OpenDiskForRead(disk);
-            if (handle.IsInvalid)
-            {
-                continue;
-            }
-            var size = NativeStorage.GetDiskLength(handle);
-            NativeStorage.TryGetDeviceDescriptor(handle, out var busType, out var product);
-            var linux = NativeStorage.TryGetPartitionTypes(handle, out _, out var partitions)
+            var size = NativeStorage.GetDiskCapacityForQuery(probe);
+            NativeStorage.TryGetDeviceDescriptor(probe, out var busType, out var product);
+            var linux = NativeStorage.TryGetPartitionTypes(probe, out _, out var partitions)
                 && partitions.Any(p => p.IsLinux);
             var id = NativeStorage.TryGetDevNode(path, out var devInst)
                 ? NativeStorage.GetDeviceInstanceId(devInst)

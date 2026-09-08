@@ -23,8 +23,8 @@ namespace WSGM.Shell;
 /// disables the reader itself until reboot.
 ///
 /// Enumeration opens volume and disk handles, so nothing heavy runs on the UI
-/// thread or on every tick: a 2 s timer computes a cheap drive-letter/readiness
-/// signature and only a change (or an explicit refresh) triggers the full
+/// thread: a 2 s timer computes a drive-letter/interface signature; changes,
+/// explicit refreshes and a 10 s fallback for letterless media trigger full
 /// re-enumeration, off-thread, publishing back through the dispatcher. Rows are
 /// reconciled in place — rebuilding the collection would drop the control under
 /// the gamepad cursor.</summary>
@@ -36,6 +36,7 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
     private DispatcherTimer? _timer;
     private int _refreshing;
     private string _lastSignature = "";
+    private int _snapshotTicks;
 
     /// <summary>Serializes eject attempts: one device at a time, so two rows
     /// cannot interleave their lock/eject sequences.</summary>
@@ -117,11 +118,11 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
     /// button and run when the panel opens.</summary>
     public void Refresh() => QueueRefresh(force: true);
 
-    private void OnTick(object? sender, EventArgs e) => QueueRefresh(force: false);
+    private void OnTick(object? sender, EventArgs e) => QueueRefresh(force: ++_snapshotTicks % 5 == 0);
 
     /// <summary>Refreshes off the UI thread, at most one at a time. Without the
-    /// force flag the full enumeration only runs when the cheap drive signature
-    /// changed — an idle taskbar must not open device handles every 2 s.</summary>
+    /// force flag the full enumeration only runs when the drive/interface signature
+    /// changed. The timer also forces a snapshot every 10 s for letterless reader media.</summary>
     private void QueueRefresh(bool force)
     {
         if (Interlocked.CompareExchange(ref _refreshing, 1, 0) != 0)
@@ -172,6 +173,7 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
                 // A drive vanishing mid-walk is itself a change next tick.
             }
         }
+        parts.AddRange(NativeStorage.ListDiskInterfaces().OrderBy(path => path, StringComparer.Ordinal));
         return string.Join(";", parts);
     }
 
@@ -185,7 +187,10 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
     /// <param name="VolumeLetter">The letter to lock (media rows).</param>
     internal sealed record EjectableDevice(
         string Id, string Name, string Letters, long SizeBytes, EjectKind Kind,
-        uint DevInst, char VolumeLetter);
+        uint DevInst, char VolumeLetter)
+    {
+        internal string DiskPath { get; init; } = "";
+    }
 
     /// <summary>Which eject path a disk's hotplug facts call for, or null when
     /// the disk is internal fixed storage and must not be listed at all.</summary>
@@ -250,13 +255,26 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
         var volumes = new List<(char Letter, int Disk, long Size)>();
         foreach (var volume in NativeStorage.MountedVolumes())
         {
-            if (!volume.Ready
-                || volume.DeviceType != NativeStorage.FileDeviceDisk
+            if (volume.DeviceType != NativeStorage.FileDeviceDisk
                 || volume.Disk < 0)
             {
                 continue;
             }
             volumes.Add((volume.Letter, volume.Disk, volume.SizeBytes));
+        }
+        // Physical interfaces exist even when Windows cannot mount any partition.
+        var diskPaths = new Dictionary<int, string>();
+        foreach (var path in NativeStorage.ListDiskInterfaces())
+        {
+            using var probe = NativeStorage.OpenVolumeForQueryPath(path);
+            if (probe.IsInvalid || !NativeStorage.TryGetDeviceNumber(probe, out var type, out var disk)
+                || type != NativeStorage.FileDeviceDisk || disk < 0) { continue; }
+            diskPaths.TryAdd(disk, path);
+            if (!volumes.Any(volume => volume.Disk == disk))
+            {
+                var capacity = NativeStorage.GetDiskCapacityForQuery(probe);
+                AddUnletteredDisk(volumes, disk, capacity);
+            }
         }
         if (volumes.Count == 0)
         {
@@ -306,7 +324,7 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
             var hasNode = nodes.TryGetValue(group.Key, out var node);
             var name = hasNode ? node.Name : "";
             var devInst = hasNode ? node.DevInst : 0u;
-            var letters = group.Select(v => v.Letter).OrderBy(l => l).ToArray();
+            var letters = group.Select(v => v.Letter).Where(char.IsAsciiLetter).OrderBy(l => l).ToArray();
             var size = group.Sum(v => v.Size);
             if (kind == EjectKind.UsbDevice)
             {
@@ -314,7 +332,7 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
                 // once, and per-partition rows would invite a doomed second try.
                 var id = hasNode && node.Id.Length > 0 ? node.Id : $"disk:{group.Key}";
                 result.Add(new EjectableDevice(
-                    id, name, FormatLetters(letters), size, kind, devInst, letters[0]));
+                    id, name, FormatLetters(letters), size, kind, devInst, letters.FirstOrDefault()));
             }
             else
             {
@@ -323,12 +341,20 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
                 foreach (var volume in group)
                 {
                     result.Add(new EjectableDevice(
-                        $"media:{volume.Letter}", name, FormatLetters([volume.Letter]),
-                        volume.Size, kind, devInst, volume.Letter));
+                        volume.Letter == '\0' ? $"media:{node.Id}:{group.Key}" : $"media:{volume.Letter}",
+                        name, volume.Letter == '\0' ? "No Windows drive letter" : FormatLetters([volume.Letter]),
+                        volume.Size, kind, devInst, volume.Letter)
+                    { DiskPath = diskPaths.GetValueOrDefault(group.Key, "") });
                 }
             }
         }
         return result;
+    }
+
+    internal static void AddUnletteredDisk(List<(char Letter, int Disk, long Size)> volumes, int disk, long capacity)
+    {
+        if (disk >= 0 && capacity > 0 && !volumes.Any(volume => volume.Disk == disk))
+        { volumes.Add(('\0', disk, capacity)); }
     }
 
     /// <summary>The disks the eject list must never contain: whatever Windows
@@ -385,6 +411,7 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
             row.SizeText = FormatSize(device.SizeBytes);
             row.DevInst = device.DevInst;
             row.VolumeLetter = device.VolumeLetter;
+            row.DiskPath = device.DiskPath;
             if (row.Ejected)
             {
                 // Listed again after a successful eject = reinserted and mounted;
@@ -459,9 +486,10 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
             var devInst = entry.DevInst;
             var letter = entry.VolumeLetter;
             var name = entry.Name;
+            var diskPath = entry.DiskPath;
             var result = await Task.Run(() => entry.Kind == EjectKind.UsbDevice
                 ? EjectDevice(devInst, name)
-                : EjectMediaVolume(letter, name));
+                : letter == '\0' ? EjectUnletteredMedia(diskPath) : EjectMediaVolume(letter, name));
             if (result.Success)
             {
                 entry.Ejected = true;
@@ -489,6 +517,42 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
     }
 
     private readonly record struct EjectResult(bool Success, string Message);
+
+    private static EjectResult EjectUnletteredMedia(string path)
+    {
+        using var query = NativeStorage.OpenVolumeForQueryPath(path);
+        if (query.IsInvalid || !NativeStorage.TryGetDeviceNumber(query, out _, out var disk)
+            || ClassifyDisk(disk, ResolveSystemDisks()) != EjectKind.Media)
+        { return new(false, "The removable medium changed. Refresh and try again."); }
+        // Keep every exposed volume locked until the medium has been ejected.
+        var locks = new List<Microsoft.Win32.SafeHandles.SafeFileHandle>();
+        try
+        {
+            foreach (var volumePath in NativeStorage.ListVolumeInterfaces())
+            {
+                using var volume = NativeStorage.OpenVolumeForQueryPath(volumePath);
+                if (volume.IsInvalid || !NativeStorage.TryGetDeviceNumber(volume, out _, out var volumeDisk)
+                    || volumeDisk != disk) { continue; }
+                var locked = NativeStorage.OpenDeviceForMediaEject(volumePath);
+                locks.Add(locked);
+                if (locked.IsInvalid || !NativeStorage.LockVolume(locked))
+                { return new(false, "The card is still in use. Close its applications before ejecting it."); }
+            }
+            foreach (var locked in locks)
+            {
+                if (!NativeStorage.DismountVolume(locked))
+                { return new(false, "Windows could not dismount the card. It has not been ejected."); }
+            }
+            using var handle = NativeStorage.OpenDeviceForMediaEject(path);
+            if (handle.IsInvalid || !NativeStorage.EjectMedia(handle))
+            { return new(false, "Windows could not eject this medium. No safe-removal confirmation was received."); }
+            return new(true, "");
+        }
+        finally
+        {
+            foreach (var locked in locks) { locked.Dispose(); }
+        }
+    }
 
     /// <summary>The PnP device eject, with retries for transient holders.
     /// Worker thread only.</summary>

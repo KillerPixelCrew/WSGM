@@ -53,6 +53,7 @@ internal static unsafe partial class NativeStorage
     private const uint IoctlStorageGetHotplugInfo = 0x2D0C14;
     private const uint IoctlStorageQueryProperty = 0x2D1400;
     private const uint IoctlDiskGetLengthInfo = 0x7405C;
+    private const uint IoctlDiskGetDriveGeometryEx = 0x700A0;
     private const uint IoctlDiskGetDriveLayoutEx = 0x70050;
     private const uint FsctlLockVolume = 0x090018;
     private const uint FsctlDismountVolume = 0x090020;
@@ -220,6 +221,10 @@ internal static unsafe partial class NativeStorage
     internal static SafeFileHandle OpenVolumeForEject(char letter) =>
         CreateFileW($@"\\.\{letter}:", GenericRead | GenericWrite, FileShareReadWrite, 0,
             OpenExisting, 0, 0);
+
+    /// <summary>Opens the exact enumerated disk interface for a media eject request.</summary>
+    internal static SafeFileHandle OpenDeviceForMediaEject(string path) =>
+        CreateFileW(path, GenericRead | GenericWrite, FileShareReadWrite, 0, OpenExisting, 0, 0);
 
     /// <summary>Opens a device-interface path for attribute queries only.</summary>
     /// <param name="path">A path from <see cref="ListDiskInterfaces"/>.</param>
@@ -521,6 +526,18 @@ internal static unsafe partial class NativeStorage
             ? length
             : 0;
     }
+
+    /// <summary>Reads capacity without requiring a privileged physical-disk read handle.</summary>
+    internal static long GetDiskCapacityForQuery(SafeFileHandle disk)
+    {
+        var buffer = stackalloc byte[256];
+        return DeviceIoControl(disk, IoctlDiskGetDriveGeometryEx, 0, 0, (nint)buffer, 256,
+            out var written, 0) ? ReadGeometryCapacity(new ReadOnlySpan<byte>(buffer, (int)Math.Min(written, 256))) : 0;
+    }
+
+    /// <summary>Decodes DISK_GEOMETRY_EX.DiskSize after its 24-byte DISK_GEOMETRY.</summary>
+    internal static long ReadGeometryCapacity(ReadOnlySpan<byte> buffer) =>
+        buffer.Length >= 32 ? Math.Max(0, System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(buffer[24..32])) : 0;
 
     /// <summary>Reads the disk's bus type and vendor/product identity via
     /// IOCTL_STORAGE_QUERY_PROPERTY (StorageDeviceProperty).</summary>

@@ -42,6 +42,21 @@ the media, and it cannot be attributed to the wrong card:
   the previous one's. This is what keeps Steam's own storage page honest; WSGM no longer depends on
   it.
 
+## Physical media discovery for Format and Eject
+
+Format and Eject discover physical disk interfaces independently of mounted drive letters. Linux-only
+partitions can therefore remain visible without a Windows filesystem. Discovery uses query access;
+capacity comes from `IOCTL_DISK_GET_DRIVE_GEOMETRY_EX`, whose disk-size field follows the 24-byte
+geometry record ([Windows contract](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntdddisk/ni-ntdddisk-ioctl_disk_get_drive_geometry_ex)).
+An unavailable privileged read handle no longer removes a Format candidate. Formatting still uses
+the existing confirmation, elevation and fresh target-validation path.
+
+System/application disks and internal fixed storage remain excluded. Eject watches physical interface
+changes as well as letters, with a 10-second full snapshot for media inserted into an existing reader.
+USB devices use their existing PnP eject. Letterless media in a built-in reader uses its exact disk
+interface, revalidates classification and locks/dismounts exposed volumes before requesting media
+eject. Failure never becomes a safe-to-remove message or a reader-level PnP eject.
+
 ## A drive letter is a mount point, so no write may be addressed by one
 
 A card library is the common case, not the only one. The Add Steam Library flow takes any writable

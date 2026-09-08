@@ -47,6 +47,7 @@ public sealed class RemovableDriveEntry : INotifyPropertyChanged
 
     /// <summary>The drive letter the media-level eject opens (media rows).</summary>
     internal char VolumeLetter { get; set; }
+    internal string DiskPath { get; set; } = "";
 
     private string _name = "";
     /// <summary>Gets the device's display name, or a placeholder when the
