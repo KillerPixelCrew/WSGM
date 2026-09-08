@@ -34,8 +34,26 @@ cancellation can therefore require process exit to recover its slot.
 Health callbacks are checked against their owning registration and generation, then dispatched to
 the UI with another generation check. Desktop/Game intent uses increasing revisions, cancels obsolete
 cooperative mode work and leaves the Device integration resident. Independent fake instances validate
-coexistence without a Device Plugin; external package discovery and configuration remain subsequent
-migration slices.
+coexistence without a Device Plugin; external package discovery remains a subsequent migration slice.
+
+## Configuration and state
+
+`IConfigurablePlugin` declares bounded boolean, numeric or text preferences for plugin behavior.
+The host snapshots and validates the schema before startup. It restores saved preferences with
+unsaved declaration fallbacks, then delivers a complete immutable `PluginConfiguration` snapshot.
+External-state controls belong to action/capability surfaces, not this preferences contract.
+
+An explicit edit includes the revision the UI read. `CommonPluginSettings` validates the change,
+persists only those changed keys through `ConfigStore.Mutate`, then dispatches the complete requested
+configuration. A stale revision or failed save prevents dispatch. Defaults are not saved implicitly.
+Application failure does not erase desired preferences; a mismatched confirmation remains unconfirmed.
+There is no automatic configuration retry. Existing Device settings retain their current adapter path.
+
+`PluginStatePublication` carries instance, lifecycle generation, increasing sequence, origin and
+optional configuration/action correlation. It describes effective state only and cannot reach the
+configuration store. The host accepts bounded primitive values, retains at most 128 state keys per
+instance, rejects reordered/stale observations and checks queued UI events again before dispatch.
+These are ordinary UI/status events; high-rate controller samples retain their specialized path.
 
 The initial execution model remains trusted in-process code. Collectible load contexts isolate
 dependencies, not security or crashes. A process boundary would require separately designed and

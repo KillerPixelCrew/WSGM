@@ -4,18 +4,21 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Plugin.Sdk;
+using WSGM.Core;
 
 namespace WSGM.Shell;
 
 /// <summary>Resident instance admission and generation-scoped health for every plugin category.</summary>
-internal sealed class PluginHost(Action<Action> postToUi)
+internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationStore? configurationStore = null)
 {
+    internal IPluginConfigurationStore ConfigurationStore { get; } = configurationStore ?? new ApplicationPluginConfigurationStore();
     private readonly object _gate = new();
     private readonly Dictionary<PluginInstanceIdentity, PluginRegistration> _instances = [];
     private PluginSessionMode _mode = PluginSessionMode.Desktop;
     private long _modeRevision;
 
     internal event Action<PluginHealthPublication>? HealthChanged;
+    internal event Action<PluginStatePublication>? StateChanged;
 
     internal PluginRegistration Admit(IPlugin plugin, PluginInstanceIdentity identity, string category,
         PluginCategoryPolicy policy, bool selected, long generation, string stateDirectory)
@@ -45,6 +48,48 @@ internal sealed class PluginHost(Action<Action> postToUi)
     internal PluginHealthPublication[] Snapshot()
     {
         lock (_gate) { return _instances.Values.Select(instance => instance.Health).ToArray(); }
+    }
+
+    internal PluginStatePublication[] StateSnapshot(PluginInstanceIdentity identity)
+    {
+        lock (_gate)
+        {
+            return _instances.TryGetValue(identity, out var owner)
+                ? owner.State.Values.Where(state => state.Generation == owner.Context.Generation).ToArray() : [];
+        }
+    }
+
+    internal void PublishState(PluginRegistration owner, PluginStatePublication publication)
+    {
+        lock (_gate)
+        {
+            if (!IsCurrent(owner) || publication.Instance != owner.Identity || owner.IsStopping || owner.Quarantined
+                || publication.Generation != owner.Context.Generation || publication.Sequence <= 0
+                || !publication.Value.IsValid || !Enum.IsDefined(publication.Origin) || publication.ConfigurationRevision < 0
+                || string.IsNullOrEmpty(publication.Key) || publication.Key.Length > 128
+                || publication.Key.Any(character => !(character is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '-' or '_')))
+            { return; }
+            if (owner.StateGeneration != publication.Generation)
+            {
+                owner.State.Clear();
+                owner.StateGeneration = publication.Generation;
+                owner.StateSequence = 0;
+            }
+            if (publication.Sequence <= owner.StateSequence || (owner.State.Count >= 128 && !owner.State.ContainsKey(publication.Key)))
+            { return; }
+            owner.StateSequence = publication.Sequence;
+            owner.State[publication.Key] = publication;
+        }
+        postToUi(() =>
+        {
+            lock (_gate)
+            {
+                if (!IsCurrent(owner) || owner.IsStopping || owner.Quarantined
+                    || owner.Context.Generation != publication.Generation
+                    || !owner.State.TryGetValue(publication.Key, out var current) || current != publication) { return; }
+            }
+            StateChanged?.Invoke(publication);
+        });
     }
 
     internal async Task SetModeAsync(PluginSessionMode mode, DateTimeOffset deadline, CancellationToken cancellationToken)
@@ -110,6 +155,7 @@ internal sealed class PluginRegistration(
     private long _modeRevision;
     private readonly object _modeGate = new();
     private CancellationTokenSource? _modeCancellation;
+    private CommonPluginSettings? _settings;
     internal PluginInstanceIdentity Identity { get; } = identity;
     internal string Category { get; } = category;
     internal PluginCategoryPolicy Policy { get; } = policy;
@@ -117,18 +163,40 @@ internal sealed class PluginRegistration(
     internal bool IsStopping { get; private set; }
     internal bool Quarantined { get; private set; }
     internal PluginHealthPublication Health { get; set; } = new(identity, context.Generation, PluginHealth.Unavailable, null);
+    internal Dictionary<string, PluginStatePublication> State { get; } = new(StringComparer.Ordinal);
+    internal long StateGeneration { get; set; }
+    internal long StateSequence { get; set; }
 
     public void PublishHealth(PluginHealthPublication publication) => host.Publish(this, publication);
+    public void PublishState(PluginStatePublication publication) => host.PublishState(this, publication);
 
     internal Task<PluginHealth> StartAsync(DateTimeOffset deadline, CancellationToken cancellationToken) =>
         RunAsync(deadline, cancellationToken, async token =>
         {
             if (_started || IsStopping) { throw new InvalidOperationException("Plugin startup was already attempted."); }
             _started = true;
+            if (plugin is IConfigurablePlugin configurable)
+            { _settings = new CommonPluginSettings(configurable, host.ConfigurationStore, Identity); }
             var health = await plugin.StartAsync(this, Context, token).ConfigureAwait(false);
+            if (_settings is not null) { await _settings.RestoreAsync(Context, token).ConfigureAwait(false); }
             PublishHealth(new(Identity, Context.Generation, health, null));
             return health;
         });
+
+    internal CommonPluginSettings? Settings => _settings;
+
+    internal Task<PluginConfigurationResult> ConfigureAsync(long expectedRevision, IReadOnlyDictionary<string, PluginValue> changes,
+        DateTimeOffset deadline, CancellationToken cancellationToken)
+    {
+        // Capture caller-owned mutable UI data before queueing work.
+        var captured = new Dictionary<string, PluginValue>(changes, StringComparer.Ordinal);
+        return RunAsync(deadline, cancellationToken, async token =>
+        {
+            RequireRunning();
+            if (_settings is null) { throw new InvalidOperationException("The plugin does not declare settings."); }
+            return await _settings.ChangeAsync(expectedRevision, captured, Context, token).ConfigureAwait(false);
+        }, quarantineFailure: false);
+    }
 
     internal async Task SessionChangedAsync(PluginSessionMode mode, long revision, DateTimeOffset deadline, CancellationToken cancellationToken)
     {
@@ -216,7 +284,7 @@ internal sealed class PluginRegistration(
     }
 
     private async Task<T> RunAsync<T>(DateTimeOffset deadline, CancellationToken cancellationToken,
-        Func<CancellationToken, Task<T>> operation, bool allowDisposed = false, bool quarantineCancellation = true)
+        Func<CancellationToken, Task<T>> operation, bool allowDisposed = false, bool quarantineCancellation = true, bool quarantineFailure = true)
     {
         cancellationToken.ThrowIfCancellationRequested();
         TimeSpan remaining = deadline - DateTimeOffset.UtcNow;
@@ -249,7 +317,7 @@ internal sealed class PluginRegistration(
         try { return await work.WaitAsync(remaining, cancellationToken).ConfigureAwait(false); }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            if (Volatile.Read(ref operationEntered) != 0 && (quarantineCancellation || ex is not OperationCanceledException))
+            if (quarantineFailure && Volatile.Read(ref operationEntered) != 0 && (quarantineCancellation || ex is not OperationCanceledException))
             {
                 Quarantined = true;
                 PublishHealth(new(Identity, Context.Generation, PluginHealth.Failed, ex.Message));

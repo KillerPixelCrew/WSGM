@@ -51,6 +51,9 @@ public interface IPluginHost
     /// <summary>Publishes health for the admitted instance and generation.</summary>
     /// <param name="publication">Health observation; stale generations must be discarded.</param>
     void PublishHealth(PluginHealthPublication publication);
+    /// <summary>Publishes effective state without altering desired configuration.</summary>
+    /// <param name="publication">Origin-tagged observation with an increasing generation-scoped sequence.</param>
+    void PublishState(PluginStatePublication publication) { }
 }
 
 /// <summary>Common lifecycle shared by Device adapters and independent plugins.</summary>

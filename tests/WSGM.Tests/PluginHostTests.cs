@@ -9,6 +9,63 @@ public sealed class PluginHostTests
     private static DateTimeOffset Deadline => DateTimeOffset.UtcNow.AddSeconds(5);
 
     [Fact]
+    public async Task StateReadbackKeepsOriginAndDropsReorderedOrInvalidValues()
+    {
+        ConcurrentQueue<Action> ui = new();
+        PluginHost host = new(ui.Enqueue);
+        var instance = Admit(host, new("test.ir"), "one");
+        await instance.StartAsync(Deadline, default);
+        List<PluginStatePublication> observed = [];
+        host.StateChanged += observed.Add;
+        var first = new PluginStatePublication(instance.Identity, 1, 1, "level", new(Number: 40), PluginStateOrigin.HardwareReadback);
+        instance.PublishState(first);
+        var latest = first with { Sequence = 3, Value = new(Number: 50), ConfigurationRevision = 7 };
+        instance.PublishState(latest);
+        instance.PublishState(first with { Sequence = 2 });
+        instance.PublishState(first with { Sequence = 4, Value = new(Number: double.NaN) });
+        while (ui.TryDequeue(out var action)) { action(); }
+        Assert.Equal(latest, Assert.Single(observed));
+        Assert.Equal(latest, Assert.Single(host.StateSnapshot(instance.Identity)));
+        await Close(instance);
+    }
+
+    [Fact]
+    public async Task AResumeRetiresStateAndAllowsTheNewGenerationToRestartItsSequence()
+    {
+        PluginHost host = new(action => action());
+        var instance = Admit(host, new("test.ir"), "one");
+        await instance.StartAsync(Deadline, default);
+        var state = new PluginStatePublication(instance.Identity, 1, 100, "ready", new(Boolean: true), PluginStateOrigin.Initialization);
+        instance.PublishState(state);
+        await instance.ResumeAsync(2, Deadline, default);
+        Assert.Empty(host.StateSnapshot(instance.Identity));
+        instance.PublishState(state with { Sequence = 101 });
+        Assert.Empty(host.StateSnapshot(instance.Identity));
+        var resumed = state with { Generation = 2, Sequence = 1 };
+        instance.PublishState(resumed);
+        Assert.Equal(resumed, Assert.Single(host.StateSnapshot(instance.Identity)));
+        await Close(instance);
+    }
+
+    [Fact]
+    public async Task StateKeysAreBoundedAndRetiredRegistrationsCannotPublishIntoReplacements()
+    {
+        PluginHost host = new(action => action());
+        var instance = Admit(host, new("test.ir"), "one");
+        await instance.StartAsync(Deadline, default);
+        var state = new PluginStatePublication(instance.Identity, 1, 1, "ready", new(Boolean: true), PluginStateOrigin.Initialization);
+        for (int index = 1; index <= 129; index++)
+        { instance.PublishState(state with { Sequence = index, Key = "state" + index }); }
+        Assert.Equal(128, host.StateSnapshot(instance.Identity).Length);
+        await Close(instance);
+        var replacement = Admit(host, new("test.ir"), "one");
+        await replacement.StartAsync(Deadline, default);
+        instance.PublishState(state with { Sequence = 130 });
+        Assert.Empty(host.StateSnapshot(instance.Identity));
+        await Close(replacement);
+    }
+
+    [Fact]
     public async Task IndependentInstancesWorkWithoutDeviceAndCoexistWithItsSingleton()
     {
         PluginHost host = new(action => action());

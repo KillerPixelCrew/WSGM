@@ -71,7 +71,10 @@ validation will be handled by reopening them. Hardware checks are not a closure 
   tests cover resident transitions, resume generations and identity rejection. Production Device
   admission now uses the resident common host. Seven new host/fixture tests cover independent instances,
   singleton admission, stale UI publications, canceled work, slot retention and obsolete mode intent.
-  #49 remains open for external loading/config/events, action/UI contracts and non-device validation.
+  Common configuration and state events now separate saved user revisions from origin-tagged effective
+  observations. Three new SDK and eight new host tests cover schemas, stale edits, failed persistence,
+  failed/mismatched delivery, serialization and bounded generation/sequence validation.
+  #49 remains open for external loading, action/UI contracts, tooling and non-device validation.
 
 This is the repository's only progress tracker. Mechanism details and device findings live in the
 focused `docs\` topics, and product decisions in `docs\decisions.md` and `_plan\2.0-decisions.md`.
