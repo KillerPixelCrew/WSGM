@@ -34,7 +34,7 @@ cancellation can therefore require process exit to recover its slot.
 Health callbacks are checked against their owning registration and generation, then dispatched to
 the UI with another generation check. Desktop/Game intent uses increasing revisions, cancels obsolete
 cooperative mode work and leaves the Device integration resident. Independent fake instances validate
-coexistence without a Device Plugin; external package discovery remains a subsequent migration slice.
+coexistence without a Device Plugin. Installed packages use the catalog and instance manager described below.
 
 ## Configuration and state
 
@@ -89,8 +89,27 @@ incompatible and cyclic dependencies reject affected packages while preserving i
 Dotted numeric versions compare with omitted build/revision components treated as zero.
 
 A temporary non-device package fixture exercises actual collectible loading, configuration, a named
-action with file readback, declarative contributions, resident mode changes and cleanup. Installed
-package discovery, enable/disable UI and authoring tools are the remaining production integration.
+action with file readback, declarative contributions, resident mode changes and cleanup.
+
+`CommonPluginCatalog` reads `%ProgramFiles%\WSGM\Plugins\<plugin-id>` without executing code.
+The directory name must match the manifest ID and the entry assembly must exist. Discovery is
+independent of Device Integration and does not enable a package. `AppConfig.PluginInstances` contains
+explicit `PluginId`, `InstanceId` and `Enabled` choices; its default is empty.
+
+`CommonPluginManager` starts selected instances in dependency order and retains them across resident
+mode changes. Config reload applies only a newly saved preference revision; an unconfirmed revision
+is not automatically retried. Disable and shutdown cancel startup, await actual completion and dispose
+in reverse admission order. Failed cleanup retains ownership and prevents replacement. Suspend/resume
+is deduplicated per instance independently from the Device coordinator. Instance state directories
+use a hash of the instance ID to avoid path aliases.
+
+Activation requests carry increasing host revisions. Disabling an instance cancels its pending load
+immediately; an obsolete enable cannot start it later. A rapid explicit re-enable waits for confirmed
+cleanup before creating the replacement.
+
+Install or replace trusted packages only while their instances are stopped. Common enable/disable UI
+and authoring tools are the remaining integration slices. Loading inherits the application's current
+authority; this host neither elevates itself nor grants access based on manifest declarations.
 
 The initial execution model remains trusted in-process code. Collectible load contexts isolate
 dependencies, not security or crashes. A process boundary would require separately designed and

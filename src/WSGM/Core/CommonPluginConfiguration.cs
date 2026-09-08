@@ -6,6 +6,17 @@ using WSGM.Plugin.Sdk;
 
 namespace WSGM.Core;
 
+/// <summary>An explicitly enabled installed common-plugin instance.</summary>
+public sealed class CommonPluginInstanceConfig
+{
+    /// <summary>Installed package identity.</summary>
+    public string PluginId { get; set; } = "";
+    /// <summary>Stable host instance identity within the package.</summary>
+    public string InstanceId { get; set; } = "default";
+    /// <summary>Whether WSGM may start this trusted installed package.</summary>
+    public bool Enabled { get; set; }
+}
+
 /// <summary>Saved user preferences for one common plugin instance.</summary>
 public sealed class CommonPluginConfiguration
 {

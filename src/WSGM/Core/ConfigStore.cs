@@ -307,6 +307,7 @@ public static class ConfigStore
     {
         config.DisplayManagement = Definite(config.DisplayManagement, Defaults.DisplayManagement);
         config.StartupApps ??= [];
+        config.PluginInstances ??= [];
         config.DeviceIntegration ??= new DeviceIntegrationConfig();
         NormalizeDeviceIntegration(config.DeviceIntegration);
         config.Performance ??= new PerformanceConfig();

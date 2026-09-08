@@ -87,6 +87,7 @@ public sealed class ShellSession : IAsyncDisposable
     private Task? _startupTask;
     private DeviceCoordinator? _deviceCoordinator;
     private readonly PluginHost _pluginHost = new(action => Avalonia.Threading.Dispatcher.UIThread.Post(action));
+    private CommonPluginManager? _commonPlugins;
     private IDeviceOverlaySource? _deviceOverlay;
     private PerformanceService? _performance;
     private RefreshRatePairingService? _refreshPairing;
@@ -318,7 +319,7 @@ public sealed class ShellSession : IAsyncDisposable
         }
     }
 
-    /// <summary>Starts device admission off-thread, then creates shell and overlay services on the UI thread.</summary>
+    /// <summary>Starts plugin admission off-thread, then creates shell and overlay services on the UI thread.</summary>
     /// <returns>The complete asynchronous session-start operation.</returns>
     public Task StartAsync()
     {
@@ -333,6 +334,12 @@ public sealed class ShellSession : IAsyncDisposable
         try
         {
             // Overlay test deliberately never discovers packages or loads plugin code.
+            if (!_overlayTestOnly)
+            {
+                _commonPlugins = new(_pluginHost, CommonPluginCatalog.InstalledRoot, System.IO.Path.Combine(Log.Directory, "PluginState"),
+                    action => Avalonia.Threading.Dispatcher.UIThread.Post(action));
+                _ = ApplyCommonPluginConfigAsync(_config);
+            }
             coordinator = _overlayTestOnly
                 ? null
                 : await DeviceCoordinator.TryStartAsync(
@@ -1438,7 +1445,9 @@ public sealed class ShellSession : IAsyncDisposable
     /// </remarks>
     private void QueueDevicePowerTransition(bool suspend, string reason)
     {
-        if (_deviceCoordinator is not { } coordinator)
+        if (_shutdownRequested) { return; }
+        DeviceCoordinator? coordinator = _deviceCoordinator;
+        if (coordinator is null && _commonPlugins is null)
         {
             Log.Info(
                 $"Device cycle {(suspend ? "suspend" : "resume")} skipped ({reason}): no "
@@ -1470,7 +1479,7 @@ public sealed class ShellSession : IAsyncDisposable
 
     private async Task ApplyDevicePowerTransitionAsync(
         Task previous,
-        DeviceCoordinator coordinator,
+        DeviceCoordinator? coordinator,
         bool suspend,
         string reason,
         long requestGeneration)
@@ -1480,14 +1489,9 @@ public sealed class ShellSession : IAsyncDisposable
         await previous.ConfigureAwait(false);
         try
         {
-            if (suspend)
-            {
-                await coordinator.SuspendAsync().ConfigureAwait(false);
-            }
-            else
-            {
-                await coordinator.ResumeAsync().ConfigureAwait(false);
-            }
+            Task deviceWork = coordinator is null ? Task.CompletedTask
+                : suspend ? coordinator.SuspendAsync() : coordinator.ResumeAsync();
+            await Task.WhenAll(deviceWork, ApplyCommonPluginPowerAsync(suspend)).ConfigureAwait(false);
 
             lock (_devicePowerGate)
             {
@@ -2001,6 +2005,16 @@ public sealed class ShellSession : IAsyncDisposable
             }
         }
 
+        if (_commonPlugins is { } commonPlugins)
+        {
+            try { await commonPlugins.StopAsync(deadline).ConfigureAwait(false); }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                failures.Add(ex);
+                Log.Error("Common plugin cleanup was unconfirmed; remaining shell cleanup continues", ex);
+            }
+        }
+
         try
         {
             // Shutdown rejects every new transition before reaching this point. Let the one
@@ -2295,6 +2309,7 @@ public sealed class ShellSession : IAsyncDisposable
 
     private void ApplyDeviceConfig(AppConfig config)
     {
+        _ = ApplyCommonPluginConfigAsync(config);
         DeviceCoordinator? coordinator = _deviceCoordinator;
         if (coordinator is null)
         {
@@ -2305,6 +2320,28 @@ public sealed class ShellSession : IAsyncDisposable
         // AutoTDP and restore the previous power limit while the capability is still writable.
         _autoTdp?.Apply(ShouldRunAutoTdp(config.DeviceIntegration));
         _ = ObserveDeviceConfigAsync(coordinator, config);
+    }
+
+    private async Task ApplyCommonPluginConfigAsync(AppConfig config)
+    {
+        try
+        {
+            if (_commonPlugins is { } manager)
+            { await manager.ReconcileAsync(config.PluginInstances, _shutdownCancellation.Token).ConfigureAwait(false); }
+        }
+        catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { Log.Error("Common plugin configuration failed", ex); }
+    }
+
+    private async Task ApplyCommonPluginPowerAsync(bool suspend)
+    {
+        try
+        {
+            if (_commonPlugins is { } manager)
+            { await manager.PowerTransitionAsync(suspend, _shutdownCancellation.Token).ConfigureAwait(false); }
+        }
+        catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { Log.Error("Common plugin power transition failed", ex); }
     }
 
     /// <summary>Applies the Device Integration master switch to AutoTDP at every entry point.</summary>

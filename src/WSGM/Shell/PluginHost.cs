@@ -203,6 +203,14 @@ internal sealed class PluginRegistration(
     internal CommonPluginSettings? Settings => _settings;
     internal CommonPluginActions? Actions => _actions;
 
+    internal Task<PluginConfigurationResult> RefreshConfigurationAsync(DateTimeOffset deadline, CancellationToken cancellationToken) =>
+        RunAsync(deadline, cancellationToken, async token =>
+        {
+            RequireRunning();
+            if (_settings is null) { throw new InvalidOperationException("The plugin does not declare settings."); }
+            return await _settings.RefreshAsync(Context, token).ConfigureAwait(false);
+        }, quarantineFailure: false);
+
     internal Task<PluginActionResult> InvokeActionAsync(long expectedGeneration, string actionId,
         IReadOnlyDictionary<string, PluginValue> arguments, PluginActionOrigin origin,
         DateTimeOffset deadline, CancellationToken cancellationToken)

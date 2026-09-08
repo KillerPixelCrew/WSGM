@@ -8,7 +8,8 @@ The existing Device SDK and device runtime remain operational. A compatibility a
 maps the common lifecycle onto that runtime through the resident Shell host. Configuration and state
 events use separate revision/origin contracts. Named actions and declarative UI links are validated
 by the host. A collectible non-device fixture validates common loading and the complete contract path.
-Installed discovery, UI consumption and packaging tooling follow sequentially.
+Installed discovery and explicit per-instance activation are hosted independently of Device Integration.
+UI consumption and packaging tooling follow sequentially.
 
 Device is the selected `wsgm.device` category with zero or one active instance. Other categories are
 open strings, and the host decides multiplicity. A desktop with no Device Plugin remains valid.

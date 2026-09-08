@@ -15,8 +15,9 @@ remains in its feature scope.
   that path with Process.Kill or Restart Manager shutdown.
 - One owner creates and disposes each long-lived integration. Do not let views acquire hardware,
   Steam, RTSS, or input resources.
-- There is one installed device package slot. With integration disabled, skip plugin lifecycle,
-  controller targeting, hardware writes, and AutoTDP.
+- There is one installed device package slot. With integration disabled, skip Device plugin lifecycle,
+  controller targeting, Device hardware writes, and AutoTDP. Explicitly enabled common plugin
+  instances are independent of this switch.
 - Capability writes are serialized. If the outcome is uncertain, surface it; do not automatically
   retry a potentially successful write.
 - AutoTDP decisions are frametime-driven. CPU or GPU utilization may explain telemetry but must not

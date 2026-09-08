@@ -135,8 +135,9 @@ Preserve every external owner's state:
 - fail open when WSGM cannot prove it still owns a change.
 
 Device Integration off is not a degraded plugin state. `ShellSession` still creates the session
-`DeviceCoordinator`, which reserves `Global\WSGM.DeviceOwner`, but it starts no plugin lifecycle,
-controller target, hardware write, or AutoTDP. Code independent of a package must still work, and
+`DeviceCoordinator`, which reserves `Global\WSGM.DeviceOwner`, but it starts no Device plugin lifecycle,
+controller target, Device hardware write, or AutoTDP. Common plugin instances are managed separately
+by `CommonPluginManager`. Code independent of a package must still work, and
 turning integration off does not make package maintenance ownership available.
 
 ## Live-machine boundary

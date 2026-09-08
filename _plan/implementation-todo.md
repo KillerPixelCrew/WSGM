@@ -80,7 +80,11 @@ validation will be handled by reopening them. Hardware checks are not a closure 
   Common collectible loading reuses SDK/WinRT identity rules. A non-device package fixture validates
   configuration, actions, contributions and resident transitions. Five new tests cover that path,
   metadata admission and dependency ordering/rejection without disabling independent packages.
-  #49 remains open for installed discovery, UI consumption and tooling.
+  Installed metadata discovery and explicitly enabled instances now integrate with Shell startup,
+  configuration reload, power transitions and shutdown. Ten new tests cover metadata-only discovery,
+  independent enable/disable, obsolete startup cancellation, retained failures/loading tasks, power
+  deduplication and revision refresh.
+  #49 remains open for UI consumption and tooling.
 
 This is the repository's only progress tracker. Mechanism details and device findings live in the
 focused `docs\` topics, and product decisions in `docs\decisions.md` and `_plan\2.0-decisions.md`.

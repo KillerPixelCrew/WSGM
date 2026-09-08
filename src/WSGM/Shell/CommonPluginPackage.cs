@@ -37,6 +37,7 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
         { throw new InvalidDataException(string.Join(" ", errors)); }
         if (manifest!.Category == PluginCategories.Device)
         { throw new InvalidDataException("Device packages use the selected Device adapter and installation slot."); }
+        PackageFile(root, manifest.EntryAssembly);
         return Snapshot(manifest);
     }
 
@@ -90,10 +91,11 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
 
     private static string PackageFile(string root, string name)
     {
-        if ((File.GetAttributes(root) & FileAttributes.ReparsePoint) != 0)
+        var rootAttributes = File.GetAttributes(root);
+        if ((rootAttributes & FileAttributes.ReparsePoint) != 0 || (rootAttributes & FileAttributes.Directory) == 0)
         { throw new InvalidDataException("Plugin package roots cannot be reparse points."); }
         string path = PluginPackageLoader.ConstrainPackagePath(root, name);
-        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+        if ((File.GetAttributes(path) & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0)
         { throw new InvalidDataException("Plugin package files cannot be reparse points."); }
         return path;
     }

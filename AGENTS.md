@@ -31,17 +31,16 @@ when the guidance conflicts.
   src/WSGM.LogonService is the minimal SYSTEM service used at logon.
 - native/SteamInput owns the Steam Input shim. external/windows-device-control and
   external/steam-ui-toolkit own their respective reusable libraries.
-- src/WSGM.Device.Sdk is the plugin contract. src/WSGM.DeviceLab is the hardware
-- src/WSGM.Plugin.Sdk holds common plugin identity and lifecycle contracts for the #49 migration.
-  src/WSGM.Device.Sdk remains the device contract; its current runtime stays operational until the
-  common host adapter is wired. Status is tracked in _plan/implementation-todo.md.
+- src/WSGM.Plugin.Sdk holds common plugin contracts. The resident Shell host admits the existing
+  Device runtime through an adapter and independently manages explicitly enabled non-device packages.
+  Status is tracked in _plan/implementation-todo.md.
 - src/WSGM.Device.Sdk is the device contract. src/WSGM.DeviceLab is the hardware
   validation tool. src/WSGM.Device.Msi.Claw8A2Vm is the machine-specific package.
   src/WSGM.Device.HandheldCompanion is a design scaffold, not a working plugin.
   Their tests live under tests, and WSGM.slnx builds them against one SDK project.
 - WSGM supports exactly one installed device integration package at a time. With device integration
-  disabled, there is no plugin lifecycle, controller target, hardware write, or AutoTDP;
-  device-independent core and RTSS features must continue to work.
+  disabled, there is no Device plugin lifecycle, controller target, Device hardware write, or AutoTDP;
+  device-independent core, explicitly enabled common plugins and RTSS features must continue to work.
 - Keep policy and orchestration in WSGM, reusable contracts in the SDK, and machine-specific
   behavior in the device package. Device projects are maintained together in this repository;
   keep their assembly and license boundaries intact.

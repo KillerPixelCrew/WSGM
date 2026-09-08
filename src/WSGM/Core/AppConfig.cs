@@ -601,6 +601,8 @@ public sealed class AppConfig
 {
     /// <summary>Explicit common-plugin preferences, independent of effective state publications.</summary>
     public List<CommonPluginConfiguration> PluginConfigurations { get; set; } = [];
+    /// <summary>Explicit activation choices for installed common plugins. Empty means none are loaded.</summary>
+    public List<CommonPluginInstanceConfig> PluginInstances { get; set; } = [];
 
     /// <summary>Optional device-plugin platform, ownership, and desired-state settings.</summary>
     public DeviceIntegrationConfig DeviceIntegration { get; set; } = new();

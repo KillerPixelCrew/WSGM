@@ -21,7 +21,9 @@ uses its registration for lifecycle calls. An uncertain stop or disposal retains
 a timed-out call retains its lifecycle lane until the actual task ends. See `docs/plugin-system.md`
 for common health generation checks and resident mode revisions. `CommonPluginPackage` now shares the
 collectible load context for non-device packages; its temporary fixture covers the full contract path.
-Installed discovery and enable/disable integration remain subsequent #49 work.
+`CommonPluginManager` discovers protected installed metadata and starts only explicitly enabled
+instances. It owns their config refresh, power transitions and shutdown independently of Device
+Integration. Enable/disable UI and authoring tools remain subsequent #49 work.
 
 Important owners:
 

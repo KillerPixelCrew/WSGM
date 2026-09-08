@@ -35,6 +35,15 @@ internal sealed class CommonPluginSettings
     internal Task<PluginConfigurationResult> RestoreAsync(PluginContext context, CancellationToken cancellationToken) =>
         DeliverAsync(_store.Read(_identity), PluginConfigurationOrigin.Restore, context, cancellationToken);
 
+    internal Task<PluginConfigurationResult> RefreshAsync(PluginContext context, CancellationToken cancellationToken)
+    {
+        var saved = _store.Read(_identity);
+        if (Result is { } previous && previous.Revision == saved.Revision) { return Task.FromResult(previous); }
+        if (Result is { } newer && saved.Revision < newer.Revision)
+        { return Task.FromResult(new PluginConfigurationResult(newer.Revision, PluginConfigurationOutcome.Rejected, "Saved configuration revision moved backwards.")); }
+        return DeliverAsync(saved, PluginConfigurationOrigin.Restore, context, cancellationToken);
+    }
+
     internal async Task<PluginConfigurationResult> ChangeAsync(long expectedRevision, IReadOnlyDictionary<string, PluginValue> changes,
         PluginContext context, CancellationToken cancellationToken)
     {

@@ -92,6 +92,27 @@ public sealed class CommonPluginSettingsTests
         host.Admit(plugin, new(plugin.Id, "one"), PluginCategories.Peripheral, PluginCategoryPolicy.Multiple, false, 1, "fixture-state");
 
     [Fact]
+    public async Task ConfigurationReloadAppliesNewExternalIntentOnceWithoutRetryingAnUnconfirmedRevision()
+    {
+        MemoryStore store = new();
+        PluginHost host = new(action => action(), store);
+        Configurable plugin = new();
+        var registration = Admit(host, plugin);
+        await registration.StartAsync(Deadline, default);
+        store.Save(registration.Identity, 0, new Dictionary<string, PluginValue> { ["level"] = new(Number: 40) });
+        plugin.Outcome = PluginConfigurationOutcome.Unconfirmed;
+        await registration.RefreshConfigurationAsync(Deadline, default);
+        await registration.RefreshConfigurationAsync(Deadline, default);
+        Assert.Equal(2, plugin.Deliveries.Count);
+        Assert.Equal(1, registration.Settings!.Desired!.Revision);
+        store.Config.PluginConfigurations[0].Revision = 0;
+        var stale = await registration.RefreshConfigurationAsync(Deadline, default);
+        Assert.Equal(PluginConfigurationOutcome.Rejected, stale.Outcome);
+        Assert.Equal(2, plugin.Deliveries.Count);
+        await Close(registration);
+    }
+
+    [Fact]
     public async Task APluginFailureAfterSavingLeavesTheRequestedPreferenceUnconfirmed()
     {
         MemoryStore store = new();
