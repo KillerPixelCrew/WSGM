@@ -12,6 +12,10 @@ description:
 Use the current semantic plugin contract without reviving the retired DeviceHost/IPC architecture or
 moving machine policy into the SDK.
 
+For the explicitly authorized #49 migration, read `docs/plugin-system.md`. Common identity and
+lifecycle contracts live in `src/WSGM.Plugin.Sdk`; Device hardware contracts remain in this SDK.
+Implement and validate the documented slices sequentially while preserving the current Device runtime.
+
 ## Establish the boundary first
 
 1. Resolve the WSGM root with `git rev-parse --show-toplevel`, read every applicable `AGENTS.md`,
@@ -36,7 +40,7 @@ capture, a hardware action, controller/HidHide changes, or running WSGM as the s
 - A plugin owns exact device detection, direct transports, firmware gates, device-specific codecs,
   readback, rollback, restoration, physical-controller acquisition, OEM sources, and static glyph
   data.
-- WSGM owns the one installed slot, loading and deadlines, lifecycle orchestration, generations,
+- WSGM owns the installed Device slot, loading and deadlines, lifecycle orchestration, generations,
   publication validation, desired state and profiles, UI/localization, virtual targets, Steam Input,
   HidHide, AutoTDP, and OEM action policy.
 - Device Lab owns inventory, evidence capture, compiled read probes, scaffolding, offline package

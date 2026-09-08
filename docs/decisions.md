@@ -1,5 +1,11 @@
 # Standing decisions and accepted trade-offs
 
+**Plugin categories share common contracts.** The #49 migration adds an MIT common SDK while
+preserving the current Device runtime. Device is an optional singleton specialization; independent
+integrations must not require a Device Plugin. Category multiplicity is host policy. Trusted
+in-process execution remains the initial model, with no claim that loading or permission declarations
+provide a sandbox. The slices and ownership boundary are described in `plugin-system.md`.
+
 Product-level decisions the other docs assume. Each entry says what was decided and why, and points
 to the doc that holds the mechanism. Nothing here is a how-to; when a decision and a mechanism doc
 disagree, fix the mechanism doc.

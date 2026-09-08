@@ -18,6 +18,7 @@ before you trust the change.
 | `overlay-and-input.md` | the quick access sheet, gamepad navigation, touch edge swipes                                         |
 | `ui.md`                | Avalonia styling, headless UI tests and the splash engine                                             |
 | `decisions.md`         | standing product decisions in one page                                                                |
+| `plugin-system.md`     | common plugin contracts and the Device specialization migration                                       |
 
 ## Steam
 

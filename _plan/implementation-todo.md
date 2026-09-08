@@ -13,7 +13,7 @@ depends on #25, #35 and #36 and must not block the controller repair.
 
 The maintainer directs issues to close when their fixes are committed and pushed; failed field
 validation will be handled by reopening them. Hardware checks are not a closure gate. #60, #57 and
-#56, #55, #62, #63, #19, #54 and #29 are closed. #25 closes with the Windows power migration.
+#56, #55, #62, #63, #19, #54, #29 and #25 are closed.
 
 - #60: separate restore origin, bounded lighting readiness restoration and resume publication
   ordering implemented. Ten new hardware-free tests pass; fresh hardware validation remains.
@@ -63,6 +63,11 @@ validation will be handled by reopening them. Hardware checks are not a closure 
   WSGM retains policy ordering, logging, dispatch and persisted recovery. New focused tests cover
   action admission, handle lifetime and recovery mapping; migrated decoding tests pass in the library.
   No live power actions or policy mutations were performed.
+
+- #49A: common MIT contract assembly adds identity, open categories, host-owned slot
+  policies, bounded manifests and resident lifecycle. The current Device runtime is unchanged.
+  Eight new contract tests cover admission, compatibility, dependency ranges and optional Device slots.
+  #49 remains open for the adapter, runtime/config/events, action/UI contracts and non-device validation.
 
 This is the repository's only progress tracker. Mechanism details and device findings live in the
 focused `docs\` topics, and product decisions in `docs\decisions.md` and `_plan\2.0-decisions.md`.

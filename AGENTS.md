@@ -32,6 +32,10 @@ when the guidance conflicts.
 - native/SteamInput owns the Steam Input shim. external/windows-device-control and
   external/steam-ui-toolkit own their respective reusable libraries.
 - src/WSGM.Device.Sdk is the plugin contract. src/WSGM.DeviceLab is the hardware
+- src/WSGM.Plugin.Sdk holds common plugin identity and lifecycle contracts for the #49 migration.
+  src/WSGM.Device.Sdk remains the device contract; its current runtime stays operational until the
+  common host adapter is wired. Status is tracked in _plan/implementation-todo.md.
+- src/WSGM.Device.Sdk is the device contract. src/WSGM.DeviceLab is the hardware
   validation tool. src/WSGM.Device.Msi.Claw8A2Vm is the machine-specific package.
   src/WSGM.Device.HandheldCompanion is a design scaffold, not a working plugin.
   Their tests live under tests, and WSGM.slnx builds them against one SDK project.
