@@ -76,13 +76,20 @@ the affected appids.
 
 ### Lifetime, ordering and waiting
 
-The elevated wrapper stays alive for the target's lifetime, preserves Steam's arguments, environment
-and working directory, and stops the target tree if Steam terminates the wrapper. Do not replace it
-with a fire-and-forget scheduled task or an Explorer-token shortcut.
+The elevated wrapper stays alive for the target's lifetime, preserves Steam's arguments and working
+directory, and stops the target tree if Steam terminates the wrapper. Do not replace it with a
+fire-and-forget scheduled task or an Explorer-token shortcut.
 
-The lease is the outer behaviour. Its gate injects into an elevated `steam.exe`, which a medium
-process cannot do, so the elevated parent acquires the lease before the de-elevation hand-off and
-releases it after the medium child reports the target's exit.
+After a lease is acquired, the child environment omits `SDL_GAMECONTROLLER_IGNORE_DEVICES`. Steam
+sets this variable to exclude direct controllers from SDL while Steam Input supplies input. That
+exclusion conflicts with a lease, which makes those controllers directly available. Both the native
+wrapped launch and the de-elevated payload remove the variable case-insensitively, preserving the
+caller's environment, Steam app/overlay variables and other SDL hints. De-elevation without a lease
+and failed lease acquisition keep the original environment.
+
+The lease is the outer behaviour. The elevated parent acquires it before the de-elevation hand-off
+and releases it after the medium child reports the target's exit. This also keeps the explicitly
+requested injection route at Steam's integrity; a medium process cannot inject into elevated Steam.
 
 Both paths wait on a job object, never on the process they started. The native wrapper starts the
 target suspended and assigns before resume; the de-elevated child (`WSGM.Launch\JobObject.cs`)

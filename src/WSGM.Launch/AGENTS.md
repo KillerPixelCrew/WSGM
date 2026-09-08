@@ -7,7 +7,9 @@ dependency-light, and usable before the desktop application starts.
 - Diagnostic modes such as --status, --rescan, and --help do not require a target. A non-diagnostic
   launch requires at least one behavior flag and a target after --.
 - --input-lease and --input-lease-inject are mutually exclusive. Preserve target argument
-  boundaries, quoting, working directory, and environment.
+  boundaries, quoting, working directory, and environment except for
+  `SDL_GAMECONTROLLER_IGNORE_DEVICES`: strip that inherited exclusion from a leased child's
+  environment after acquisition succeeds. De-elevation alone and failed lease acquisition retain it.
 - Job containment covers the complete launched process tree. Cancellation, launcher failure, and
   normal exit must restore the lease exactly once.
 - Use the canonical controller bindings supplied by the pinned dependency; do not maintain a

@@ -261,6 +261,38 @@ public sealed class LaunchWrapperTests
         Assert.Equal(expected.EnvironmentVariables, actual.EnvironmentVariables);
     }
 
+    [Theory]
+    [InlineData(true, "SDL_GAMECONTROLLER_IGNORE_DEVICES")]
+    [InlineData(false, "SDL_GAMECONTROLLER_IGNORE_DEVICES")]
+    [InlineData(true, "sdl_gamecontroller_ignore_devices")]
+    public async Task LaunchPayloadRemovesTheSdlExclusionOnlyWithAnAcquiredLease(
+        bool acquired, string exclusionName)
+    {
+        var previous = Environment.GetEnvironmentVariable(exclusionName);
+        var previousAppId = Environment.GetEnvironmentVariable("SteamAppId");
+        try
+        {
+            Environment.SetEnvironmentVariable(exclusionName, "0x28de/0x1205");
+            Environment.SetEnvironmentVariable("SteamAppId", "1234");
+            var payload = LaunchPayload.Capture(["game.exe", "雪"], acquired);
+            await using var stream = new MemoryStream();
+            await payload.WriteAsync(stream, CancellationToken.None);
+            stream.Position = 0;
+            var received = await LaunchPayload.ReadAsync(stream, CancellationToken.None);
+
+            Assert.Equal(!acquired, received.EnvironmentVariables.Any(pair =>
+                pair.Key.Equals(exclusionName, StringComparison.OrdinalIgnoreCase)));
+            Assert.Contains(KeyValuePair.Create("SteamAppId", "1234"), received.EnvironmentVariables);
+            Assert.Equal(["game.exe", "雪"], received.Arguments);
+            Assert.Equal("0x28de/0x1205", Environment.GetEnvironmentVariable(exclusionName));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(exclusionName, previous);
+            Environment.SetEnvironmentVariable("SteamAppId", previousAppId);
+        }
+    }
+
     [Fact]
     public void ScheduledTaskUsesInteractiveTokenWithoutAnElevatedRunLevel()
     {

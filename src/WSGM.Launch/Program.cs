@@ -112,7 +112,7 @@ internal static class Program
         }
 
         using var lease = options.AnyLease ? SteamInputLeaseHost.TryAcquire(options) : null;
-        var payload = LaunchPayload.Capture(options.Command);
+        var payload = LaunchPayload.Capture(options.Command, inputLeaseAcquired: lease is not null);
         return elevated == false
             ? await LaunchAndWaitAsync(payload)
             : await RunElevatedParentAsync(payload);
