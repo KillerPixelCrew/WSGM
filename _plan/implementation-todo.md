@@ -92,6 +92,11 @@ validation will be handled by reopening them. Hardware checks are not a closure 
   another test suite run. Generic common-preference editors and pinning are follow-on UI work;
   common schema/persistence contracts and Device settings remain available. #49 foundation complete.
 
+- #50A: Windows Device Control exposes active CCD paths, rematchable monitor device-path/EDID
+  identity and cancellable appearance waits over fresh bounded snapshots. Its multi-target build is
+  warning-clean. DisplayMagician informed the transient-route versus persistent-identity design;
+  implementation uses documented Windows contracts. Profile capture/apply/rollback remains open.
+
 This is the repository's only progress tracker. Mechanism details and device findings live in the
 focused `docs\` topics, and product decisions in `docs\decisions.md` and `_plan\2.0-decisions.md`.
 Completed milestones are rolled up here to what they settled; their narratives stay in git history,

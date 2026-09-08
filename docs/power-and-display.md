@@ -6,6 +6,15 @@ variable refresh over IGCL. The established display and wake-lock paths were ver
 reference MSI Claw. Boot and shell transitions are in `docs\boot-and-shell.md`; the frame limit
 itself in `docs\rtss.md`.
 
+Windows Device Control now owns the first reusable CCD display-profile primitives. `DisplayTopology`
+captures active paths in Windows priority order, identifies monitors primarily by device-interface
+path with EDID manufacturer/product fallback, and waits for a saved identity using fresh bounded
+snapshots. Friendly names and GDI `DISPLAY1` numbering are presentation metadata; adapter LUID and
+target ID are current route coordinates and are refreshed after hotplug. Enumeration and waits are
+read-only. Profile serialization, validation, application and rollback follow in the remaining #50
+slices. The design uses DisplayMagician as behavioral reference while the MIT library implementation
+comes from documented Windows CCD contracts rather than copied GPL source.
+
 ## Windows power schemes
 
 Windows Device Control owns power actions, source/battery queries, scheme/mode APIs, wake requests,
