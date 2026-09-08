@@ -35,6 +35,8 @@ internal sealed class DeviceSliderRow : Border
     private readonly Func<int, string>? _format;
     private readonly DispatcherTimer _commit;
     private readonly Action<int> _onCommit;
+    private bool _refreshing;
+    private bool _pointerEditing;
 
     /// <summary>Builds the row for one capability.</summary>
     /// <param name="key">Stable focus key, mirrored onto the slider for focus restore.</param>
@@ -116,6 +118,11 @@ internal sealed class DeviceSliderRow : Border
             Margin = new Thickness(0, 6, 0, 0),
         };
         _slider.ValueChanged += OnSliderValueChanged;
+        _slider.AddHandler(PointerPressedEvent, (_, _) => _pointerEditing = true,
+            Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        _slider.AddHandler(PointerReleasedEvent, (_, _) => _pointerEditing = false,
+            Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        _slider.PointerCaptureLost += (_, _) => _pointerEditing = false;
         // The Fluent Slider template contains focusable inner RepeatButtons on either side of the
         // thumb. Directional (XY) focus lands on THOSE rather than the Slider, so the pad handler's
         // `target is Slider` check misses and Left/Right does nothing — the reported "focus lands
@@ -145,9 +152,30 @@ internal sealed class DeviceSliderRow : Border
     /// <summary>The slider is the focus target so gamepad focus restore lands on the control.</summary>
     internal Control FocusTarget => _slider;
 
+    /// <summary>Updates the existing control without treating readback as user intent.</summary>
+    internal void RefreshReadback(int minimum, int maximum, int step, int value, bool enabled)
+    {
+        _slider.IsEnabled = enabled;
+        if (!enabled) { _commit.Stop(); }
+        if (_pointerEditing || _commit.IsEnabled) { return; }
+        _refreshing = true;
+        try
+        {
+            _slider.Minimum = minimum;
+            _slider.Maximum = maximum;
+            _slider.TickFrequency = Math.Max(1, step);
+            _slider.Value = Math.Clamp(value, minimum, maximum);
+            _value.Text = Format((int)Math.Round(_slider.Value));
+        }
+        finally { _refreshing = false; }
+    }
+
+    internal bool HasPendingUserChange => _commit.IsEnabled;
+
     private void OnSliderValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
     {
         _value.Text = Format((int)Math.Round(_slider.Value));
+        if (_refreshing) { return; }
         // Restart the settle window on every change so a drag or a held press commits once.
         _commit.Stop();
         _commit.Start();

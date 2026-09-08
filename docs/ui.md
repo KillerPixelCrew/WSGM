@@ -24,6 +24,10 @@ Compiled bindings are enabled project-wide. Current non-virtualized `ItemsContro
 UI sets (device settings, radios, drives and open apps); an unbounded collection belongs in a
 height-constrained virtualizing control instead.
 
+Device sliders accept readback in place while the page retains focus. Programmatic changes never
+start their user-write timer; active pointer gestures and pending user edits retain their value.
+Losing capability availability cancels a pending slider write.
+
 Shared controls live under `Controls\`: `TabStrip` (the LB/RB tab bar), `CardButton` (card actions)
 and `Icons` (stroke-style `StreamGeometry`). Stroke icons use `Fill={x:Null}` so their interior
 detail stays visible.

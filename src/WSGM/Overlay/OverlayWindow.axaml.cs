@@ -531,9 +531,22 @@ public partial class OverlayWindow : Window
         // telemetry (fan RPM, temperature) streams several samples a second and each one posts a
         // refresh; rebuilding would destroy the focused slider/dropdown mid-adjust — the pad
         // cannot hold Left/Right across it, and the row's debounced write timer would die with the
-        // row before it commits. The next change after the user moves on rebuilds as normal.
+        // row before it commits. Refresh existing sliders in place; their pending user edits take
+        // precedence over readback. The next change after focus moves on rebuilds as normal.
         if (IsEditingValueIn(DeviceCapabilityList))
         {
+            foreach (DeviceSliderRow row in DeviceCapabilityList.GetLogicalDescendants().OfType<DeviceSliderRow>())
+            {
+                DeviceOverlayCapability? capability = snapshot.Capabilities.FirstOrDefault(item =>
+                    Equals(row.Tag, item.InstanceId is { Length: > 0 }
+                        ? $"{item.CapabilityId}#{item.InstanceId}" : item.CapabilityId));
+                if (capability is not null && RendersAsSlider(capability))
+                {
+                    row.RefreshReadback(capability.Minimum!.Value, capability.Maximum!.Value,
+                        capability.Step ?? 1, capability.CurrentValue?.IntegerValue ?? capability.Minimum.Value,
+                        capability.CanInvoke);
+                }
+            }
             return;
         }
         string? focusedKey = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement()

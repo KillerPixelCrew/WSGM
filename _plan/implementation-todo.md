@@ -20,6 +20,8 @@ depends on #25, #35 and #36 and must not block the controller repair.
   touch/controller and reconnect validation remains.
 - #55A: shared limiter availability, coordinator admission and automatic release on limiter loss
   implemented; ten new tests pass. #55B still needs effective scenario and paired-limit projection.
+  The Overlay now refreshes retained sliders without scheduling user writes; its new control test
+  also checks that pending edits survive readback and are cancelled when the control becomes unavailable.
 - #56B: fixed the confirmed successful-probe stall and stable minimum/floor/maximum feedback;
   three new replay tests cover repeated descent, failed-probe recovery and `Can't Reach`.
   #56A paired writes and restoration implemented through an optional SDK command and the existing
