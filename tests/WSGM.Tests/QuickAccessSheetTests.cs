@@ -25,11 +25,11 @@ public sealed class QuickAccessSheetTests
         => Assert.Equal(expected, OverlayController.DecideSwipe(edge, explorerRunning));
 
     [Fact]
-    public void NewConfigurationsEnableEveryEdge()
+    public void NewConfigurationsKeepBottomDisabledAndTopAvailable()
     {
         var gestures = new GestureConfig();
 
-        Assert.True(gestures.BottomEdge);
+        Assert.False(gestures.BottomEdge);
         Assert.True(gestures.TopEdge);
         Assert.True(gestures.LeftEdgeSteamMenu);
         Assert.True(gestures.RightEdgeSteamQuickAccess);

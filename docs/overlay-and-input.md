@@ -103,12 +103,12 @@ direction auto-repeat) and full-state `StateChanged` (for chords), feeding `Game
 activate, mirrors arrow keys with a 250 ms dedupe and skips TextBoxes.
 
 `Overlay\TouchSwipeMonitor` observes the raw HID digitizer (`RIDEV_INPUTSINK`) for four configurable
-edge swipes and for tap-outside dismissal. The edge map is SteamOS's:
+edge swipes and for tap-outside dismissal. Settings exposes each binding:
 
 | Edge   | Action                                                     |
 | ------ | ---------------------------------------------------------- |
 | top    | opens the sheet                                            |
-| bottom | opens the sheet on the Open apps strip, in game mode only  |
+| bottom | disabled by default; optionally opens Open apps in Game Mode |
 | left   | sends Steam's installed-client mapping Ctrl+1 (Steam menu) |
 | right  | sends Ctrl+2 (Quick Access Menu)                           |
 

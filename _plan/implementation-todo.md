@@ -13,7 +13,7 @@ depends on #25, #35 and #36 and must not block the controller repair.
 
 The maintainer directs issues to close when their fixes are committed and pushed; failed field
 validation will be handled by reopening them. Hardware checks are not a closure gate. #60, #57 and
-#56, #55, #62 and #63 are closed. #19 closes with the physical-media discovery repair.
+#56, #55, #62, #63 and #19 are closed. #54 closes with the gesture-default repair.
 
 - #60: separate restore origin, bounded lighting readiness restoration and resume publication
   ordering implemented. Ten new hardware-free tests pass; fresh hardware validation remains.
@@ -49,6 +49,10 @@ validation will be handled by reopening them. Hardware checks are not a closure 
 - #19: Format uses query-only physical discovery; Eject includes letterless disks and a guarded
   media-eject path. Physical interface changes and periodic reader snapshots detect Linux media.
   Three new isolated discovery/layout tests pass; no live format or eject was performed.
+
+- #54: bottom-edge activation is disabled by default; top remains Overlay. Settings names the
+  optional Open apps action and its desktop exclusion. Existing explicit choices are preserved.
+  Focused default and configuration round-trip tests pass.
 
 This is the repository's only progress tracker. Mechanism details and device findings live in the
 focused `docs\` topics, and product decisions in `docs\decisions.md` and `_plan\2.0-decisions.md`.
