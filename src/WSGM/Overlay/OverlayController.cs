@@ -461,7 +461,7 @@ public sealed class OverlayController : IDisposable
         {
             return;
         }
-        var (entries, error) = Interop.PowerRequestList.Query();
+        var (entries, error) = WindowsDeviceControl.PowerRequestList.Query();
         if (error != _lastWakeLockError)
         {
             // Log transitions only — this ticks every 1.5 s while the panel is open.

@@ -8,6 +8,12 @@ itself in `docs\rtss.md`.
 
 ## Windows power schemes
 
+Windows Device Control owns power actions, source/battery queries, scheme/mode APIs, wake requests,
+request-list decoding, wake sign-in policy and native notification registration. WSGM owns user intent,
+policy serialization, logging, window message dispatch and persisted recovery snapshots. Lifecycle
+requests do not block the UI; successful shutdown dispatch is not a claim that shutdown completed.
+Wake-policy capture must succeed before any mutation. Restoration failures retain the saved snapshot.
+
 Disabling Device Integration releases plugin-only pages. Shared Power stays open, keeping the
 Windows power-profile picker reachable.
 
@@ -221,8 +227,8 @@ These are the remote test surface; keep their shape.
 
 ## Keep-awake wake lock
 
-`Core\WakeLock.cs` holds a Windows power request (`PowerCreateRequest` +
-`PowerRequestSystemRequired`) that blocks standby while held. The display still times out, but Wi-Fi
+`Core\WakeLock.cs` adapts Windows Device Control's `WindowsPowerRequest`, which owns the native
+handle and reason buffer. A system request blocks standby while held. The display still times out, but Wi-Fi
 and Steam keep running, which is what lets downloads survive "screen off" on a Modern Standby
 handheld. Downloads during real Modern Standby sleep are impossible for a Win32 application (DAM
 suspends every desktop process, no opt-out), so keep-awake is the whole feature — the same model as
@@ -268,7 +274,7 @@ second line. Unlike the summary it does not hide WSGM's own request: the list mu
 answer. An unelevated read shows "couldn't read", never an empty all-clear. It is the first sub-view
 belonging to the Power tab rather than Tools, so leaving it restores `PanelPower`.
 
-`Interop\PowerRequestList.cs` calls the undocumented `NtPowerInformation(GetPowerRequestList = 45)`
+Windows Device Control's `PowerRequestList` calls the undocumented `NtPowerInformation(GetPowerRequestList = 45)`
 on ntdll directly, because the documented wrapper rejects the class; it needs elevation, and denied
 yields grey. The version-dependent layout is decoded by bounds-checked readers ported from
 WakeWatch's `power.rs` (MIT, same author). Any structural surprise yields grey, never a false

@@ -3,7 +3,6 @@ using System.ComponentModel;
 using System.Globalization;
 using Avalonia.Threading;
 using WSGM.Core;
-using WSGM.Interop;
 
 namespace WSGM.Shell;
 
@@ -175,7 +174,7 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
         ClockText = FormatClock(now);
         DateText = FormatDate(now, CultureInfo.CurrentCulture);
 
-        var ok = NativeMethods.GetSystemPowerStatus(out var power);
+        var ok = WindowsDeviceControl.WindowsPower.TryGetStatus(out var power);
         var (hasBattery, percent, text) = InterpretBattery(ok, power.BatteryFlag, power.BatteryLifePercent);
         HasBattery = hasBattery;
         BatteryPercent = percent;

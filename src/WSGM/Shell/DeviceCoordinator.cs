@@ -170,7 +170,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     internal DevicePowerAssignments PowerAssignments { get; }
 
     private static bool? ReadOnAcPower() =>
-        NativeMethods.GetSystemPowerStatus(out NativeMethods.SystemPowerStatus power) && power.ACLineStatus is 0 or 1
+        WindowsDeviceControl.WindowsPower.TryGetStatus(out WindowsDeviceControl.WindowsPowerStatus power) && power.ACLineStatus is 0 or 1
             ? power.ACLineStatus == 1 : null;
 
     private async Task<CapabilityCommandResult> ExecutePresetCapabilityAsync(
@@ -2399,7 +2399,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private void UpdateCapabilityDesiredContext()
     {
         DeviceDesiredProfile? profile = CurrentProfile;
-        bool onAcPower = !NativeMethods.GetSystemPowerStatus(out NativeMethods.SystemPowerStatus power)
+        bool onAcPower = !WindowsDeviceControl.WindowsPower.TryGetStatus(out WindowsDeviceControl.WindowsPowerStatus power)
             || power.ACLineStatus != 0;
         _capabilities.UpdateDesiredContext(
             profile,

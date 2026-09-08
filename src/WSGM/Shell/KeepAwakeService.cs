@@ -23,7 +23,7 @@ public sealed class KeepAwakeService : IDisposable
         new("WSGM keep-awake (manual quick-access toggle)");
     private readonly WakeLock _manualDisplayLock =
         new("WSGM keep-display-on (manual quick-access toggle)",
-            Interop.NativeMethods.PowerRequestDisplayRequired);
+            (int)WindowsDeviceControl.WindowsPowerRequestKind.Display);
     private readonly WakeLock _downloadLock = new("WSGM keep-awake (Steam download in progress)");
     private readonly SteamMonitor? _monitor;
     private readonly Func<bool> _automaticCefReady;

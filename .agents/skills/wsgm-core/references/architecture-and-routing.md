@@ -56,7 +56,7 @@ session.
 | Handheld Companion scaffold (unfinished)           | `src/WSGM.Device.HandheldCompanion` |
 | MSI Claw device behavior                           | `src/WSGM.Device.Msi.Claw8A2Vm`     |
 | Reusable Steam CEF transport/patch/surfaces        | `external/steam-ui-toolkit`         |
-| Reusable Windows radio/audio/brightness primitives | `external/windows-device-control`   |
+| Reusable Windows radio/audio/brightness/power primitives | `external/windows-device-control`   |
 | Native Steam Input shim/lease                      | `native/SteamInput`                 |
 
 WSGM owns policy, orchestration, session state, and adapters. Device projects share this repository

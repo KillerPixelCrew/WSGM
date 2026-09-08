@@ -13,7 +13,7 @@ depends on #25, #35 and #36 and must not block the controller repair.
 
 The maintainer directs issues to close when their fixes are committed and pushed; failed field
 validation will be handled by reopening them. Hardware checks are not a closure gate. #60, #57 and
-#56, #55, #62, #63, #19 and #54 are closed. #29 closes with the control-hiding repair.
+#56, #55, #62, #63, #19, #54 and #29 are closed. #25 closes with the Windows power migration.
 
 - #60: separate restore origin, bounded lighting readiness restoration and resume publication
   ordering implemented. Ten new hardware-free tests pass; fresh hardware validation remains.
@@ -58,10 +58,11 @@ validation will be handled by reopening them. Hardware checks are not a closure 
   without removing shared rear-button sections, and stale profile CSS is reapplied. Two new focused
   glyph tests pass; installed Steam selector presence was checked offline, not through live CEF.
 
-- #25 in progress: scheme enumeration, active scheme, AC/DC policy values and power-mode native
-  calls moved to Windows Device Control. WSGM retains policy locks and confirmation. Eight migrated
-  decoding tests pass in the library; WSGM builds cleanly. Lifecycle actions and wake-lock ownership
-  are the next slice, so the issue remains open.
+- #25: Windows power policy, lifecycle actions, source/status reads, wake-request ownership and
+  decoding, wake sign-in primitives and notification registration moved to Windows Device Control.
+  WSGM retains policy ordering, logging, dispatch and persisted recovery. New focused tests cover
+  action admission, handle lifetime and recovery mapping; migrated decoding tests pass in the library.
+  No live power actions or policy mutations were performed.
 
 This is the repository's only progress tracker. Mechanism details and device findings live in the
 focused `docs\` topics, and product decisions in `docs\decisions.md` and `_plan\2.0-decisions.md`.

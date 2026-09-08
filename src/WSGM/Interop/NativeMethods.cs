@@ -494,79 +494,6 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool CloseHandle(nint hObject);
 
-    // ---- Power ----
-    [LibraryImport("powrprof.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.U1)]
-    internal static partial bool SetSuspendState(
-        [MarshalAs(UnmanagedType.U1)] bool hibernate,
-        [MarshalAs(UnmanagedType.U1)] bool forceCritical,
-        [MarshalAs(UnmanagedType.U1)] bool disableWakeEvent);
-
-    // ---- Power requests (keep-awake wake lock) ----
-    internal const uint PowerRequestContextVersion = 0;
-    internal const uint PowerRequestContextSimpleString = 0x1;
-    /// <summary>POWER_REQUEST_TYPE: PowerRequestDisplayRequired — pins the display
-    /// on (which on a Modern Standby device also keeps the system awake).</summary>
-    internal const int PowerRequestDisplayRequired = 0;
-    /// <summary>POWER_REQUEST_TYPE: PowerRequestSystemRequired — blocks automatic
-    /// sleep/standby entry while set; the display still turns off on its own timeout.</summary>
-    internal const int PowerRequestSystemRequired = 1;
-
-    /// <summary>REASON_CONTEXT with the simple-string variant of its union: the string
-    /// pointer is a caller-owned UTF-16 buffer (this struct stores the pointer only, so
-    /// the caller keeps the buffer alive for the life of the request object).</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct ReasonContext
-    {
-        public uint Version;
-        public uint Flags;
-        public nint SimpleReasonString;
-    }
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    internal static partial nint PowerCreateRequest(in ReasonContext context);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool PowerSetRequest(nint powerRequest, int requestType);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool PowerClearRequest(nint powerRequest, int requestType);
-
-    // ---- Power scheme values (display-off / sleep timeouts) ----
-    // ---- System-wide power request list (wake-lock indicator) ----
-    // The undocumented GetPowerRequestList (45) information class — what
-    // `powercfg /requests` uses internally. The documented CallNtPowerInformation
-    // wrapper REJECTS this class with STATUS_INVALID_PARAMETER, so the call goes
-    // against ntdll directly. Requires an elevated token (STATUS_ACCESS_DENIED
-    // otherwise) — same restriction as powercfg itself.
-    [LibraryImport("ntdll.dll")]
-    internal static partial int NtPowerInformation(
-        int informationLevel, nint inputBuffer, uint inputLength,
-        nint outputBuffer, uint outputLength);
-
-    [LibraryImport("ntdll.dll")]
-    internal static partial void RtlGetNtVersionNumbers(out uint major, out uint minor, out uint build);
-
-    // ---- System status (taskbar clock/battery cluster; Wi-Fi lives in WindowsRadio) ----
-    /// <summary>SYSTEM_POWER_STATUS: BatteryFlag 128 = no system battery, 255 = unknown;
-    /// BatteryLifePercent 255 = unknown.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct SystemPowerStatus
-    {
-        public byte ACLineStatus;
-        public byte BatteryFlag;
-        public byte BatteryLifePercent;
-        public byte SystemStatusFlag;
-        public uint BatteryLifeTime;
-        public uint BatteryFullLifeTime;
-    }
-
-    [LibraryImport("kernel32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool GetSystemPowerStatus(out SystemPowerStatus status);
-
     // ---- RTSS OSD metrics (Core\RtssOsd) ----
     // FILETIME pairs as raw 64-bit ticks; kernel time includes idle.
     [LibraryImport("kernel32.dll")]
@@ -757,16 +684,8 @@ internal static partial class NativeMethods
     internal static readonly Guid GuidMonitorPowerOn =
         new(0x02731015, 0x4510, 0x4526, 0x99, 0xE6, 0xE5, 0xA1, 0x7E, 0xBD, 0x1A, 0xEA);
 
-    /// <summary>DEVICE_NOTIFY_WINDOW_HANDLE: deliver as WM_POWERBROADCAST messages.</summary>
+    /// <summary>DEVICE_NOTIFY_WINDOW_HANDLE: deliver device notifications to a window.</summary>
     internal const uint DeviceNotifyWindowHandle = 0;
-
-    [LibraryImport("user32.dll", SetLastError = true)]
-    internal static partial nint RegisterPowerSettingNotification(
-        nint hRecipient, in Guid powerSettingGuid, uint flags);
-
-    [LibraryImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool UnregisterPowerSettingNotification(nint handle);
 
     /// <summary>WM_DEVICECHANGE — a device or media was added or removed.</summary>
     internal const uint WmDeviceChange = 0x0219;

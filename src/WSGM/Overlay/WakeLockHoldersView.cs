@@ -1,7 +1,7 @@
 using System.Threading.Tasks;
 using WSGM.Controls;
 using WSGM.Core;
-using WSGM.Interop;
+using WindowsDeviceControl;
 
 namespace WSGM.Overlay;
 

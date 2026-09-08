@@ -955,7 +955,7 @@ internal sealed class RtssOsdMetricsSource : IDisposable
 
     private static (double? Percent, int? MinutesRemaining, bool OnAcPower) SampleBattery()
     {
-        if (!NativeMethods.GetSystemPowerStatus(out NativeMethods.SystemPowerStatus power)
+        if (!WindowsDeviceControl.WindowsPower.TryGetStatus(out WindowsDeviceControl.WindowsPowerStatus power)
             || (power.BatteryFlag & 0x80) != 0)
         {
             return (null, null, false);

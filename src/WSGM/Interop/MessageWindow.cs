@@ -189,17 +189,17 @@ public sealed unsafe class MessageWindow : IDisposable
         {
             return true;
         }
-        _displayNotify = NativeMethods.RegisterPowerSettingNotification(
-            _hwnd, NativeMethods.GuidSessionDisplayStatus, NativeMethods.DeviceNotifyWindowHandle);
+        _displayNotify = WindowsDeviceControl.WindowsPower.RegisterSettingNotification(
+            _hwnd, NativeMethods.GuidSessionDisplayStatus);
         if (_displayNotify == 0)
         {
             Log.Warn("RegisterPowerSettingNotification(session display status) failed "
                 + $"(error {Marshal.GetLastWin32Error()}).");
         }
-        _consoleDisplayNotify = NativeMethods.RegisterPowerSettingNotification(
-            _hwnd, NativeMethods.GuidConsoleDisplayState, NativeMethods.DeviceNotifyWindowHandle);
-        _legacyDisplayNotify = NativeMethods.RegisterPowerSettingNotification(
-            _hwnd, NativeMethods.GuidMonitorPowerOn, NativeMethods.DeviceNotifyWindowHandle);
+        _consoleDisplayNotify = WindowsDeviceControl.WindowsPower.RegisterSettingNotification(
+            _hwnd, NativeMethods.GuidConsoleDisplayState);
+        _legacyDisplayNotify = WindowsDeviceControl.WindowsPower.RegisterSettingNotification(
+            _hwnd, NativeMethods.GuidMonitorPowerOn);
         Log.Info($"Display-state notifications registered (session={_displayNotify != 0}, "
             + $"console={_consoleDisplayNotify != 0}, legacy={_legacyDisplayNotify != 0}).");
         return _displayNotify != 0;
@@ -303,7 +303,7 @@ public sealed unsafe class MessageWindow : IDisposable
         {
             return;
         }
-        if (!NativeMethods.UnregisterPowerSettingNotification(handle))
+        if (!WindowsDeviceControl.WindowsPower.UnregisterSettingNotification(handle))
         {
             Log.Warn($"UnregisterPowerSettingNotification({name}) failed "
                 + $"(error {Marshal.GetLastWin32Error()}).");
