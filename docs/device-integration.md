@@ -6,9 +6,9 @@ leaves the shell, overlay, Steam Input lease, storage, artwork, launch features,
 recovery usable. This document records the decisions behind the runtime and the device findings that
 produced them. It does not describe the mechanism step by step.
 
-The resident common PluginHost admits the Device compatibility adapter. DeviceCoordinator still
-owns machine policy and ordered controller cleanup; hardware behavior remains in DevicePluginRuntime
-and the package. Common admission and lifecycle rules are documented in `docs/plugin-system.md`.
+The resident common PluginHost admits the Device compatibility adapter. DeviceCoordinator still owns
+machine policy and ordered controller cleanup; hardware behavior remains in DevicePluginRuntime and
+the package. Common admission and lifecycle rules are documented in `docs/plugin-system.md`.
 
 Related:
 
@@ -147,6 +147,21 @@ power preset's readback or later firmware changes.
 return path, WSGM's own HidHide delta, UI capture, the source WSGM's own surfaces navigate from, and
 the make-safe handoff. `DeviceCoordinator` keeps the plugin conversation; the manager orders both
 halves. Nothing else creates a target, mutates HidHide or decides where UI input comes from.
+
+### Active emulation raises WSGM's scheduling priority
+
+While controller management is Active, WSGM raises its process priority to High so normally
+scheduled games compete at a lower base priority than input acquisition and virtual report delivery.
+Both paths use asynchronous continuations, so changing one thread's priority would not cover the
+complete route. The boost also applies to other WSGM work during this interval. Windows Realtime
+priority is never requested. See
+[Windows scheduling priorities](https://learn.microsoft.com/en-us/windows/win32/procthread/scheduling-priorities).
+
+The controller manager restores the captured priority when management leaves Active or is disposed.
+An existing High or Realtime priority is left alone, and restoration preserves an external change
+away from WSGM's High priority. Priority failures are logged at transitions and do not stop input.
+Disabled integration and unavailable emulation never acquire the boost. Automated tests cover the
+priority lifetime and failure paths; latency under game load still requires attended verification.
 
 ### The target is chosen by two layers keyed by the running application
 

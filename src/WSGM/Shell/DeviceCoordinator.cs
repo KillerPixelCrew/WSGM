@@ -126,7 +126,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                     Path.Combine(Log.Directory, "hidhide-ownership.json"))),
             NativeStorage.FromDosPath(
                 Environment.ProcessPath
-                    ?? throw new InvalidOperationException("The WSGM executable path is unavailable.")));
+                    ?? throw new InvalidOperationException("The WSGM executable path is unavailable.")),
+            new ControllerProcessPriority());
         _powerAssignmentTask = Task.Run(ObservePowerAssignmentsAsync);
     }
 

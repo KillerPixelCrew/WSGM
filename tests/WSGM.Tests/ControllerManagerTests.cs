@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using WSGM.Core;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
@@ -30,6 +31,7 @@ public sealed class ControllerManagerTests
         Assert.Empty(harness.Backend.Operations);
         Assert.Equal(0, harness.HidHide.MutationCount);
         Assert.Null(harness.Store.Ledger);
+        Assert.Empty(harness.PriorityWrites);
     }
 
     [Fact]
@@ -50,6 +52,7 @@ public sealed class ControllerManagerTests
         Assert.Equal(ControllerTargetSource.GlobalDefault, status.TargetSource);
         Assert.Equal(UiInputSource.ManagedCanonical, status.UiSource);
         Assert.Contains("create:1:neutral", harness.Backend.Operations);
+        Assert.Equal([ProcessPriorityClass.High], harness.PriorityWrites);
         HidHideExactSnapshot hidHide = await harness.HidHide.ReadAsync(CancellationToken.None);
         Assert.Contains(HostApplication, hidHide.Applications);
         Assert.Contains(Device().InstancePath, hidHide.Devices);
@@ -95,6 +98,7 @@ public sealed class ControllerManagerTests
         Assert.Equal(UiInputSource.SdlWithSteamLease, status.UiSource);
         Assert.Equal(0, harness.HidHide.MutationCount);
         Assert.DoesNotContain(harness.Backend.Operations, operation => operation.StartsWith("create"));
+        Assert.Empty(harness.PriorityWrites);
     }
 
     [Fact]
@@ -161,6 +165,7 @@ public sealed class ControllerManagerTests
             operations.IndexOf("remove:1"),
             0,
             operations.IndexOf("create:2:neutral") - 1);
+        Assert.Equal([ProcessPriorityClass.High], harness.PriorityWrites);
     }
 
     [Fact]
@@ -452,6 +457,12 @@ public sealed class ControllerManagerTests
         Assert.False(await manager.RouteAsync(
             Sample(9, CanonicalButtons.A),
             CancellationToken.None));
+        Assert.Equal([ProcessPriorityClass.High, ProcessPriorityClass.Normal], harness.PriorityWrites);
+
+        await StartActiveAsync(manager);
+        Assert.Equal(
+            [ProcessPriorityClass.High, ProcessPriorityClass.Normal, ProcessPriorityClass.High],
+            harness.PriorityWrites);
     }
 
     [Fact]
@@ -481,6 +492,21 @@ public sealed class ControllerManagerTests
         await manager.DisposeAsync();
 
         Assert.Single(harness.Backend.Operations, operation => operation == "remove:1");
+        Assert.Equal([ProcessPriorityClass.High, ProcessPriorityClass.Normal], harness.PriorityWrites);
+    }
+
+    [Fact]
+    public async Task TargetLossRestoresPriorityAndFallsBackToSdl()
+    {
+        Harness harness = new();
+        await using ControllerManager manager = harness.Manager;
+        await StartActiveAsync(manager);
+
+        harness.Backend.LoseTarget();
+
+        Assert.Equal(ControllerManagementState.Faulted, manager.State);
+        Assert.Equal(UiInputSource.SdlWithSteamLease, manager.Snapshot().UiSource);
+        Assert.Equal([ProcessPriorityClass.High, ProcessPriorityClass.Normal], harness.PriorityWrites);
     }
 
     private static async Task StartActiveAsync(ControllerManager manager)
@@ -559,8 +585,21 @@ public sealed class ControllerManagerTests
                 Backend,
                 new DeterministicFakeHapticSink(5),
                 new HidHideOwnedDeltaManager(HidHide, Store),
-                HostApplication);
+                HostApplication,
+                new ControllerProcessPriority(
+                    () => Priority,
+                    priority =>
+                    {
+                        Priority = priority;
+                        PriorityWrites.Add(priority);
+                    },
+                    _ => { },
+                    _ => { }));
         }
+
+        internal ProcessPriorityClass Priority { get; private set; } = ProcessPriorityClass.Normal;
+
+        internal List<ProcessPriorityClass> PriorityWrites { get; } = [];
 
         internal DeterministicFakeHidBackend Backend { get; }
 

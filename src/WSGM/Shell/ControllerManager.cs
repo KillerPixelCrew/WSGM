@@ -66,6 +66,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     private readonly IHidBackend _backend;
     private readonly HidHideOwnedDeltaManager _hidHide;
     private readonly ManagedControllerRouter _router;
+    private readonly ControllerProcessPriority _processPriority;
     private readonly UiCaptureState _uiCapture = new();
     private readonly SemaphoreSlim _transition = new(1, 1);
     private readonly string _controllerReaderApplication;
@@ -105,11 +106,14 @@ internal sealed class ControllerManager : IAsyncDisposable
         IPhysicalHapticSink hapticSink,
         HidHideOwnedDeltaManager hidHide,
         string controllerReaderApplication,
+        ControllerProcessPriority processPriority,
         TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
         ArgumentNullException.ThrowIfNull(hapticSink);
         ArgumentNullException.ThrowIfNull(hidHide);
+        ArgumentNullException.ThrowIfNull(processPriority);
+        _processPriority = processPriority;
         _backend = backend;
         _hidHide = hidHide;
         _controllerReaderApplication = controllerReaderApplication;
@@ -733,7 +737,11 @@ internal sealed class ControllerManager : IAsyncDisposable
                 return;
             }
 
-            _disposed = true;
+            lock (_stateGate)
+            {
+                _disposed = true;
+                _processPriority.SetActive(false);
+            }
         }
         finally
         {
@@ -957,11 +965,15 @@ internal sealed class ControllerManager : IAsyncDisposable
 
     private ControllerManagerStatus SetState(ControllerManagementState state, string detail)
     {
-        State = state;
-        Detail = detail;
-        if (state is not (ControllerManagementState.Active or ControllerManagementState.Idle))
+        lock (_stateGate)
         {
-            _effective = null;
+            State = state;
+            Detail = detail;
+            _processPriority.SetActive(!_disposed && state is ControllerManagementState.Active);
+            if (state is not (ControllerManagementState.Active or ControllerManagementState.Idle))
+            {
+                _effective = null;
+            }
         }
 
         ControllerManagerStatus status = Snapshot();
