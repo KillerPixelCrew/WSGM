@@ -20,6 +20,14 @@ Related:
 collections, the refresh timer, the scan and pairing lifecycles, and the wording. The library
 returns outcomes; the wording that reaches the user is WSGM's.
 
+`BluetoothDeviceCatalog` keeps Windows watcher endpoint records and merges them by normalized,
+non-empty container GUID into the logical collection shared by Overlay and Steam. Missing container
+identity falls back to endpoint identity; friendly names never establish identity. A logical row
+retains its member endpoint IDs, a paired operation endpoint and a pairable endpoint. Pair/unpair
+use those Windows IDs, while UI actions identify the logical row. Removing one transport cannot
+disconnect a sibling transport; rescans retire unseen unpaired endpoints and retain paired ones
+as offline. Watcher generations reject queued callbacks from a retired discovery session.
+
 - Only `WifiFailureKind.KeyRejected` and `SecurityMismatch` re-prompt for a password. An unreachable
   network says so instead, because re-prompting makes the user retype a password that was never
   tried.

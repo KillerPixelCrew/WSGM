@@ -184,11 +184,19 @@ public sealed class BluetoothDeviceEntry : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>Creates a row for a device.</summary>
-    /// <param name="id">The WinRT device id, which identifies the row.</param>
-    public BluetoothDeviceEntry(string id) => Id = id;
+    /// <param name="id">The stable logical device id.</param>
+    public BluetoothDeviceEntry(string id) { Id = id; EndpointId = id; PairingEndpointId = id; }
 
-    /// <summary>Gets the WinRT device id. Immutable: it is the row's identity.</summary>
+    /// <summary>Gets the logical identity shared by Overlay and Steam, independent of Windows endpoint selection.</summary>
     public string Id { get; }
+
+    /// <summary>Gets the Windows association endpoint selected for operations on a paired device.</summary>
+    public string EndpointId { get; internal set; }
+
+    /// <summary>Gets the current pairable Windows endpoint.</summary>
+    public string PairingEndpointId { get; internal set; }
+
+    internal System.Collections.Generic.IReadOnlyList<string> EndpointIds { get; set; } = [];
 
     private string _name = "";
     /// <summary>Gets the display name, or a placeholder when the device has not

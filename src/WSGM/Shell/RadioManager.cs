@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -341,7 +342,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             BluetoothScanning = true;
             // A fresh sweep starts a fresh census; stale rows are dropped when
             // it completes.
-            _seenThisSweep.Clear();
+            _bluetoothCatalog.BeginSweep();
             // Restarting the watcher re-runs the initial enumeration, which is
             // what picks up a device that has only just been put into pairing
             // mode. Existing rows survive because they are matched by id.
@@ -369,12 +370,13 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         {
             return;
         }
+        long generation = Interlocked.Increment(ref _bluetoothWatchGeneration);
         QueueFeedWork(() =>
         {
             try
             {
                 WindowsRadio.StopBluetoothWatch();
-                WindowsRadio.StartBluetoothWatch(OnBluetoothChanged);
+                WindowsRadio.StartBluetoothWatch(change => OnBluetoothChanged(change, generation));
             }
             catch
             {
@@ -563,9 +565,9 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
 
     private bool _feedsStarted;
 
-    /// <summary>Ids reported during the current discovery sweep. Anything absent
-    /// when the sweep completes is no longer there.</summary>
-    private readonly HashSet<string> _seenThisSweep = new(StringComparer.Ordinal);
+    /// <summary>The endpoint census and canonical logical Bluetooth identities.</summary>
+    private readonly BluetoothDeviceCatalog _bluetoothCatalog = new();
+    private long _bluetoothWatchGeneration;
 
     /// <summary>Containers with Bluetooth audio endpoints, mapped to whether
     /// those endpoints are live. The devices whose rows get a
@@ -598,6 +600,8 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             return;
         }
         _feedsStarted = true;
+        _bluetoothCatalog.BeginSweep();
+        Interlocked.Increment(ref _bluetoothWatchGeneration);
         QueueFeedWork(StartBluetoothFeed);
         QueueFeedWork(StartWifiFeed);
     }
@@ -606,7 +610,8 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     {
         try
         {
-            WindowsRadio.StartBluetoothWatch(OnBluetoothChanged);
+            long generation = Volatile.Read(ref _bluetoothWatchGeneration);
+            WindowsRadio.StartBluetoothWatch(change => OnBluetoothChanged(change, generation));
         }
         catch
         {
@@ -624,6 +629,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             return;
         }
         _feedsStarted = false;
+        Interlocked.Increment(ref _bluetoothWatchGeneration);
         QueueFeedWork(() =>
         {
             WindowsRadio.StopBluetoothWatch();
@@ -631,10 +637,12 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         });
     }
 
-    private void OnBluetoothChanged(WindowsRadio.BluetoothChange change)
+    private void OnBluetoothChanged(WindowsRadio.BluetoothChange change, long generation)
     {
         var device = change.Device;
         Dispatcher.UIThread.Post(() =>
+        {
+            if (_disposed || generation != Volatile.Read(ref _bluetoothWatchGeneration)) { return; }
             ApplyDeviceChange(
                 change.Kind,
                 device.Id,
@@ -642,7 +650,8 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
                 device.Paired,
                 device.CanPair,
                 device.Connected,
-                device.Container));
+                device.Container);
+        });
     }
 
     private void OnWifiEvent(WindowsRadio.WifiWatchEvent change)
@@ -668,75 +677,44 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         WindowsRadio.BluetoothChangeKind change, string id, string name, bool paired,
         bool canPair, bool connected, string container)
     {
+        var logical = _bluetoothCatalog.Apply(change,
+            new WindowsRadio.BluetoothDevice(id, name, paired, canPair, connected, container));
+        var retained = new HashSet<BluetoothDeviceEntry>();
+        foreach (var device in logical)
+        {
+            var row = BluetoothDevices.FirstOrDefault(candidate => candidate.Id == device.Id)
+                ?? BluetoothDevices.Where(candidate => !retained.Contains(candidate)
+                    && candidate.EndpointIds.Any(endpoint => device.EndpointIds.Contains(endpoint, StringComparer.OrdinalIgnoreCase)))
+                    .OrderByDescending(candidate => candidate.Busy).FirstOrDefault();
+            if (row is null)
+            {
+                row = new BluetoothDeviceEntry(device.Id);
+                BluetoothDevices.Add(row);
+            }
+            retained.Add(row);
+            row.EndpointId = device.EndpointId;
+            row.PairingEndpointId = device.PairingEndpointId;
+            row.EndpointIds = device.EndpointIds;
+            row.Name = device.Name;
+            row.Paired = device.Paired;
+            row.CanPair = device.CanPair;
+            row.Connected = device.Connected;
+            row.ContainerId = device.Container;
+            ApplyAudioState(row);
+            Log.Change($"bluetooth-identity-{device.Id}",
+                $"Bluetooth logical={device.Id}, container={device.Container}, endpoints={string.Join(",", device.EndpointIds)}, selected={device.EndpointId}.");
+        }
+        for (int index = BluetoothDevices.Count - 1; index >= 0; index--)
+        {
+            var row = BluetoothDevices[index];
+            bool merged = row.ContainerId.Length > 0 && logical.Any(device => device.Container == row.ContainerId);
+            if (!retained.Contains(row) && (!row.Busy || merged)) { BluetoothDevices.RemoveAt(index); }
+        }
         if (change == WindowsRadio.BluetoothChangeKind.EnumerationCompleted)
         {
             BluetoothScanning = false;
-            // Anything not seen during this sweep is gone. Windows keeps its
-            // association-endpoint records long after a device stops
-            // advertising, and the watcher does not always report a Removed for
-            // them, so an unpaired device that has been switched off would
-            // otherwise sit in the list forever. Paired devices stay: they are
-            // legitimately known whether or not they are in range.
-            var stale = 0;
-            for (var i = BluetoothDevices.Count - 1; i >= 0; i--)
-            {
-                var candidate = BluetoothDevices[i];
-                if (_seenThisSweep.Contains(candidate.Id) || candidate.Busy)
-                {
-                    continue;
-                }
-                if (candidate.Paired)
-                {
-                    // Retained as a known device, but a sweep that did not see
-                    // it is the evidence that it is offline.
-                    candidate.Connected = false;
-                    candidate.AudioActive = false;
-                    continue;
-                }
-                BluetoothDevices.RemoveAt(i);
-                stale++;
-            }
-            Log.Info($"Bluetooth discovery complete ({BluetoothDevices.Count} device(s), "
-                + $"{stale} stale dropped).");
-            return;
+            Log.Info($"Bluetooth discovery complete ({BluetoothDevices.Count} logical device(s)).");
         }
-        if (id.Length == 0)
-        {
-            return;
-        }
-        var row = FindDevice(id);
-        if (change == WindowsRadio.BluetoothChangeKind.Removed)
-        {
-            // A row mid-operation is never removed: a device dropping out of
-            // range must not cancel the pairing the user just started. Nor is a
-            // PAIRED one — it is legitimately known whether or not it is in
-            // range, and dropping it would take its Paired status and Remove
-            // button with it. Same rule the sweep cleanup applies.
-            if (row is not null && !row.Busy && !row.Paired)
-            {
-                BluetoothDevices.Remove(row);
-            }
-            else if (row is not null && row.Paired)
-            {
-                // Kept, but no longer here: nothing else clears these, so the
-                // row would go on claiming a live connection forever.
-                row.Connected = false;
-                row.AudioActive = false;
-            }
-            return;
-        }
-        _seenThisSweep.Add(id);
-        if (row is null)
-        {
-            row = new BluetoothDeviceEntry(id);
-            BluetoothDevices.Add(row);
-        }
-        row.Name = name;
-        row.Paired = paired;
-        row.CanPair = canPair;
-        row.Connected = connected;
-        row.ContainerId = container;
-        ApplyAudioState(row);
         BluetoothStateText = DescribeBluetooth(BluetoothPower, BluetoothDevices.Count);
     }
 
@@ -901,18 +879,6 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         foreach (var entry in Networks)
         {
             if (string.Equals(entry.Ssid, ssid, StringComparison.Ordinal))
-            {
-                return entry;
-            }
-        }
-        return null;
-    }
-
-    private BluetoothDeviceEntry? FindDevice(string id)
-    {
-        foreach (var entry in BluetoothDevices)
-        {
-            if (string.Equals(entry.Id, id, StringComparison.Ordinal))
             {
                 return entry;
             }
@@ -1145,7 +1111,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     public async Task UnpairAsync(BluetoothDeviceEntry entry)
     {
         entry.Busy = true;
-        var id = entry.Id;
+        var id = entry.EndpointId;
         bool removed;
         try
         {
@@ -1167,6 +1133,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         // half a minute — far too long for a button the user just pressed.
         if (removed)
         {
+            _bluetoothCatalog.ConfirmPairing(id, false);
             entry.Paired = false;
         }
         Log.Info($"Bluetooth unpair: {entry.Name} -> {removed}.");
@@ -1175,6 +1142,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
 
     private bool _pairingInProgress;
     private BluetoothDeviceEntry? _pairingEntry;
+    private string? _pairingEndpointId;
     private uint _pairingToken;
 
     /// <summary>Starts pairing a device. Questions arrive on
@@ -1192,6 +1160,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         _pairingInProgress = true;
         entry.Busy = true;
         _pairingEntry = entry;
+        _pairingEndpointId = entry.PairingEndpointId;
         StatusText = $"Pairing with {entry.Name}...";
         // Discovery keeps running through the whole ceremony ON PURPOSE, the
         // way the Windows applet does it: PairAsync needs the association
@@ -1202,7 +1171,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
 
         try
         {
-            WindowsRadio.PairBluetooth(entry.Id, OnPairingRequested, OnPairingDone);
+            WindowsRadio.PairBluetooth(_pairingEndpointId, OnPairingRequested, OnPairingDone);
         }
         catch (Exception ex)
         {
@@ -1245,6 +1214,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             _pairingEntry = null;
         }
         _pairingToken = 0;
+        _pairingEndpointId = null;
         _pairingInProgress = false;
     }
 
@@ -1301,6 +1271,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
                 or WindowsRadio.PairingOutcome.AlreadyPaired;
             if (entry is not null && paired)
             {
+                if (_pairingEndpointId is { } endpointId) { _bluetoothCatalog.ConfirmPairing(endpointId, true); }
                 entry.Paired = true;
             }
             FinishPairing();

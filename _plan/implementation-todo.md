@@ -37,6 +37,10 @@ validation will be handled by reopening them. Hardware checks are not a closure 
   scheduled with #25/#35/#36 despite closing the immediate #56 controller repair.
   The architectural #25/#49/#50 work follows the repair lane.
 
+- #62: container-based canonical Bluetooth collection implemented for both surfaces, with separate
+  Windows action endpoints and stale-watcher rejection. Seven new catalog tests pass. Closes with
+  its fix commit; #63 action dispatch follows immediately.
+
 This is the repository's only progress tracker. Mechanism details and device findings live in the
 focused `docs\` topics, and product decisions in `docs\decisions.md` and `_plan\2.0-decisions.md`.
 Completed milestones are rolled up here to what they settled; their narratives stay in git history,
