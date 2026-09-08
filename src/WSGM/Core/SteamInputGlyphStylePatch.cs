@@ -58,9 +58,8 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
     /// <inheritdoc/>
     /// <remarks>
     /// The structure this patch depends on is Valve's glyph resource naming, which is stable, plus
-    /// two generated Steam class names used for the inline logo container and the configurator row.
-    /// Both are checked here so a Steam rebuild that renames them disables the patch instead of
-    /// installing rules that silently match nothing.
+    /// generated Steam class names used for individual containers. Class observations are diagnostic:
+    /// lazy editor styles or an unrelated logo must not disable stable binding-row hiding.
     /// </remarks>
     public async Task<SteamUiPatchProbeResult> ProbeAsync(
         SteamUiPatchContext context,
@@ -112,10 +111,8 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
                 result.Error ?? "Steam MainWindow is unavailable.");
         }
 
-        // Both selector classes are required, not just ok. They are build-coupled: the rules this
-        // patch installs are written against them, so a client that renamed either one would accept
-        // a stylesheet that matches nothing while the patch reported itself compatible and unique.
-        bool compatible = SteamUiPatchEvaluation.IsSuccessful(result.Value, "rowClass", "logoClass");
+        // Individual selector drift must not suppress every independent rule in the sheet.
+        bool compatible = SteamUiPatchEvaluation.IsSuccessful(result.Value);
         return new SteamUiPatchProbeResult(
             true,
             compatible,
@@ -187,7 +184,7 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
                 // controller-type ancestor — ".controller_steamcontroller_neptune .rlz-…" — and two
                 // classes beat one. Without it the override installs, verifies, and loses the
                 // cascade in silence, which is exactly what it did.
-                if(classes.size)
+                if(classes.size&&css.includes('--wsgm-controller-full-image:'))
                   illustration='\n'+[...classes].join(',\n')
                     +' {\n  background-image: var(--wsgm-controller-full-image) !important;\n}\n';
               }catch{}
@@ -207,9 +204,8 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Verified by asking the browser whether a rule actually matches, not merely whether the node
-    /// exists: an installed stylesheet whose selectors match nothing looks identical to a working
-    /// one from the outside, and that is exactly the failure a Steam rebuild produces.
+    /// Verifies ownership and exact current stylesheet content. Matching individual controls still
+    /// depends on the editor/viewer being open and is not claimed by this installation check.
     /// </remarks>
     public Task<SteamUiPatchOperationResult> VerifyAsync(
         SteamUiPatchContext context,
@@ -224,8 +220,10 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
               const id={{SteamCef.JsString(SteamGlyphCss.ElementId)}};
               const owned={{SteamCef.JsString(SteamGlyphCss.OwnedClass)}};
               const style=document.getElementById(id);
+              const expected={{SteamCef.JsString(_state.Current is { } current ? SteamGlyphCss.Build(current, true) : "")}};
               if(!style||!style.classList.contains(owned))
                 return JSON.stringify({ok:false,error:'the WSGM glyph stylesheet is absent'});
+              if(!expected||!style.textContent.startsWith(expected))return JSON.stringify({ok:false,error:'the WSGM glyph profile changed'});
               const sheet=style.sheet;
               const ruleCount=sheet?sheet.cssRules.length:0;
               const foreign=document.querySelectorAll('.css-loader-style').length;

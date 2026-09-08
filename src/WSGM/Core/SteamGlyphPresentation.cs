@@ -18,13 +18,18 @@ internal sealed class SteamInputGlyphDeliveryState
 {
     private SteamInputGlyphPresentation? _presentation;
 
-    /// <summary>The resolved presentation, or null when native Steam glyphs apply.</summary>
+    /// <summary>The resolved artwork and control availability, or null without an active profile.</summary>
     internal SteamInputGlyphPresentation? Current => Volatile.Read(ref _presentation);
 
     /// <summary>Replaces the active profile.</summary>
     /// <param name="profile">The plugin's imported profile, or null for native presentation.</param>
-    internal void Update(ImportedGlyphProfile? profile) =>
-        Volatile.Write(ref _presentation, SteamInputGlyphPresentation.Create(profile));
+    /// <param name="nativeArtwork">Keeps control availability while omitting artwork overrides.</param>
+    internal void Update(ImportedGlyphProfile? profile, bool nativeArtwork = false)
+    {
+        var presentation = SteamInputGlyphPresentation.Create(profile);
+        Volatile.Write(ref _presentation, nativeArtwork && presentation is not null
+            ? presentation with { StableResources = [], ControllerImages = [] } : presentation);
+    }
 }
 
 internal sealed record SteamInputGlyphAssetReference(string Sha256, string DataUri);

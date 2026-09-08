@@ -721,7 +721,8 @@ through its existing ordered-write and rollback implementation.
 At cycle start the coordinator imports `glyphs\` through the SDK importer, logs
 `Device glyph catalog: package=…, profiles=…, rejected=…`, and stores the profiles in
 `PhysicalGlyphCatalog`. Selection follows the `GlyphSelection` setting: `Automatic` picks the
-ordinal-first profile whose `ExactDeviceIds` contain the matched definition; `NativeSteam` disables;
+ordinal-first profile whose `ExactDeviceIds` contain the matched definition; `NativeSteam` disables
+artwork overrides while Steam control hiding still uses the active package's automatic profile;
 a manual id that does not match falls back to automatic and reports it. Any fallback leaves Valve's
 glyphs untouched and the overlay draws letters.
 

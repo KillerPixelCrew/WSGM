@@ -13,7 +13,7 @@ depends on #25, #35 and #36 and must not block the controller repair.
 
 The maintainer directs issues to close when their fixes are committed and pushed; failed field
 validation will be handled by reopening them. Hardware checks are not a closure gate. #60, #57 and
-#56, #55, #62, #63 and #19 are closed. #54 closes with the gesture-default repair.
+#56, #55, #62, #63, #19 and #54 are closed. #29 closes with the control-hiding repair.
 
 - #60: separate restore origin, bounded lighting readiness restoration and resume publication
   ordering implemented. Ten new hardware-free tests pass; fresh hardware validation remains.
@@ -53,6 +53,10 @@ validation will be handled by reopening them. Hardware checks are not a closure 
 - #54: bottom-edge activation is disabled by default; top remains Overlay. Settings names the
   optional Open apps action and its desktop exclusion. Existing explicit choices are preserved.
   Focused default and configuration round-trip tests pass.
+
+- #29: native artwork preserves active-plugin control filtering. Individual viewer rows are hidden
+  without removing shared rear-button sections, and stale profile CSS is reapplied. Two new focused
+  glyph tests pass; installed Steam selector presence was checked offline, not through live CEF.
 
 This is the repository's only progress tracker. Mechanism details and device findings live in the
 focused `docs\` topics, and product decisions in `docs\decisions.md` and `_plan\2.0-decisions.md`.

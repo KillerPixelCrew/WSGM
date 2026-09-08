@@ -10,6 +10,35 @@ namespace WSGM.Tests;
 public sealed class SteamGlyphCssTests
 {
     [Fact]
+    public void NativeArtworkStillHidesAbsentControlsAndRestoresArtworkWhenSelected()
+    {
+        SteamInputGlyphDeliveryState state = new();
+        var profile = ImportProfile();
+        state.Update(profile, nativeArtwork: true);
+        Assert.NotNull(state.Current);
+        Assert.Empty(state.Current.StableResources);
+        Assert.Empty(state.Current.ControllerImages);
+        Assert.Contains(GlyphControlId.LeftTrackpad, state.Current.AbsentControls);
+        Assert.Contains("display: none", SteamGlyphCss.Build(state.Current, true), StringComparison.Ordinal);
+        state.Update(profile);
+        Assert.NotEmpty(state.Current!.StableResources);
+        state.Update(null);
+        Assert.Null(state.Current);
+    }
+
+    [Fact]
+    public void AbsentRearButtonsHideIndividualRowsWithoutHidingSharedSections()
+    {
+        SteamInputGlyphPresentation presentation = new("device", 1, [], [], [GlyphControlId.RearLeft2]);
+        var css = SteamGlyphCss.Build(presentation, true);
+        Assert.Contains($".{SteamGlyphCss.ControlRowClass}:has(img[src=\"/steaminputglyphs/sd_l5.svg\"])", css, StringComparison.Ordinal);
+        Assert.DoesNotContain(SteamGlyphCss.ControlSectionClass, css, StringComparison.Ordinal);
+        Assert.DoesNotContain(SteamGlyphCss.DialogSectionClass, css, StringComparison.Ordinal);
+        Assert.DoesNotContain("sd_l4.svg", css, StringComparison.Ordinal);
+        Assert.DoesNotContain("sd_r5.svg", css, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ImportedProfileProducesOnlyCatalogOwnedExactMappings()
     {
         ImportedGlyphProfile profile = ImportProfile();

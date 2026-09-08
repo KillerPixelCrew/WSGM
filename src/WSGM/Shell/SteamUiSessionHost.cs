@@ -244,13 +244,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// Applies handheld glyph presentation: whether it is on, and what to draw.
     /// </summary>
     /// <param name="enabled">Whether WSGM presents handheld glyphs at all.</param>
-    /// <param name="profile">The resolved plugin profile, or null for native Steam glyphs.</param>
+    /// <param name="profile">The resolved plugin profile, including its control availability.</param>
+    /// <param name="nativeArtwork">Keeps Valve artwork while still hiding absent controls.</param>
     /// <remarks>
     /// One call because there is one thing to install. The profile is the plugin's and is the only
     /// source of artwork; WSGM turns it into a stylesheet. Either switch off, or a profile that
-    /// supplies nothing to draw, removes WSGM's stylesheet and leaves native Valve glyphs in place.
+    /// supplies no artwork or absent controls, removes WSGM's stylesheet. Native artwork selection
+    /// retains the active plugin's control filtering.
     /// </remarks>
-    internal void ApplyGlyphs(bool enabled, ImportedGlyphProfile? profile)
+    internal void ApplyGlyphs(bool enabled, ImportedGlyphProfile? profile, bool nativeArtwork = false)
     {
         if (_disposed)
         {
@@ -258,7 +260,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         _glyphsEnabled = enabled;
-        _glyphDeliveryState.Update(enabled ? profile : null);
+        _glyphDeliveryState.Update(enabled ? profile : null, nativeArtwork);
         SetGlyphDeliveryPatchStates();
         if (_glyphDeliveryEnabled)
         {

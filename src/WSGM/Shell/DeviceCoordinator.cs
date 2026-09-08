@@ -1536,6 +1536,9 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             _config.DeviceIntegration.GlyphSelection,
             _config.DeviceIntegration.ManualGlyphProfileId);
 
+    internal PhysicalGlyphSelectionResult PhysicalControlSelectionSnapshot() =>
+        _physicalGlyphs.SelectProfile(_config.DeviceIntegration.Enabled, DeviceGlyphSelection.Automatic, null);
+
     /// <summary>Cycles the physical presentation policy and persists it without changing device ownership.</summary>
     internal async Task CyclePhysicalGlyphSelectionAsync(
         CancellationToken cancellationToken = default)
