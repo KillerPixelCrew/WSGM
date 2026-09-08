@@ -25,6 +25,21 @@ namespace WSGM.Shell;
 /// collections would drop the control under the gamepad cursor.</summary>
 public sealed class RadioManager : INotifyPropertyChanged, IDisposable
 {
+    private readonly Action<string, Action<WindowsRadio.PairingRequest>, Action<WindowsRadio.PairingResult?, Exception?>> _pairBluetooth;
+    private readonly BluetoothAudioConnection _bluetoothAudio;
+
+    /// <summary>Creates the session radio manager over the Windows backends.</summary>
+    public RadioManager() : this(WindowsRadio.PairBluetooth,
+        new BluetoothAudioConnection(CoreAudio.SetBluetoothAudioConnection, CoreAudio.ListBluetoothAudioContainers))
+    { }
+
+    internal RadioManager(
+        Action<string, Action<WindowsRadio.PairingRequest>, Action<WindowsRadio.PairingResult?, Exception?>> pairBluetooth,
+        BluetoothAudioConnection bluetoothAudio)
+    {
+        _pairBluetooth = pairBluetooth;
+        _bluetoothAudio = bluetoothAudio;
+    }
     /// <summary>Raised after a status property changes.</summary>
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -39,6 +54,8 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     private DispatcherTimer? _timer;
     private int _refreshing;
     private bool _scanning;
+    private bool _panelScanning;
+    private bool _steamScanning;
     private bool _accessLogged;
     private volatile bool _disposed;
 
@@ -301,6 +318,27 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     public void StartScanning()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        _panelScanning = true;
+        UpdateScanning();
+    }
+
+    internal void SetSteamDiscovery(bool enabled)
+    {
+        if (_disposed) { return; }
+        _steamScanning = enabled;
+        UpdateScanning();
+    }
+
+    private void UpdateScanning()
+    {
+        bool wanted = !_disposed && (_panelScanning || _steamScanning || _pairingInProgress);
+        if (!wanted)
+        {
+            _scanning = false;
+            StopFeeds();
+            BluetoothScanning = false;
+            return;
+        }
         if (_scanning)
         {
             return;
@@ -318,14 +356,8 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// <summary>Stops actively scanning. Idempotent.</summary>
     public void StopScanning()
     {
-        if (!_scanning)
-        {
-            return;
-        }
-        _scanning = false;
-        StopFeeds();
-        BluetoothScanning = false;
-        Log.Info("Radio panel: scanning stopped.");
+        _panelScanning = false;
+        UpdateScanning();
     }
 
     /// <summary>Asks for a fresh sweep of both radios.
@@ -1071,23 +1103,30 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// general reconnect operation for them.</summary>
     /// <param name="entry">The device to connect or disconnect.</param>
     /// <param name="connect">True to connect, false to disconnect.</param>
-    public async Task SetAudioConnectionAsync(BluetoothDeviceEntry entry, bool connect)
+    /// <param name="cancellationToken">Cancels waiting for confirmation.</param>
+    /// <returns>Whether later endpoint readback confirmed the requested state.</returns>
+    public async Task<bool> SetAudioConnectionAsync(BluetoothDeviceEntry entry, bool connect, CancellationToken cancellationToken = default)
     {
-        if (entry.ContainerId.Length == 0)
+        if (entry.Busy)
         {
-            return;
+            StatusText = "A Bluetooth operation is already in progress for this device.";
+            return false;
+        }
+        if (!entry.Paired || !entry.AudioConnectable || entry.ContainerId.Length == 0)
+        {
+            StatusText = "This device reconnects when powered on or used. Windows does not expose a manual connection action for it.";
+            return false;
         }
         entry.Busy = true;
         StatusText = $"{(connect ? "Connecting" : "Disconnecting")} {entry.Name}...";
         var container = entry.ContainerId;
         try
         {
-            await Task.Run(() => CoreAudio.SetBluetoothAudioConnection(container, connect));
+            bool confirmed = await _bluetoothAudio.ApplyAsync(container, connect, cancellationToken);
             Log.Info($"Bluetooth audio {(connect ? "connect" : "disconnect")}: {entry.Name}.");
-            // Optimistic on the AUDIO state specifically — that is what this
-            // one-shot moved. The next snapshot confirms it from the endpoints.
-            entry.AudioActive = connect;
-            StatusText = "";
+            if (confirmed) { entry.AudioActive = connect; }
+            StatusText = confirmed ? "" : $"{entry.Name} did not confirm the requested connection state. Check that it is powered on and in range.";
+            return confirmed;
         }
         catch (Exception ex)
         {
@@ -1096,20 +1135,23 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             StatusText = connect
                 ? $"Could not connect {entry.Name}. Make sure it is switched on and in range."
                 : $"Could not disconnect {entry.Name}.";
+            return false;
         }
         finally
         {
             // Cleared on every path: a row left busy keeps its buttons disabled
             // for as long as the panel stays open.
             entry.Busy = false;
+            QueueRefresh();
         }
-        QueueRefresh();
     }
 
     /// <summary>Removes a Bluetooth pairing.</summary>
     /// <param name="entry">The device to unpair.</param>
-    public async Task UnpairAsync(BluetoothDeviceEntry entry)
+    /// <returns>Whether Windows confirmed removal.</returns>
+    public async Task<bool> UnpairAsync(BluetoothDeviceEntry entry)
     {
+        if (entry.Busy) { StatusText = "A Bluetooth operation is already in progress for this device."; return false; }
         entry.Busy = true;
         var id = entry.EndpointId;
         bool removed;
@@ -1120,7 +1162,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         catch (Exception ex)
         {
             ReportCommandFailure($"remove {entry.Name}", ex);
-            return;
+            return false;
         }
         finally
         {
@@ -1138,29 +1180,35 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         }
         Log.Info($"Bluetooth unpair: {entry.Name} -> {removed}.");
         StatusText = removed ? "" : $"Could not remove {entry.Name}.";
+        return removed;
     }
 
     private bool _pairingInProgress;
     private BluetoothDeviceEntry? _pairingEntry;
     private string? _pairingEndpointId;
+    private bool _pairingCancelled;
     private uint _pairingToken;
 
     /// <summary>Starts pairing a device. Questions arrive on
     /// <see cref="PairingRequested"/> and must be answered with
     /// <see cref="RespondToPairing"/>.</summary>
     /// <param name="entry">The device to pair.</param>
-    public void BeginPairing(BluetoothDeviceEntry entry)
+    /// <returns>Whether pairing was started or the device was already paired.</returns>
+    public bool BeginPairing(BluetoothDeviceEntry entry)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (_pairingInProgress)
+        if (entry.Paired) { return true; }
+        if (_pairingInProgress || entry.Busy)
         {
             StatusText = "Another pairing is already in progress.";
-            return;
+            return false;
         }
+        if (!entry.CanPair) { StatusText = "Put the device into pairing mode and scan again."; return false; }
         _pairingInProgress = true;
         entry.Busy = true;
         _pairingEntry = entry;
         _pairingEndpointId = entry.PairingEndpointId;
+        _pairingCancelled = false;
         StatusText = $"Pairing with {entry.Name}...";
         // Discovery keeps running through the whole ceremony ON PURPOSE, the
         // way the Windows applet does it: PairAsync needs the association
@@ -1171,13 +1219,24 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
 
         try
         {
-            WindowsRadio.PairBluetooth(_pairingEndpointId, OnPairingRequested, OnPairingDone);
+            _pairBluetooth(_pairingEndpointId, OnPairingRequested, OnPairingDone);
+            return true;
         }
         catch (Exception ex)
         {
             FinishPairing();
             ReportCommandFailure($"pair with {entry.Name}", ex);
+            return false;
         }
+    }
+
+    internal bool CancelPairing(BluetoothDeviceEntry entry)
+    {
+        if (!_pairingInProgress || _pairingEntry?.Id != entry.Id) { return false; }
+        _pairingCancelled = true;
+        StatusText = $"Cancelling pairing with {entry.Name}...";
+        if (_pairingToken != 0) { RespondToPairing(_pairingToken, false, null); }
+        return true;
     }
 
     /// <summary>Answers a pairing question raised on <see cref="PairingRequested"/>.</summary>
@@ -1215,7 +1274,9 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         }
         _pairingToken = 0;
         _pairingEndpointId = null;
+        _pairingCancelled = false;
         _pairingInProgress = false;
+        UpdateScanning();
     }
 
     private void OnPairingRequested(WindowsRadio.PairingRequest request)
@@ -1235,6 +1296,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
                 RespondToPairing(request.Token, accept: false, null);
                 return;
             }
+            if (_pairingCancelled) { RespondToPairing(request.Token, false, null); return; }
             var handled = PairingRequested is not null;
             Log.Info($"Bluetooth pairing: prompting the user (token {request.Token}, "
                 + $"handler attached: {handled}).");

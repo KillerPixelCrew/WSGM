@@ -13,7 +13,7 @@ depends on #25, #35 and #36 and must not block the controller repair.
 
 The maintainer directs issues to close when their fixes are committed and pushed; failed field
 validation will be handled by reopening them. Hardware checks are not a closure gate. #60, #57 and
-#56 are closed. #55 closes with the shared ownership and slider synchronization commit.
+#56, #55 and #62 are closed. #63 closes with the action dispatch repair.
 
 - #60: separate restore origin, bounded lighting readiness restoration and resume publication
   ordering implemented. Ten new hardware-free tests pass; fresh hardware validation remains.
@@ -40,6 +40,11 @@ validation will be handled by reopening them. Hardware checks are not a closure 
 - #62: container-based canonical Bluetooth collection implemented for both surfaces, with separate
   Windows action endpoints and stale-watcher rejection. Seven new catalog tests pass. Closes with
   its fix commit; #63 action dispatch follows immediately.
+
+- #63: Steam Pair now starts Windows pairing with the shared prompt panel ready. Audio connection
+  waits for readback, operation progress reaches Steam, and backend failures remain failures.
+  Five new isolated action tests and an emitted-JavaScript regression check pass. Live pairing,
+  reconnect and wake checks remain field follow-up.
 
 This is the repository's only progress tracker. Mechanism details and device findings live in the
 focused `docs\` topics, and product decisions in `docs\decisions.md` and `_plan\2.0-decisions.md`.

@@ -666,7 +666,8 @@ public sealed class ShellSession : IAsyncDisposable
                 // is_vrr_supported and Valve's row does not render. One fact, one source. The
                 // user-facing wrapper persists the state to the per-application layer in force; the
                 // bare ApplyVariableRefreshRateAsync stays the profile restore's device write.
-                _deviceCoordinator is null ? null : SetVariableRefreshRateFromUserAsync);
+                _deviceCoordinator is null ? null : SetVariableRefreshRateFromUserAsync,
+                () => _overlay?.ShowBluetoothPanel() == true);
             _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
             _steamUi.ApplyNetworkIndicator(_inGameMode && _wifiIndicatorEnabled);
             _steamUi.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);

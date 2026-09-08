@@ -28,6 +28,14 @@ use those Windows IDs, while UI actions identify the logical row. Removing one t
 disconnect a sibling transport; rescans retire unseen unpaired endpoints and retain paired ones
 as offline. Watcher generations reject queued callbacks from a retired discovery session.
 
+Steam Pair opens the shared radio panel before starting Windows pairing, so PIN and confirmation
+questions have a visible owner. Busy state is published to Steam's operation spinner. Cancel rejects
+the active ceremony; it does not stop discovery or claim that Windows has already finished.
+Steam and panel discovery requests are independent, and active pairing retains discovery.
+Audio Connect/Disconnect dispatch once and poll endpoint readback for confirmation. Timeout and
+unsupported non-audio connection actions report a visible panel error; no optimistic connected state
+or automatic write retry is used. Steam transport replies preserve backend failures.
+
 - Only `WifiFailureKind.KeyRejected` and `SecurityMismatch` re-prompt for a password. An unreachable
   network says so instead, because re-prompting makes the user retype a password that was never
   tried.

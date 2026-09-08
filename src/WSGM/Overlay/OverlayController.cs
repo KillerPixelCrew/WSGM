@@ -1243,6 +1243,14 @@ public sealed class OverlayController : IDisposable
         _overlay?.SelectDeviceDestination();
     }
 
+    internal bool ShowBluetoothPanel()
+    {
+        if (_disposed) { return false; }
+        ShowOverlay();
+        ShowRadioPanel(bluetooth: true);
+        return _radioPanel is not null;
+    }
+
     /// <summary>Tap-outside dismissal via the raw-input observer, for whichever
     /// surface is open. Deliberately NOT implemented as dismiss-on-deactivate: the
     /// window-switching actions hand the foreground to another window while the

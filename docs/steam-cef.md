@@ -576,6 +576,10 @@ store and the other changes unrelated client behaviour everywhere.
 
 ### Bluetooth facts
 
+The Bluetooth gate carries shared operation progress and returns failed transport replies for
+backend errors. Pair opens WSGM's radio prompt surface and dispatches the selected Windows endpoint;
+audio Connect waits for endpoint readback. The gate performs no Windows operations itself.
+
 `BluetoothManagerService` is its own service and does not share the SteamOS Manager seam. Its
 `GetState` round-trips on Windows and returns
 `{is_service_available:false, adapters:[], devices:[]}`: transport and message shapes present,

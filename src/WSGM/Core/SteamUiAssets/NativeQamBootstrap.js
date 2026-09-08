@@ -1387,6 +1387,7 @@
           etype: device.eType ?? 0,
           is_paired: device.isPaired === true,
           is_connected: device.isConnected === true,
+          operation_in_progress: device.operationInProgress === true,
           // Steam sorts by signal and shows a battery when one is reported. The host knows neither, and
           // a fabricated strength would order the list by a number that means nothing.
           strength_raw: 0,
@@ -1406,8 +1407,19 @@
       }
       const forward = (command) => (payload) =>
         request(patchId, command, payload ?? null).then(
-          () => reply({ success: true }),
-          () => reply({ success: false }),
+          () => {
+            lastError = "";
+            return reply({ success: true });
+          },
+          (error) => {
+            lastError = String(error);
+            return {
+              ...reply({ success: false, error: lastError }),
+              BSuccess: () => false,
+              BFailed: () => true,
+              GetEResult: () => 2,
+            };
+          },
         );
       const replace = (name, replacement) => {
         const current = RF[name];
@@ -1437,7 +1449,7 @@
       try {
         replace("GetState", () => Promise.resolve(reply(latest)));
         replace("GetDeviceDetails", (payload) => {
-          const id = payload?.id;
+          const id = payload?.device ?? payload?.id;
           const device = latest.devices.find((entry) => entry.id === id) ?? null;
           return Promise.resolve(reply({ device }));
         });
