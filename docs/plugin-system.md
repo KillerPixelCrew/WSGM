@@ -55,6 +55,23 @@ configuration store. The host accepts bounded primitive values, retains at most 
 instance, rejects reordered/stale observations and checks queued UI events again before dispatch.
 These are ordinary UI/status events; high-rate controller samples retain their specialized path.
 
+## Named actions and UI contributions
+
+`IPluginActions` declares stable operation names and primitive argument schemas. The host snapshots
+them before startup and gives each invocation a fresh operation identity, current generation, origin
+and deadline. Stale generations and invalid arguments cannot dispatch. A missing, failed or mismatched
+reply remains unconfirmed; there is no automatic retry. `Dispatched` means a command was sent,
+whereas `AppliedVerified` requires independent evidence of the declared effect. Route orchestration
+must not treat an IR endpoint acknowledgment as proof that a television changed input.
+
+`IPluginUi` supplies bounded status, button, toggle and slider descriptions. Admission checks every
+action/argument link and requires numeric bounds for sliders. WSGM owns actual controls and placement;
+plugins cannot inject UI code. Rendering and pinning consume these contracts in later slices.
+
+Stop closes action admission immediately and cooperatively cancels the active lifecycle/action call.
+The stop and disposal operations still wait behind that call's actual completion, so cancellation
+cannot unload code that is still using external resources. Stop tolerates partially completed startup.
+
 The initial execution model remains trusted in-process code. Collectible load contexts isolate
 dependencies, not security or crashes. A process boundary would require separately designed and
 validated transport, permission and recovery contracts. The SDK neither resurrects the retired

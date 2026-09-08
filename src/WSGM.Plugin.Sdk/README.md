@@ -6,7 +6,8 @@ It has no Device SDK, UI or Windows Device Control dependency.
 
 The existing Device SDK and device runtime remain operational. A compatibility adapter in WSGM
 maps the common lifecycle onto that runtime through the resident Shell host. Configuration and state
-events use separate revision/origin contracts. Actions/UI contributions, packaging tooling and a real
+events use separate revision/origin contracts. Named actions and declarative UI links are validated
+by the host. External loading, packaging tooling and a real
 non-device consumer follow sequentially; this assembly alone does not claim a completed plugin host.
 
 Device is the selected `wsgm.device` category with zero or one active instance. Other categories are
@@ -26,3 +27,8 @@ only explicit edits before dispatch; initialization defaults and failed delivery
 `IPluginHost.PublishState` publishes effective observations with generation, sequence and origin.
 It never changes saved preferences. Boolean, finite numeric and bounded text primitives are shared
 through `PluginValue`; schema validation is available in `PluginConfigurationRules`.
+
+`IPluginActions` declares named operations for UI and Core automation. Results distinguish dispatched
+commands, independently verified effects, rejection and uncertain outcomes. `IPluginUi` links bounded
+host-rendered control descriptions to those actions and effective state keys. No plugin UI code is
+injected, and action results cannot mutate saved preferences.

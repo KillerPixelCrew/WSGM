@@ -83,7 +83,7 @@ public interface IPlugin : IAsyncDisposable
     /// <param name="cancellationToken">Cancels resume.</param>
     /// <returns>Completion after revalidation; publish updated health as needed.</returns>
     ValueTask ResumeAsync(PluginContext context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
-    /// <summary>Stops publication and releases resources before disposal.</summary>
+    /// <summary>Stops publication and releases resources before disposal, including after incomplete startup.</summary>
     /// <param name="context">Stopping generation and cleanup deadline.</param>
     /// <param name="cancellationToken">Cancels waiting without claiming cleanup succeeded.</param>
     /// <returns>True only when resource release was confirmed.</returns>

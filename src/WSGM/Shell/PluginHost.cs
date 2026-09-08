@@ -20,6 +20,18 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
     internal event Action<PluginHealthPublication>? HealthChanged;
     internal event Action<PluginStatePublication>? StateChanged;
 
+    internal Task<PluginActionResult> InvokeActionAsync(PluginInstanceIdentity identity, long expectedGeneration,
+        string actionId, IReadOnlyDictionary<string, PluginValue> arguments, PluginActionOrigin origin,
+        DateTimeOffset deadline, CancellationToken cancellationToken)
+    {
+        PluginRegistration owner;
+        lock (_gate)
+        {
+            if (!_instances.TryGetValue(identity, out owner!)) { throw new InvalidOperationException("The plugin instance is not admitted."); }
+        }
+        return owner.InvokeActionAsync(expectedGeneration, actionId, arguments, origin, deadline, cancellationToken);
+    }
+
     internal PluginRegistration Admit(IPlugin plugin, PluginInstanceIdentity identity, string category,
         PluginCategoryPolicy policy, bool selected, long generation, string stateDirectory)
     {
@@ -156,11 +168,15 @@ internal sealed class PluginRegistration(
     private readonly object _modeGate = new();
     private CancellationTokenSource? _modeCancellation;
     private CommonPluginSettings? _settings;
+    private CommonPluginActions? _actions;
+    private int _stopRequested;
+    private bool _stopAttempted;
+    private CancellationTokenSource? _activeCancellation;
     internal PluginInstanceIdentity Identity { get; } = identity;
     internal string Category { get; } = category;
     internal PluginCategoryPolicy Policy { get; } = policy;
     internal PluginContext Context { get; private set; } = context;
-    internal bool IsStopping { get; private set; }
+    internal bool IsStopping => Volatile.Read(ref _stopRequested) != 0;
     internal bool Quarantined { get; private set; }
     internal PluginHealthPublication Health { get; set; } = new(identity, context.Generation, PluginHealth.Unavailable, null);
     internal Dictionary<string, PluginStatePublication> State { get; } = new(StringComparer.Ordinal);
@@ -175,6 +191,7 @@ internal sealed class PluginRegistration(
         {
             if (_started || IsStopping) { throw new InvalidOperationException("Plugin startup was already attempted."); }
             _started = true;
+            _actions = new CommonPluginActions(plugin);
             if (plugin is IConfigurablePlugin configurable)
             { _settings = new CommonPluginSettings(configurable, host.ConfigurationStore, Identity); }
             var health = await plugin.StartAsync(this, Context, token).ConfigureAwait(false);
@@ -184,6 +201,21 @@ internal sealed class PluginRegistration(
         });
 
     internal CommonPluginSettings? Settings => _settings;
+    internal CommonPluginActions? Actions => _actions;
+
+    internal Task<PluginActionResult> InvokeActionAsync(long expectedGeneration, string actionId,
+        IReadOnlyDictionary<string, PluginValue> arguments, PluginActionOrigin origin,
+        DateTimeOffset deadline, CancellationToken cancellationToken)
+    {
+        var captured = new Dictionary<string, PluginValue>(arguments, StringComparer.Ordinal);
+        return RunAsync(deadline, cancellationToken, async token =>
+        {
+            RequireRunning();
+            if (expectedGeneration != Context.Generation || _actions is null)
+            { throw new InvalidOperationException("Action generation is stale or the plugin has not started."); }
+            return await _actions.ExecuteAsync(actionId, origin, captured, Context, token).ConfigureAwait(false);
+        }, quarantineFailure: false);
+    }
 
     internal Task<PluginConfigurationResult> ConfigureAsync(long expectedRevision, IReadOnlyDictionary<string, PluginValue> changes,
         DateTimeOffset deadline, CancellationToken cancellationToken)
@@ -251,23 +283,35 @@ internal sealed class PluginRegistration(
             return true;
         });
 
-    internal Task<bool> StopAsync(DateTimeOffset deadline, CancellationToken cancellationToken) =>
-        RunAsync(deadline, cancellationToken, async token =>
+    internal Task<bool> StopAsync(DateTimeOffset deadline, CancellationToken cancellationToken)
+    {
+        var active = Volatile.Read(ref _activeCancellation);
+        if (Interlocked.Exchange(ref _stopRequested, 1) == 0 && active is not null)
         {
-            IsStopping = true;
+            try
+            {
+                _ = active.CancelAsync().ContinueWith(failed => _ = failed.Exception, CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
+            catch (ObjectDisposedException) { }
+        }
+        return RunAsync(deadline, cancellationToken, async token =>
+        {
+            _stopAttempted = true;
             Health = new(Identity, Context.Generation, PluginHealth.Unavailable, "Stopping");
             if (_stopFailure is not null) { throw new InvalidOperationException("Plugin stop previously failed; it will not be retried.", _stopFailure); }
             if (_released is { } released) { return released; }
             try { return (_released = await plugin.StopAsync(Context, token).ConfigureAwait(false)).Value; }
             catch (Exception ex) { _stopFailure = ex; throw; }
         });
+    }
 
     internal async ValueTask DisposeAsync()
     {
         await RunAsync(DateTimeOffset.UtcNow.AddSeconds(5), CancellationToken.None, async _ =>
         {
             if (_disposed) { return true; }
-            if (!IsStopping) { throw new InvalidOperationException("Stop the plugin before disposing its registration."); }
+            if (!_stopAttempted) { throw new InvalidOperationException("Stop the plugin before disposing its registration."); }
             if (_disposeFailure is not null) { throw new InvalidOperationException("Plugin disposal previously failed.", _disposeFailure); }
             try { await plugin.DisposeAsync().ConfigureAwait(false); }
             catch (Exception ex) { _disposeFailure = ex; throw; }
@@ -303,12 +347,17 @@ internal sealed class PluginRegistration(
                 entered = true;
                 if (_disposed && !allowDisposed) { throw new ObjectDisposedException(nameof(PluginRegistration)); }
                 Context = Context with { Deadline = deadline };
+                Interlocked.Exchange(ref _activeCancellation, budget);
                 Volatile.Write(ref operationEntered, 1);
                 return await operation(budget.Token).ConfigureAwait(false);
             }
             finally
             {
-                if (entered) { _lifecycle.Release(); }
+                if (entered)
+                {
+                    Interlocked.CompareExchange(ref _activeCancellation, null, budget);
+                    _lifecycle.Release();
+                }
                 budget.Dispose();
             }
         }, CancellationToken.None);
