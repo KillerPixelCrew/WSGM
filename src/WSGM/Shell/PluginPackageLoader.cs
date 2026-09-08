@@ -139,7 +139,7 @@ internal sealed class PluginPackageLoader : IDisposable
         _loadContext.Unload();
     }
 
-    private static string ConstrainPackagePath(string packageRoot, string relativePath)
+    internal static string ConstrainPackagePath(string packageRoot, string relativePath)
     {
         if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath))
         {
@@ -157,7 +157,7 @@ internal sealed class PluginPackageLoader : IDisposable
         return candidate;
     }
 
-    private sealed class PluginLoadContext : AssemblyLoadContext
+    internal sealed class PluginLoadContext : AssemblyLoadContext
     {
         private static readonly string SdkName = typeof(IDevicePlugin).Assembly.GetName().Name!;
         private readonly string _packageRoot;
@@ -180,6 +180,7 @@ internal sealed class PluginPackageLoader : IDisposable
         private static readonly Dictionary<string, Assembly> HostOwned = new(StringComparer.Ordinal)
         {
             [SdkName] = typeof(IDevicePlugin).Assembly,
+            [typeof(WSGM.Plugin.Sdk.IPlugin).Assembly.GetName().Name!] = typeof(WSGM.Plugin.Sdk.IPlugin).Assembly,
             [typeof(WinRT.IWinRTObject).Assembly.GetName().Name!] = typeof(WinRT.IWinRTObject).Assembly,
             [typeof(Windows.Foundation.Point).Assembly.GetName().Name!] =
                 typeof(Windows.Foundation.Point).Assembly,

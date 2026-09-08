@@ -77,7 +77,10 @@ validation will be handled by reopening them. Hardware checks are not a closure 
   Named actions now validate generation and argument schemas, distinguish dispatch from verified
   effects, and never retry uncertain results. Declarative UI links are validated before startup;
   six new focused tests cover dispatch, rejection, confirmation and shutdown cancellation.
-  #49 remains open for external loading, UI consumption, tooling and non-device validation.
+  Common collectible loading reuses SDK/WinRT identity rules. A non-device package fixture validates
+  configuration, actions, contributions and resident transitions. Five new tests cover that path,
+  metadata admission and dependency ordering/rejection without disabling independent packages.
+  #49 remains open for installed discovery, UI consumption and tooling.
 
 This is the repository's only progress tracker. Mechanism details and device findings live in the
 focused `docs\` topics, and product decisions in `docs\decisions.md` and `_plan\2.0-decisions.md`.

@@ -72,6 +72,26 @@ Stop closes action admission immediately and cooperatively cancels the active li
 The stop and disposal operations still wait behind that call's actual completion, so cancellation
 cannot unload code that is still using external resources. Stop tolerates partially completed startup.
 
+## Package loading and dependencies
+
+`CommonPluginPackage` reads bounded `plugin.wsgm.json` metadata and loads a public parameterless
+`IPlugin` entry type with a matching ID. It rejects Device-category packages, which retain their
+selected installation slot and adapter. Package roots and entry/manifest files cannot be reparse
+points. Package constructors must not acquire external resources.
+
+The common loader reuses the existing `PluginLoadContext`, including host-owned Device/common SDK
+type identity, shared WinRT process state, host-first dependencies and collectible package-local
+fallbacks. A failed plugin disposal does not explicitly unload its context. The caller must retain
+ownership of loading tasks that ignore cancellation.
+
+`CommonPluginDependencyPlan` orders enabled packages before their consumers. Missing, duplicate,
+incompatible and cyclic dependencies reject affected packages while preserving independent ones.
+Dotted numeric versions compare with omitted build/revision components treated as zero.
+
+A temporary non-device package fixture exercises actual collectible loading, configuration, a named
+action with file readback, declarative contributions, resident mode changes and cleanup. Installed
+package discovery, enable/disable UI and authoring tools are the remaining production integration.
+
 The initial execution model remains trusted in-process code. Collectible load contexts isolate
 dependencies, not security or crashes. A process boundary would require separately designed and
 validated transport, permission and recovery contracts. The SDK neither resurrects the retired

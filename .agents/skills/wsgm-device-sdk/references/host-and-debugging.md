@@ -19,8 +19,9 @@ only when Device Integration is enabled.
 The Shell owns the common PluginHost. DeviceCoordinator preserves controller-release ordering and
 uses its registration for lifecycle calls. An uncertain stop or disposal retains category capacity;
 a timed-out call retains its lifecycle lane until the actual task ends. See `docs/plugin-system.md`
-for common health generation checks and resident mode revisions. External non-device package loading
-is a subsequent #49 slice; do not infer it from the fake coexistence tests.
+for common health generation checks and resident mode revisions. `CommonPluginPackage` now shares the
+collectible load context for non-device packages; its temporary fixture covers the full contract path.
+Installed discovery and enable/disable integration remain subsequent #49 work.
 
 Important owners:
 
