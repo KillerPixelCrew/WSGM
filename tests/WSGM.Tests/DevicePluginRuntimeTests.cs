@@ -13,6 +13,46 @@ namespace WSGM.Device.Tests;
 
 public sealed class DevicePluginRuntimeTests
 {
+    [Fact]
+    public async Task CommonDeviceAdapterKeepsTheRuntimeResidentAcrossModesAndAdvancesResumeGeneration()
+    {
+        using TemporaryDirectory temporary = new();
+        var runtime = await LoadRuntimeAsync(temporary, InitialGeneration);
+        await using DevicePluginCompatibilityAdapter adapter = new(runtime, new DeviceIdentitySnapshot(), false);
+        CommonHost host = new();
+        var context = new WSGM.Plugin.Sdk.PluginContext(new(RuntimeFixturePlugin.PackageIdValue, "device"),
+            InitialGeneration, WSGM.Plugin.Sdk.PluginSessionMode.Desktop, DateTimeOffset.UtcNow.AddSeconds(5), temporary.GetPath("state"));
+        Assert.Equal(WSGM.Plugin.Sdk.PluginHealth.Ready, await adapter.StartAsync(host, context, default));
+        await adapter.SessionChangedAsync(context with { Mode = WSGM.Plugin.Sdk.PluginSessionMode.Game }, default);
+        Assert.Equal(DeviceCycleState.Active, adapter.LastState!.State);
+        await adapter.SuspendAsync(context, default);
+        var resumed = context with { Generation = InitialGeneration + 1 };
+        await adapter.ResumeAsync(resumed, default);
+        Assert.Equal(InitialGeneration + 1, runtime.CycleGeneration);
+        Assert.Contains(host.States, state => state.Generation == resumed.Generation && state.Health == WSGM.Plugin.Sdk.PluginHealth.Ready);
+        Assert.True(await adapter.StopAsync(resumed, default));
+    }
+
+    [Fact]
+    public async Task CommonDeviceAdapterRejectsWrongIdentityAndStaleGenerationBeforeStarting()
+    {
+        using TemporaryDirectory temporary = new();
+        var runtime = await LoadRuntimeAsync(temporary, InitialGeneration);
+        await using DevicePluginCompatibilityAdapter adapter = new(runtime, new DeviceIdentitySnapshot(), false);
+        var context = new WSGM.Plugin.Sdk.PluginContext(new("other.plugin", "device"), InitialGeneration,
+            WSGM.Plugin.Sdk.PluginSessionMode.Desktop, DateTimeOffset.UtcNow.AddSeconds(5), temporary.GetPath("state"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => adapter.StartAsync(new CommonHost(), context, default).AsTask());
+        context = context with { Instance = new(RuntimeFixturePlugin.PackageIdValue, "device"), Generation = InitialGeneration - 1 };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => adapter.StartAsync(new CommonHost(), context, default).AsTask());
+        Assert.False(File.Exists(temporary.GetPath("state", RuntimeFixturePlugin.PackageIdValue, "started.txt")));
+    }
+
+    private sealed class CommonHost : WSGM.Plugin.Sdk.IPluginHost
+    {
+        internal List<WSGM.Plugin.Sdk.PluginHealthPublication> States { get; } = [];
+        public void PublishHealth(WSGM.Plugin.Sdk.PluginHealthPublication publication) => States.Add(publication);
+    }
+
     private const long InitialGeneration = 41;
 
     [Fact]

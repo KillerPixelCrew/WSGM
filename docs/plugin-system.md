@@ -14,9 +14,16 @@ dependencies and declared access requirements. Parsing is bounded and rejects un
 The host must copy admitted metadata before asynchronous use, validate paths and dependencies,
 and keep plugin instances tied to their admitted identity and generation.
 
-The lifecycle is Start, resident Desktop/Game transitions, Stop, Dispose. Publications carry instance
+The lifecycle is Start, resident Desktop/Game transitions, Suspend/Resume, Stop, Dispose. Publications carry instance
 and generation; the host rejects stale publications. Timeout only cancels waiting and requests
 cooperative unwind. It does not establish that plugin code stopped or a hardware write was undone.
+
+`DevicePluginCompatibilityAdapter` wraps the existing device runtime for this lifecycle. It retains
+device command and hardware ownership, maps device health, advances the runtime generation on
+resume and preserves an unconfirmed stop result across repeated requests. Its caller serializes
+lifecycle operations. The runtime retains its admitted private state directory; the adapter does not
+relocate device state. The adapter is covered through a collectible fixture package; production
+coordinator admission through the common host is the next integration step.
 
 The initial execution model remains trusted in-process code. Collectible load contexts isolate
 dependencies, not security or crashes. A process boundary would require separately designed and

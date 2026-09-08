@@ -67,7 +67,9 @@ validation will be handled by reopening them. Hardware checks are not a closure 
 - #49A: common MIT contract assembly adds identity, open categories, host-owned slot
   policies, bounded manifests and resident lifecycle. The current Device runtime is unchanged.
   Eight new contract tests cover admission, compatibility, dependency ranges and optional Device slots.
-  #49 remains open for the adapter, runtime/config/events, action/UI contracts and non-device validation.
+  The Device compatibility adapter now maps this lifecycle onto the existing runtime; two new fixture
+  tests cover resident transitions, resume generations and identity rejection. Production host admission
+  is next. #49 remains open for runtime/config/events, action/UI contracts and non-device validation.
 
 This is the repository's only progress tracker. Mechanism details and device findings live in the
 focused `docs\` topics, and product decisions in `docs\decisions.md` and `_plan\2.0-decisions.md`.

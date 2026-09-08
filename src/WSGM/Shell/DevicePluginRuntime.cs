@@ -48,6 +48,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
     }
 
     internal long CycleGeneration { get; private set; }
+    internal string PackageId => Plugin.PackageId;
 
     internal Task<DeviceRuntimeExit> Completion => _completion.Task;
 

@@ -70,6 +70,16 @@ public interface IPlugin : IAsyncDisposable
     /// <param name="cancellationToken">Cancels waiting; obsolete work must be retired.</param>
     /// <returns>Completion after the plugin has handled the transition.</returns>
     ValueTask SessionChangedAsync(PluginContext context, CancellationToken cancellationToken);
+    /// <summary>Quiesces external work for system suspend. Plugins without suspend work may keep the default.</summary>
+    /// <param name="context">Current generation and quiescence deadline.</param>
+    /// <param name="cancellationToken">Cancels waiting without proving work stopped.</param>
+    /// <returns>Completion after quiescence.</returns>
+    ValueTask SuspendAsync(PluginContext context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+    /// <summary>Revalidates resources after system resume into a new host generation.</summary>
+    /// <param name="context">New generation and resume deadline.</param>
+    /// <param name="cancellationToken">Cancels resume.</param>
+    /// <returns>Completion after revalidation; publish updated health as needed.</returns>
+    ValueTask ResumeAsync(PluginContext context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
     /// <summary>Stops publication and releases resources before disposal.</summary>
     /// <param name="context">Stopping generation and cleanup deadline.</param>
     /// <param name="cancellationToken">Cancels waiting without claiming cleanup succeeded.</param>
