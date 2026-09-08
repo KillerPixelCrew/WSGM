@@ -110,6 +110,7 @@ internal sealed class AutoTdpController
     internal const int ProbeWindows = 6;
 
     private readonly Dictionary<string, int> _learnedFloor = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _failedProbeFloor = new(StringComparer.Ordinal);
     private string _contextKey = string.Empty;
     private int _watts;
     private int _lastGood;
@@ -256,7 +257,7 @@ internal sealed class AutoTdpController
         if (missed)
         {
             _comfortable = 0;
-            _misses++;
+            _misses = Math.Min(_misses + 1, SustainedMisses);
             if (_misses < SustainedMisses)
             {
                 return Hold("miss-unconfirmed");
@@ -274,7 +275,7 @@ internal sealed class AutoTdpController
             return Hold("on-target");
         }
 
-        _comfortable++;
+        _comfortable = Math.Min(_comfortable + 1, SettledWindows);
         if (_comfortable < SettledWindows)
         {
             return Hold("settling-headroom");
@@ -312,6 +313,7 @@ internal sealed class AutoTdpController
             // stutter again and the limit oscillates for as long as the game runs.
             _probing = false;
             _learnedFloor[_contextKey] = _lastGood;
+            _failedProbeFloor[_contextKey] = _lastGood;
             _watts = _lastGood;
             ResetWindows();
             _settling = SettleWindows;
@@ -336,15 +338,13 @@ internal sealed class AutoTdpController
         int candidate = limits.Clamp(_watts - limits.Step);
         if (candidate >= _watts)
         {
-            _comfortable = 0;
             return Hold("at-minimum");
         }
 
-        if (_learnedFloor.TryGetValue(_contextKey, out int floor) && candidate < floor)
+        if (_failedProbeFloor.TryGetValue(_contextKey, out int floor) && candidate < floor)
         {
             // Already known to be too little for this context. Re-probing it every settled period
             // would spend the rest of the session rediscovering the same answer.
-            _comfortable = 0;
             return Hold("below-learned-floor");
         }
 
@@ -360,12 +360,12 @@ internal sealed class AutoTdpController
     private AutoTdpDecision Raise(AutoTdpLimits limits)
     {
         int candidate = limits.Clamp(_watts + limits.Step);
-        ResetWindows();
         if (candidate <= _watts)
         {
             return Hold("at-maximum");
         }
 
+        ResetWindows();
         _watts = candidate;
         _lastGood = candidate;
         _settling = SettleWindows;

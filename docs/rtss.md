@@ -293,6 +293,9 @@ replaying its trace. The policy:
   oscillates for as long as the game runs.
 - A capped window that is not missing is treated as headroom, so a menu at the frame cap descends
   rather than driving power to maximum.
+- A successful probe updates the remembered starting limit but permits another lower probe. Only
+  a failed probe establishes a lower boundary. At that boundary or the device minimum, the controller
+  stays Holding; sustained misses at maximum stay `Can't Reach` until delivery recovers.
 - Every write is followed by two settling windows. Missing telemetry resets the streaks rather than
   being read as comfort. A context change discards the evidence gathered for the previous one.
 - A manual power change pauses control until AutoTDP is switched off and on again. Taking the limit

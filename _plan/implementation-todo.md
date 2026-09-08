@@ -20,7 +20,10 @@ depends on #25, #35 and #36 and must not block the controller repair.
   touch/controller and reconnect validation remains.
 - #55A: shared limiter availability, coordinator admission and automatic release on limiter loss
   implemented; ten new tests pass. #55B still needs effective scenario and paired-limit projection.
-- #56A/B: next. The architectural #25/#49/#50 work follows the repair lane.
+- #56B: fixed the confirmed successful-probe stall and stable minimum/floor/maximum feedback;
+  three new replay tests cover repeated descent, failed-probe recovery and `Can't Reach`.
+  #56A paired writes and restoration remain next, followed by runtime diagnostics and #55B.
+  The architectural #25/#49/#50 work follows the repair lane.
 
 This is the repository's only progress tracker. Mechanism details and device findings live in the
 focused `docs\` topics, and product decisions in `docs\decisions.md` and `_plan\2.0-decisions.md`.

@@ -2690,6 +2690,7 @@ public sealed class ShellSession : IAsyncDisposable
             AutoTdpState.Unavailable => "Unavailable",
             AutoTdpState.Idle => "Waiting",
             AutoTdpState.Paused => "Paused",
+            AutoTdpState.Controlling when status.Detail is "at-maximum" => "Can't Reach",
             AutoTdpState.Controlling when status.Detail is "settling" or "settling-headroom" =>
                 "Settling",
             AutoTdpState.Controlling when status.Detail is "probe-pending" => "Testing",
