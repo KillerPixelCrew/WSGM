@@ -6,8 +6,10 @@ namespace WSGM.Tests;
 
 public sealed class AutoTdpPowerPairTests
 {
-    [Fact]
-    public async Task PairControlRaisesBothAndRestoresDifferentOriginalLimits()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PairControlRaisesBothAndRestoresDifferentOriginalLimits(bool manualOverride)
     {
         DeviceCapabilityView[] views = [View("primary", 12, true), View("boost", 17, false)];
         List<(string Id, int Watts, bool Pair)> writes = [];
@@ -39,10 +41,19 @@ public sealed class AutoTdpPowerPairTests
         service.Apply(true);
         for (int i = 0; i < 3; i++) { await service.TickAsync(CancellationToken.None); }
         Assert.Contains(writes, w => w == ("primary", 13, true));
+        int restorePrimary = manualOverride ? 14 : 12;
+        int restoreBoost = manualOverride ? 20 : 17;
+        if (manualOverride)
+        {
+            views[0] = View("primary", restorePrimary, true);
+            views[1] = View("boost", restoreBoost, false);
+            service.NoteManualChange(restorePrimary);
+            Assert.False(service.OwnsPower);
+        }
         await service.DisposeAsync();
-        Assert.Equal(new[] { ("primary", 12, true), ("boost", 17, false) }, writes.TakeLast(2));
-        Assert.Equal(12, views[0].Projection.State.ObservedValue?.IntegerValue);
-        Assert.Equal(17, views[1].Projection.State.ObservedValue?.IntegerValue);
+        Assert.Equal(new[] { ("primary", restorePrimary, true), ("boost", restoreBoost, false) }, writes.TakeLast(2));
+        Assert.Equal(restorePrimary, views[0].Projection.State.ObservedValue?.IntegerValue);
+        Assert.Equal(restoreBoost, views[1].Projection.State.ObservedValue?.IntegerValue);
     }
 
     [Fact]

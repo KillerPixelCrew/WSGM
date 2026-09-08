@@ -1,15 +1,19 @@
 # WSGM 2.0 implementation tracker
 
 Status: the previous implementation baseline is on `master`; the current 2.0 workoff contains
-39 open issues. The maintainer directed this workoff to use default-branch commits, including
+the original 39-issue scope. The maintainer directed this workoff to use default-branch commits, including
 submodule changes, without feature branches or pull requests.
 
 ## Current issue workoff
 
-GitHub was read with `gh` on 2026-09-08: implementation issues #19 through #64 are open.
+GitHub was read with `gh` on 2026-09-08: implementation issues #19 through #64 formed the initial backlog.
 Issues #41–#45, #47 and #48 remain deferred; the other 39 are the 2.0 scope.
 The immediate queue is #60, #57, #55A, #56A and #56B. The later Windows-policy part of #56
 depends on #25, #35 and #36 and must not block the controller repair.
+
+The maintainer directs issues to close when their fixes are committed and pushed; failed field
+validation will be handled by reopening them. Hardware checks are not a closure gate. #60, #57 and
+#56 are closed. #55 closes with the shared ownership and slider synchronization commit.
 
 - #60: separate restore origin, bounded lighting readiness restoration and resume publication
   ordering implemented. Ten new hardware-free tests pass; fresh hardware validation remains.
@@ -19,14 +23,18 @@ depends on #25, #35 and #36 and must not block the controller repair.
   writes implemented; six new service tests and emitted-JavaScript regression checks pass. Live focus,
   touch/controller and reconnect validation remains.
 - #55A: shared limiter availability, coordinator admission and automatic release on limiter loss
-  implemented; ten new tests pass. #55B still needs effective scenario and paired-limit projection.
+  implemented; ten new tests pass. Shared runtime ownership now projects Custom in both surfaces,
+  manual changes retire automatic dispatch and replace the old restoration target, and native
+  slider completion ignores unchanged readback. Focused ownership tests and an emitted-JavaScript
+  regression check cover these paths.
   The Overlay now refreshes retained sliders without scheduling user writes; its new control test
   also checks that pending edits survive readback and are cancelled when the control becomes unavailable.
 - #56B: fixed the confirmed successful-probe stall and stable minimum/floor/maximum feedback;
   three new replay tests cover repeated descent, failed-probe recovery and `Can't Reach`.
   #56A paired writes and restoration implemented through an optional SDK command and the existing
   Claw ordered-write/rollback path. New service, SDK and fake-transport tests cover the pair;
-  live hardware verification, expanded runtime diagnostics and #55B remain.
+  live hardware verification remains observational follow-up. The Windows-policy extension remains
+  scheduled with #25/#35/#36 despite closing the immediate #56 controller repair.
   The architectural #25/#49/#50 work follows the repair lane.
 
 This is the repository's only progress tracker. Mechanism details and device findings live in the

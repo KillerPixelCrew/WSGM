@@ -1803,6 +1803,14 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             && string.Equals(view.Descriptor.InstanceId, instanceId, StringComparison.Ordinal));
         if (!primaryPowerLimit)
         {
+            var primary = _capabilities.Snapshot().FirstOrDefault(view =>
+                view.Descriptor.PairedPowerLimitId == capabilityId && instanceId is null);
+            if (primary?.Projection.State.ObservedValue?.IntegerValue is { } sustained)
+            {
+                // A companion edit hands the runtime pair back without persisting observed
+                // sustained wattage as a new primary preference.
+                _assignedPowerOverride?.Invoke(sustained);
+            }
             return;
         }
 

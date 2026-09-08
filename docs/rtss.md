@@ -323,6 +323,12 @@ values are captured before the first write; release restores the sustained pair 
 original boost value, including unequal manual limits. Restoration across a device-cycle change
 is refused. No automatic target is persisted into profile configuration.
 
+The service also supplies runtime ownership to the shared power-preset projection. Both QAM and
+Overlay show Custom while AutoTDP owns power, even if a momentary readback matches a named preset.
+A manual or assigned power change cancels pending automatic dispatch and updates the restoration
+target; disabling AutoTDP cannot restore an older value over that newer intent. Editing the boost
+companion pauses the pair without saving observed sustained wattage as a new primary preference.
+
 ## Remaining live work
 
 - Validate the production adapter with a disposable test profile rather than an existing user

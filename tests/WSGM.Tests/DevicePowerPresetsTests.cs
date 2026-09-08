@@ -8,6 +8,19 @@ namespace WSGM.Tests;
 
 public sealed class DevicePowerPresetsTests
 {
+    [Fact]
+    public void AutoTdpOwnershipShowsCustomEvenWhenReadbackMatchesTheConfiguredPreset()
+    {
+        DeviceCapabilityView[] views = [View(CapabilityRole.PowerSustainedLimit, 17), View(CapabilityRole.PowerSlowLimit, 18)];
+        var mode = WindowsPowerModes.Id(DevicePowerMode.Balanced);
+        Assert.Equal("balanced", DevicePowerPresets.Project(views, mode).Current);
+        var automatic = DevicePowerPresets.Project(views, mode, automaticPowerOwner: true);
+        Assert.Equal("custom", automatic.Current);
+        Assert.Equal(17, automatic.Values?.SustainedWatts);
+        Assert.Equal(18, automatic.Values?.SlowWatts);
+        Assert.Equal("balanced", DevicePowerPresets.Project(views, mode).Current);
+    }
+
     private static DevicePowerPresetSelection Selection(DevicePowerPresets service, bool readOnly)
     {
         PerformanceConfig config = new();

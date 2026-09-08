@@ -399,6 +399,7 @@ public sealed class ShellSession : IAsyncDisposable
                     TargetFrametimeMs);
                 AutoTdpService autoTdp = _autoTdp;
                 deviceCoordinator.AttachAutoTdpAvailability(() => autoTdp.Availability);
+                deviceCoordinator.PowerPresets.AutomaticPowerOwner = () => autoTdp.OwnsPower;
                 // A power limit the user set by hand pauses control permanently and is persisted to
                 // whichever profile layer is in force, so it is restored on the next launch instead
                 // of leaking onto the desktop. The hook is rooted here because this is where both
@@ -1949,6 +1950,7 @@ public sealed class ShellSession : IAsyncDisposable
                 _autoTdp = null;
                 _deviceCoordinator?.AttachAutoTdpManualOverride(null);
                 _deviceCoordinator?.AttachAutoTdpAvailability(null);
+                if (_deviceCoordinator is { } coordinator) { coordinator.PowerPresets.AutomaticPowerOwner = null; }
             }
         }
 

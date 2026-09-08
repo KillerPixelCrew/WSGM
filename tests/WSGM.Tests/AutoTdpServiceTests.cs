@@ -6,6 +6,24 @@ namespace WSGM.Tests;
 
 public sealed class AutoTdpServiceTests
 {
+    [Fact]
+    public async Task ManualPowerIntentCancelsAnAdmittedAutomaticWriteAndKeepsItsNewRestoreTarget()
+    {
+        Harness harness = new();
+        harness.Service.Apply(true);
+        harness.Frametimes.Live = [Rendering(22)];
+        await harness.Service.TickAsync(CancellationToken.None);
+        await harness.Service.TickAsync(CancellationToken.None);
+        harness.PendingWrite = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task tick = harness.Service.TickAsync(CancellationToken.None);
+        await WaitForWriteCountAsync(harness, 1);
+        harness.Service.NoteManualChange(19);
+        await tick.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(harness.Service.OwnsPower);
+        await harness.Service.DisposeAsync();
+        Assert.Equal(19, harness.Writes[^1].Value.IntegerValue);
+    }
+
     private const string PowerCapability = "power.primary-limit";
     private const string GameExecutable = @"C:\Games\game.exe";
 

@@ -23,6 +23,7 @@ internal sealed class DevicePowerPresets(
     // second WSGM surface. Firmware and other applications remain authoritative through readback.
     internal SemaphoreSlim MutationGate { get; } = new(1, 1);
     private string _status = string.Empty;
+    internal Func<bool>? AutomaticPowerOwner { get; set; }
 
     internal async Task<DevicePowerPresetState> ReadAsync(CancellationToken cancellationToken = default)
     {
@@ -35,7 +36,7 @@ internal sealed class DevicePowerPresets(
             try
             {
                 Guid mode = await Task.Run(modes.Read, cancellationToken).ConfigureAwait(false);
-                return Project(views, mode, _status, readOnAc?.Invoke());
+                return Project(views, mode, _status, readOnAc?.Invoke(), AutomaticPowerOwner?.Invoke() == true);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
@@ -154,7 +155,8 @@ internal sealed class DevicePowerPresets(
         finally { MutationGate.Release(); }
     }
 
-    internal static DevicePowerPresetState Project(IReadOnlyList<DeviceCapabilityView> views, Guid mode, string status = "", bool? onAc = null)
+    internal static DevicePowerPresetState Project(IReadOnlyList<DeviceCapabilityView> views, Guid mode, string status = "", bool? onAc = null,
+        bool automaticPowerOwner = false)
     {
         DevicePowerPreset[] presets = Presets(views);
         if (!TryPair(views, out DeviceCapabilityView? sustained, out DeviceCapabilityView? slow)
@@ -182,6 +184,10 @@ internal sealed class DevicePowerPresets(
             Scenario = presets.Any(preset => preset.ScenarioOnAc is not null)
                 ? ScenarioView(views)!.Projection.State.ObservedValue!.ChoiceValue : null,
         } : null;
+        if (automaticPowerOwner)
+        {
+            return new(presets, presets.Length > 0, "custom", "Custom: AutoTDP controls the runtime power limits.", values);
+        }
         return new(presets, presets.Length > 0, match?.Id ?? "custom", status.Length > 0 ? status
             : match is null ? "Custom: current power limits, firmware scenario or Windows mode do not match a preset."
             : $"{match.SustainedWatts}/{match.SlowWatts} W · {WindowsPowerModes.Label(match.WindowsMode)}", values);

@@ -119,6 +119,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// <summary>Whether automatic control is currently enabled for this session.</summary>
     internal bool Enabled => Volatile.Read(ref _enabled);
 
+    internal bool OwnsPower
+    {
+        get { lock (_gate) { return _enabled && !_controller.IsPaused; } }
+    }
+
     internal AutoTdpAvailability Availability
     {
         get
@@ -277,6 +282,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// </remarks>
     internal void NoteManualChange(int watts)
     {
+        CancellationTokenSource previousWrites;
         lock (_gate)
         {
             if (!_enabled)
@@ -285,8 +291,20 @@ internal sealed class AutoTdpService : IAsyncDisposable
             }
 
             _controller.PauseForManualChange(watts);
+            previousWrites = _applicationWrites;
+            _applicationWrites = new CancellationTokenSource();
+            if (_restoreTo is not null)
+            {
+                _restoreTo = watts;
+                if (FindPowerCapability() is { } primary)
+                {
+                    _restorePair = FindPairedPower(primary);
+                }
+            }
         }
 
+        previousWrites.Cancel();
+        previousWrites.Dispose();
         Publish(AutoTdpState.Paused, watts, null, null, "Paused by a manual power change.");
     }
 
