@@ -58,6 +58,11 @@ validation will be handled by reopening them. Hardware checks are not a closure 
   without removing shared rear-button sections, and stale profile CSS is reapplied. Two new focused
   glyph tests pass; installed Steam selector presence was checked offline, not through live CEF.
 
+- #25 in progress: scheme enumeration, active scheme, AC/DC policy values and power-mode native
+  calls moved to Windows Device Control. WSGM retains policy locks and confirmation. Eight migrated
+  decoding tests pass in the library; WSGM builds cleanly. Lifecycle actions and wake-lock ownership
+  are the next slice, so the issue remains open.
+
 This is the repository's only progress tracker. Mechanism details and device findings live in the
 focused `docs\` topics, and product decisions in `docs\decisions.md` and `_plan\2.0-decisions.md`.
 Completed milestones are rolled up here to what they settled; their narratives stay in git history,

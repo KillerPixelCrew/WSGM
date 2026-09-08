@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Text;
 using WSGM.Core;
 using WSGM.Interop;
 
@@ -156,32 +155,6 @@ public sealed class PowerSchemesTests
         Assert.Equal(Balanced, api.Active);
         Assert.Equal(1, api.Writes);
     }
-
-    [Theory]
-    [InlineData("Höchstleistung")]
-    [InlineData("省電力")]
-    public void DecodesLocalizedUtf16NamesUsingTheReturnedByteCount(string name)
-    {
-        byte[] bytes = Encoding.Unicode.GetBytes(name + "\0ignored padding");
-        Assert.Equal(name, WindowsPowerSchemeApi.DecodeName(bytes, (uint)(name.Length + 1) * 2, Custom));
-    }
-
-    [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    [InlineData(3)]
-    [InlineData(6)]
-    [InlineData(10)]
-    public void RejectsMalformedNameLengthsOrMissingTerminators(uint size)
-    {
-        byte[] bytes = Encoding.Unicode.GetBytes("abc\0");
-        var error = Assert.Throws<Win32Exception>(() => WindowsPowerSchemeApi.DecodeName(bytes, size, Custom));
-        Assert.Equal(13, error.NativeErrorCode);
-    }
-
-    [Fact]
-    public void EmptyNameFallsBackToStableGuid()
-        => Assert.Equal(Custom.ToString("D"), WindowsPowerSchemeApi.DecodeName([0, 0], 2, Custom));
 
     private sealed class FakeApi : IPowerSchemeApi
     {

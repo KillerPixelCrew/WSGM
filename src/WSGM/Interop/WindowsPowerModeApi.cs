@@ -1,6 +1,5 @@
 using System;
-using System.ComponentModel;
-using System.Runtime.InteropServices;
+using WindowsDeviceControl;
 
 namespace WSGM.Interop;
 
@@ -10,24 +9,8 @@ internal interface IPowerModeApi
     void Set(Guid mode);
 }
 
-internal sealed partial class WindowsPowerModeApi : IPowerModeApi
+internal sealed class WindowsPowerModeApi : IPowerModeApi
 {
-    public Guid Read()
-    {
-        uint result = PowerGetEffectiveOverlayScheme(out Guid mode);
-        if (result != 0) { throw new Win32Exception(unchecked((int)result)); }
-        return mode;
-    }
-
-    public void Set(Guid mode)
-    {
-        uint result = PowerSetActiveOverlayScheme(mode);
-        if (result != 0) { throw new Win32Exception(unchecked((int)result)); }
-    }
-
-    [LibraryImport("powrprof.dll")]
-    private static partial uint PowerGetEffectiveOverlayScheme(out Guid mode);
-
-    [LibraryImport("powrprof.dll")]
-    private static partial uint PowerSetActiveOverlayScheme(Guid mode);
+    public Guid Read() => WindowsPower.GetEffectiveMode();
+    public void Set(Guid mode) => WindowsPower.SetActiveMode(mode);
 }

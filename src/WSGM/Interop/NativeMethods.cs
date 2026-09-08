@@ -535,47 +535,6 @@ internal static partial class NativeMethods
     internal static partial bool PowerClearRequest(nint powerRequest, int requestType);
 
     // ---- Power scheme values (display-off / sleep timeouts) ----
-    // Flat powrprof.dll policy API instead of parsing `powercfg /q`, whose output is
-    // localized (this codebase already learned that lesson with netstat). All return
-    // ERROR_SUCCESS (0) on success.
-    /// <summary>Returns the active scheme GUID as a LocalAlloc'd pointer the caller
-    /// must free with <see cref="LocalFree"/>.</summary>
-    [LibraryImport("powrprof.dll")]
-    internal static partial uint PowerGetActiveScheme(nint userRootPowerKey, out nint activePolicyGuid);
-
-    [LibraryImport("powrprof.dll")]
-    internal static partial uint PowerSetActiveScheme(nint userRootPowerKey, in Guid schemeGuid);
-
-    [LibraryImport("powrprof.dll")]
-    internal static partial uint PowerEnumerate(
-        nint rootPowerKey, nint schemeGuid, nint subGroupGuid, uint accessFlags,
-        uint index, out Guid buffer, ref uint bufferSize);
-
-    [LibraryImport("powrprof.dll")]
-    internal static partial uint PowerReadFriendlyName(
-        nint rootPowerKey, in Guid schemeGuid, nint subGroupGuid, nint powerSettingGuid,
-        nint buffer, ref uint bufferSize);
-
-    [LibraryImport("powrprof.dll")]
-    internal static partial uint PowerReadACValueIndex(
-        nint rootPowerKey, in Guid schemeGuid, in Guid subGroupGuid, in Guid powerSettingGuid,
-        out uint acValueIndex);
-
-    [LibraryImport("powrprof.dll")]
-    internal static partial uint PowerReadDCValueIndex(
-        nint rootPowerKey, in Guid schemeGuid, in Guid subGroupGuid, in Guid powerSettingGuid,
-        out uint dcValueIndex);
-
-    [LibraryImport("powrprof.dll")]
-    internal static partial uint PowerWriteACValueIndex(
-        nint rootPowerKey, in Guid schemeGuid, in Guid subGroupGuid, in Guid powerSettingGuid,
-        uint acValueIndex);
-
-    [LibraryImport("powrprof.dll")]
-    internal static partial uint PowerWriteDCValueIndex(
-        nint rootPowerKey, in Guid schemeGuid, in Guid subGroupGuid, in Guid powerSettingGuid,
-        uint dcValueIndex);
-
     // ---- System-wide power request list (wake-lock indicator) ----
     // The undocumented GetPowerRequestList (45) information class — what
     // `powercfg /requests` uses internally. The documented CallNtPowerInformation

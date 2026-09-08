@@ -11,8 +11,9 @@ itself in `docs\rtss.md`.
 Disabling Device Integration releases plugin-only pages. Shared Power stays open, keeping the
 Windows power-profile picker reachable.
 
-The Core backend in `PowerSchemes` enumerates installed schemes and reads the active GUID through
-`powrprof`. GUIDs identify schemes; localized friendly names are display text only. An empty name
+The Core policy in `PowerSchemes` consumes Windows Device Control's `WindowsPower` API for installed
+schemes and the active GUID. The library owns `powrprof`, native buffers, policy values and power-mode
+overlays. GUIDs identify schemes; localized friendly names are display text only. An empty name
 falls back to the GUID. Enumeration failures are surfaced rather than returning a partial list. The
 existing idle-timeout controls share its active-scheme reader.
 
@@ -276,7 +277,7 @@ all-clear. The list is polled at 1.5 s only while the panel is open.
 ### Idle-timeout rows
 
 Four rows (screen-off and standby, each for battery and plugged-in) cycle presets of 1, 3, 5, 10,
-15, 30, 60 min and never through `Core\PowerTimeouts.cs`, using the powrprof value-index API.
+15, 30, 60 min and never through `Core\PowerTimeouts.cs`, using Windows Device Control's policy-value API.
 Parsing `powercfg /q` was rejected: its output is localized, the same trap as netstat. The rows are
 a convenience over the active scheme, deliberately not snapshotted or restored.
 

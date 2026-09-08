@@ -1,6 +1,6 @@
 using System;
 using System.ComponentModel;
-using WSGM.Interop;
+using WindowsDeviceControl;
 
 namespace WSGM.Core;
 
@@ -47,15 +47,16 @@ public static class PowerTimeouts
             return null;
         }
         var (subgroup, setting, dc) = Locate(kind);
-        var status = dc
-            ? NativeMethods.PowerReadDCValueIndex(0, in scheme, in subgroup, in setting, out var value)
-            : NativeMethods.PowerReadACValueIndex(0, in scheme, in subgroup, in setting, out value);
-        if (status != 0)
+        try
         {
-            Log.Warn($"Power timeout read failed ({kind}, status {status}).");
+            uint value = WindowsPower.ReadSetting(scheme, subgroup, setting, dc);
+            return value <= int.MaxValue ? (int)value : null;
+        }
+        catch (Win32Exception ex)
+        {
+            Log.Warn($"Power timeout read failed ({kind}, status {ex.NativeErrorCode}).");
             return null;
         }
-        return (int)value;
     }
 
     /// <summary>Writes the timeout (seconds, 0 = Never) into the active scheme and
@@ -81,16 +82,14 @@ public static class PowerTimeouts
             return false;
         }
         var (subgroup, setting, dc) = Locate(kind);
-        var status = dc
-            ? NativeMethods.PowerWriteDCValueIndex(0, in scheme, in subgroup, in setting, (uint)seconds)
-            : NativeMethods.PowerWriteACValueIndex(0, in scheme, in subgroup, in setting, (uint)seconds);
-        if (status == 0)
+        try
         {
-            status = NativeMethods.PowerSetActiveScheme(0, in scheme);
+            WindowsPower.WriteSetting(scheme, subgroup, setting, dc, (uint)seconds);
+            WindowsPower.SetActiveScheme(scheme);
         }
-        if (status != 0)
+        catch (Win32Exception ex)
         {
-            Log.Warn($"Power timeout write failed ({kind} = {seconds} s, status {status}).");
+            Log.Warn($"Power timeout write failed ({kind} = {seconds} s, status {ex.NativeErrorCode}).");
             return false;
         }
         Log.Info($"Power timeout set: {kind} = {Describe(seconds)}.");
