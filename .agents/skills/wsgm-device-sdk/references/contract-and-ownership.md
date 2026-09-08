@@ -65,6 +65,10 @@ The normal host preflight checks attachment, descriptor/state freshness, availab
 bounds, and power-source policy. The plugin must still recheck identity, firmware, range, resource
 state, both generations, and deadline immediately before touching hardware.
 
+For the optional sustained/boost pair, validate `PairedPowerLimitId` with
+`DevicePowerPair.TryValidate`. `ApplyPowerPair` is an explicit request for plugin-owned coordinated
+writes, readback and rollback; it must not change ordinary single-limit command semantics.
+
 `CommandOutcome` means:
 
 - `Accepted`: admitted but not yet a claim of hardware effect.

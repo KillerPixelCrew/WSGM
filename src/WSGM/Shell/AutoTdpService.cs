@@ -66,7 +66,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
     private readonly IFrametimeSource _frametimes;
     private readonly Func<IReadOnlyList<DeviceCapabilityView>> _capabilities;
-    private readonly Func<string, string?, CapabilityValue, CancellationToken, Task<CapabilityCommandResult>> _writeAsync;
+    private readonly Func<DeviceCapabilityView, CapabilityValue, bool, CancellationToken, Task<CapabilityCommandResult>> _writeAsync;
     private readonly Func<double> _targetFrametimeMs;
     private readonly AutoTdpController _controller = new();
     private readonly SemaphoreSlim _write = new(1, 1);
@@ -79,6 +79,9 @@ internal sealed class AutoTdpService : IAsyncDisposable
     private CancellationTokenSource _applicationWrites = new();
     private RunningApplicationTargetSnapshot? _running;
     private int? _restoreTo;
+    private DeviceCapabilityView? _restorePair;
+    private long? _restoreCycle;
+    private DeviceCapabilityKey? _restoreCapability;
     private bool _controllerStarted;
     private bool _powerMayDiffer;
     private bool _enabled;
@@ -88,7 +91,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     internal AutoTdpService(
         IFrametimeSource frametimes,
         Func<IReadOnlyList<DeviceCapabilityView>> capabilities,
-        Func<string, string?, CapabilityValue, CancellationToken, Task<CapabilityCommandResult>> writeAsync,
+        Func<DeviceCapabilityView, CapabilityValue, bool, CancellationToken, Task<CapabilityCommandResult>> writeAsync,
         Func<double> targetFrametimeMs)
     {
         ArgumentNullException.ThrowIfNull(frametimes);
@@ -126,7 +129,21 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 return new(false, "Requires frame-rate limit.", null);
             }
             var power = FindPowerCapability();
-            return power?.Projection.State is { Available: true, Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified }
+            lock (_gate)
+            {
+                if (_restoreTo is not null && power is not null
+                    && (_restoreCycle != power.Projection.State.CycleGeneration
+                        || _restoreCapability != new DeviceCapabilityKey(power.Descriptor.CapabilityId, power.Descriptor.InstanceId)))
+                {
+                    return new(false, "The previous power owner must be restored before control can resume.", target);
+                }
+            }
+            if (power?.Descriptor.PairedPowerLimitId is not null
+                && !IsObserved(FindPairedPower(power)))
+            {
+                return new(false, "The paired power limit is unavailable.", target);
+            }
+            return IsObserved(power)
                 ? new(true, string.Empty, target)
                 : new(false, "No primary power limit is available.", target);
         }
@@ -449,7 +466,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         CancellationToken cancellationToken)
     {
 
-        if (FindPowerCapability() is not { } power)
+        if (FindPowerCapability() is not { } power || !Availability.Available)
         {
             Publish(
                 AutoTdpState.Unavailable,
@@ -457,7 +474,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 null,
                 null,
                 running?.ApplicationId,
-                "No primary power limit is available.",
+                Availability.Detail,
                 expectedRunningGeneration: runningGeneration);
             return;
         }
@@ -625,22 +642,35 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 cancellationToken.ThrowIfCancellationRequested();
                 if (restoreFrom is int watts)
                 {
+                    if (_restoreTo is null)
+                    {
+                        _restorePair = FindPairedPower(power);
+                        if (power.Descriptor.PairedPowerLimitId is not null && !IsObserved(_restorePair))
+                        {
+                            _resync = true;
+                            return false;
+                        }
+                        _restoreCycle = power.Projection.State.CycleGeneration;
+                        _restoreCapability = new(power.Descriptor.CapabilityId, power.Descriptor.InstanceId);
+                    }
                     _restoreTo ??= watts;
                 }
 
                 command = _writeAsync(
-                    power.Descriptor.CapabilityId,
-                    power.Descriptor.InstanceId,
+                    power,
                     new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Integer,
                         IntegerValue = decision.Watts,
                     },
+                    power.Descriptor.PairedPowerLimitId is not null,
                     cancellationToken);
             }
 
             CapabilityCommandResult result = await command.ConfigureAwait(false);
-            bool applied = IsApplied(result.Outcome);
+            bool applied = power.Descriptor.PairedPowerLimitId is not null
+                ? result.Outcome == CommandOutcome.AppliedVerified && result.ReadbackValue?.IntegerValue == decision.Watts
+                : IsApplied(result.Outcome);
             lock (_gate)
             {
                 if (result.Outcome == CommandOutcome.Rejected && !_powerMayDiffer)
@@ -648,6 +678,9 @@ internal sealed class AutoTdpService : IAsyncDisposable
                     // Rejected is the one outcome that proves nothing reached hardware. If this
                     // was the generation's first write, there is consequently nothing to restore.
                     _restoreTo = null;
+                    _restorePair = null;
+                    _restoreCycle = null;
+                    _restoreCapability = null;
                 }
                 else if (result.Outcome != CommandOutcome.Rejected)
                 {
@@ -725,16 +758,51 @@ internal sealed class AutoTdpService : IAsyncDisposable
             return restoreTo is null;
         }
 
+        if (!IsObserved(power) || power.Projection.State.CycleGeneration != _restoreCycle
+            || _restoreCapability != new DeviceCapabilityKey(power.Descriptor.CapabilityId, power.Descriptor.InstanceId)
+            || (_restorePair is not null && !IsObserved(FindPairedPower(power))))
+        {
+            Publish(AutoTdpState.Off, null, null, null, "AutoTDP is off; restoration requires current power readback in the original device cycle.");
+            return false;
+        }
+
         AutoTdpDecision decision = _controller.Stop(watts);
         // Reported from the write's own outcome. Saying "restored" for a value that was refused,
         // timed out, or skipped is the one message that makes the handheld's real state
         // undiagnosable from a log.
         bool restored = await WriteAsync(power, decision, cancellationToken).ConfigureAwait(false);
+        if (restored && _restorePair is { } pair)
+        {
+            var live = FindPairedPower(power);
+            if (!IsObserved(live) || live!.Projection.State.CycleGeneration != _restoreCycle
+                || live.Descriptor.CapabilityId != pair.Descriptor.CapabilityId)
+            {
+                restored = false;
+            }
+            else
+            {
+                try
+                {
+                    CapabilityCommandResult result = await _writeAsync(live,
+                        pair.Projection.State.ObservedValue!, false, cancellationToken).ConfigureAwait(false);
+                    restored = result.Outcome == CommandOutcome.AppliedVerified
+                        && result.ReadbackValue?.IntegerValue == pair.Projection.State.ObservedValue?.IntegerValue;
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    restored = false;
+                    Log.Warn($"AutoTDP paired-limit restoration failed: {ex.Message}");
+                }
+            }
+        }
         lock (_gate)
         {
             if (restored && _restoreTo == watts)
             {
                 _restoreTo = null;
+                _restorePair = null;
+                _restoreCycle = null;
+                _restoreCapability = null;
                 _powerMayDiffer = false;
                 _controllerStarted = false;
             }
@@ -759,6 +827,24 @@ internal sealed class AutoTdpService : IAsyncDisposable
             view.Descriptor.Role is CapabilityRole.PowerSustainedLimit
             && view.Descriptor.SupportsWrite
             && view.Descriptor.ValueKind is CapabilityValueKind.Integer);
+
+    private DeviceCapabilityView? FindPairedPower(DeviceCapabilityView primary) =>
+        primary.Descriptor.PairedPowerLimitId is { } id
+            ? _capabilities().FirstOrDefault(view => view.Descriptor.CapabilityId == id && view.Descriptor.InstanceId is null
+                && view.Projection.State.CycleGeneration == primary.Projection.State.CycleGeneration
+                && view.Projection.State.DescriptorGeneration == primary.Projection.State.DescriptorGeneration)
+            : null;
+
+    private static bool IsObserved(DeviceCapabilityView? view) => view?.Projection is
+    {
+        Progress: not CommandProgress.Pending, State:
+        {
+            Available: true, Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified,
+            ObservedValue.IntegerValue: not null
+        }
+    }
+        && (view.Projection.Progress != CommandProgress.Uncertain
+            || view.Projection.State.ObservedAt > view.LastResult?.CompletedAt);
 
     private RtssFrametimeSample? SelectSample(RunningApplicationTargetSnapshot? running)
     {

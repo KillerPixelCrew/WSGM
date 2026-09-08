@@ -13,6 +13,11 @@ any observed target no longer matches. Presets do not directly change CPU boost,
 Gaming, fan controls, or the Windows power plan. Firmware effects of the scenario itself remain
 device-dependent.
 
+The sustained descriptor declares its boost companion for coordinated runtime commands. AutoTDP
+requests one watt target; the plugin applies that value to both PL1 and PL2, orders the writes to
+preserve PL1 <= PL2, and verifies or rolls back the complete pair. Independent manual commands keep
+their existing behavior. Host shutdown restores the original sustained and boost values separately.
+
 Full Power is a WSGM addition using the device's supported maximum watt limits. The other presets
 and scenario mapping follow `ClawA1M.PowerProfileManager_Applied`, inherited by `ClawA2VM`, in the
 local Handheld Companion reference at revision `5c94abca83f8711ff5620906871b31a41c76bf05`. HC's

@@ -1028,6 +1028,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                 section: SectionIds.Power, category: CategoryIds.Limits, order: 0) with
                 {
                     PowerPresets = ClawPowerPresets.All,
+                    PairedPowerLimitId = CapabilityIds.PowerBoost,
                 },
             IntegerDescriptor(CapabilityIds.PowerBoost, CapabilityRole.PowerSlowLimit,
                 DisplayKey.BoostPowerLimit, 8, 37, CapabilityUnit.Watt, writable: true,
@@ -1162,6 +1163,11 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                 command,
                 CapabilityReasonCode.Unsupported,
                 $"Capability '{CapabilityKey(command.CapabilityId, command.InstanceId)}' is not available.");
+        }
+
+        if (command.ApplyPowerPair && descriptor.PairedPowerLimitId is null)
+        {
+            return Rejected(command, CapabilityReasonCode.Unsupported, "This capability does not declare a power pair.");
         }
 
         ClawIdentityState identity;

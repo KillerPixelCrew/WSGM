@@ -26,6 +26,12 @@ public sealed record CapabilityCommand
     /// <summary>The requested value, or null for an action.</summary>
     public CapabilityValue? RequestedValue { get; init; }
 
+    /// <summary>Apply the requested sustained wattage to its declared power pair.</summary>
+    /// <remarks>Valid only when the descriptor declares <see cref="CapabilityDescriptor.PairedPowerLimitId"/>.
+    /// The plugin owns write ordering, paired readback and rollback. Verified success confirms both
+    /// limits; <see cref="CapabilityCommandResult.ReadbackValue"/> reports the sustained wattage.</remarks>
+    public bool ApplyPowerPair { get; init; }
+
     /// <summary>Descriptor generation this command was authored against.</summary>
     public required long ExpectedDescriptorGeneration { get; init; }
 

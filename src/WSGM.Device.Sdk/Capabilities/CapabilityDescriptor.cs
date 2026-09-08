@@ -95,6 +95,15 @@ public sealed record CapabilityDescriptor
     /// <summary>Unit of a numeric value.</summary>
     public CapabilityUnit Unit { get; init; } = CapabilityUnit.None;
 
+    /// <summary>Optional single-instance boost-limit capability coordinated with this sustained limit.</summary>
+    /// <remarks>When present, an integer command with <see cref="CapabilityCommand.ApplyPowerPair"/>
+    /// asks the plugin to apply and verify both limits using its device-specific relationship.
+    /// Ordinary commands retain their independent-limit behavior. The host snapshots both observed
+    /// limits before taking ownership and restores the sustained pair followed by the original boost
+    /// value. Both descriptors must be readable, writable watt limits with matching bounds and step;
+    /// the plugin must permit an equal sustained/boost pair throughout that range.</remarks>
+    public string? PairedPowerLimitId { get; init; }
+
     /// <summary>Legal options for a choice capability.</summary>
     public IReadOnlyList<CapabilityChoice> Choices { get; init; } = [];
 

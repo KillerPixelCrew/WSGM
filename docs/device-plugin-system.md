@@ -710,6 +710,12 @@ AutoTDP additionally requires a verified active frame-rate limit. One service av
 guards enable commands and disables both UI controls with the same reason. Limiter-off events
 relinquish runtime control and clear the enabled setting; see `rtss.md` for the ownership contract.
 
+`PairedPowerLimitId` opts a sustained descriptor into plugin-owned paired commands. AutoTDP sends
+`ApplyPowerPair` with captured cycle/descriptor generations and requires verified results. Both
+original limits are retained for release; readback after an uncertain result must be newer than
+that result before automatic control can continue. The Claw maps the target to equal PL1/PL2 values
+through its existing ordered-write and rollback implementation.
+
 ## 15. Glyphs
 
 At cycle start the coordinator imports `glyphs\` through the SDK importer, logs

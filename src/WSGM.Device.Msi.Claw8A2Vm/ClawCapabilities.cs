@@ -41,6 +41,15 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
     {
         PowerPair before = await ReadAsync(cancellationToken).ConfigureAwait(false);
 
+        if (command.ApplyPowerPair)
+        {
+            if (watts is < 8 or > 37)
+            {
+                return Rejected(command, CapabilityReasonCode.ValueOutOfRange, "The power pair must be 8-37 W.");
+            }
+            return await ApplyPairCoreAsync(command, before, watts, watts, cancellationToken).ConfigureAwait(false);
+        }
+
         // PL1's ceiling is the same 37 W as PL2, raised from 30 W on the maintainer's instruction
         // for the A2VM. `_plan/claw-8-a2vm-plugin.md` recorded 8-30 W for EC 0x50 from the stock
         // read, which is the value the firmware ships with rather than the range it accepts.

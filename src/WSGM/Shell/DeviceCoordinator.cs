@@ -1716,6 +1716,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <param name="cancellationToken">Cancels the command.</param>
     /// <param name="expectedCycle">Optional cycle captured by a restore operation.</param>
     /// <param name="expectedDescriptors">Optional descriptor generation captured by a restore.</param>
+    /// <param name="applyPowerPair">Whether the plugin should apply its declared sustained/boost pair.</param>
     /// <returns>The command result reported by the plugin.</returns>
     internal async Task<CapabilityCommandResult> ExecuteCapabilityAsync(
         string capabilityId,
@@ -1725,7 +1726,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         CapabilityCommandOrigin origin = CapabilityCommandOrigin.User,
         CancellationToken cancellationToken = default,
         long? expectedCycle = null,
-        long? expectedDescriptors = null)
+        long? expectedDescriptors = null,
+        bool applyPowerPair = false)
     {
         bool power = FindDescriptor(capabilityId, instanceId)?.Role is
             CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit or CapabilityRole.ScenarioMode;
@@ -1733,7 +1735,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         try
         {
             return await ExecuteCapabilityCoreAsync(capabilityId, instanceId, value, timeout, origin, cancellationToken,
-                expectedCycle, expectedDescriptors)
+                expectedCycle, expectedDescriptors, applyPowerPair)
                 .ConfigureAwait(false);
         }
         finally { if (power) { PowerPresets.MutationGate.Release(); } }
@@ -1742,7 +1744,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private async Task<CapabilityCommandResult> ExecuteCapabilityCoreAsync(
         string capabilityId, string? instanceId, CapabilityValue? value, TimeSpan timeout,
         CapabilityCommandOrigin origin, CancellationToken cancellationToken,
-        long? expectedCycle = null, long? expectedDescriptors = null)
+        long? expectedCycle = null, long? expectedDescriptors = null, bool applyPowerPair = false)
     {
         bool user = origin is CapabilityCommandOrigin.User;
         if (user) { Interlocked.Increment(ref _userCapabilityCommands); }
@@ -1753,7 +1755,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 instanceId,
                 value,
                 timeout,
-                cancellationToken, expectedCycle, expectedDescriptors).ConfigureAwait(false);
+                cancellationToken, expectedCycle, expectedDescriptors, applyPowerPair).ConfigureAwait(false);
             if (origin is CapabilityCommandOrigin.User)
             {
                 NotifyManualPowerChange(capabilityId, instanceId, value, result);

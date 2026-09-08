@@ -117,7 +117,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         CapabilityValue? value,
         TimeSpan timeout,
         CancellationToken cancellationToken = default,
-        long? expectedCycle = null, long? expectedDescriptors = null)
+        long? expectedCycle = null, long? expectedDescriptors = null, bool applyPowerPair = false)
     {
         DeviceCapabilityKey key = new(capabilityId, instanceId);
         SemaphoreSlim commandGate;
@@ -136,7 +136,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         {
             CapabilityCommand command;
             DevicePluginRuntime client;
-            CapabilityCommandResult? refusal = PrepareCommand(key, value, timeout, out command, out client, expectedCycle, expectedDescriptors);
+            CapabilityCommandResult? refusal = PrepareCommand(key, value, timeout, out command, out client, expectedCycle, expectedDescriptors, applyPowerPair);
             if (refusal is not null)
             {
                 ReconcileResult(key, refusal);
@@ -273,7 +273,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         TimeSpan timeout,
         out CapabilityCommand command,
         out DevicePluginRuntime client,
-        long? expectedCycle = null, long? expectedDescriptors = null)
+        long? expectedCycle = null, long? expectedDescriptors = null, bool applyPowerPair = false)
     {
         DateTimeOffset now = DateTimeOffset.UtcNow;
         Guid commandId = Guid.NewGuid();
@@ -285,6 +285,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 CapabilityId = key.CapabilityId,
                 InstanceId = key.InstanceId,
                 RequestedValue = value,
+                ApplyPowerPair = applyPowerPair,
                 ExpectedDescriptorGeneration = _descriptorGeneration,
                 ExpectedCycleGeneration = _cycleGeneration,
                 Deadline = now.Add(timeout > TimeSpan.Zero ? timeout : TimeSpan.FromSeconds(5)),
@@ -308,6 +309,17 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             {
                 return Reject(command, CapabilityReasonCode.Unsupported,
                     "The capability is not present in the current descriptor set.");
+            }
+
+            if (applyPowerPair && descriptor.PairedPowerLimitId is null)
+            {
+                return Reject(command, CapabilityReasonCode.Unsupported, "This capability does not declare a power pair.");
+            }
+
+            if (applyPowerPair && (!_states.TryGetValue(new DeviceCapabilityKey(descriptor.PairedPowerLimitId!, null), out var peer)
+                || !CanCommand(EvaluateFreshness(peer.State, FreshnessFor(CapabilityRole.PowerSlowLimit), now, _cycleGeneration))))
+            {
+                return Reject(command, CapabilityReasonCode.ObservationExpired, "The paired power limit has no current readback.");
             }
 
             if (!_states.TryGetValue(key, out CapabilityStateDelta? rawState))
@@ -860,7 +872,8 @@ internal static class DeviceCapabilityValidation
             }
         }
 
-        return DevicePowerPreset.TryValidate(set.Descriptors, out error);
+        return DevicePowerPreset.TryValidate(set.Descriptors, out error)
+            && DevicePowerPair.TryValidate(set.Descriptors, out error);
     }
 
     internal static bool TryValidateState(

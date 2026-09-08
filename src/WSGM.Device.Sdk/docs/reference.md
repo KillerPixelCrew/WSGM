@@ -860,6 +860,16 @@ It writes `Short`/`Long` and preserves numeric reads and the existing enum ordin
 
 ## Version history
 
+`CapabilityDescriptor.PairedPowerLimitId` and `CapabilityCommand.ApplyPowerPair` are optional API 3
+additions, defaulting to null and false. A sustained watt descriptor may name one single-instance
+`PowerSlowLimit` descriptor with the same readable/writable range and step. Validate the complete
+set with `DevicePowerPair.TryValidate`. A paired command asks the plugin to apply its coordinated
+target, verify both limits and roll back both after failure. Verified result readback contains the
+sustained value. Ordinary commands retain independent-limit behavior. The pair must support equal
+watt limits across the declared range, allowing restoration of the sustained pair followed by the
+separately captured original boost limit. This contract covers a two-limit envelope; additional
+platform and Windows-policy dimensions remain separate work.
+
 | API | Change                                                                                                                                                                                                                                                                                                             |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 1   | Initial contract: lifecycle, capabilities, canonical input and haptics, OEM controls, settings manifest, glyph packages, manifest validation, test kit.                                                                                                                                                            |

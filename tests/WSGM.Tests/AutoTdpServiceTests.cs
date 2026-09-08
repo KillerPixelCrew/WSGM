@@ -534,9 +534,9 @@ public sealed class AutoTdpServiceTests
                     BeforeCapabilitiesRead?.Invoke();
                     return views;
                 },
-                (capabilityId, instanceId, value, cancellationToken) =>
+                (power, value, pair, cancellationToken) =>
                 {
-                    Writes.Add(new Write(capabilityId, instanceId, value));
+                    Writes.Add(new Write(power.Descriptor.CapabilityId, power.Descriptor.InstanceId, value));
                     if (PendingWrite is { } pending)
                     {
                         PendingWrite = null;

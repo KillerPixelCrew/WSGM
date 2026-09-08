@@ -22,7 +22,9 @@ depends on #25, #35 and #36 and must not block the controller repair.
   implemented; ten new tests pass. #55B still needs effective scenario and paired-limit projection.
 - #56B: fixed the confirmed successful-probe stall and stable minimum/floor/maximum feedback;
   three new replay tests cover repeated descent, failed-probe recovery and `Can't Reach`.
-  #56A paired writes and restoration remain next, followed by runtime diagnostics and #55B.
+  #56A paired writes and restoration implemented through an optional SDK command and the existing
+  Claw ordered-write/rollback path. New service, SDK and fake-transport tests cover the pair;
+  live hardware verification, expanded runtime diagnostics and #55B remain.
   The architectural #25/#49/#50 work follows the repair lane.
 
 This is the repository's only progress tracker. Mechanism details and device findings live in the

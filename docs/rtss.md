@@ -316,6 +316,13 @@ permits one power write at a time, and restores the limit it took over from on s
 disposal. Every prerequisite is optional and rechecked each second; no RTSS, no plugin, no power
 capability or no rendering application means AutoTDP holds.
 
+When the descriptor declares `PairedPowerLimitId`, AutoTDP requires current readback for both
+limits and dispatches `ApplyPowerPair` through the same coordinator. The plugin owns the hardware
+relationship, ordering and rollback. Only verified paired results advance control. Both original
+values are captured before the first write; release restores the sustained pair and then the
+original boost value, including unequal manual limits. Restoration across a device-cycle change
+is refused. No automatic target is persisted into profile configuration.
+
 ## Remaining live work
 
 - Validate the production adapter with a disposable test profile rather than an existing user

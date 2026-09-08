@@ -16,6 +16,48 @@ namespace WSGM.Device.Tests;
 [Collection("plugin-trace")]
 public sealed class ClawPluginTests
 {
+    [Theory]
+    [InlineData(8, 9, 20)]
+    [InlineData(30, 37, 12)]
+    [InlineData(8, 8, 37)]
+    public async Task PairCommandChangesBothLimitsInFirmwareSafeOrder(int sustained, int boost, int target)
+    {
+        FakeWmiTransport wmi = new();
+        wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, sustained);
+        wmi.SetData(ClawHardwareFacts.PowerBoostAddress, boost);
+        wmi.AfterSetter = (_, _) => Assert.True(
+            wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress) <= wmi.ReadData(ClawHardwareFacts.PowerBoostAddress));
+        ClawA2VmPowerCapability power = new(wmi);
+        var command = Command(CapabilityIds.PowerSustained, null,
+            new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = target }) with
+        { ApplyPowerPair = true };
+        var result = await power.ApplySustainedAsync(command, target, CancellationToken.None);
+        Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
+        Assert.Equal(target, result.ReadbackValue?.IntegerValue);
+        Assert.Equal(target, wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress));
+        Assert.Equal(target, wmi.ReadData(ClawHardwareFacts.PowerBoostAddress));
+    }
+
+    [Fact]
+    public async Task PairCommandFailedReadbackRestoresBothOriginalLimits()
+    {
+        FakeWmiTransport wmi = new();
+        wmi.AfterSetter = (_, package) =>
+        {
+            if (package[0] == ClawHardwareFacts.PowerBoostAddress && package[1] == 12)
+            { wmi.SetData(ClawHardwareFacts.PowerBoostAddress, 13); }
+        };
+        ClawA2VmPowerCapability power = new(wmi);
+        var command = Command(CapabilityIds.PowerSustained, null,
+            new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 12 }) with
+        { ApplyPowerPair = true };
+        var result = await power.ApplySustainedAsync(command, 12, CancellationToken.None);
+        Assert.Equal(CommandOutcome.Indeterminate, result.Outcome);
+        Assert.Equal(RollbackResult.RestoredVerified, result.Rollback);
+        Assert.Equal(new PowerPair(30, 37, 0xC1), await power.ReadAsync(CancellationToken.None));
+        Assert.Single(wmi.Writes, write => write.Package[0] == ClawHardwareFacts.PowerBoostAddress && write.Package[1] == 12);
+    }
+
     [Fact]
     public void RumblePayloadPadsToTheAdvertisedHidOutputLength()
     {

@@ -48,6 +48,10 @@ WSGM applies the scenario first and confirms all targets. WSGM owns application 
 the plugin supplies the device-specific numbers. Validate the complete descriptor set with
 `DevicePowerPreset.TryValidate`. Presets do not enforce values after selection.
 
+For runtime paired power control, a sustained descriptor may name `PairedPowerLimitId`.
+`CapabilityCommand.ApplyPowerPair` then asks the plugin to coordinate and verify both limits.
+Validate declarations with `DevicePowerPair.TryValidate`; ordinary commands still address one limit.
+
 `DeviceSections` provides shared Power, RGB, Controller and Info pages. Reference their IDs from
 capabilities, optionally add categories with record copies, and declare custom sections for other
 subjects. WSGM can contribute its own controls to the shared pages.

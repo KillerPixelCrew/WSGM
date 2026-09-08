@@ -387,14 +387,15 @@ public sealed class ShellSession : IAsyncDisposable
                 _autoTdp = new AutoTdpService(
                     new RtssFrametimeReader(),
                     deviceCoordinator.Capabilities.Snapshot,
-                    (capabilityId, instanceId, value, token) =>
+                    (power, value, pair, token) =>
                         deviceCoordinator.ExecuteCapabilityAsync(
-                            capabilityId,
-                            instanceId,
+                            power.Descriptor.CapabilityId,
+                            power.Descriptor.InstanceId,
                             value,
                             TimeSpan.FromSeconds(5),
                             CapabilityCommandOrigin.AutomaticControl,
-                            token),
+                            token, power.Projection.State.CycleGeneration,
+                            power.Projection.State.DescriptorGeneration, applyPowerPair: pair),
                     TargetFrametimeMs);
                 AutoTdpService autoTdp = _autoTdp;
                 deviceCoordinator.AttachAutoTdpAvailability(() => autoTdp.Availability);
