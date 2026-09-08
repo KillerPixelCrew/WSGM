@@ -10,6 +10,44 @@ public sealed class AutoTdpServiceTests
     private const string GameExecutable = @"C:\Games\game.exe";
 
     [Fact]
+    public async Task MissingLimiterRefusesAutoTdpWithoutAnInventedSixtyFpsTarget()
+    {
+        Harness harness = new() { TargetFrametimeMs = 0 };
+        harness.Service.Apply(true);
+        harness.Frametimes.Live = [Rendering(22)];
+        await harness.Service.TickAsync(CancellationToken.None);
+        Assert.False(harness.Service.Enabled);
+        Assert.False(harness.Service.Availability.Available);
+        Assert.Contains("Requires frame-rate limit", harness.Service.Availability.Detail);
+        Assert.Empty(harness.Writes);
+        await harness.Service.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task LosingTheLimiterStopsControlAndRestoresThePreviousLimit()
+    {
+        Harness harness = new();
+        harness.Service.Apply(true);
+        harness.Frametimes.Live = [Rendering(22)];
+        for (int tick = 0; tick < AutoTdpController.SustainedMisses; tick++)
+        {
+            await harness.Service.TickAsync(CancellationToken.None);
+        }
+        Assert.Single(harness.Writes);
+        harness.TargetFrametimeMs = 0;
+        Assert.True(harness.Service.RefreshPrerequisites());
+        Assert.False(harness.Service.Enabled);
+        await WaitForStateAsync(harness, AutoTdpState.Off);
+        Assert.Equal(15, harness.Writes[^1].Value.IntegerValue);
+        Assert.Equal(2, harness.Writes.Count);
+        harness.TargetFrametimeMs = 1000d / 60;
+        harness.Service.RefreshPrerequisites();
+        Assert.True(harness.Service.Availability.Available);
+        Assert.False(harness.Service.Enabled);
+        await harness.Service.DisposeAsync();
+    }
+
+    [Fact]
     public async Task ADisabledServiceNeverWritesPower()
     {
         Harness harness = new();
@@ -513,10 +551,12 @@ public sealed class AutoTdpServiceTests
                         CompletedAt = DateTimeOffset.UtcNow,
                     });
                 },
-                () => 16.6);
+                () => TargetFrametimeMs);
         }
 
         internal FakeFrametimeSource Frametimes { get; } = new();
+
+        internal double TargetFrametimeMs { get; set; } = 16.6;
 
         internal Action? BeforeCapabilitiesRead { get; set; }
 

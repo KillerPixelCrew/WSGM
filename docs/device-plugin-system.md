@@ -706,6 +706,10 @@ same router: AutoTDP takes the first writable integer `PowerSustainedLimit`, tic
 never retries an uncertain write; the QAM's TDP control requires a watt-unit descriptor with
 `1 ≤ min < max ≤ 200`.
 
+AutoTDP additionally requires a verified active frame-rate limit. One service availability result
+guards enable commands and disables both UI controls with the same reason. Limiter-off events
+relinquish runtime control and clear the enabled setting; see `rtss.md` for the ownership contract.
+
 ## 15. Glyphs
 
 At cycle start the coordinator imports `glyphs\` through the SDK importer, logs

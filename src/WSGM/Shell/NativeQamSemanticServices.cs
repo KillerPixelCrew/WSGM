@@ -1220,7 +1220,8 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
             _coordinator.AutoTdpEnabled,
             _autoTdp?.Status,
             DeviceCoordinatorNativeQamTdpService.Project(_coordinator.Capabilities.Snapshot())
-                .State.Available);
+                .State.Available,
+            _autoTdp?.Availability);
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> SetAutoTdpAsync(bool enabled, CancellationToken cancellationToken) =>
@@ -1272,12 +1273,18 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
     /// <param name="enabled">The stored setting.</param>
     /// <param name="status">The running service's state, or null when it is not running.</param>
     /// <param name="powerLimitAvailable">Whether a primary power limit exists to drive.</param>
+    /// <param name="availability">The service's authoritative admission state.</param>
     /// <returns>The state the menu renders.</returns>
     internal static SteamAutoTdpState Project(
         bool enabled,
         AutoTdpStatus? status,
-        bool powerLimitAvailable)
+        bool powerLimitAvailable,
+        AutoTdpAvailability? availability = null)
     {
+        if (availability is { Available: false })
+        {
+            return new SteamAutoTdpState(false, false, false, null, "failed", SteamUiText.Bound(availability.Detail));
+        }
         // Without a power limit there is nothing to control, so the switch is not offered rather
         // than offered and then silently ineffective.
         if (!powerLimitAvailable)

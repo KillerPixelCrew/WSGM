@@ -314,7 +314,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             _coordinator.PhysicalGlyphSelectionSnapshot());
         DescriptorRow autoTdp = AutoTdpView(
             _coordinator.AutoTdpEnabled,
-            _autoTdp?.Status);
+            _autoTdp?.Status,
+            _autoTdp?.Availability);
         DescriptorRow? recovery = RecoveryView(state);
         DescriptorRow? controller = ControllerView(
             _coordinator.ControllerManagementEnabled,
@@ -732,15 +733,22 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// <summary>Projects AutoTDP's switch and live state into one row.</summary>
     /// <param name="enabled">The persisted setting.</param>
     /// <param name="status">Live state, or null when the service is not running.</param>
+    /// <param name="availability">The service's authoritative admission state.</param>
     /// <returns>The row.</returns>
     /// <remarks>
     /// The row reports what AutoTDP is actually doing, not merely that it is switched on. A user who
     /// turned it on and sees nothing happening needs to know whether it is waiting for a game, held
     /// by a manual power change, or unable to find a power limit at all.
     /// </remarks>
-    internal static DescriptorRow AutoTdpView(bool enabled, AutoTdpStatus? status)
+    internal static DescriptorRow AutoTdpView(
+        bool enabled, AutoTdpStatus? status, AutoTdpAvailability? availability = null)
     {
         const string autoTdpKey = "device.auto-tdp";
+        if (availability is { Available: false })
+        {
+            return new DescriptorRow(autoTdpKey, "AutoTDP", availability.Detail, "OFF",
+                CanInvoke: false, DescriptorStatus.Unsupported);
+        }
         if (!enabled)
         {
             return new DescriptorRow(

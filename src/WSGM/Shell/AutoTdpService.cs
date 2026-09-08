@@ -38,6 +38,9 @@ internal sealed record AutoTdpStatus(
     string Detail,
     AutoTdpAction? Action = null);
 
+/// <summary>Shared admission state for AutoTDP commands and every UI projection.</summary>
+internal sealed record AutoTdpAvailability(bool Available, string Detail, double? TargetFrametimeMs);
+
 /// <summary>
 /// The one AutoTDP session service.
 /// </summary>
@@ -113,6 +116,38 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// <summary>Whether automatic control is currently enabled for this session.</summary>
     internal bool Enabled => Volatile.Read(ref _enabled);
 
+    internal AutoTdpAvailability Availability
+    {
+        get
+        {
+            double target = _targetFrametimeMs();
+            if (!double.IsFinite(target) || target <= 0)
+            {
+                return new(false, "Requires frame-rate limit.", null);
+            }
+            var power = FindPowerCapability();
+            return power?.Projection.State is { Available: true, Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified }
+                ? new(true, string.Empty, target)
+                : new(false, "No primary power limit is available.", target);
+        }
+    }
+
+    /// <summary>Releases control immediately when the limiter disappears.</summary>
+    /// <returns>Whether an active session was forced off.</returns>
+    internal bool RefreshPrerequisites()
+    {
+        bool disabled = Enabled && Availability.TargetFrametimeMs is null;
+        if (disabled) { Apply(false); }
+        StatusChanged?.Invoke(Status);
+        return disabled;
+    }
+
+    internal static double TargetFrametime(PerformanceState? state) =>
+        state is { FrameLimitQuality: PerformanceReadbackQuality.Verified, Observed.FrameLimit: > 0 }
+            && state.Desired.FrameLimit != 0
+            ? 1000d / state.Observed.FrameLimit.Value
+            : 0;
+
     /// <summary>Enables or disables automatic control.</summary>
     /// <param name="enabled">Whether AutoTDP should run.</param>
     /// <remarks>
@@ -124,6 +159,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// </remarks>
     internal void Apply(bool enabled)
     {
+        if (enabled && Availability.TargetFrametimeMs is null) { enabled = false; }
         Task worker;
         Task<bool> stop;
         CancellationTokenSource? generation;
@@ -366,6 +402,10 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
     internal async Task TickAsync(CancellationToken cancellationToken)
     {
+        if (RefreshPrerequisites())
+        {
+            return;
+        }
         if (!Volatile.Read(ref _enabled))
         {
             return;
@@ -453,6 +493,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
         }
 
         double target = _targetFrametimeMs();
+        if (!double.IsFinite(target) || target <= 0)
+        {
+            Apply(false);
+            return;
+        }
         string context = ContextKey(running, frametime);
         AutoTdpDecision decision;
         bool rebased;

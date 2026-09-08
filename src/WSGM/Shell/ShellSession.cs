@@ -396,8 +396,8 @@ public sealed class ShellSession : IAsyncDisposable
                             CapabilityCommandOrigin.AutomaticControl,
                             token),
                     TargetFrametimeMs);
-                _autoTdp.Apply(
-                    ShouldRunAutoTdp(_config.DeviceIntegration));
+                AutoTdpService autoTdp = _autoTdp;
+                deviceCoordinator.AttachAutoTdpAvailability(() => autoTdp.Availability);
                 // A power limit the user set by hand pauses control permanently and is persisted to
                 // whichever profile layer is in force, so it is restored on the next launch instead
                 // of leaking onto the desktop. The hook is rooted here because this is where both
@@ -456,6 +456,7 @@ public sealed class ShellSession : IAsyncDisposable
             _resolutions = new DisplayResolutionService();
             _refreshPairing.SetStrategy(_config.Performance.FrameLimitStrategy);
             _performance.StateChanged += OnPerformanceStateForPairing;
+            _autoTdp?.Apply(ShouldRunAutoTdp(_config.DeviceIntegration));
         }
         if (!_overlayTestOnly)
         {
@@ -1946,6 +1947,7 @@ public sealed class ShellSession : IAsyncDisposable
             {
                 _autoTdp = null;
                 _deviceCoordinator?.AttachAutoTdpManualOverride(null);
+                _deviceCoordinator?.AttachAutoTdpAvailability(null);
             }
         }
 
@@ -2742,22 +2744,10 @@ public sealed class ShellSession : IAsyncDisposable
     /// The deadline AutoTDP judges frame delivery against.
     /// </summary>
     /// <remarks>
-    /// The applied RTSS frame limit when there is one, because that is the rate the user asked for
-    /// and delivering it is the whole goal. Without a limit the deadline falls back to 60 Hz rather
-    /// than to the panel's maximum: chasing an uncapped refresh rate would push the power limit up
-    /// for as long as the game could absorb it, which is the opposite of what AutoTDP is for.
+    /// Only a verified, active RTSS limit supplies a deadline. Zero means no control is permitted;
+    /// a desired value or a default 60 Hz target cannot stand in for an active limiter.
     /// </remarks>
-    private double TargetFrametimeMs()
-    {
-        PerformanceState? state = _performance?.Current;
-        int limit = state?.Observed.FrameLimit ?? 0;
-        if (limit <= 0)
-        {
-            limit = state?.Desired.FrameLimit ?? 0;
-        }
-
-        return limit > 0 ? 1000d / limit : 1000d / 60d;
-    }
+    private double TargetFrametimeMs() => AutoTdpService.TargetFrametime(_performance?.Current);
 
     /// <summary>
     /// Applies both halves of physical glyph presentation: whether it is on, and what to draw.
@@ -2807,6 +2797,21 @@ public sealed class ShellSession : IAsyncDisposable
     /// </remarks>
     private void OnPerformanceStateForPairing(PerformanceState state)
     {
+        if (_autoTdp is { } autoTdp)
+        {
+            autoTdp.RefreshPrerequisites();
+            bool limiterOff = state.Desired.FrameLimit == 0
+                || (state.FrameLimitQuality is PerformanceReadbackQuality.Verified && state.Observed.FrameLimit == 0);
+            if (limiterOff && _deviceCoordinator is { AutoTdpEnabled: true } coordinator)
+            {
+                Log.Observe(coordinator.SetAutoTdpEnabledAsync(false), "AutoTDP limiter disabled");
+            }
+            else if (autoTdp.Availability.Available && ShouldRunAutoTdp(_config.DeviceIntegration))
+            {
+                autoTdp.Apply(true);
+            }
+        }
+
         if (_refreshPairing is not { } pairing)
         {
             return;

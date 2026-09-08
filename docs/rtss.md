@@ -298,16 +298,20 @@ replaying its trace. The policy:
 - A manual power change pauses control until AutoTDP is switched off and on again. Taking the limit
   back from a user who just moved the slider is the most confusing thing this feature could do.
 
-The deadline is the applied RTSS frame limit when there is one, and 60 Hz otherwise — never the
-panel maximum, because chasing an uncapped refresh rate would raise the limit for as long as the
-game could absorb it.
+The deadline comes only from verified, active RTSS frame-limit readback. A desired cap, an
+unverified write and a default 60 Hz target cannot substitute for an active limiter. The service's
+shared availability result drives both QAM and Overlay and guards the coordinator's enable command.
+Without a limiter the controls are disabled with `Requires frame-rate limit.` Turning the limiter
+off stops control and restores the previous power limit; its performance-state event also clears the
+AutoTDP setting. Temporary missing readback suspends runtime control without replacing saved intent.
+A verified limiter makes the controls available again.
 
-`AutoTdpService` is the binding and decides nothing. It picks the renderer matching the running
-application (declining rather than guessing when several render with no identity), finds the
-`PowerSustainedLimit` capability and takes its range from the plugin, permits one power write at a
-time, and restores the limit it took over from on stop, disable and disposal. Every prerequisite is
-optional and rechecked each second; no RTSS, no plugin, no power capability or no rendering
-application means AutoTDP holds.
+`AutoTdpService` owns runtime admission and binds the deterministic controller. It picks the
+renderer matching the running application (declining rather than guessing when several render with
+no identity), finds the `PowerSustainedLimit` capability and takes its range from the plugin,
+permits one power write at a time, and restores the limit it took over from on stop, disable and
+disposal. Every prerequisite is optional and rechecked each second; no RTSS, no plugin, no power
+capability or no rendering application means AutoTDP holds.
 
 ## Remaining live work
 

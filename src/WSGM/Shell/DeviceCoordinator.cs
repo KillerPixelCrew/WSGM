@@ -83,6 +83,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private string? _runningApplicationId;
     private Action<int>? _autoTdpManualOverride;
     private Action<int>? _assignedPowerOverride;
+    private Func<AutoTdpAvailability>? _autoTdpAvailability;
     private Action<bool>? _manualVariableRefreshOverride;
     private bool _intentionalStop;
     private bool _faultRecoveryPending;
@@ -1591,6 +1592,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <summary>Whether AutoTDP is switched on in the persisted configuration.</summary>
     internal bool AutoTdpEnabled => _config.DeviceIntegration.AutoTdpEnabled;
 
+    internal void AttachAutoTdpAvailability(Func<AutoTdpAvailability>? read) => _autoTdpAvailability = read;
+
     /// <summary>Turns AutoTDP on or off and persists the choice.</summary>
     /// <param name="cancellationToken">Cancels the change.</param>
     /// <returns>A task completing once the new setting is persisted.</returns>
@@ -1616,6 +1619,13 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            var availability = enabled ? _autoTdpAvailability?.Invoke() : null;
+            if (enabled && availability is not { Available: true })
+            {
+                throw new InvalidOperationException(
+                    availability?.Detail ?? "AutoTDP is unavailable.");
+            }
+
             if (_config.DeviceIntegration.AutoTdpEnabled == enabled)
             {
                 Log.Info($"AutoTDP is already {(enabled ? "on" : "off")}; nothing to persist.");
