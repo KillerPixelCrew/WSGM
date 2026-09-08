@@ -11,9 +11,13 @@ captures active paths in Windows priority order, identifies monitors primarily b
 path with EDID manufacturer/product fallback, and waits for a saved identity using fresh bounded
 snapshots. Friendly names and GDI `DISPLAY1` numbering are presentation metadata; adapter LUID and
 target ID are current route coordinates and are refreshed after hotplug. Enumeration and waits are
-read-only. Profile serialization, validation, application and rollback follow in the remaining #50
-slices. The design uses DisplayMagician as behavioral reference while the MIT library implementation
-comes from documented Windows CCD contracts rather than copied GPL source.
+read-only. `CaptureProfile` stores the active CCD paths/modes without pointers; validation rematches
+each saved target to the current topology and asks Windows to validate before a display write.
+Application snapshots rollback state, writes once, reads back target presence, and attempts one
+rollback when application is rejected or unconfirmed. A failed rollback remains explicitly unknown,
+never a claim that the prior desktop was restored. The design uses DisplayMagician as behavioral
+reference while the MIT library implementation comes from documented Windows CCD contracts rather
+than copied GPL source.
 
 ## Windows power schemes
 
