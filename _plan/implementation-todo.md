@@ -15,7 +15,10 @@ depends on #25, #35 and #36 and must not block the controller repair.
   ordering implemented. Ten new hardware-free tests pass; fresh hardware validation remains.
   The attempted full gate stopped at pre-existing guidance-link failures in retired untracked
   device trees. Per maintainer direction, further validation runs only newly added tests.
-- #57, #55 and #56: queued. The architectural #25/#49/#50 work follows the repair lane.
+- #57: confirmed brightness readback, ordered observations and suppression of programmatic slider
+  writes implemented; six new service tests and emitted-JavaScript regression checks pass. Live focus,
+  touch/controller and reconnect validation remains.
+- #55 and #56: queued. The architectural #25/#49/#50 work follows the repair lane.
 
 This is the repository's only progress tracker. Mechanism details and device findings live in the
 focused `docs\` topics, and product decisions in `docs\decisions.md` and `_plan\2.0-decisions.md`.

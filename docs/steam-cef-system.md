@@ -398,6 +398,15 @@ perf delta field equal to the desired value is dropped as an echo
 
 ### Degradation
 
+Brightness reads and user writes are serialized by `NativeQamBrightnessService`. Each successful
+read receives a monotonic revision; a successful write returns its verified readback using the same
+sequence. The toolkit separates pending requests from confirmed state and rejects older revisions.
+It applies matching readback to Steam's observable even when the user requested that same percent:
+dropping that acknowledgement used to leave Steam's initial 100% value intact. Programmatic
+observable changes and their matching setter echoes cannot dispatch hardware writes. Failed or
+unreadable writes report a reason without retrying. The new service tests and emitted brightness
+fixture cover this without hardware; focused controller/touch and reconnect checks remain attended.
+
 Without a device coordinator the TDP, AutoTDP, device-control and controller-target services publish
 an unavailable state and refuse writes with the reason; audio, network, Bluetooth and resolution
 modules are not declared at all without their managers. A perf control is hidden by omitting its

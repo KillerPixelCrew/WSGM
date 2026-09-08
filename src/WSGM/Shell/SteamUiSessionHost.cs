@@ -423,7 +423,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 id: "perf"),
 
             // Declared unconditionally: the panel backlight depends on nothing WSGM has to supply.
-            SteamBrightnessSurface.Module(Enabled, NativeQamBrightnessService.ReadAsync, _brightness),
+            SteamBrightnessSurface.Module(Enabled, _brightness.ReadAsync, _brightness),
 
             SteamDeviceControlsRow.Module(
                 Enabled,

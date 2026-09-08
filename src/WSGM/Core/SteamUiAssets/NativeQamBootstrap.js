@@ -1522,6 +1522,11 @@
     let lastError = "";
     let unsubscribe = null;
     let lastPercent = null;
+    let lastRevision = -1;
+    let applyingState = false;
+    let requestVersion = 0;
+    let pendingWrite = false;
+    let confirmedState = null;
     const displayStore = () => {
       try {
         const req = getWebpackRuntime("brightness-store");
@@ -1534,21 +1539,33 @@
     const onState = (state) => {
       if (!installed || !state) return;
       const percent = Number(state.percent);
-      if (!Number.isInteger(percent) || percent < 0 || percent > 100) return;
-      // Same rule as the volume: write only when the host's OWN reading moved, so a publish that
-      // merely restates the level never fights a drag the store is already ahead on.
-      if (percent === lastPercent) return;
-      lastPercent = percent;
+      const revision = Number(state.revision);
+      if (
+        !Number.isInteger(percent) ||
+        percent < 0 ||
+        percent > 100 ||
+        !Number.isSafeInteger(revision) ||
+        revision < 0 ||
+        revision < lastRevision
+      )
+        return;
+      lastRevision = revision;
+      confirmedState = { percent, revision };
+      if (pendingWrite) return;
       try {
         const observable = displayStore()?.m_flDisplayBrightness;
+        applyingState = true;
         if (
           observable?.Set &&
           Math.abs((observable.m_currentValue ?? -1) - percent / 100) > 0.004
         ) {
           observable.Set(percent / 100);
         }
+        lastPercent = percent;
       } catch (error) {
         lastError = "brightness state apply failed: " + String(error);
+      } finally {
+        applyingState = false;
       }
     };
     // The slider's writes, taken over at the one method it calls. Same replace-not-stack rule as
@@ -1561,11 +1578,27 @@
         return false;
       }
       const claim = claimMember(display, "SetBrightness", setter, () => (flBrightness) => {
-        const percent = Math.round(Math.min(1, Math.max(0, Number(flBrightness) || 0)) * 100);
-        // Remembered as ours so the echo of this very write coming back as state does not Set the
-        // observable again underneath the drag.
-        lastPercent = percent;
-        return request(patchId, "setBrightness", { percent }).catch(() => {});
+        if (!installed || applyingState) return Promise.resolve();
+        const value = Number(flBrightness);
+        if (!Number.isFinite(value) || value < 0 || value > 1) return Promise.resolve();
+        const percent = Math.round(value * 100);
+        if (!pendingWrite && percent === lastPercent) return Promise.resolve();
+        const version = ++requestVersion;
+        pendingWrite = true;
+        return request(patchId, "setBrightness", { percent })
+          .then((readback) => {
+            if (!installed || version !== requestVersion) return;
+            pendingWrite = false;
+            onState(readback);
+            // A later external observation can already have arrived while this request completed.
+            if (confirmedState) onState(confirmedState);
+          })
+          .catch((error) => {
+            if (!installed || version !== requestVersion) return;
+            pendingWrite = false;
+            lastError = "brightness write failed: " + String(error);
+            if (confirmedState) onState(confirmedState);
+          });
       });
       if (!claim.ok) {
         lastError = claim.error;
@@ -1610,6 +1643,9 @@
         return { ok: false, error: lastError };
       }
       installed = true;
+      lastPercent = null;
+      lastRevision = -1;
+      confirmedState = null;
       lastError = "";
       unsubscribe = subscribe(patchId, onState);
       return { ok: true, installed: true, available: message[field] === true };
@@ -1618,6 +1654,8 @@
       if (!installed) return { ok: true, absent: true };
       const message = settings();
       installed = false;
+      ++requestVersion;
+      pendingWrite = false;
       if (unsubscribe) {
         unsubscribe();
         unsubscribe = null;
@@ -1639,6 +1677,8 @@
         available: message ? message[field] === true : false,
         setterOwned: memberClaimed(window.SteamClient?.System?.Display, "SetBrightness", setter),
         lastPercent,
+        lastRevision,
+        pendingWrite,
         observable: displayStore()?.m_flDisplayBrightness?.m_currentValue ?? null,
         lastError,
       };
