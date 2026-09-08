@@ -7,9 +7,9 @@ using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Settings.Pages;
 
-/// <summary>Settings the installed device plugin declares, rendered from its manifest.</summary>
+/// <summary>Independent plugin activation and settings declared by the installed Device plugin.</summary>
 /// <remarks>
-/// The page owns no controls of its own. Its content comes from the one projection in
+/// Device content comes from the one projection in
 /// <c>PluginSettingsCoordinator.Project</c>, shared with the overlay so both surfaces order and
 /// place a plugin's settings identically, and it changes with whichever plugin is installed — which
 /// is why the sections and rows are bound rather than written here.

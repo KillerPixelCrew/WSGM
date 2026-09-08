@@ -66,7 +66,9 @@ must not treat an IR endpoint acknowledgment as proof that a television changed 
 
 `IPluginUi` supplies bounded status, button, toggle and slider descriptions. Admission checks every
 action/argument link and requires numeric bounds for sliders. WSGM owns actual controls and placement;
-plugins cannot inject UI code. Rendering and pinning consume these contracts in later slices.
+plugins cannot inject UI code. The overlay Tools page renders common contributions, grouped by
+instance and contribution category. Status readback is separate from an editable draft; toggles and
+sliders require an explicit Apply press. Refresh never invokes an action. Pinning follows in #53.
 
 Stop closes action admission immediately and cooperatively cancels the active lifecycle/action call.
 The stop and disposal operations still wait behind that call's actual completion, so cancellation
@@ -107,14 +109,48 @@ Activation requests carry increasing host revisions. Disabling an instance cance
 immediately; an obsolete enable cannot start it later. A rapid explicit re-enable waits for confirmed
 cleanup before creating the replacement.
 
-Install or replace trusted packages only while their instances are stopped. Common enable/disable UI
-and authoring tools are the remaining integration slices. Loading inherits the application's current
+Install or replace trusted packages only while their instances are stopped. Settings' Plugin tab
+discovers metadata without loading code and exposes activation for installed and configured instances.
+Save merges only edited instance choices into a fresh configuration. A package with no configured
+instances offers a disabled `default` instance. Additional stable instance IDs can be configured in
+`PluginInstances`; every configured instance appears separately. Missing packages remain visible so
+their activation can be disabled without discarding preferences.
+
+Loading inherits the application's current
 authority; this host neither elevates itself nor grants access based on manifest declarations.
 
 The initial execution model remains trusted in-process code. Collectible load contexts isolate
 dependencies, not security or crashes. A process boundary would require separately designed and
 validated transport, permission and recovery contracts. The SDK neither resurrects the retired
 DeviceHost protocol nor describes declared permissions as enforced isolation.
+
+## Authoring and packaging
+
+From a source checkout, create a new output directory with a harmless common plugin example:
+
+```powershell
+.\eng\new-plugin.ps1 -Id example.counter -Output C:\work\CounterPlugin
+.\eng\package-plugin.ps1 -Project C:\work\CounterPlugin\Plugin.csproj -Archive C:\work\counter-0.1.0.zip
+```
+
+The template references this checkout's MIT common SDK and demonstrates lifecycle, effective state,
+a named action and declarative status/button contributions. `-Category wsgm.infrared` or another
+stable category changes metadata without introducing a Core specialization. Device packages keep
+the existing Device Lab scaffold, validation and hardware harness.
+
+Packaging runs the project's build, checks essential manifest/output fields and creates a new ZIP.
+It does not execute the plugin entry type, install, enable or replace a package. Full common manifest,
+dependency and UI/action validation remains authoritative in the host. Trust build inputs before
+publishing; MSBuild is executable code. Extract an approved archive into the protected
+`%ProgramFiles%\WSGM\Plugins\<plugin-id>` directory while the instance is stopped, then enable it
+in Settings. Updating follows explicit disable, confirmed cleanup, replacement and re-enable.
+
+The existing `CommonPluginPackageTests` fixture is an offline example harness covering configuration,
+actions, state and lifecycle without external hardware. Use the same contract pattern for provider
+fakes. Runtime health and action outcomes appear on Tools; a failed or unconfirmed operation is never
+an automatic retry request. Common preferences use `PluginConfigurations` with explicit increasing
+revisions; provider schema validation occurs before delivery. Their generic Settings editor is not
+part of this initial surface; the Device settings editor remains available.
 
 The migration follows common contracts, Device compatibility adapter, lifecycle/configuration/events,
 action/UI contributions, then an independent non-device consumer. Delivery status lives only in

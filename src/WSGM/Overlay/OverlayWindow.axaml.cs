@@ -283,6 +283,12 @@ public partial class OverlayWindow : Window
     }
 
     /// <summary>Attaches the semantic coordinator projection used by the optional Device tab.</summary>
+    internal void AttachCommonPlugins(CommonPluginOverlaySource? source)
+    {
+        CommonPluginRows.Children.Clear();
+        if (source is not null) { CommonPluginRows.Children.Add(new CommonPluginPanel(source)); }
+    }
+
     internal void AttachDeviceBridge(IDeviceOverlaySource? bridge)
     {
         if (ReferenceEquals(_deviceBridge, bridge))

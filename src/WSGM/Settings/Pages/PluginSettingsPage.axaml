@@ -5,12 +5,36 @@
              x:Class="WSGM.Settings.Pages.PluginSettingsPage"
              x:DataType="s:SettingsViewModel">
     <!--
-        Every row on this page is declared by the installed device plugin, so nothing here is a
-        fixed control: the shape comes from PluginSettingsPageLayout and the controls template by
-        visibility, each binding the one property its value kind uses.
+        Independent activation uses common installed metadata. Device settings retain their
+        existing projection and editor templates.
     -->
     <Border Padding="16,10,16,10">
-        <Panel>
+        <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,16">
+                <Border Classes="section-header"><TextBlock Text="INDEPENDENT PLUGINS" /></Border>
+                <TextBlock Classes="caption" TextWrapping="Wrap"
+                           Text="Enable installed integrations here, then Save. They run independently of Device integration. External controls appear in the overlay." />
+                <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding CommonPluginDiscoveryError}" />
+                <ScrollViewer MaxHeight="200">
+                <ItemsControl ItemsSource="{Binding CommonPlugins}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="s:CommonPluginInstanceRow">
+                            <Border Classes="setting-row">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                    <StackPanel>
+                                        <TextBlock Classes="setting-title" Text="{Binding Name}" />
+                                        <TextBlock Classes="caption" Text="{Binding Detail}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding Enabled, Mode=TwoWay}"
+                                                  VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                </ScrollViewer>
+            </StackPanel>
+          <Panel>
             <!--
                 Shown instead of an empty page. A plugin that declares no settings and a machine
                 with no plugin at all look identical otherwise, and the user cannot tell whether
@@ -156,6 +180,7 @@
                 </ItemsControl>
               </StackPanel>
             </ScrollViewer>
-        </Panel>
+          </Panel>
+        </DockPanel>
     </Border>
 </UserControl>

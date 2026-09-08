@@ -84,7 +84,13 @@ validation will be handled by reopening them. Hardware checks are not a closure 
   configuration reload, power transitions and shutdown. Ten new tests cover metadata-only discovery,
   independent enable/disable, obsolete startup cancellation, retained failures/loading tasks, power
   deduplication and revision refresh.
-  #49 remains open for UI consumption and tooling.
+  Settings now merges explicit instance activation edits; Overlay Tools renders common status,
+  action, toggle and slider contributions with drafts separate from confirmed readback. Common
+  project scaffolding and create-new archive tooling accompany the existing Device Lab specialization.
+  The final surface/tooling slice uses a warning-clean application build, script syntax checks and
+  successful generation/build/packaging of the harmless example, without
+  another test suite run. Generic common-preference editors and pinning are follow-on UI work;
+  common schema/persistence contracts and Device settings remain available. #49 foundation complete.
 
 This is the repository's only progress tracker. Mechanism details and device findings live in the
 focused `docs\` topics, and product decisions in `docs\decisions.md` and `_plan\2.0-decisions.md`.

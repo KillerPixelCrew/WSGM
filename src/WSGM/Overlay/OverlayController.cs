@@ -31,6 +31,7 @@ public sealed class OverlayController : IDisposable
     private readonly PerformanceOverlayBridge? _performance;
     private readonly DevicePowerPresets? _powerPresets;
     private readonly DevicePowerAssignments? _powerAssignments;
+    private readonly CommonPluginOverlaySource? _commonPlugins;
 
     /// <summary>
     /// The session's audio manager, shared with the sheet's status pills rather than owned.
@@ -107,8 +108,10 @@ public sealed class OverlayController : IDisposable
         AudioManager? audio = null,
         RadioManager? radios = null,
         DevicePowerPresets? powerPresets = null,
-        DevicePowerAssignments? powerAssignments = null)
+        DevicePowerAssignments? powerAssignments = null,
+        CommonPluginOverlaySource? commonPlugins = null)
     {
+        _commonPlugins = commonPlugins;
         _powerPresets = powerPresets;
         _powerAssignments = powerAssignments;
         _sessionAudio = audio;
@@ -826,6 +829,7 @@ public sealed class OverlayController : IDisposable
         };
         long constructDone = System.Diagnostics.Stopwatch.GetTimestamp();
         _overlay.AttachDeviceBridge(_device);
+        _overlay.AttachCommonPlugins(_commonPlugins);
         _overlay.AttachPerformanceSource(_performance);
         _overlay.SetPins(_config.QuickAccessPins);
         _overlay.PinToggleRequested += OnPinToggleRequested;

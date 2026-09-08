@@ -92,7 +92,39 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Loads the current configuration and discovers locally installed startup suggestions.</summary>
     public SettingsViewModel()
-        : this(ConfigStore.Load(), ReadInstalledPluginId(), filterToInstalledPlugin: true) { }
+        : this(ConfigStore.Load(), ReadInstalledPluginId(), filterToInstalledPlugin: true)
+    {
+        LoadCommonPlugins(CommonPluginCatalog.Discover(CommonPluginCatalog.InstalledRoot));
+    }
+
+    /// <summary>Installed common integrations and configured instances, independent of Device integration.</summary>
+    public ObservableCollection<CommonPluginInstanceRow> CommonPlugins { get; } = [];
+
+    /// <summary>Metadata discovery failures; discovery never executes plugin code.</summary>
+    public string CommonPluginDiscoveryError { get; private set; } = "";
+
+    internal void LoadCommonPlugins(CommonPluginCatalog catalog)
+    {
+        CommonPlugins.Clear();
+        foreach (var package in catalog.Packages)
+        {
+            var configured = _config.PluginInstances.Where(entry => entry.PluginId == package.Manifest.Id).ToArray();
+            if (configured.Length == 0)
+            {
+                CommonPlugins.Add(new(package.Manifest.Id, "default", package.Manifest.Name, false, true));
+            }
+            foreach (var instance in configured)
+            {
+                CommonPlugins.Add(new(instance.PluginId, instance.InstanceId, package.Manifest.Name, instance.Enabled, true));
+            }
+        }
+        foreach (var instance in _config.PluginInstances.Where(entry => !catalog.Packages.Any(package => package.Manifest.Id == entry.PluginId)))
+        {
+            CommonPlugins.Add(new(instance.PluginId, instance.InstanceId, instance.PluginId, instance.Enabled, false));
+        }
+        CommonPluginDiscoveryError = string.Join(Environment.NewLine, catalog.Errors);
+        Raise(nameof(CommonPluginDiscoveryError));
+    }
 
     /// <summary>Builds the view model over an ALREADY LOADED configuration instead of
     /// reading <c>%LOCALAPPDATA%\WSGM\config.json</c>. Tests must use this overload: the
@@ -1460,7 +1492,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         bool AutoTdpEdited,
         bool ControllerTargetEdited,
         bool GlyphSelectionEdited,
-        bool QuickSetupWasAnswered);
+        bool QuickSetupWasAnswered)
+    {
+        internal IReadOnlyList<CommonPluginInstanceConfig> CommonPluginEdits { get; init; } = [];
+    }
 
     internal sealed record SaveResult(
         AppConfig Config,
@@ -1487,7 +1522,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             _deviceAutoTdpEdited,
             _deviceControllerTargetEdited,
             _deviceGlyphSelectionEdited,
-            QuickSetupAnswered);
+            QuickSetupAnswered)
+        {
+            CommonPluginEdits = CommonPlugins.Where(row => row.Edited).Select(row => row.Capture()).ToArray(),
+        };
     }
 
     private async Task SaveWithStatusAsync()
@@ -1555,6 +1593,11 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         SplashConfig preparedSplash)
     {
         AppConfig values = request.Values;
+        foreach (var edit in request.CommonPluginEdits)
+        {
+            config.PluginInstances.RemoveAll(entry => entry.PluginId == edit.PluginId && entry.InstanceId == edit.InstanceId);
+            config.PluginInstances.Add(new() { PluginId = edit.PluginId, InstanceId = edit.InstanceId, Enabled = edit.Enabled });
+        }
         config.SteamAutoRelaunch = values.SteamAutoRelaunch;
         config.SteamLaunchUnelevated = values.SteamLaunchUnelevated;
         config.SteamGridDbApiKey = values.SteamGridDbApiKey;
@@ -1750,6 +1793,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     private void CompletePersistedSave(SaveResult result)
     {
+        foreach (var row in CommonPlugins) { row.AcceptSaved(); }
         AdoptMaterializedPaths(result.Config.Splash, result.FailedSlots);
         // Re-color the running UI live; Application.Current is null in unit tests.
         if (Application.Current is { } app)

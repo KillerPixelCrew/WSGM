@@ -9,7 +9,9 @@ maps the common lifecycle onto that runtime through the resident Shell host. Con
 events use separate revision/origin contracts. Named actions and declarative UI links are validated
 by the host. A collectible non-device fixture validates common loading and the complete contract path.
 Installed discovery and explicit per-instance activation are hosted independently of Device Integration.
-UI consumption and packaging tooling follow sequentially.
+Settings exposes activation, and Overlay Tools renders declared status/action/toggle/slider controls.
+`eng/new-plugin.ps1` creates a common project; `eng/package-plugin.ps1` builds a create-new archive.
+See `docs/plugin-system.md` for installation, explicit update/reload and provider fixture guidance.
 
 Device is the selected `wsgm.device` category with zero or one active instance. Other categories are
 open strings, and the host decides multiplicity. A desktop with no Device Plugin remains valid.
