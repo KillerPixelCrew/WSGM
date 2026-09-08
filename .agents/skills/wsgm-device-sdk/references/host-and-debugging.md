@@ -115,11 +115,12 @@ focused regression test when this skill was authored:
 - A detection no-match returns before `_pluginStartAttempted` becomes true, while later full
   coordinator teardown can still request controller release. The runtime lifecycle guard can turn an
   untouched no-match into unverified release noise.
-- On resume and controller-management re-enable, `DevicePluginRuntime` advances its adapter cycle
-  before invoking the plugin, but `DeviceCoordinator` can update `DeviceCapabilityRouter` only after
-  that lifecycle call returns. Otherwise-correct descriptors/states published during the call can
-  therefore be rejected against the router's old cycle. Check coordinator, runtime, and router
-  generation order before blaming descriptor-before-state logic.
+- On resume and controller-management re-enable, the router adopts the attached runtime's new cycle
+  before validating its first descriptor publication. The coordinator's post-call cycle
+  synchronization must preserve that accepted readback; descriptor generation can restart at one.
+- Desired-state restoration uses `DesiredStateRestore`, never `User`. Lighting readiness admits one
+  automatic attempt per desired value and cycle, and uncertain results block further automatic
+  writes. Readback updates effective state only; it must not enter configuration persistence.
 
 Also check these proven regression patterns: duplicate SDK/WinRT loading, HidHide hiding discovery,
 DOS/NT path duplication, state published before fresh-generation descriptors, whole-set omission,

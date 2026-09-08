@@ -19,8 +19,8 @@ namespace WSGM.Shell;
 
 /// <summary>Who asked for a capability command.</summary>
 /// <remarks>
-/// The only thing this decides is whether the manual-power funnel runs — pausing AutoTDP and
-/// persisting the value as the user's preference. A limit the user moved is an instruction; the one
+/// The origin decides whether a command may persist the user's preference. A limit the user moved
+/// is an instruction; the one
 /// AutoTDP wrote itself is the controller's own output, and treating it as a manual override would
 /// pause the feature on its first tick.
 /// </remarks>
@@ -42,6 +42,9 @@ internal enum CapabilityCommandOrigin
     /// resumes AutoTDP itself, so this origin deliberately skips the funnel.
     /// </remarks>
     ProfileRestore,
+
+    /// <summary>Replays device desired state without saving it; restored power still pauses AutoTDP.</summary>
+    DesiredStateRestore,
 }
 
 /// <summary>Authoritative process-long owner of the machine-wide hardware cycle.</summary>
@@ -53,6 +56,9 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private readonly Mutex _ownerMutex;
     private readonly SemaphoreSlim _transitionGate = new(1, 1);
     private readonly SemaphoreSlim _profileReconcileGate = new(1, 1);
+    private readonly DeviceLightingRestore _lightingRestore = new();
+    private int _lightingRestoreScheduled;
+    private int _userCapabilityCommands;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Task _powerAssignmentTask;
     private readonly object _backgroundGate = new();
@@ -93,6 +99,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         _sessionId = sessionId;
         _ownerMutex = ownerMutex;
         _capabilities = new DeviceCapabilityRouter(postToUi);
+        _capabilities.Changed += OnLightingStateChanged;
         // Scenario targets are one-shot preset steps. Persist only the watt controls through the
         // manual funnel; saving an AC scenario as desired state would replay it on battery later.
         PowerPresets = new DevicePowerPresets(() => IntegrationEnabled ? _capabilities.Snapshot() : [],
@@ -1697,6 +1704,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <param name="timeout">How long the command may take.</param>
     /// <param name="origin">Who asked for it, which decides whether AutoTDP steps aside.</param>
     /// <param name="cancellationToken">Cancels the command.</param>
+    /// <param name="expectedCycle">Optional cycle captured by a restore operation.</param>
+    /// <param name="expectedDescriptors">Optional descriptor generation captured by a restore.</param>
     /// <returns>The command result reported by the plugin.</returns>
     internal async Task<CapabilityCommandResult> ExecuteCapabilityAsync(
         string capabilityId,
@@ -1704,14 +1713,17 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         CapabilityValue? value,
         TimeSpan timeout,
         CapabilityCommandOrigin origin = CapabilityCommandOrigin.User,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        long? expectedCycle = null,
+        long? expectedDescriptors = null)
     {
         bool power = FindDescriptor(capabilityId, instanceId)?.Role is
             CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit or CapabilityRole.ScenarioMode;
         if (power) { await PowerPresets.MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false); }
         try
         {
-            return await ExecuteCapabilityCoreAsync(capabilityId, instanceId, value, timeout, origin, cancellationToken)
+            return await ExecuteCapabilityCoreAsync(capabilityId, instanceId, value, timeout, origin, cancellationToken,
+                expectedCycle, expectedDescriptors)
                 .ConfigureAwait(false);
         }
         finally { if (power) { PowerPresets.MutationGate.Release(); } }
@@ -1722,25 +1734,41 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         CapabilityCommandOrigin origin, CancellationToken cancellationToken,
         long? expectedCycle = null, long? expectedDescriptors = null)
     {
-        CapabilityCommandResult result = await _capabilities.ExecuteAsync(
-            capabilityId,
-            instanceId,
-            value,
-            timeout,
-            cancellationToken, expectedCycle, expectedDescriptors).ConfigureAwait(false);
-        if (origin is CapabilityCommandOrigin.User)
+        bool user = origin is CapabilityCommandOrigin.User;
+        if (user) { Interlocked.Increment(ref _userCapabilityCommands); }
+        try
         {
-            NotifyManualPowerChange(capabilityId, instanceId, value, result);
-            NotifyManualVariableRefreshChange(capabilityId, instanceId, value, result);
-            await PersistUserCapabilityValueAsync(
+            CapabilityCommandResult result = await _capabilities.ExecuteAsync(
                 capabilityId,
                 instanceId,
                 value,
-                result,
-                cancellationToken).ConfigureAwait(false);
-        }
+                timeout,
+                cancellationToken, expectedCycle, expectedDescriptors).ConfigureAwait(false);
+            if (origin is CapabilityCommandOrigin.User)
+            {
+                NotifyManualPowerChange(capabilityId, instanceId, value, result);
+                NotifyManualVariableRefreshChange(capabilityId, instanceId, value, result);
+                await PersistUserCapabilityValueAsync(
+                    capabilityId,
+                    instanceId,
+                    value,
+                    result,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            else if (origin is CapabilityCommandOrigin.DesiredStateRestore
+                && result.Outcome is CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified
+                && FindDescriptor(capabilityId, instanceId)?.Role is CapabilityRole.PowerSustainedLimit
+                && value?.IntegerValue is { } watts)
+            {
+                _assignedPowerOverride?.Invoke(watts);
+            }
 
-        return result;
+            return result;
+        }
+        finally
+        {
+            if (user) { Interlocked.Decrement(ref _userCapabilityCommands); }
+        }
     }
 
     private void NotifyManualPowerChange(
@@ -1850,12 +1878,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
-        // Desired-value reconciliation replays stored values through this same path and keeps the
-        // User origin deliberately, so that a restored power limit still pauses AutoTDP. A value
-        // that already equals what the layers resolve to is therefore not news, and writing it back
-        // would copy a global default into a per-application override merely because a game happened
-        // to be running when WSGM restored it. It also covers the ordinary case of a control landing
-        // back on the value it started from, which should write no configuration at all.
+        // Restores never reach persistence. A user control landing back on the desired value
+        // also needs no configuration write.
         if (view.Projection.DesiredValue is { } desired && SameValue(desired, value))
         {
             return;
@@ -2201,13 +2225,15 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <summary>Writes every persistent desired value the hardware does not already hold.</summary>
     /// <param name="reason">What asked for the reconciliation, for the log.</param>
     /// <param name="cancellationToken">Cancels the remaining commands.</param>
+    /// <param name="lightingOnly">Limits readiness-triggered restoration to lighting.</param>
     /// <returns>A task completing once every affected capability has been attempted.</returns>
     /// <remarks>
     /// Per-capability and independent: one refusal must not stop the rest, because a profile that
     /// applied its fan curve but not its power limit is still better than one that applied nothing.
     /// A value the device already reports is skipped, so reselecting the active profile is free.
     /// </remarks>
-    private async Task ReconcileDesiredValuesAsync(string reason, CancellationToken cancellationToken)
+    private async Task ReconcileDesiredValuesAsync(
+        string reason, CancellationToken cancellationToken, bool lightingOnly = false)
     {
         await _profileReconcileGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -2216,12 +2242,25 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             int unchanged = 0;
             int refused = 0;
             int skipped = 0;
-            foreach (DeviceCapabilityView view in _capabilities.Snapshot()
+            foreach (DeviceCapabilityView candidate in _capabilities.Snapshot()
                 .OrderBy(ReconciliationPriority)
                 .ThenBy(view => view.Descriptor.CapabilityId, StringComparer.Ordinal)
                 .ThenBy(view => view.Descriptor.InstanceId, StringComparer.Ordinal))
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (lightingOnly && Volatile.Read(ref _userCapabilityCommands) != 0)
+                {
+                    return;
+                }
+                // A preceding command can take seconds. Resolve the current layer again instead
+                // of replaying the remainder of an obsolete application/profile snapshot.
+                DeviceCapabilityView? view = FindCapability(
+                    candidate.Descriptor.CapabilityId, candidate.Descriptor.InstanceId);
+                if (view is null || (lightingOnly && !DeviceLightingRestore.IsLighting(view.Descriptor.Role)))
+                {
+                    continue;
+                }
+
                 if (!view.Descriptor.SupportsWrite
                     || view.Projection.DesiredValue is not { } desired
                     || view.Projection.DesiredSource is DeviceDesiredValueSource.None)
@@ -2246,15 +2285,23 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                     continue;
                 }
 
+                if (view.Projection.PendingValue is not null
+                    || view.LastResult?.Outcome is CommandOutcome.Indeterminate or CommandOutcome.TimedOut
+                    || (DeviceLightingRestore.IsLighting(view.Descriptor.Role) && !_lightingRestore.TryBegin(view)))
+                {
+                    skipped++;
+                    continue;
+                }
+
                 CapabilityCommandResult result = await ExecuteCapabilityAsync(
                     view.Descriptor.CapabilityId,
                     view.Descriptor.InstanceId,
                     desired,
                     TimeSpan.FromSeconds(5),
-                    // The user chose this profile, so its values are theirs: a power limit it carries
-                    // overrides automatic control exactly as moving the slider would.
-                    CapabilityCommandOrigin.User,
-                    cancellationToken).ConfigureAwait(false);
+                    CapabilityCommandOrigin.DesiredStateRestore,
+                    cancellationToken,
+                    view.Projection.State.CycleGeneration,
+                    view.Projection.State.DescriptorGeneration).ConfigureAwait(false);
                 if (result.Outcome is CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified)
                 {
                     applied++;
@@ -2303,7 +2350,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <param name="observed">What the device reports.</param>
     /// <param name="desired">What WSGM wants.</param>
     /// <returns><see langword="true"/> when a write would change nothing.</returns>
-    private static bool SameValue(CapabilityValue observed, CapabilityValue desired)
+    internal static bool SameValue(CapabilityValue observed, CapabilityValue desired)
     {
         if (observed.Kind != desired.Kind)
         {
@@ -2451,6 +2498,31 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         State = state;
         Log.Info($"Device cycle: state={state}, cycleGeneration={_cycleGeneration}.");
         StateChanged?.Invoke(state);
+        OnLightingStateChanged(_capabilities.Snapshot());
+    }
+
+    private void OnLightingStateChanged(IReadOnlyList<DeviceCapabilityView> views)
+    {
+        if (_disposed || !IntegrationEnabled || State is not (DeviceCycleState.Active or DeviceCycleState.Degraded)
+            || Volatile.Read(ref _userCapabilityCommands) != 0
+            || !views.Any(_lightingRestore.CanApply)
+            || Interlocked.CompareExchange(ref _lightingRestoreScheduled, 1, 0) != 0)
+        {
+            return;
+        }
+
+        Observe(Task.Run(async () =>
+        {
+            try
+            {
+                await ReconcileDesiredValuesAsync("lighting ready", _lifetime.Token, lightingOnly: true)
+                    .ConfigureAwait(false);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _lightingRestoreScheduled, 0);
+            }
+        }), "lighting restore");
     }
 
     private void Observe(Task task, string operation)

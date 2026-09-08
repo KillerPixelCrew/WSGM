@@ -400,9 +400,9 @@ Every write or action funnels through
 production callers pass a 5 s timeout: the overlay, Settings, the native QAM and the
 variable-refresh toggle (`User`), AutoTDP and authored profile application (`AutomaticControl`), and
 the per-application power and variable-refresh restore (`ProfileRestore`). Desired-value
-reconciliation keeps `User` so a restored power limit still pauses AutoTDP. The origin decides both
-whether AutoTDP steps aside and whether the value is saved (§11), so a restore must never claim to
-be one.
+reconciliation uses `DesiredStateRestore`: an applied sustained limit pauses AutoTDP through the
+non-persisting assignment callback. Only `User` commands may enter configuration persistence (§11).
+Restore completion, readback and firmware defaults never become new user preferences.
 
 The router holds one `SemaphoreSlim(1,1)` per capability key. Preflight builds the
 `CapabilityCommand` with a fresh id, the expected descriptor and cycle generations and
@@ -468,10 +468,21 @@ Two roles are deliberately excluded, because `AppConfig.Performance` already sto
 decides how each is released when an application closes: `PowerSustainedLimit` and
 `VariableRefreshRate`. Their manual writes reach that owner through `AttachAutoTdpManualOverride`
 and `AttachManualVariableRefreshOverride`, which the shell session roots, so the overlay row and
-Steam's own control save to one place instead of two. Reconciliation keeps the `User` origin so a
-restored power limit still pauses AutoTDP; the funnel therefore skips any value that already equals
-what the layers resolve to, which is also what stops a control landing back on its starting value
-from writing configuration.
+Steam's own control save to one place instead of two. Reconciliation uses a separate origin and
+never enters either persistence funnel, even if the active application changes during a write. A
+user control landing on its existing desired value also needs no configuration write.
+
+Lighting readiness triggers one restore attempt per desired value and device cycle. Startup,
+reconnect and resume may restore once a fresh, available observation exists. Repeated default
+readbacks and failed writes do not trigger a firmware-write loop. Pending or uncertain commands
+block automatic restoration; an explicit user command or a new device cycle supplies recovery. The
+saved value remains intact after every failure. Diagnostics report the command outcome and
+`Desired-value reconciliation (lighting ready)` summary. A manual command suppresses readiness
+restoration while its hardware result and desired configuration are being committed.
+
+During resume and controller reacquisition, the capability router accepts the attached runtime's new
+cycle before validating its first descriptor publication. Descriptor numbering can restart within
+that cycle. The coordinator's later synchronization preserves the freshly accepted state.
 
 ### Plugin settings
 

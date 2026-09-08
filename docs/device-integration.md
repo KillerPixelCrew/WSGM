@@ -127,6 +127,12 @@ records only temporary plugin-owned state that was actually changed and could no
 persistent desired RGB and profile state is kept separately. An indeterminate hardware write is
 reported to the plugin owner and never blindly retried.
 
+RGB restoration cannot save configuration. Fresh lighting readiness admits one restore per saved
+value and device cycle; delayed startup and resume readbacks can admit that first attempt, while
+repeated defaults or failures cannot repeatedly write firmware. The command result and
+reconciliation summary retain failure evidence. These paths have hardware-free regression coverage;
+the reported RGB reset still needs a fresh attended startup/resume pass.
+
 Device controls show a pending command's requested value while it runs, then the plugin's observed
 value. Saved desired values are only a fallback when no observation exists; they must not hide a
 power preset's readback or later firmware changes.

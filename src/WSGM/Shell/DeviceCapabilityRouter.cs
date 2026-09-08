@@ -205,12 +205,25 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     {
         lock (_gate)
         {
-            _cycleGeneration = cycleGeneration;
-            _pendingValues.Clear();
-            _lastResults.Clear();
+            AdvanceCycleUnderGate(cycleGeneration);
         }
 
         Publish();
+    }
+
+    private void AdvanceCycleUnderGate(long cycleGeneration)
+    {
+        if (cycleGeneration == _cycleGeneration)
+        {
+            return;
+        }
+
+        _cycleGeneration = cycleGeneration;
+        _descriptorGeneration = 0;
+        _states.Clear();
+        _pendingValues.Clear();
+        _lastResults.Clear();
+        _availability.Clear();
     }
 
     internal void CloseCommandAdmission()
@@ -366,6 +379,14 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     {
         lock (_gate)
         {
+            // Resume publishes inside the lifecycle call, before the coordinator can synchronize.
+            // Only the attached runtime may advance the cycle; a plugin-supplied number cannot.
+            if (_client is { } client && client.CycleGeneration > _cycleGeneration
+                && descriptors.CycleGeneration == client.CycleGeneration)
+            {
+                AdvanceCycleUnderGate(client.CycleGeneration);
+            }
+
             if (!DeviceCapabilityValidation.TryValidateDescriptorSet(
                 descriptors,
                 _cycleGeneration,

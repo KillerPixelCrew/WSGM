@@ -1,7 +1,21 @@
 # WSGM 2.0 implementation tracker
 
-Status: 2.0 is complete in source and carried on `master`. Hotfixes and dependency pin-only updates
-use direct commits; other changes use a feature branch and pull request under the root guide.
+Status: the previous implementation baseline is on `master`; the current 2.0 workoff contains
+39 open issues. The maintainer directed this workoff to use default-branch commits, including
+submodule changes, without feature branches or pull requests.
+
+## Current issue workoff
+
+GitHub was read with `gh` on 2026-09-08: implementation issues #19 through #64 are open.
+Issues #41–#45, #47 and #48 remain deferred; the other 39 are the 2.0 scope.
+The immediate queue is #60, #57, #55A, #56A and #56B. The later Windows-policy part of #56
+depends on #25, #35 and #36 and must not block the controller repair.
+
+- #60: separate restore origin, bounded lighting readiness restoration and resume publication
+  ordering implemented. Ten new hardware-free tests pass; fresh hardware validation remains.
+  The attempted full gate stopped at pre-existing guidance-link failures in retired untracked
+  device trees. Per maintainer direction, further validation runs only newly added tests.
+- #57, #55 and #56: queued. The architectural #25/#49/#50 work follows the repair lane.
 
 This is the repository's only progress tracker. Mechanism details and device findings live in the
 focused `docs\` topics, and product decisions in `docs\decisions.md` and `_plan\2.0-decisions.md`.

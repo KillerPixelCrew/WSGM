@@ -16,6 +16,28 @@ public sealed class DevicePluginRuntimeTests
     private const long InitialGeneration = 41;
 
     [Fact]
+    public async Task ResumePublishesFreshLightingIntoTheRouterBeforeTheLifecycleCallReturns()
+    {
+        using TemporaryDirectory temporary = new();
+        await using DevicePluginRuntime runtime = await LoadRuntimeAsync(temporary, InitialGeneration);
+        await using DeviceCapabilityRouter router = new(action => action());
+        router.Attach(runtime, InitialGeneration);
+        await runtime.StartAsync(new DeviceIdentitySnapshot(), InitialGeneration, false, CancellationToken.None);
+        Assert.Equal(InitialGeneration, Assert.Single(router.Snapshot()).Projection.State.CycleGeneration);
+
+        await runtime.SuspendAsync(DateTimeOffset.UtcNow.AddSeconds(1), CancellationToken.None);
+        await runtime.ResumeAsync(InitialGeneration + 1, DateTimeOffset.UtcNow.AddSeconds(1), CancellationToken.None);
+        var resumed = Assert.Single(router.Snapshot());
+        Assert.Equal(InitialGeneration + 1, resumed.Projection.State.CycleGeneration);
+        Assert.Equal(HardwareStateQuality.Observed, resumed.Projection.State.Quality);
+        Assert.True(resumed.Projection.State.Available);
+
+        // The coordinator's post-call synchronization must not erase the accepted readback.
+        router.MarkCycleGenerationChanged(InitialGeneration + 1);
+        Assert.Equal(resumed.Projection.State, Assert.Single(router.Snapshot()).Projection.State);
+    }
+
+    [Fact]
     public async Task DirectLoadRunsTheLifecycleInsideTheExplicitTemporaryStateRoot()
     {
         using TemporaryDirectory temporary = new();
@@ -274,6 +296,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
             _cycleGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture),
             cancellationToken);
         await PublishSampleAsync(_cycleGeneration, cancellationToken);
+        await PublishLightingAsync(cancellationToken);
         return Active();
     }
 
@@ -332,6 +355,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         cancellationToken.ThrowIfCancellationRequested();
         _cycleGeneration = context.CycleGeneration;
         await PublishSampleAsync(_cycleGeneration, cancellationToken);
+        await PublishLightingAsync(cancellationToken);
         return Active();
     }
 
@@ -429,6 +453,35 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
     {
         await Task.Delay(20);
         Host.ReportFault("fixture", "background reader failed");
+    }
+
+    private async ValueTask PublishLightingAsync(CancellationToken cancellationToken)
+    {
+        await Host.PublishDescriptorsAsync(new CapabilityDescriptorSet
+        {
+            CycleGeneration = _cycleGeneration,
+            Generation = 1,
+            Descriptors = [new CapabilityDescriptor
+            {
+                CapabilityId = "lighting.zone-color",
+                Role = CapabilityRole.LightingZoneColor,
+                ValueKind = CapabilityValueKind.Color,
+                Display = new CapabilityDisplay { Key = DisplayKey.Lighting },
+                SupportsRead = true,
+                SupportsWrite = true,
+                Persistence = CapabilityPersistence.DevicePersistent,
+            }],
+        }, cancellationToken);
+        await Host.PublishCapabilityStateAsync(new CapabilityState
+        {
+            CapabilityId = "lighting.zone-color",
+            CycleGeneration = _cycleGeneration,
+            DescriptorGeneration = 1,
+            Available = true,
+            ObservedAt = DateTimeOffset.UtcNow,
+            Quality = HardwareStateQuality.Observed,
+            ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Color, ColorValue = 0xFFFFFF },
+        }, cancellationToken);
     }
 
     private static PluginStartResult Active() => new()
