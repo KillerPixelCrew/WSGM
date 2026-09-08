@@ -68,8 +68,10 @@ validation will be handled by reopening them. Hardware checks are not a closure 
   policies, bounded manifests and resident lifecycle. The current Device runtime is unchanged.
   Eight new contract tests cover admission, compatibility, dependency ranges and optional Device slots.
   The Device compatibility adapter now maps this lifecycle onto the existing runtime; two new fixture
-  tests cover resident transitions, resume generations and identity rejection. Production host admission
-  is next. #49 remains open for runtime/config/events, action/UI contracts and non-device validation.
+  tests cover resident transitions, resume generations and identity rejection. Production Device
+  admission now uses the resident common host. Seven new host/fixture tests cover independent instances,
+  singleton admission, stale UI publications, canceled work, slot retention and obsolete mode intent.
+  #49 remains open for external loading/config/events, action/UI contracts and non-device validation.
 
 This is the repository's only progress tracker. Mechanism details and device findings live in the
 focused `docs\` topics, and product decisions in `docs\decisions.md` and `_plan\2.0-decisions.md`.

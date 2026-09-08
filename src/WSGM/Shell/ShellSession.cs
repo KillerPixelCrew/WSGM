@@ -86,6 +86,7 @@ public sealed class ShellSession : IAsyncDisposable
     private long _configReloadGeneration;
     private Task? _startupTask;
     private DeviceCoordinator? _deviceCoordinator;
+    private readonly PluginHost _pluginHost = new(action => Avalonia.Threading.Dispatcher.UIThread.Post(action));
     private IDeviceOverlaySource? _deviceOverlay;
     private PerformanceService? _performance;
     private RefreshRatePairingService? _refreshPairing;
@@ -336,6 +337,7 @@ public sealed class ShellSession : IAsyncDisposable
                 ? null
                 : await DeviceCoordinator.TryStartAsync(
                     _config,
+                    _pluginHost,
                     _shutdownCancellation.Token).ConfigureAwait(false);
             if (_shutdownRequested)
             {
@@ -687,6 +689,7 @@ public sealed class ShellSession : IAsyncDisposable
         _modes.DesktopModeStarting += () =>
         {
             _inGameMode = false;
+            _ = NotifyPluginModeAsync(WSGM.Plugin.Sdk.PluginSessionMode.Desktop);
             RequestSteamUiTransportGateCheck();
             _tabBootSyncCancellation.Cancel();
             // Tabs and the badge are game-mode surfaces; the ACF watcher only exists
@@ -795,6 +798,7 @@ public sealed class ShellSession : IAsyncDisposable
             // mode, so clear the flag here: the game-mode-only CEF injections must
             // not start next to a live explorer (and nothing would retract them).
             _inGameMode = false;
+            _ = NotifyPluginModeAsync(WSGM.Plugin.Sdk.PluginSessionMode.Desktop);
             _steamUi?.ApplyNetworkIndicator(false);
             _steamUi?.ApplyDownloadSort(false);
             RequestSteamUiTransportGateCheck();
@@ -818,16 +822,27 @@ public sealed class ShellSession : IAsyncDisposable
         });
     }
 
+    private async Task NotifyPluginModeAsync(WSGM.Plugin.Sdk.PluginSessionMode mode)
+    {
+        try
+        {
+            await _pluginHost.SetModeAsync(mode, DateTimeOffset.UtcNow.AddSeconds(5), _shutdownCancellation.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        { Log.Error("Plugin mode transition did not complete", ex); }
+    }
+
     /// <summary>Creates the game-mode-only surfaces in one shared order: tray host
     /// first (startup apps' Shell_NotifyIcon registrations need a living
     /// Shell_TrayWnd, or they only get an icon after the TaskbarCreated-driven retry,
     /// which message-only tray windows never hear), volume buttons, then card
     /// services. Direct boot and the service takeover are separate entry paths from
-    /// the desktop-to-game transition — only the latter raises GameModeEntered — so
-    /// each initial entry calls this explicitly, or an entire direct-boot session
-    /// misses every card eject and insert (device log, 2026-08-22).</summary>
+    /// the desktop-to-game transition, so each initial entry calls this explicitly.</summary>
     private void EnterGameModeSurfaces()
     {
+        _ = NotifyPluginModeAsync(WSGM.Plugin.Sdk.PluginSessionMode.Game);
         _trayHost = TrayHost.Create();
         if (_trayHost is not null)
         {
@@ -1172,6 +1187,7 @@ public sealed class ShellSession : IAsyncDisposable
     {
         _splash?.Dismiss("takeover refused");
         _inGameMode = false;
+        _ = NotifyPluginModeAsync(WSGM.Plugin.Sdk.PluginSessionMode.Desktop);
         RequestSteamUiTransportGateCheck();
         if (_monitor is not null)
         {

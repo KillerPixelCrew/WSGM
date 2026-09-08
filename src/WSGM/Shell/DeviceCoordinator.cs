@@ -79,6 +79,9 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private DeviceIdentitySnapshot? _identity;
     private string? _deviceDefinitionId;
     private DevicePluginRuntime? _client;
+    private readonly PluginHost _pluginHost;
+    private PluginRegistration? _pluginRegistration;
+    private DevicePluginCompatibilityAdapter? _pluginAdapter;
     private long _cycleGeneration;
     private string? _runningApplicationId;
     private Action<int>? _autoTdpManualOverride;
@@ -94,11 +97,13 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         AppConfig config,
         uint sessionId,
         Mutex ownerMutex,
-        Action<Action> postToUi)
+        Action<Action> postToUi,
+        PluginHost pluginHost)
     {
         _config = config;
         _sessionId = sessionId;
         _ownerMutex = ownerMutex;
+        _pluginHost = pluginHost;
         _capabilities = new DeviceCapabilityRouter(postToUi);
         _capabilities.Changed += OnLightingStateChanged;
         // Scenario targets are one-shot preset steps. Persist only the watt controls through the
@@ -243,6 +248,10 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     public static Task<DeviceCoordinator?> TryStartAsync(
         AppConfig config,
         CancellationToken cancellationToken = default)
+        => TryStartAsync(config, new PluginHost(action => Avalonia.Threading.Dispatcher.UIThread.Post(action)), cancellationToken);
+
+    internal static Task<DeviceCoordinator?> TryStartAsync(
+        AppConfig config, PluginHost pluginHost, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
         cancellationToken.ThrowIfCancellationRequested();
@@ -263,7 +272,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 config,
                 sessionId,
                 owner,
-                action => Avalonia.Threading.Dispatcher.UIThread.Post(action));
+                action => Avalonia.Threading.Dispatcher.UIThread.Post(action), pluginHost);
         }
         catch
         {
@@ -425,8 +434,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 Log.Info(
                     $"Controller suspend handoff: step={handoff.Step}, result={handoff.Result}.");
             }
-            DevicePluginState state = await client.SuspendAsync(deadline, cancellationToken)
-                .ConfigureAwait(false);
+            await _pluginRegistration!.SuspendAsync(deadline, cancellationToken).ConfigureAwait(false);
+            DevicePluginState state = _pluginAdapter!.LastState!;
             _oemActions.Reset();
             SetState(state.State);
         }
@@ -456,10 +465,11 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             DevicePluginState state;
             try
             {
-                state = await client.ResumeAsync(
+                await _pluginRegistration!.ResumeAsync(
                     requestedGeneration,
                     deadline,
                     cancellationToken).ConfigureAwait(false);
+                state = _pluginAdapter!.LastState!;
             }
             finally
             {
@@ -821,11 +831,12 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             // afterwards is too late for the cycle that needed it.
             await _controllers.EnsureHidHideReadableAsync(controllerManagement, cancellationToken)
                 .ConfigureAwait(false);
-            DevicePluginState activation = await client.StartAsync(
-                _identity,
-                cycleGeneration,
-                controllerManagement,
-                cancellationToken).ConfigureAwait(false);
+            _pluginAdapter = new DevicePluginCompatibilityAdapter(client, _identity!, controllerManagement);
+            _pluginRegistration = _pluginHost.Admit(_pluginAdapter, new(client.PackageId, "device"),
+                WSGM.Plugin.Sdk.PluginCategories.Device, WSGM.Plugin.Sdk.PluginCategoryPolicy.Device,
+                selected: true, cycleGeneration, client.StateDirectory);
+            await _pluginRegistration.StartAsync(DateTimeOffset.UtcNow.AddSeconds(15), cancellationToken).ConfigureAwait(false);
+            DevicePluginState activation = _pluginAdapter.LastState!;
             cancellationToken.ThrowIfCancellationRequested();
 
             // Before the profiles load: glyph selection is gated on the matched device definition,
@@ -988,6 +999,10 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             }
 
             _client = null;
+            PluginRegistration? registration = _pluginRegistration;
+            DevicePluginCompatibilityAdapter? adapter = _pluginAdapter;
+            _pluginRegistration = null;
+            _pluginAdapter = null;
             DateTimeOffset cleanupDeadline = DateTimeOffset.UtcNow.AddSeconds(15);
             using CancellationTokenSource cleanupCancellation = new(TimeSpan.FromSeconds(15));
             DeviceClientTeardownResult cleanup = await RunClientTeardownAsync(
@@ -998,12 +1013,12 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                         cleanupDeadline,
                         inner),
                     token),
-                token => client.StopAsync(
+                token => StopPluginAsync(client, registration, adapter,
                     PluginStopReason.RuntimeFault,
                     cleanupDeadline,
                     token),
                 () => DetachAsync(client),
-                client.DisposeAsync,
+                registration is null ? client.DisposeAsync : registration.DisposeAsync,
                 cleanupCancellation.Token).ConfigureAwait(false);
             foreach (Exception cleanupFailure in cleanup.Failures)
             {
@@ -1138,6 +1153,10 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         _intentionalStop = true;
         DevicePluginRuntime? client = _client;
         _client = null;
+        PluginRegistration? registration = _pluginRegistration;
+        DevicePluginCompatibilityAdapter? adapter = _pluginAdapter;
+        _pluginRegistration = null;
+        _pluginAdapter = null;
         if (client is null)
         {
             SetState(DeviceCycleState.Disabled);
@@ -1155,12 +1174,12 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                         deadline,
                         inner),
                     token),
-                token => client.StopAsync(
+                token => StopPluginAsync(client, registration, adapter,
                     reason,
                     deadline,
                     token),
                 () => DetachAsync(client),
-                client.DisposeAsync,
+                registration is null ? client.DisposeAsync : registration.DisposeAsync,
                 cancellationToken).ConfigureAwait(false);
             ownerTeardown = result;
             return result;
@@ -1177,6 +1196,17 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             _teardownFailures.ResolveAfterVerifiedOwnerTeardown();
         }
         return teardown;
+    }
+
+    private static async Task<DevicePluginState> StopPluginAsync(DevicePluginRuntime client,
+        PluginRegistration? registration, DevicePluginCompatibilityAdapter? adapter,
+        PluginStopReason reason, DateTimeOffset deadline, CancellationToken cancellationToken)
+    {
+        if (registration is null || adapter is null)
+        { return await client.StopAsync(reason, deadline, cancellationToken).ConfigureAwait(false); }
+        adapter.StopReason = reason;
+        await registration.StopAsync(deadline, cancellationToken).ConfigureAwait(false);
+        return adapter.LastState!;
     }
 
     internal static async Task<DeviceClientTeardownResult> RunClientTeardownWithStateNotificationsAsync(

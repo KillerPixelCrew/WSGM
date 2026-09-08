@@ -1,8 +1,8 @@
 # WSGM.Device.Sdk
 
 Common plugin identity and lifecycle contracts now have a separate MIT assembly at
-`../WSGM.Plugin.Sdk`. The existing Device runtime still consumes this Device SDK directly while the
-#49 compatibility adapter is developed; hardware contracts and API 3 remain unchanged in this slice.
+`../WSGM.Plugin.Sdk`. The resident common host admits the existing Device runtime through a
+compatibility adapter; hardware contracts and API 3 remain unchanged.
 
 The contract a **WSGM Device Plugin** links against. WSGM reconstructs SteamOS Game Mode on Windows
 11 handhelds; a device plugin is what teaches it a specific machine — its power limits, fans,

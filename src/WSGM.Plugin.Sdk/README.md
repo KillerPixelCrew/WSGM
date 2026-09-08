@@ -5,7 +5,7 @@ identity, open category strings, host-owned slot policy, strict manifests and re
 It has no Device SDK, UI or Windows Device Control dependency.
 
 The existing Device SDK and device runtime remain operational. A compatibility adapter in WSGM
-maps the common lifecycle onto that runtime. Production host integration, configuration/events,
+maps the common lifecycle onto that runtime through the resident Shell host. Configuration/events,
 actions/UI contributions, packaging tooling and a real
 non-device consumer follow sequentially; this assembly alone does not claim a completed plugin host.
 

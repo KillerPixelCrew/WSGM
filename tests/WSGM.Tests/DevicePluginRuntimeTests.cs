@@ -14,6 +14,27 @@ namespace WSGM.Device.Tests;
 public sealed class DevicePluginRuntimeTests
 {
     [Fact]
+    public async Task CommonHostOwnsTheDeviceAdapterLifecycleAndRetiresItsVerifiedSlot()
+    {
+        using TemporaryDirectory temporary = new();
+        var runtime = await LoadRuntimeAsync(temporary, InitialGeneration);
+        DevicePluginCompatibilityAdapter adapter = new(runtime, new DeviceIdentitySnapshot(), false);
+        PluginHost host = new(action => action());
+        var registration = host.Admit(adapter, new(adapter.Id, "device"), WSGM.Plugin.Sdk.PluginCategories.Device,
+            WSGM.Plugin.Sdk.PluginCategoryPolicy.Device, true, InitialGeneration, runtime.StateDirectory);
+        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+        await registration.StartAsync(deadline, default);
+        await host.SetModeAsync(WSGM.Plugin.Sdk.PluginSessionMode.Game, deadline, default);
+        await registration.SuspendAsync(deadline, default);
+        await registration.ResumeAsync(InitialGeneration + 1, deadline, default);
+        Assert.Equal(WSGM.Plugin.Sdk.PluginHealth.Ready, Assert.Single(host.Snapshot()).Health);
+        Assert.True(await registration.StopAsync(deadline, default));
+        await registration.DisposeAsync();
+        Assert.Empty(host.Snapshot());
+        Assert.True(File.Exists(Path.Combine(runtime.StateDirectory, "disposed.txt")));
+    }
+
+    [Fact]
     public async Task CommonDeviceAdapterKeepsTheRuntimeResidentAcrossModesAndAdvancesResumeGeneration()
     {
         using TemporaryDirectory temporary = new();

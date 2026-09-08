@@ -55,7 +55,9 @@ internal sealed class DevicePluginCompatibilityAdapter(
 
     public async ValueTask<bool> StopAsync(PluginContext context, CancellationToken cancellationToken)
     {
-        Validate(context, cancellationToken);
+        // Cleanup also covers admission canceled before Start and a resume that failed before the
+        // runtime advanced its generation. Identity stays exact; cleanup targets the owned runtime.
+        Validate(context, cancellationToken, starting: _instance is null, stopping: true);
         if (_released is { } released) { return released; }
         LastState = await runtime.StopAsync(StopReason, context.Deadline, cancellationToken).ConfigureAwait(false);
         _released = LastState.Reason is null;
@@ -68,13 +70,13 @@ internal sealed class DevicePluginCompatibilityAdapter(
         return runtime.DisposeAsync();
     }
 
-    private void Validate(PluginContext context, CancellationToken cancellationToken, bool resuming = false, bool starting = false)
+    private void Validate(PluginContext context, CancellationToken cancellationToken, bool resuming = false, bool starting = false, bool stopping = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!starting && _instance is null) { throw new InvalidOperationException("The device adapter has not started."); }
         if (context.Instance.PluginId != Id || (_instance is not null && _instance != context.Instance))
         { throw new InvalidOperationException("Device adapter instance identity changed."); }
-        if (context.Generation <= 0 || (resuming ? context.Generation <= runtime.CycleGeneration : context.Generation != runtime.CycleGeneration))
+        if (context.Generation <= 0 || (!stopping && (resuming ? context.Generation <= runtime.CycleGeneration : context.Generation != runtime.CycleGeneration)))
         { throw new InvalidOperationException("Device adapter generation is stale."); }
         if (context.Deadline <= DateTimeOffset.UtcNow) { throw new OperationCanceledException("Device adapter deadline expired."); }
     }

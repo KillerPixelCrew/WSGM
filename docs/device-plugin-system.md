@@ -18,6 +18,11 @@ Read it together with:
 
 ## 1. Components and ownership
 
+The Shell's common `PluginHost` reserves the Device category and drives its
+`DevicePluginCompatibilityAdapter`. The coordinator retains the device-specific make-safe ordering
+shown below; the adapter delegates to the existing runtime. See `plugin-system.md` for common
+instance deadlines, retained failed slots and generation-checked health.
+
 ```text
                      WSGM.exe (one ShellSession per interactive session)
   ┌──────────────────────────────────────────────────────────────────────────────────────┐

@@ -6,6 +6,10 @@ leaves the shell, overlay, Steam Input lease, storage, artwork, launch features,
 recovery usable. This document records the decisions behind the runtime and the device findings that
 produced them. It does not describe the mechanism step by step.
 
+The resident common PluginHost admits the Device compatibility adapter. DeviceCoordinator still
+owns machine policy and ordered controller cleanup; hardware behavior remains in DevicePluginRuntime
+and the package. Common admission and lifecycle rules are documented in `docs/plugin-system.md`.
+
 Related:
 
 - `docs\device-plugin-system.md` — how each mechanism works, with its budgets and log lines.
