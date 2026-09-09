@@ -244,6 +244,45 @@ public sealed class ControllerManagerTests
     }
 
     [Fact]
+    public async Task SteamCaptureKeepsTheTargetButSuppressesBothGameAndWsgmUiInput()
+    {
+        Harness harness = new();
+        await using ControllerManager manager = harness.Manager;
+        await StartActiveAsync(manager);
+        List<CanonicalControllerSample> ui = [];
+        manager.UiSampleReceived += ui.Add;
+
+        await manager.SetSteamCaptureAsync(true, CancellationToken.None);
+        await manager.SetSteamCaptureAsync(true, CancellationToken.None);
+        Assert.False(await manager.RouteAsync(Sample(1, CanonicalButtons.A), CancellationToken.None));
+        Assert.Empty(ui);
+        Assert.DoesNotContain(harness.Backend.Operations, operation => operation.StartsWith("remove:", StringComparison.Ordinal));
+        Assert.Single(harness.Backend.Operations, operation => operation == "neutralize:1");
+
+        await manager.SetSteamCaptureAsync(false, CancellationToken.None);
+        Assert.False(await manager.RouteAsync(Sample(2, CanonicalButtons.A), CancellationToken.None));
+        Assert.True(await manager.RouteAsync(Sample(3, CanonicalButtons.None), CancellationToken.None));
+        Assert.True(await manager.RouteAsync(Sample(4, CanonicalButtons.Y), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task EndingSteamCapturePreservesAnExistingWsgmSurfaceClaim()
+    {
+        Harness harness = new();
+        await using ControllerManager manager = harness.Manager;
+        await StartActiveAsync(manager);
+        List<CanonicalControllerSample> ui = [];
+        manager.UiSampleReceived += ui.Add;
+        await manager.ClaimUiAsync("overlay", CancellationToken.None);
+        await manager.SetSteamCaptureAsync(true, CancellationToken.None);
+        Assert.False(await manager.RouteAsync(Sample(1, CanonicalButtons.None), CancellationToken.None));
+        Assert.Empty(ui);
+        await manager.SetSteamCaptureAsync(false, CancellationToken.None);
+        Assert.False(await manager.RouteAsync(Sample(2, CanonicalButtons.Y), CancellationToken.None));
+        Assert.Equal(CanonicalButtons.Y, Assert.Single(ui).Buttons);
+    }
+
+    [Fact]
     public async Task TheChordThatOpenedASurfaceIsSuppressedUntilItIsReleased()
     {
         Harness harness = new();
@@ -568,6 +607,45 @@ public sealed class ControllerManagerTests
                 : ControllerHandoffResult.ReleasedUnverified,
             ReleasedDevices = released ?? [],
         };
+
+    [Fact]
+    public async Task SteamOwnershipPauseRetainsTargetAcrossPhysicalPublications()
+    {
+        Harness harness = new();
+        await using ControllerManager manager = harness.Manager;
+        await StartActiveAsync(manager);
+        long generation = await manager.BeginSteamOwnershipPauseAsync(CancellationToken.None);
+        Assert.True(await manager.ReleaseSteamVisibilityAsync(CancellationToken.None));
+        Assert.False(await manager.RestoreSteamOwnershipAsync(generation, CancellationToken.None));
+        int mutations = harness.HidHide.MutationCount;
+
+        await manager.StartAsync(
+            Enabled(ManagedControllerTarget.Xbox360), [Device()], null,
+            generation + 1, CancellationToken.None);
+
+        Assert.Equal(mutations, harness.HidHide.MutationCount);
+        Assert.Single(harness.Backend.Operations, operation => operation.StartsWith("create:", StringComparison.Ordinal));
+        Assert.DoesNotContain(harness.Backend.Operations, operation => operation.StartsWith("remove:", StringComparison.Ordinal));
+        Assert.True(await manager.RestoreSteamOwnershipAsync(generation, CancellationToken.None));
+        Assert.False(await manager.RestoreSteamOwnershipAsync(generation, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task MakeSafeEndsSteamPauseAndAllowsAFreshControllerStart()
+    {
+        Harness harness = new();
+        await using ControllerManager manager = harness.Manager;
+        await StartActiveAsync(manager);
+        long generation = await manager.BeginSteamOwnershipPauseAsync(CancellationToken.None);
+        await manager.MakeSafeAsync(
+            HandoffScope.ControllerOnly,
+            _ => Task.FromResult(PluginRelease(ControllerHandoffStep.TopologyVerified)),
+            CancellationToken.None);
+
+        Assert.False(await manager.RestoreSteamOwnershipAsync(generation, CancellationToken.None));
+        await StartActiveAsync(manager);
+        Assert.True(await manager.RouteAsync(Sample(1, CanonicalButtons.None), CancellationToken.None));
+    }
 
     private sealed class Harness
     {

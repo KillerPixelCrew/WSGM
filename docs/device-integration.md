@@ -207,6 +207,13 @@ surface opens are suppressed until released, and forwarding resumes only on the 
 which every control the UI used is up, so the press that opened or closed a surface never arrives in
 the game as a fresh input.
 
+The controller manager also provides a temporary Steam capture and ownership pause for #65.
+Capture neutralizes the existing target and suppresses both game forwarding and WSGM UI delivery.
+An ownership pause retains that target across physical identity publications; restoration requires
+a newer source generation and verified HidHide activation. Full make-safe clears the pause so a
+later controller start can proceed. These operations have deterministic test coverage, but the
+session coordinator and OEM actions do not yet invoke them. End-to-end Steam handoff remains open.
+
 ### Make-safe removes the target after the physical release and HidHide entries after the target
 
 The handoff is stated in the SDK's `ControllerHandoffStep` vocabulary, not a second WSGM-local one,

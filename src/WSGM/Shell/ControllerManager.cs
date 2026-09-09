@@ -94,6 +94,8 @@ internal sealed class ControllerManager : IAsyncDisposable
     private CanonicalButtons _syntheticButtons;
     private long _sourceGeneration;
     private bool _forwardingBlocked;
+    private bool _steamCapture;
+    private bool _steamOwnershipPaused;
     private CanonicalControllerSample? _pendingSample;
     private bool _sampleDrainRunning;
     private Task _sampleDrain = Task.CompletedTask;
@@ -219,6 +221,13 @@ internal sealed class ControllerManager : IAsyncDisposable
             lock (_sampleGate)
             {
                 _pendingSample = null;
+            }
+
+            if (_steamOwnershipPaused)
+            {
+                // Reacquisition republishes identity/generation. Preserve the neutral target
+                // until the handoff owner explicitly restores visibility and input admission.
+                return Snapshot();
             }
 
             if (!selection.Enabled)
@@ -481,6 +490,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         try
         {
             bool toUi;
+            bool toSteam;
             CanonicalButtons uiButtons;
             lock (_stateGate)
             {
@@ -491,6 +501,7 @@ internal sealed class ControllerManager : IAsyncDisposable
 
                 _lastButtons = sample.Buttons;
                 _lastSample = sample;
+                toSteam = _steamCapture;
                 // Forwarding resumes only on a clean boundary: every control the UI used has to be
                 // released first, or the game sees a press whose start it never saw.
                 toUi = _uiCapture.IsCaptured
@@ -501,7 +512,10 @@ internal sealed class ControllerManager : IAsyncDisposable
 
             if (toUi)
             {
-                UiSampleReceived?.Invoke(sample with { Buttons = uiButtons });
+                if (!toSteam)
+                {
+                    UiSampleReceived?.Invoke(sample with { Buttons = uiButtons });
+                }
                 return false;
             }
 
@@ -562,12 +576,135 @@ internal sealed class ControllerManager : IAsyncDisposable
         }
     }
 
+    /// <summary>Pauses managed game and UI input for a Steam-native surface without removing the target.</summary>
+    /// <param name="active">Whether Steam owns the temporary interaction.</param>
+    /// <param name="cancellationToken">Cancels waiting for the route or neutralization.</param>
+    /// <returns>A task completing after the serialized capture transition.</returns>
+    internal async Task SetSteamCaptureAsync(bool active, CancellationToken cancellationToken)
+    {
+        await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            lock (_stateGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (_steamCapture == active)
+                {
+                    return;
+                }
+                _steamCapture = active;
+                if (active)
+                {
+                    _uiCapture.Claim("steam-native-surface", _lastButtons);
+                }
+                else
+                {
+                    _uiCapture.Release("steam-native-surface");
+                }
+            }
+            if (active)
+            {
+                // Capture remains closed if neutralization fails. The handoff owner must
+                // explicitly unwind before forwarding resumes; uncertain writes are not retried.
+                await _router.NeutralizeAsync("steam-native-surface", cancellationToken).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _routeGate.Release();
+        }
+    }
+
     /// <summary>Stops game forwarding until a target is successfully created or replaced.</summary>
     /// <param name="reason">Diagnostic reason recorded with the neutral report.</param>
     /// <param name="cancellationToken">Cancels the neutralization.</param>
     /// <returns>A task completing once the target has been left neutral.</returns>
     internal Task BlockForwardingAsync(string reason, CancellationToken cancellationToken) =>
         NeutralizeRoutingAsync(reason, blockForwarding: true, cancellationToken);
+
+    /// <summary>Freezes target reconciliation before the plugin releases physical acquisition.</summary>
+    /// <param name="cancellationToken">Cancels waiting or neutralization.</param>
+    /// <returns>The physical generation that must be superseded before restoration.</returns>
+    internal async Task<long> BeginSteamOwnershipPauseAsync(CancellationToken cancellationToken)
+    {
+        await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_steamOwnershipPaused || State != ControllerManagementState.Active)
+            {
+                throw new InvalidOperationException("Controller ownership is not available for a Steam handoff.");
+            }
+            _steamOwnershipPaused = true;
+            await SetSteamCaptureAsync(true, cancellationToken).ConfigureAwait(false);
+            return Interlocked.Read(ref _sourceGeneration);
+        }
+        finally
+        {
+            _transition.Release();
+        }
+    }
+
+    /// <summary>Removes only WSGM's visibility deltas after a verified physical release.</summary>
+    /// <param name="cancellationToken">Cancels visibility cleanup.</param>
+    /// <returns>Whether WSGM-owned visibility cleanup was verified.</returns>
+    internal async Task<bool> ReleaseSteamVisibilityAsync(CancellationToken cancellationToken)
+    {
+        await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!_steamOwnershipPaused)
+            {
+                return false;
+            }
+            return await CleanupHidHideUnderGateAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _transition.Release();
+        }
+    }
+
+    /// <summary>Restores visibility for a newly published physical generation while retaining the virtual target.</summary>
+    /// <param name="previousGeneration">Generation captured before physical release.</param>
+    /// <param name="cancellationToken">Cancels restoration.</param>
+    /// <returns>False when reacquisition is not yet observed or integration was stopped.</returns>
+    internal async Task<bool> RestoreSteamOwnershipAsync(long previousGeneration, CancellationToken cancellationToken)
+    {
+        await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_disposed || !_steamOwnershipPaused || !_selection.Enabled
+                || State != ControllerManagementState.Active || _router.Target is null
+                || _physicalDevices.Count == 0 || _sourceGeneration <= previousGeneration)
+            {
+                return false;
+            }
+            var visibility = await _hidHide.StartAsync(_controllerReaderApplication,
+                _physicalDevices, cancellationToken).ConfigureAwait(false);
+            if (!visibility.Activated)
+            {
+                return false;
+            }
+            await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                _router.ActivateSource(_sourceGeneration);
+                await _router.NeutralizeAsync("steam-handoff-restored", cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _routeGate.Release();
+            }
+            _steamOwnershipPaused = false;
+            await SetSteamCaptureAsync(false, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            _transition.Release();
+        }
+    }
 
     private Task NeutralizeForUiCaptureAsync(CancellationToken cancellationToken) =>
         NeutralizeRoutingAsync("ui-capture", blockForwarding: false, cancellationToken);
@@ -787,7 +924,11 @@ internal sealed class ControllerManager : IAsyncDisposable
             lock (_stateGate)
             {
                 _forwardingBlocked = true;
+                _steamCapture = false;
+                _uiCapture.Release("steam-native-surface");
             }
+
+            _steamOwnershipPaused = false;
 
             await _router.NeutralizeAsync("make-safe", cancellationToken).ConfigureAwait(false);
             neutralized = true;
@@ -883,7 +1024,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         // A disabled selection is not reconciled here. Removing the target without ordering it
         // against the plugin's physical release is the duplicate-input window make-safe exists to
         // prevent, so the caller that owns the plugin conversation runs that sequence instead.
-        if (State is not ControllerManagementState.Active || !_selection.Enabled)
+        if (_steamOwnershipPaused || State is not ControllerManagementState.Active || !_selection.Enabled)
         {
             return Snapshot();
         }
