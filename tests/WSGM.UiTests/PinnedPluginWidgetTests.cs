@@ -11,6 +11,37 @@ namespace WSGM.UiTests;
 public sealed class PinnedPluginWidgetTests
 {
     [AvaloniaFact]
+    public void ReorderAndUnpinKeepFocusOnTheAffectedWidgetOrNeighbor()
+    {
+        using UiFixture fixture = new();
+        PluginWidgetPin first = new("missing", "default", "first");
+        PluginWidgetPin second = new("missing", "default", "second");
+        List<PluginWidgetPin> pins = [first, second];
+        PluginWidgetPreferences preferences = new(() => Task.FromResult(pins.ToArray()),
+            (pin, offset) => { PluginWidgetPins.Move(pins, pin, offset); return Task.CompletedTask; },
+            pin => { pins.Remove(pin); return Task.CompletedTask; },
+            () => { PluginWidgetPins.ResetOrder(pins); return Task.CompletedTask; });
+        PinnedPluginWidgets panel = new(new MissingProvider(), (_, _) => { }, preferences);
+        Window window = new() { Content = panel, Width = 600, Height = 700 };
+        Button Find(PluginWidgetPin pin, string label) => panel.GetLogicalDescendants().OfType<Button>()
+            .Single(button => Equals(button.Tag, (pin, label)));
+        try
+        {
+            window.Show();
+            UiFixture.Click(window, Find(first, "Move down"));
+            Assert.Equal([second, first], pins);
+            Assert.True(Find(first, "Move down").IsFocused);
+            UiFixture.Click(window, Find(first, "Unpin"));
+            Assert.Equal([second], pins);
+            Assert.True(Find(second, "Unpin").IsFocused);
+            UiFixture.Click(window, Find(second, "Unpin"));
+            Assert.Empty(pins);
+            Assert.True(panel.IsFocused);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public void ReloadRejectsOldControlAndRecoversSamePin()
     {
         using UiFixture fixture = new();

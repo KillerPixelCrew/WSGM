@@ -206,3 +206,8 @@ alone does not dispatch. Device-page pin controls use this same source and persi
 Widget action clicks re-read provider availability, generation and widget predicates before dispatch,
 including changes between timer refreshes. Reloaded providers rebuild the retained pin using the
 new generation. Focused headless tests cover unload/recovery and stale-click refusal.
+
+Pinned widgets use a vertical list in the Quick Access scroll surface. Reordering restores focus to
+the same widget action by stable identity. Unpinning focuses the neighboring widget, or the list
+itself when empty; resetting order retains the reset control. The preference operations are supplied
+by the Shell source, allowing focused UI checks without reading or writing live configuration.

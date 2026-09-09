@@ -14,6 +14,16 @@ internal sealed record PluginOverlayControls(IReadOnlyList<PluginAction> Actions
 internal sealed record PluginOverlayInstance(PluginInstanceIdentity Identity, string Name, long Generation,
     PluginOverlayControls? Controls, string Status, bool CanInvoke, string? Error);
 
+internal sealed record PluginWidgetPreferences(Func<Task<PluginWidgetPin[]>> Read,
+    Func<PluginWidgetPin, int, Task> Move, Func<PluginWidgetPin, Task> Remove, Func<Task> Reset)
+{
+    internal static PluginWidgetPreferences Default { get; } = new(
+        () => Task.Run(() => ConfigStore.Load().PluginWidgetPins.ToArray()),
+        CommonPluginOverlaySource.MovePinAsync,
+        pin => CommonPluginOverlaySource.SetPinnedAsync(pin, false),
+        CommonPluginOverlaySource.ResetPinOrderAsync);
+}
+
 /// <summary>Read-only widget observations and explicit action routing, independent of package lifecycle.</summary>
 internal interface ICommonPluginOverlaySource
 {
