@@ -557,3 +557,8 @@ running client and recorded in `docs\steam-cef.md`.
 - Library tabs and the card badge remain legacy resident scripts outside the patch manager until
   their attended migrations land.
 - The Extensions tab the toolkit's host was built for is not mounted yet.
+
+The power-limit surface exposes a Unified TDP toggle using the coordinator's persisted manual mode.
+Unified mode shows one TDP slider and both observed limits in its description; split mode shows
+both independent sliders. Configuration changes publish mode updates, including selections made
+in Overlay. Toggle requests persist policy without applying a wattage.

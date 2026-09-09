@@ -22,7 +22,7 @@ The immediate queue is #52 (XIAO now connected), #69 investigation and #61.
   Verified independent boost edits now persist the advanced preference and select split mode without
   deleting the unified target. Split restoration now validates the boost range, establishes the
   plugin-owned pair and restores boost under one mutation gate, stopping on unconfirmed readback.
-  Nine policy cases pass. Unified QAM presentation and shared surface projection remain to implement.
+  Nine policy cases pass. QAM now has a shared-mode toggle and a single unified slider with both readbacks; 17 toolkit surface tests and the emitted slider-readback check pass. Overlay single-slider presentation remains to implement.
 
 - #59 is implemented: Tools offers current resolution/refresh and supported mode drafts with explicit Apply. Windows Device Control owns fresh enumeration, exact-route revalidation, readback and rollback. A headless picker test and warning-clean builds pass. Physical mode changes remain for field review.
 

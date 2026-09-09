@@ -641,6 +641,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
         if (_coordinator is not null)
         {
             _coordinator.Capabilities.Changed += OnCapabilityViewsChanged;
+            _coordinator.ConfigurationChanged += OnPowerConfigurationChanged;
         }
     }
 
@@ -652,7 +653,20 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
 
     /// <summary>Both sliders follow device readback, including profile changes.</summary>
     internal SteamPowerLimitState PowerLimit => ProjectPowerLimits(
-        _coordinator?.Capabilities.Snapshot() ?? []);
+        _coordinator?.Capabilities.Snapshot() ?? []) with
+    {
+        Unified = _coordinator?.ManualTdpMode.Unified == true,
+        CanSelectMode = _coordinator?.ManualTdpMode.Available == true,
+    };
+
+    public async Task<SteamUiCommandResult> SetUnifiedModeAsync(bool unified, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_coordinator is null) { return SteamUiCommandResult.Refused; }
+        await _coordinator.SetManualTdpModeAsync(unified).ConfigureAwait(false);
+        StateChanged?.Invoke();
+        return new SteamUiCommandResult(true, null);
+    }
 
     internal static SteamPowerLimitState ProjectPowerLimits(IReadOnlyList<DeviceCapabilityView> views) => new(
         ToRange(Project(views).State),
@@ -723,8 +737,11 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
         if (_coordinator is not null)
         {
             _coordinator.Capabilities.Changed -= OnCapabilityViewsChanged;
+            _coordinator.ConfigurationChanged -= OnPowerConfigurationChanged;
         }
     }
+
+    private void OnPowerConfigurationChanged() => StateChanged?.Invoke();
 
     internal static TdpProjection Project(
         IReadOnlyList<DeviceCapabilityView> views,
