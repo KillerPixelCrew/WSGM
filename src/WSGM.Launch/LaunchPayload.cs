@@ -18,16 +18,16 @@ internal sealed record LaunchPayload(
     private const int MaxArguments = 16_384;
     private const int MaxEnvironmentVariables = 16_384;
 
-    internal static LaunchPayload Capture(string[] arguments, bool inputLeaseAcquired = false)
+    internal static LaunchPayload Capture(string[] arguments)
     {
         var environment = new List<KeyValuePair<string, string>>();
         foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
         {
             if (entry.Key is string key && entry.Value is string value)
             {
-                // Steam hides direct controllers from SDL in launched games. Once
-                // leased, the game needs those devices instead of Steam Input.
-                if (inputLeaseAcquired && key.Equals(
+                // Steam's inherited filter can hide the VIIPER virtual pad independently of
+                // lease success. Sanitize only this controlled child's environment.
+                if (key.Equals(
                     "SDL_GAMECONTROLLER_IGNORE_DEVICES", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;

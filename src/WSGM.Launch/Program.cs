@@ -112,8 +112,8 @@ internal static class Program
         }
 
         using var lease = options.AnyLease ? SteamInputLeaseHost.TryAcquire(options) : null;
-        var payload = LaunchPayload.Capture(options.Command, inputLeaseAcquired: lease is not null);
-        LogSdlEnvironment(options.Command[0], lease is not null ? "removed from child payload" : "preserved without lease");
+        var payload = LaunchPayload.Capture(options.Command);
+        LogSdlEnvironment(options.Command[0], "removed from child payload");
         return elevated == false
             ? await LaunchAndWaitAsync(payload)
             : await RunElevatedParentAsync(payload);
@@ -155,7 +155,7 @@ internal static class Program
             LaunchLog.Error($"Steam Input lease wrapper failed: {ex.Message}. Launching without it.");
             Console.Error.WriteLine($"Steam Input block unavailable: {ex.Message}");
             var payload = LaunchPayload.Capture(options.Command);
-            LogSdlEnvironment(options.Command[0], "preserved after lease launch failure");
+            LogSdlEnvironment(options.Command[0], "removed from fallback child payload after lease launch failure");
             return await LaunchAndWaitAsync(payload);
         }
     }

@@ -8,7 +8,13 @@ submodule changes, without feature branches or pull requests.
 
 GitHub was read with `gh` on 2026-09-09: 39 issues are open.
 Issues #41–#45, #47 and #48 remain deferred; the other 32 are the 2.0 scope.
-The immediate queue is #66, #65, #69 investigation, #68, #67, #38/#39, #58, #59 and #61.
+The immediate queue is #65, #69 investigation, #68, #67, #38/#39, #58, #59 and #61.
+
+- #66: SDL exclusion sanitization now covers every controlled child, including de-elevation
+  without a lease and fallback after lease failure. Parent state and unrelated environment entries
+  are preserved. All 81 launcher tests pass and the Release launcher build has zero warnings.
+  Existing native sanitizer coverage and the dated 2026-09-08 Eden result remain applicable;
+  no fresh live-game validation is claimed for this follow-up.
 
 - #65 remains in progress. Native pass-through claims and the toolkit's surface observer are
   pushed. WSGM registers overlay observation with the CEF session and has tested controller-pause

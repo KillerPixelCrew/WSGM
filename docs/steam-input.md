@@ -25,11 +25,12 @@ after the last one closes. It is an open named-pipe connection, so Windows drops
 crash. A normal release asks Steam to rediscover its controllers.
 
 Per-game wrappers must also remove Steam's inherited `SDL_GAMECONTROLLER_IGNORE_DEVICES` from the
-leased child's environment. On 2026-09-08, Eden launched through the wrapper inherited an exclusion
+controlled child's environment. On 2026-09-08, Eden launched through the wrapper inherited an exclusion
 containing VIIPER's `28de:1205` identity. With the lease active, Controlify's bundled SDL 3.2.18
 enumerated zero gamepads with that exclusion and one Steam Deck without it. The game loaded the real
 System32 XInput library; the gate remained inside Steam. The native wrapper and WSGM's de-elevated
-payload now strip the exclusion after successful acquisition. Other SDL hints and Steam app/overlay
+payload strip the exclusion, including de-elevation without a lease and lease-failure fallback.
+Other SDL hints and Steam app/overlay
 variables are preserved. See `elevation.md` for launch and fail-open behavior. After redeploying
 only the lease client DLL and WSGM.Launch payload, the maintainer confirmed that Eden launched
 through the existing wrapper detected the controller again on 2026-09-08.

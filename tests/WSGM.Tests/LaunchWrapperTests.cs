@@ -262,11 +262,9 @@ public sealed class LaunchWrapperTests
     }
 
     [Theory]
-    [InlineData(true, "SDL_GAMECONTROLLER_IGNORE_DEVICES")]
-    [InlineData(false, "SDL_GAMECONTROLLER_IGNORE_DEVICES")]
-    [InlineData(true, "sdl_gamecontroller_ignore_devices")]
-    public async Task LaunchPayloadRemovesTheSdlExclusionOnlyWithAnAcquiredLease(
-        bool acquired, string exclusionName)
+    [InlineData("SDL_GAMECONTROLLER_IGNORE_DEVICES")]
+    [InlineData("sdl_gamecontroller_ignore_devices")]
+    public async Task LaunchPayloadAlwaysRemovesTheSdlExclusionFromTheChildOnly(string exclusionName)
     {
         var previous = Environment.GetEnvironmentVariable(exclusionName);
         var previousAppId = Environment.GetEnvironmentVariable("SteamAppId");
@@ -274,14 +272,23 @@ public sealed class LaunchWrapperTests
         {
             Environment.SetEnvironmentVariable(exclusionName, "0x28de/0x1205");
             Environment.SetEnvironmentVariable("SteamAppId", "1234");
-            var payload = LaunchPayload.Capture(["game.exe", "雪"], acquired);
+            var payload = LaunchPayload.Capture(["game.exe", "雪"]);
             await using var stream = new MemoryStream();
             await payload.WriteAsync(stream, CancellationToken.None);
             stream.Position = 0;
             var received = await LaunchPayload.ReadAsync(stream, CancellationToken.None);
 
-            Assert.Equal(!acquired, received.EnvironmentVariables.Any(pair =>
-                pair.Key.Equals(exclusionName, StringComparison.OrdinalIgnoreCase)));
+            Assert.DoesNotContain(received.EnvironmentVariables, pair =>
+                pair.Key.Equals(exclusionName, StringComparison.OrdinalIgnoreCase));
+            foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
+            {
+                if (entry.Key is string key && entry.Value is string value
+                    && !key.Equals(exclusionName, StringComparison.OrdinalIgnoreCase))
+                {
+                    Assert.True(received.EnvironmentVariables.Any(pair => pair.Key == key && pair.Value == value),
+                        "An unrelated child environment entry changed.");
+                }
+            }
             Assert.Contains(KeyValuePair.Create("SteamAppId", "1234"), received.EnvironmentVariables);
             Assert.Equal(["game.exe", "雪"], received.Arguments);
             Assert.Equal("0x28de/0x1205", Environment.GetEnvironmentVariable(exclusionName));
