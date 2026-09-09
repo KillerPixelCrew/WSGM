@@ -423,6 +423,7 @@
                         <Grid x:Name="DevicePowerOverview" ColumnDefinitions="*,*" ColumnSpacing="16" IsVisible="False">
                             <StackPanel x:Name="DevicePowerPresetContainer">
                                 <ov:DevicePowerPresetView x:Name="DevicePowerPresetHost" IsVisible="False" />
+                                <StackPanel x:Name="ManualTdpHost" />
                             </StackPanel>
                             <Border x:Name="DevicePerformanceCard" Grid.Column="1" Classes="device-group" VerticalAlignment="Top">
                                 <StackPanel x:Name="DevicePerformanceColumn" />

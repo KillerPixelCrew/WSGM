@@ -180,6 +180,39 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
     internal DevicePowerAssignments PowerAssignments { get; }
 
+    internal (bool Available, bool Unified) ManualTdpMode
+    {
+        get
+        {
+            var application = _config.Performance.Applications.Find(entry => entry.ApplicationId == _runningApplicationId);
+            bool available = IntegrationEnabled && _capabilities.Snapshot().Any(view =>
+                view.Descriptor.Role == CapabilityRole.PowerSustainedLimit && view.Descriptor.PairedPowerLimitId is not null);
+            return (available, ManualTdpPolicy.Resolve(_config.Performance, application,
+                application?.UsePerGameProfile == true)?.Unified == true);
+        }
+    }
+
+    internal async Task SetManualTdpModeAsync(bool unified)
+    {
+        await _transitionGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+        try
+        {
+            if (!ManualTdpMode.Available) { throw new InvalidOperationException("Paired TDP is unavailable."); }
+            string? applicationId = _runningApplicationId;
+            await PersistConfigurationAsync(config =>
+            {
+                var application = config.Performance.Applications.Find(entry => entry.ApplicationId == applicationId);
+                bool own = application?.UsePerGameProfile == true;
+                var profile = ManualTdpPolicy.Resolve(config.Performance, application, own)
+                    ?? new ManualTdpProfile(false, null,
+                        PerApplicationPowerPolicy.ResolveEffective(config.Performance.TdpWatts, application?.TdpWatts, own), null);
+                if (own) { application!.ManualTdp = profile with { Unified = unified }; }
+                else { config.Performance.ManualTdp = profile with { Unified = unified }; }
+            }, _lifetime.Token).ConfigureAwait(false);
+        }
+        finally { _transitionGate.Release(); }
+    }
+
     private static bool? ReadOnAcPower() =>
         WindowsDeviceControl.WindowsPower.TryGetStatus(out WindowsDeviceControl.WindowsPowerStatus power) && power.ACLineStatus is 0 or 1
             ? power.ACLineStatus == 1 : null;

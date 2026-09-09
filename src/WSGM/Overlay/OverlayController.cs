@@ -22,6 +22,7 @@ public sealed class OverlayController : IDisposable
 {
     internal Func<SteamControllerHandoff?> SteamOwnership { get; set; } = () => null;
     internal NativeQamBrightnessService? Brightness { get; set; }
+    internal DeviceCoordinator? ManualTdp { get; set; }
     internal Func<CancellationToken, Task<bool>>? ShowOnScreenKeyboard { get; set; }
     private bool _keyboardRequestPending;
 
@@ -835,6 +836,7 @@ public sealed class OverlayController : IDisposable
         _overlay = new OverlayWindow(vm, switcher, _systemStatus, UiScale(), WindowCenter(_restoreFocusTo));
         _overlay.AttachSteamOwnership(SteamOwnership);
         if (Brightness is { } brightness) { _overlay.AttachBrightness(brightness); }
+        if (ManualTdp is { } manual) { _overlay.AttachManualTdp(manual); }
         _overlay.OnScreenKeyboardRequested += async () => await RequestOnScreenKeyboardAsync();
         var powerSchemes = new PowerSchemeSelection(PowerSchemes.Windows,
             id => ConfigStore.Mutate(config => config.LastSelectedPowerSchemeId = id), _previewOnly);

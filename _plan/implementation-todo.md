@@ -18,7 +18,8 @@ The immediate queue is #52 (XIAO now connected), #69 investigation and #61.
   with cycle/descriptor checks and verified readback. Pair ownership is retained for ceiling release.
   Manual sustained edits from both surfaces now select paired dispatch through the coordinator when
   the active profile requests unified mode, and save only that mode's target. Three policy tests pass.
-  Unified/split controls, shared surface projection and advanced boost
+  Overlay now provides the mode selector, with no hardware write on selection and a focused headless test passing.
+  Unified QAM presentation, shared surface projection and advanced boost
   restoration remain to implement.
 
 - #59 is implemented: Tools offers current resolution/refresh and supported mode drafts with explicit Apply. Windows Device Control owns fresh enumeration, exact-route revalidation, readback and rollback. A headless picker test and warning-clean builds pass. Physical mode changes remain for field review.

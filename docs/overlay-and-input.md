@@ -223,3 +223,7 @@ Only Apply changes the display. Fresh observations every five seconds while open
 choices after reconnect, resume or profile changes. Windows Device Control rechecks target identity
 and driver validation before applying, confirms readback and attempts rollback on an unconfirmed
 write. Ambiguous clone sources are unavailable. This does not establish physical visibility.
+
+Device provides a manual TDP mode selector when a paired capability is available. Selecting Unified
+saves the active global/per-game preference without writing hardware. Subsequent sustained-slider
+edits coordinate both limits through the plugin. Advanced mode keeps independent edits.

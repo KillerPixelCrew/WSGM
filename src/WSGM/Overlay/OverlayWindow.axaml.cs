@@ -54,6 +54,8 @@ public partial class OverlayWindow : Window
     private bool _performanceDetailsExpanded;
 
     internal void AttachPowerPresets(DevicePowerPresetSelection selection) => DevicePowerPresetHost.Attach(selection);
+    internal void AttachManualTdp(DeviceCoordinator coordinator) => ManualTdpHost.Children.Add(
+        new ManualTdpModeView(() => coordinator.ManualTdpMode, coordinator.SetManualTdpModeAsync));
     internal void AttachBrightness(NativeQamBrightnessService service)
     {
         DisplayBrightnessHost.Children.Add(new DisplayBrightnessView(service));

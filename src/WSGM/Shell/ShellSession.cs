@@ -614,6 +614,7 @@ public sealed class ShellSession : IAsyncDisposable
             powerAssignments: _deviceCoordinator?.PowerAssignments,
             commonPlugins: _commonPlugins is null ? null : new CommonPluginOverlaySource(_commonPlugins, _pluginHost));
         _overlay.ShowOnScreenKeyboard = ShowOnScreenKeyboardAsync;
+        _overlay.ManualTdp = _deviceCoordinator;
         if (!_overlayTestOnly)
         {
             _desktopTray = new DesktopTray(

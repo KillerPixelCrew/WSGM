@@ -733,7 +733,7 @@ readback; profile-owned pair release also uses the coordinated path. The #61 con
 boost-restoration integration are still in progress.
 Manual sustained edits from Overlay and QAM now consult the same active profile in the coordinator
 to select paired dispatch. Saving a unified target preserves the stored advanced values, and saving
-an advanced sustained value preserves the unified target. The mode-selection UI remains unfinished.
+an advanced sustained value preserves the unified target. Overlay Device now exposes an Advanced/split versus Unified selector. Selection persists only policy; a subsequent sustained-slider edit applies the coordinated target. QAM mode presentation remains unfinished.
 
 ## 15. Glyphs
 
