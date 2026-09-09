@@ -797,6 +797,8 @@ public sealed class AppConfig
 
     /// <summary>Per-monitor desktop and game-mode display profiles.</summary>
     public List<MonitorDisplayProfile> DisplayProfiles { get; set; } = [];
+    /// <summary>Optional lifecycle bindings for external route and display-profile automation.</summary>
+    public DisplayRouteConfiguration? DisplayRoutes { get; set; }
     /// <summary>The Winlogon Shell snapshot that existed before WSGM installed itself.
     /// Presence is separate from the string so an empty value remains distinguishable
     /// from an absent value; kind preserves REG_EXPAND_SZ as well as REG_SZ.</summary>

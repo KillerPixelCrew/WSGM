@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WindowsDeviceControl;
 using WSGM.Plugin.Sdk;
+using WSGM.Core;
 
 namespace WSGM.Shell;
 
@@ -11,7 +12,24 @@ internal sealed record DisplayRouteAction(PluginInstanceIdentity Identity, strin
     IReadOnlyDictionary<string, PluginValue> Arguments);
 
 internal sealed record DisplayRoutePlan(DisplayRouteAction? Action, DisplayTargetIdentity? Target,
-    DisplayProfile? Profile, TimeSpan Timeout);
+    DisplayProfile? Profile, TimeSpan Timeout)
+{
+    internal static DisplayRoutePlan FromBinding(DisplayRouteBinding binding)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        if (binding.TimeoutSeconds is < 1 or > 120 || binding.Arguments is null || binding.Arguments.Count > 64)
+        { throw new ArgumentException("Invalid route timeout or arguments.", nameof(binding)); }
+        DisplayRouteAction? action = null;
+        if (binding.Plugin is not null || binding.ActionId is not null)
+        {
+            if (binding.Plugin is not { } identity || string.IsNullOrWhiteSpace(identity.PluginId)
+                || string.IsNullOrWhiteSpace(identity.InstanceId) || string.IsNullOrWhiteSpace(binding.ActionId))
+            { throw new ArgumentException("Route actions require plugin, instance and action identities.", nameof(binding)); }
+            action = new(identity, binding.ActionId, new Dictionary<string, PluginValue>(binding.Arguments));
+        }
+        return new(action, binding.Target, binding.Profile, TimeSpan.FromSeconds(binding.TimeoutSeconds));
+    }
+}
 
 internal sealed record DisplayRouteResult(bool Completed, string Stage, string Detail);
 

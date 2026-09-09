@@ -233,3 +233,9 @@ SessionAutomation origin through PluginHost. Windows display enumeration/waits a
 run off the UI thread through WDC. A Dispatched result permits the next step without claiming
 external readback; entry still waits for the configured display. Unconfirmed or rejected actions
 stop the sequence. The adapter does not admit, start or reconnect a plugin on demand.
+
+AppConfig.DisplayRoutes persists an explicit Enabled flag and independent EnterGameMode,
+LeaveGameMode, DesktopStartup and DesktopWake bindings. Each binding stores provider/instance and
+action identities, primitive arguments, an optional WDC target/profile and a 1–120 second deadline.
+Absent configuration is disabled. Plan construction copies arguments and rejects incomplete action
+identities before dispatch. These stored bindings await lifecycle and editor integration.
