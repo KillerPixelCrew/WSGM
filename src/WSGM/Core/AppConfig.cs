@@ -777,6 +777,9 @@ public sealed class AppConfig
     /// rendered.</summary>
     public List<string> QuickAccessPins { get; set; } = [];
 
+    /// <summary>Common plugin widget pins in display order; unavailable identities are retained.</summary>
+    public List<PluginWidgetPin> PluginWidgetPins { get; set; } = [];
+
     /// <summary>Last Windows power scheme explicitly selected and verified through the overlay.
     /// This is a reference only; startup and config reload must not reapply it.</summary>
     public Guid? LastSelectedPowerSchemeId { get; set; }

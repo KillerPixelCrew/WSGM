@@ -317,6 +317,7 @@ public static class ConfigStore
         config.GamepadChord ??= new GamepadChordConfig();
         config.Gestures ??= new GestureConfig();
         config.QuickAccessPins ??= [];
+        config.PluginWidgetPins = PluginWidgetPins.Normalize(config.PluginWidgetPins);
         config.QuickAccessPins = config.QuickAccessPins
             .Where(static id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
         config.SavedDisplayScaleEntries ??= [];

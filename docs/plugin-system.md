@@ -172,3 +172,8 @@ validates stable IDs and one to eight distinct existing contribution links, and 
 lists. Navigation categories must exist. State predicates reference normal effective-state keys;
 missing predicate state means unavailable. Widget rendering and persistent front-page pinning are
 tracked as in-progress work under #53.
+
+Widget pin persistence stores plugin ID, configured instance ID and widget ID separately in
+AppConfig.PluginWidgetPins. Order follows the list. Normalization removes malformed/duplicate entries,
+bounds the list to 64 and retains unavailable providers. Reset order sorts by plugin, instance and
+widget identity without removing pins. UI-facing mutations use the normal atomic ConfigStore path.

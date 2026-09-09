@@ -13,7 +13,8 @@ The immediate queue is #52 (XIAO now connected), #69 investigation and #53.
 - #53 is in progress. The common SDK declares compact widget groups referencing existing controls,
   with stable identity, state predicates and navigation metadata. Package loading forwards them;
   host admission validates links and captures immutable lists. Two focused validation tests pass.
-  Pin persistence, ordering, rendering and Device integration remain to implement.
+  Pin persistence and ordering now retain stable plugin-instance/widget identities, including missing
+  providers. Two serialization/order tests pass. Pinning UI, rendering and Device integration remain.
 
 - #61 is implemented. Overlay and QAM share manual mode, paired dispatch and independent saved
   unified/advanced preferences. Unified mode shows one editable TDP slider and both readbacks.
