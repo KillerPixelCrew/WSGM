@@ -31,7 +31,7 @@ internal sealed record DisplayRoutePlan(DisplayRouteAction? Action, DisplayTarge
     }
 }
 
-internal sealed record DisplayRouteResult(bool Completed, string Stage, string Detail);
+internal sealed record DisplayRouteResult(bool Completed, string Stage, string Detail, bool ProfileApplied = false);
 
 /// <summary>Adapters own plugin admission and Windows calls; the transition owns ordering only.</summary>
 internal interface IDisplayRouteBackend
@@ -91,7 +91,7 @@ internal sealed class DisplayRouteTransition(IDisplayRouteBackend backend)
                 if (await ProfileAsync().ConfigureAwait(false) is { } profileFailure) { return profileFailure; }
                 if (await ActionAsync().ConfigureAwait(false) is { } actionFailure) { return actionFailure; }
             }
-            return new(true, "complete", "Display route transition completed.");
+            return new(true, "complete", "Display route transition completed.", plan.Profile is not null);
         }
         catch (OperationCanceledException)
         {

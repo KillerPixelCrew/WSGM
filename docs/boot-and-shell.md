@@ -366,3 +366,8 @@ shell's logoff signal.
 reboot or reported nothing (stay conservative when the bounded status file is missing). Ordinary
 upgrades are not marked for reboot. Silent setup always returns `False`, because `/VERYSILENT` could
 otherwise reboot automatically.
+
+Configured display-route preparation runs before a Desktop-to-Game Mode Big Picture request and
+Explorer takeover. A preparation failure preserves Desktop and reports the failed stage. On a
+successful return to Desktop, the route hook restores the configured profile before requesting the
+external entertainment input. Overlay-test sessions do not install these lifecycle hooks.

@@ -238,4 +238,11 @@ AppConfig.DisplayRoutes persists an explicit Enabled flag and independent EnterG
 LeaveGameMode, DesktopStartup and DesktopWake bindings. Each binding stores provider/instance and
 action identities, primitive arguments, an optional WDC target/profile and a 1–120 second deadline.
 Absent configuration is disabled. Plan construction copies arguments and rejects incomplete action
-identities before dispatch. These stored bindings await lifecycle and editor integration.
+identities before dispatch. Enter/leave bindings are consumed by SessionModes; startup/wake bindings and the editor remain pending.
+
+ShellSession supplies route preparation to SessionModes outside overlay-test mode. It loads fresh
+configuration, uses session shutdown cancellation and logs the event, stage and result. Enter route
+preparation finishes before Big Picture or Explorer takeover; failure surfaces through the existing
+warning path and preserves Desktop. A successfully applied route profile bypasses legacy Game Mode
+display posture. Leave routing runs only after successful Explorer recovery, retaining the Desktop
+on a route failure. Startup/wake policy and transition splash/recovery integration remain in #51.

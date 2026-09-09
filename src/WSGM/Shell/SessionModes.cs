@@ -82,6 +82,9 @@ public sealed class SessionModes
     /// invoked by transitions that never fired the request.</summary>
     internal Action? SteamUiBigPictureRequestSettled { get; set; }
 
+    /// <summary>Runs configured route preparation on the transition worker; null leaves displays under legacy policy.</summary>
+    internal Func<bool, System.Threading.Tasks.Task<DisplayRouteResult?>>? PrepareDisplayRouteAsync { get; set; }
+
     /// <summary>Surfaces a shell-transition warning through the overlay's existing warning path.</summary>
     internal void ReportWarning(string warning) => SteamStartFailed?.Invoke(warning);
 
@@ -227,6 +230,15 @@ public sealed class SessionModes
                     desktopHost, "Explorer desktop restoration failed").ConfigureAwait(false);
 
                 string? rollbackSteamWarning = null;
+                if (result.Outcome is not ExplorerDesktopOutcome.Failed && PrepareDisplayRouteAsync is { } restoreRoute)
+                {
+                    var route = await restoreRoute(false).ConfigureAwait(false);
+                    if (route is { Completed: false })
+                    {
+                        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                            SteamStartFailed?.Invoke($"Desktop route: {route.Stage}: {route.Detail}"));
+                    }
+                }
                 if (result.Outcome is ExplorerDesktopOutcome.Failed && result.CanResumeGameModeSafely)
                 {
                     try
@@ -351,6 +363,14 @@ public sealed class SessionModes
             bool explorerWasRemoved = false;
             try
             {
+                var route = PrepareDisplayRouteAsync is { } prepareRoute
+                    ? await prepareRoute(true).ConfigureAwait(false) : null;
+                if (route is { Completed: false })
+                {
+                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                        SteamStartFailed?.Invoke($"Game Mode route: {route.Stage}: {route.Detail}"));
+                    return;
+                }
                 string? steamWarning;
                 try
                 {
@@ -438,7 +458,7 @@ public sealed class SessionModes
                             : ExplorerTakeoverRefusedWarning);
                         return;
                     }
-                    ApplyGameModePosture();
+                    if (route?.ProfileApplied != true) { ApplyGameModePosture(); }
                     GameModeEntered?.Invoke();
                     if (_monitor is not null)
                     {

@@ -572,6 +572,7 @@ public sealed class ShellSession : IAsyncDisposable
         _modes = _desktopHost is null
             ? new SessionModes(_config, _monitor)
             : new SessionModes(_config, _monitor, _desktopHost);
+        if (!_overlayTestOnly) { _modes.PrepareDisplayRouteAsync = PrepareDisplayRouteAsync; }
         // Session-lifetime on purpose (survives desktop trips): a Steam download must
         // keep the device awake in both modes, and the manual hold belongs to the user.
         // The automatic side is off in overlay-test mode: its poll drives the live
@@ -1530,6 +1531,27 @@ public sealed class ShellSession : IAsyncDisposable
     private void OnSessionUnlocked() => QueueDevicePowerTransition(suspend: false, "session unlocked");
 
     private void OnSystemSuspending() => QueueDevicePowerTransition(suspend: true, "system suspending");
+
+    private async Task<DisplayRouteResult?> PrepareDisplayRouteAsync(bool enteringGameMode)
+    {
+        try
+        {
+            var config = await Task.Run(ConfigStore.Load, _shutdownCancellation.Token).ConfigureAwait(false);
+            if (config.DisplayRoutes is not { Enabled: true } routes) { return null; }
+            var binding = enteringGameMode ? routes.EnterGameMode : routes.LeaveGameMode;
+            if (binding is null) { return null; }
+            var transition = new DisplayRouteTransition(new DisplayRouteBackend(_pluginHost));
+            var result = await transition.RunAsync(DisplayRoutePlan.FromBinding(binding), enteringGameMode,
+                _shutdownCancellation.Token).ConfigureAwait(false);
+            Log.Info($"Display route {(enteringGameMode ? "enter" : "leave")}: {result.Stage}: {result.Detail}");
+            return result;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Display route preparation failed", ex);
+            return new(false, "configuration", ex.Message);
+        }
+    }
 
     private void OnSystemResumed() => QueueDevicePowerTransition(suspend: false, "system resumed");
 
