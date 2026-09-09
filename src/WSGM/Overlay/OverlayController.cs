@@ -20,6 +20,7 @@ namespace WSGM.Overlay;
 /// the gamepad service, and the focus-restore discipline.</summary>
 public sealed class OverlayController : IDisposable
 {
+    internal Func<SteamControllerHandoff?> SteamOwnership { get; set; } = () => null;
     private const string QuickAccessSurface = "quick-access";
     private const string SettingsSurface = "settings";
     private readonly HashSet<string> _uiSurfaces = new(StringComparer.Ordinal);
@@ -806,6 +807,7 @@ public sealed class OverlayController : IDisposable
         _systemStatus.Start();
         long setupDone = System.Diagnostics.Stopwatch.GetTimestamp();
         _overlay = new OverlayWindow(vm, switcher, _systemStatus, UiScale(), WindowCenter(_restoreFocusTo));
+        _overlay.AttachSteamOwnership(SteamOwnership);
         var powerSchemes = new PowerSchemeSelection(PowerSchemes.Windows,
             id => ConfigStore.Mutate(config => config.LastSelectedPowerSchemeId = id), _previewOnly);
         _overlay.AttachPowerSchemes(powerSchemes);

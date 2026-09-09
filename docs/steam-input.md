@@ -147,6 +147,14 @@ End-to-end hardware verification remains deferred to field review.
 
 ## Owner claims and the Settings handoff
 
+Overlay > Tools exposes Release to Steam and Reacquire for WSGM with the current ownership state.
+Manual release adopts an active temporary handoff or starts the same release path. It suppresses
+surface-close and Steam-exit reacquisition until an explicit reacquire request. Native surface
+requests can still replay while manually released, without another physical release. Shutdown
+uses session make-safe; it does not reacquire hardware. Failed transitions allow an explicit recovery
+request through the same adapter, without automatic retries. These controls do not alter unrelated
+HidHide entries or create a separate device ownership path.
+
 Several surfaces can need the one process-wide lease at once, so each focused surface registers a
 named owner claim in `SteamInputBlocker` and the lease is released when the last owner lets go.
 `AcquireFor` registers the owner before it attempts the native acquire. Every deactivate and close

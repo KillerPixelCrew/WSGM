@@ -33,6 +33,62 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
     private Task _interaction = Task.CompletedTask;
     private SteamControllerOwnership _state;
     private bool _disposed;
+    private bool _manualRelease;
+    private Task _manualReplay = Task.CompletedTask;
+
+    internal bool ManualRelease
+    {
+        get { lock (_gate) { return _manualRelease; } }
+    }
+
+    internal bool ReleaseManually()
+    {
+        lock (_gate)
+        {
+            if (_disposed || _manualRelease || _state is SteamControllerOwnership.Reacquiring
+                or SteamControllerOwnership.RecoveryRequired || !_steamAlive()) { return false; }
+            _trace($"Steam handoff: manual release requested from {_state}.");
+            _manualRelease = true;
+            if (_state == SteamControllerOwnership.Wsgm)
+            {
+                _state = SteamControllerOwnership.Releasing;
+                _interaction = Task.Run(() => RunAsync(_ => Task.FromResult(false)));
+            }
+            return true;
+        }
+    }
+
+    internal bool ReacquireManually()
+    {
+        lock (_gate)
+        {
+            if (!_disposed && _state == SteamControllerOwnership.RecoveryRequired && _interaction.IsCompleted)
+            {
+                _trace("Steam handoff: explicit manual recovery requested.");
+                _manualRelease = false;
+                _state = SteamControllerOwnership.Reacquiring;
+                _interaction = Task.Run(async () =>
+                {
+                    try
+                    {
+                        bool restored = await _restore(_shutdown.Token).ConfigureAwait(false);
+                        SetState(restored ? SteamControllerOwnership.Wsgm : SteamControllerOwnership.RecoveryRequired,
+                            restored ? "manual recovery completed" : "manual recovery was unverified");
+                    }
+                    catch (Exception ex)
+                    {
+                        SetState(SteamControllerOwnership.RecoveryRequired, $"manual recovery failed: {ex.Message}");
+                    }
+                });
+                return true;
+            }
+            if (_disposed || !_manualRelease || _state != SteamControllerOwnership.Steam) { return false; }
+            _trace($"Steam handoff: manual reacquire requested from {_state}.");
+            _manualRelease = false;
+            _state = SteamControllerOwnership.Reacquiring;
+            return true;
+        }
+    }
 
     /// <summary>Creates the one session owner over physical, lease and CEF adapters.</summary>
     internal SteamControllerHandoff(
@@ -89,6 +145,16 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(replay);
         lock (_gate)
         {
+            if (!_disposed && _manualRelease && _state == SteamControllerOwnership.Steam
+                && _manualReplay.IsCompleted)
+            {
+                _manualReplay = Task.Run(async () =>
+                {
+                    try { await replay(_shutdown.Token).ConfigureAwait(false); }
+                    catch (Exception ex) { _trace($"Steam handoff: manual surface replay failed: {ex.Message}"); }
+                });
+                return true;
+            }
             if (_disposed || _state != SteamControllerOwnership.Wsgm || !_interaction.IsCompleted)
             {
                 return false;
@@ -119,8 +185,16 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
             _trace($"Steam handoff: semantic replay {(sent ? "accepted" : "refused")}.");
             long started = _time.GetTimestamp();
             bool opened = false;
-            while (!_shutdown.IsCancellationRequested && _steamAlive() && !_originalSteamExited())
+            while (!_shutdown.IsCancellationRequested)
             {
+                // A manual override outlives native surfaces and Steam processes. Only explicit
+                // reacquisition or session teardown may end it; no hardware writes occur here.
+                if (ManualRelease)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(100), _time, _shutdown.Token).ConfigureAwait(false);
+                    continue;
+                }
+                if (State == SteamControllerOwnership.Reacquiring || !_steamAlive() || _originalSteamExited()) { break; }
                 if (!await _ownerIsCurrent(_shutdown.Token).ConfigureAwait(false))
                 {
                     _trace("Steam handoff: device ownership changed; retiring the old interaction.");
@@ -140,6 +214,11 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
                 if (snapshot.AllSteamSurfacesClosed
                     && (opened || !sent || _time.GetElapsedTime(started) >= _openTimeout))
                 {
+                    lock (_gate)
+                    {
+                        if (_manualRelease) { continue; }
+                        _state = SteamControllerOwnership.Reacquiring;
+                    }
                     _trace(opened ? "Steam handoff: native surfaces closed."
                         : "Steam handoff: surface did not open; closure verified.");
                     break;
@@ -151,6 +230,19 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
             // Shutdown belongs to the session's full make-safe teardown. It must not reacquire
             // hardware while that teardown is releasing it.
             _shutdown.Token.ThrowIfCancellationRequested();
+            while (true)
+            {
+                lock (_gate)
+                {
+                    if (!_manualRelease)
+                    {
+                        _state = SteamControllerOwnership.Reacquiring;
+                        break;
+                    }
+                }
+                await Task.Delay(TimeSpan.FromMilliseconds(100), _time, _shutdown.Token).ConfigureAwait(false);
+            }
+            await _manualReplay.ConfigureAwait(false);
             SetState(SteamControllerOwnership.Reacquiring, "restoring controller ownership");
             restorationAttempted = true;
             bool restored = await _restore(_shutdown.Token).ConfigureAwait(false);
@@ -187,6 +279,7 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
 
         await _shutdown.CancelAsync().ConfigureAwait(false);
         await interaction.ConfigureAwait(false);
+        await _manualReplay.ConfigureAwait(false);
         _shutdown.Dispose();
     }
 }

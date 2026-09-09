@@ -1,5 +1,9 @@
 # Overlay surfaces and the input stack
 
+Tools includes controller ownership status, Release to Steam and Reacquire for WSGM. The session's
+Steam handoff coordinator owns both actions. Manual release remains active across native surface
+closure until explicit reacquisition; touch remains available while WSGM controller readers pause.
+
 How WSGM's quick access sheet is shaped, how gamepad, touch and raw input reach it, and the Avalonia
 and Windows findings its dismissal and focus handling depend on. Theme and control styling is in
 `docs\ui.md`; the lease the sheet takes while open is in `docs\steam-input.md`; the plugin

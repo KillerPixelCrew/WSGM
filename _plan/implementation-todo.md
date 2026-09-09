@@ -1,14 +1,19 @@
 # WSGM 2.0 implementation tracker
 
 Status: the previous implementation baseline is on `master`; the current open workoff contains
-30 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
+29 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
 submodule changes, without feature branches or pull requests.
 
 ## Current issue workoff
 
-After delivery of #65 and #66 on 2026-09-09, 37 issues remain open.
-Issues #41–#45, #47 and #48 remain deferred; the other 30 are the 2.0 scope.
-The immediate queue is #69 investigation, #68, #67, #38/#39, #58, #59 and #61.
+After delivery of #65, #66 and #68 on 2026-09-09, 36 issues remain open.
+Issues #41–#45, #47 and #48 remain deferred; the other 29 are the 2.0 scope.
+The immediate queue is #69 investigation, #67, #38/#39, #58, #59 and #61.
+
+- #68 is implemented: Tools shows controller ownership and manual release/reacquire controls.
+  Manual release takes precedence over surface closure and Steam exit, using the #65 adapters.
+  Repeated transitions are rejected; explicit recovery and shutdown use the same ownership boundary.
+  All 24 focused Steam controller tests pass. Live game/controller checks remain for field review.
 
 - #66 is closed by `6cc870f`. SDL exclusion sanitization now covers every controlled child, including de-elevation
   without a lease and fallback after lease failure. Parent state and unrelated environment entries

@@ -472,6 +472,12 @@
                                           Title="Safely remove hardware"
                                           Description="Eject an SD card or USB drive" />
                             <StackPanel x:Name="CommonPluginRows" Spacing="8" Margin="0,12,0,0" />
+                            <TextBlock Text="CONTROLLER OWNERSHIP" Classes="eyebrow" Margin="2,12,2,2" />
+                            <TextBlock x:Name="SteamOwnershipStatus" Text="Unavailable" Classes="caption" />
+                            <c:CardButton x:Name="ReleaseSteamOwnership" Title="Release to Steam"
+                                          Tag="system.release-steam" IsEnabled="False" />
+                            <c:CardButton x:Name="ReacquireSteamOwnership" Title="Reacquire for WSGM"
+                                          Tag="system.reacquire-steam" IsEnabled="False" />
                         </StackPanel>
                     </Grid>
 

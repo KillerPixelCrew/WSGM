@@ -5,8 +5,54 @@ namespace WSGM.Tests;
 
 public sealed class SteamControllerHandoffTests
 {
+    [Fact]
+    public async Task ManualOverrideSurvivesClosureAndSteamRestartUntilExplicitReacquire()
+    {
+        int releases = 0;
+        int restores = 0;
+        bool alive = true;
+        TaskCompletionSource released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using SteamControllerHandoff owner = new(
+            _ => { releases++; return Task.FromResult(true); },
+            _ => { restores++; return Task.FromResult(true); },
+            _ => Task.FromResult(Closed), () => alive,
+            message => { if (message.Contains("physical controller released", StringComparison.Ordinal)) { released.TrySetResult(); } });
+        Assert.True(owner.ReleaseManually());
+        Assert.False(owner.ReleaseManually());
+        await released.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        alive = false;
+        TaskCompletionSource replayed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Assert.True(owner.TryStart(_ => { replayed.TrySetResult(); return Task.FromResult(true); }));
+        await replayed.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal(0, restores);
+        Assert.True(owner.ManualRelease);
+        Assert.True(owner.ReacquireManually());
+        Assert.False(owner.ReacquireManually());
+        await owner.Completion.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal(1, releases);
+        Assert.Equal(1, restores);
+        Assert.Equal(SteamControllerOwnership.Wsgm, owner.State);
+    }
+
     private static SteamSideMenuSnapshot Closed => new(default,
         [new(0, 0, SteamSideMenu.None, false)]);
+
+    [Fact]
+    public async Task FailedReleaseAllowsOneExplicitRecovery()
+    {
+        int restores = 0;
+        await using SteamControllerHandoff owner = new(
+            _ => Task.FromResult(false),
+            _ => { restores++; return Task.FromResult(true); },
+            _ => Task.FromResult(Closed), () => true, _ => { });
+        Assert.True(owner.ReleaseManually());
+        await owner.Completion.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal(SteamControllerOwnership.RecoveryRequired, owner.State);
+        Assert.True(owner.ReacquireManually());
+        await owner.Completion.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal(1, restores);
+        Assert.Equal(SteamControllerOwnership.Wsgm, owner.State);
+    }
     private static SteamSideMenuSnapshot Open => new(default,
         [new(0, 0, SteamSideMenu.QuickAccess, false)]);
 

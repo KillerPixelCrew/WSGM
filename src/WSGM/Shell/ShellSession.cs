@@ -720,6 +720,7 @@ public sealed class ShellSession : IAsyncDisposable
                     Log.Info,
                     originalSteamExited: () => _steamControllerOwnership.OriginalSteamExited,
                     ownerIsCurrent: _steamControllerOwnership.OwnerIsCurrentAsync);
+                _overlay.SteamOwnership = () => _steamControllerHandoff;
             }
             _steamUi.ApplyNetworkIndicator(_inGameMode && _wifiIndicatorEnabled);
             _steamUi.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);

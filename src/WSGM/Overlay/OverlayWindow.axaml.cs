@@ -55,6 +55,37 @@ public partial class OverlayWindow : Window
 
     internal void AttachPowerPresets(DevicePowerPresetSelection selection) => DevicePowerPresetHost.Attach(selection);
 
+    internal void AttachSteamOwnership(Func<SteamControllerHandoff?> getOwner)
+    {
+        void Refresh()
+        {
+            SteamControllerHandoff? owner = getOwner();
+            SteamOwnershipStatus.Text = owner?.State switch
+            {
+                SteamControllerOwnership.Wsgm => "Owned by WSGM",
+                SteamControllerOwnership.Releasing => "Releasing",
+                SteamControllerOwnership.Steam => owner.ManualRelease ? "Released to Steam (manual)" : "Released to Steam (temporary)",
+                SteamControllerOwnership.Reacquiring => "Reacquiring",
+                SteamControllerOwnership.RecoveryRequired => "Failed: controller recovery required",
+                _ => "Unavailable",
+            };
+            ReleaseSteamOwnership.IsEnabled = owner is
+            {
+                ManualRelease: false,
+                State: SteamControllerOwnership.Wsgm or SteamControllerOwnership.Steam
+            };
+            ReacquireSteamOwnership.IsEnabled = owner is { ManualRelease: true, State: SteamControllerOwnership.Steam }
+                or { State: SteamControllerOwnership.RecoveryRequired };
+        }
+        ReleaseSteamOwnership.Click += (_, _) => { getOwner()?.ReleaseManually(); Refresh(); };
+        ReacquireSteamOwnership.Click += (_, _) => { getOwner()?.ReacquireManually(); Refresh(); };
+        DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(250) };
+        timer.Tick += (_, _) => Refresh();
+        Opened += (_, _) => { Refresh(); timer.Start(); };
+        Closed += (_, _) => timer.Stop();
+        Refresh();
+    }
+
     internal void AttachPowerSchemes(PowerSchemeSelection selection)
     {
         _powerSchemeSelection = selection;
