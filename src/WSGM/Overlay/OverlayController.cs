@@ -21,6 +21,31 @@ namespace WSGM.Overlay;
 public sealed class OverlayController : IDisposable
 {
     internal Func<SteamControllerHandoff?> SteamOwnership { get; set; } = () => null;
+    internal Func<CancellationToken, Task<bool>>? ShowOnScreenKeyboard { get; set; }
+    private bool _keyboardRequestPending;
+
+    private async Task RequestOnScreenKeyboardAsync()
+    {
+        if (_keyboardRequestPending || _disposed || _overlay is not { } window) { return; }
+        _keyboardRequestPending = true;
+        try
+        {
+            TaskCompletionSource closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            window.Closed += (_, _) => closed.TrySetResult();
+            CloseOverlay();
+            await closed.Task;
+            if (_disposed) { return; }
+            bool shown = ShowOnScreenKeyboard is { } show
+                && await show(CancellationToken.None);
+            if (!shown && !_disposed) { WarnOrReopen("On-screen keyboard unavailable. Check Steam or Windows touch keyboard."); }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"On-screen keyboard request failed: {ex.Message}");
+            if (!_disposed) { WarnOrReopen("On-screen keyboard could not be opened."); }
+        }
+        finally { _keyboardRequestPending = false; }
+    }
     private const string QuickAccessSurface = "quick-access";
     private const string SettingsSurface = "settings";
     private readonly HashSet<string> _uiSurfaces = new(StringComparer.Ordinal);
@@ -808,6 +833,7 @@ public sealed class OverlayController : IDisposable
         long setupDone = System.Diagnostics.Stopwatch.GetTimestamp();
         _overlay = new OverlayWindow(vm, switcher, _systemStatus, UiScale(), WindowCenter(_restoreFocusTo));
         _overlay.AttachSteamOwnership(SteamOwnership);
+        _overlay.OnScreenKeyboardRequested += async () => await RequestOnScreenKeyboardAsync();
         var powerSchemes = new PowerSchemeSelection(PowerSchemes.Windows,
             id => ConfigStore.Mutate(config => config.LastSelectedPowerSchemeId = id), _previewOnly);
         _overlay.AttachPowerSchemes(powerSchemes);

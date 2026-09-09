@@ -147,6 +147,12 @@ End-to-end hardware verification remains deferred to field review.
 
 ## Owner claims and the Settings handoff
 
+The Overlay keyboard action and OEM keyboard assignment route by session mode. Game Mode invokes
+the toolkit's native Keyboard action through the same temporary ownership coordinator. The sheet
+closes before invocation, restoring application focus and releasing its own claim. Keyboard visibility
+joins menu and overlay state in the closure check; unavailable state never proves closure. Desktop
+uses the existing Windows touch-keyboard operation.
+
 Overlay > Tools exposes Release to Steam and Reacquire for WSGM with the current ownership state.
 Manual release adopts an active temporary handoff or starts the same release path. It suppresses
 surface-close and Steam-exit reacquisition until an explicit reacquire request. Native surface

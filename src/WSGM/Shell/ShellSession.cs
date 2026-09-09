@@ -139,6 +139,13 @@ public sealed class ShellSession : IAsyncDisposable
     private RtssFrametimeReader? _pairingFrametimes;
     private ForegroundWindowWatcher? _foregroundWindows;
     private AutoTdpService? _autoTdp;
+    private Task<bool> ShowOnScreenKeyboardAsync(CancellationToken cancellationToken)
+    {
+        Log.Info($"On-screen keyboard requested: {(_inGameMode ? "Steam" : "Windows")}.");
+        return _inGameMode
+            ? ToggleSteamSurfaceWithHandoffAsync(SteamNativeSurfaceAction.Keyboard, cancellationToken)
+            : RunUiActionAsync(TouchKeyboard.Toggle, cancellationToken);
+    }
     private RunningApplicationCoordinator? _runningApplicationTargets;
     private async Task<bool> ToggleSteamSurfaceWithHandoffAsync(SteamNativeSurfaceAction action, CancellationToken cancellationToken)
     {
@@ -147,7 +154,8 @@ public sealed class ShellSession : IAsyncDisposable
         {
             // Preserve the existing desktop shortcut path when no managed physical handoff is
             // needed. Managed ownership requires authoritative CEF closure before releasing.
-            return _deviceCoordinator?.Controllers.State != ControllerManagementState.Active
+            return action != SteamNativeSurfaceAction.Keyboard
+                && _deviceCoordinator?.Controllers.State != ControllerManagementState.Active
                 && await RunUiActionAsync(() => _monitor?.IsAlive == true && Steam.IsBigPictureVisible
                     && Steam.TrySendBigPictureShortcut(action == SteamNativeSurfaceAction.QuickAccess
                         ? BigPictureShortcut.QuickAccess : BigPictureShortcut.SteamMenu), cancellationToken)
@@ -160,10 +168,29 @@ public sealed class ShellSession : IAsyncDisposable
         {
             return false;
         }
-        Task<bool> Replay(CancellationToken token) => SteamNativeSurfaceCommands.ReplayAsync(
-            transport, action, target.ProcessId, target.AppId, snapshot.Generations, token);
+        TaskCompletionSource<bool> dispatched = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task<bool> Replay(CancellationToken token)
+        {
+            try
+            {
+                bool result = await SteamNativeSurfaceCommands.ReplayAsync(
+                    transport, action, target.ProcessId, target.AppId, snapshot.Generations, token).ConfigureAwait(false);
+                dispatched.TrySetResult(result);
+                return result;
+            }
+            catch
+            {
+                dispatched.TrySetResult(false);
+                throw;
+            }
+        }
 
-        return _steamControllerHandoff?.TryStart(Replay) == true;
+        if (action == SteamNativeSurfaceAction.Keyboard && target.KeyboardOpen == true
+            && _steamControllerHandoff?.State == SteamControllerOwnership.Steam) { return true; }
+        if (_steamControllerHandoff is not { } owner || !owner.TryStart(Replay)) { return false; }
+        if (action != SteamNativeSurfaceAction.Keyboard) { return true; }
+        Task finished = await Task.WhenAny(dispatched.Task, owner.Completion).WaitAsync(cancellationToken).ConfigureAwait(false);
+        return finished == dispatched.Task && await dispatched.Task.ConfigureAwait(false);
     }
 
     private SteamUiSessionHost? _steamUi;
@@ -582,6 +609,7 @@ public sealed class ShellSession : IAsyncDisposable
             powerPresets: _deviceCoordinator?.PowerPresets,
             powerAssignments: _deviceCoordinator?.PowerAssignments,
             commonPlugins: _commonPlugins is null ? null : new CommonPluginOverlaySource(_commonPlugins, _pluginHost));
+        _overlay.ShowOnScreenKeyboard = ShowOnScreenKeyboardAsync;
         // The sheet is recreated per open, so its one-time cost — compiled-XAML populate JIT for
         // the process's largest window — lands on the user's first swipe (~1.5 s on the Claw).
         // Pay it at idle instead; every later open constructs against warm code.
@@ -671,8 +699,7 @@ public sealed class ShellSession : IAsyncDisposable
 
                 return true;
             }, cancellationToken),
-            ToggleOnScreenKeyboardAsync = cancellationToken =>
-                RunUiActionAsync(TouchKeyboard.Toggle, cancellationToken),
+            ToggleOnScreenKeyboardAsync = ShowOnScreenKeyboardAsync,
             CyclePerformanceProfileAsync = CyclePerformanceProfileAsync,
             CyclePerformanceOverlayLevelAsync = CyclePerformanceOverlayLevelAsync,
             SetRearButtonAsync = (button, cancellationToken) =>

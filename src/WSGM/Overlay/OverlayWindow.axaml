@@ -473,6 +473,8 @@
                                           Description="Eject an SD card or USB drive" />
                             <StackPanel x:Name="CommonPluginRows" Spacing="8" Margin="0,12,0,0" />
                             <TextBlock Text="CONTROLLER OWNERSHIP" Classes="eyebrow" Margin="2,12,2,2" />
+                            <c:CardButton Title="On-Screen Keyboard" Click="OnScreenKeyboard"
+                                          Tag="system.keyboard" Description="Open the keyboard for the current mode" />
                             <TextBlock x:Name="SteamOwnershipStatus" Text="Unavailable" Classes="caption" />
                             <c:CardButton x:Name="ReleaseSteamOwnership" Title="Release to Steam"
                                           Tag="system.release-steam" IsEnabled="False" />

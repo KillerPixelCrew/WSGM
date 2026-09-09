@@ -4,6 +4,11 @@ Tools includes controller ownership status, Release to Steam and Reacquire for W
 Steam handoff coordinator owns both actions. Manual release remains active across native surface
 closure until explicit reacquisition; touch remains available while WSGM controller readers pause.
 
+On-Screen Keyboard in Tools dismisses the sheet before invoking the current mode's keyboard:
+Steam in Game Mode, the existing Windows touch-keyboard integration in Desktop mode. Failed requests
+reopen the sheet with a warning. Steam invocation lives in SteamUiToolkit and uses the session's
+ownership handoff; native keyboard visibility prevents early reacquisition. Manual release takes precedence.
+
 How WSGM's quick access sheet is shaped, how gamepad, touch and raw input reach it, and the Avalonia
 and Windows findings its dismissal and focus handling depend on. Theme and control styling is in
 `docs\ui.md`; the lease the sheet takes while open is in `docs\steam-input.md`; the plugin

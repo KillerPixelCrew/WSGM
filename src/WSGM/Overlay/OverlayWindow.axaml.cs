@@ -111,6 +111,10 @@ public partial class OverlayWindow : Window
     /// <summary>Raised when the user requests Task Manager.</summary>
     public event Action? TaskManagerRequested;
 
+    internal event Action? OnScreenKeyboardRequested;
+
+    private void OnScreenKeyboard(object? sender, RoutedEventArgs e) => OnScreenKeyboardRequested?.Invoke();
+
     /// <summary>Raised when the keep-awake row is activated (toggle the manual hold).</summary>
     public event Action? KeepAwakeToggleRequested;
 

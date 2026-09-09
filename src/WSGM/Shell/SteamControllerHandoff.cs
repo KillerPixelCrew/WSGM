@@ -202,7 +202,7 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
                 }
                 SteamSideMenuSnapshot snapshot = await _observe(_shutdown.Token).ConfigureAwait(false);
                 bool visible = snapshot.Windows?.Any(window =>
-                    window.Menu != SteamSideMenu.None || window.OverlayActive == true) == true;
+                    window.Menu != SteamSideMenu.None || window.OverlayActive == true || window.KeyboardOpen == true) == true;
                 if (visible && !opened)
                 {
                     opened = true;

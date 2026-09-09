@@ -1,14 +1,19 @@
 # WSGM 2.0 implementation tracker
 
 Status: the previous implementation baseline is on `master`; the current open workoff contains
-29 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
+28 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
 submodule changes, without feature branches or pull requests.
 
 ## Current issue workoff
 
-After delivery of #65, #66 and #68 on 2026-09-09, 36 issues remain open.
-Issues #41–#45, #47 and #48 remain deferred; the other 29 are the 2.0 scope.
-The immediate queue is #69 investigation, #67, #38/#39, #58, #59 and #61.
+After delivery of #65–#68 on 2026-09-09, 35 issues remain open.
+Issues #41–#45, #47 and #48 remain deferred; the other 28 are the 2.0 scope.
+The immediate queue is #52 (XIAO now connected), #69 investigation, #38/#39, #58, #59 and #61.
+
+- #67 is implemented: one Tools keyboard action routes by current mode, with Steam-specific invocation
+  in the toolkit and Windows using the existing touch keyboard. Sheet dismissal precedes invocation;
+  keyboard visibility participates in ownership restoration. Failures reopen the sheet with a warning.
+  Focused toolkit and WSGM tests cover the changed paths. Wrapped-game interaction remains for field review.
 
 - #68 is implemented: Tools shows controller ownership and manual release/reacquire controls.
   Manual release takes precedence over surface closure and Steam exit, using the #65 adapters.
