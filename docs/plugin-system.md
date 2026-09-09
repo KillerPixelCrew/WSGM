@@ -177,3 +177,7 @@ Widget pin persistence stores plugin ID, configured instance ID and widget ID se
 AppConfig.PluginWidgetPins. Order follows the list. Normalization removes malformed/duplicate entries,
 bounds the list to 64 and retains unavailable providers. Reset order sorts by plugin, instance and
 widget identity without removing pins. UI-facing mutations use the normal atomic ConfigStore path.
+
+The plugin source panel now exposes Pin widget and Unpin widget actions for each validated widget
+declaration. These edit preferences only on an explicit click and report persistence failures.
+Front-page rendering and order controls remain in progress under #53.

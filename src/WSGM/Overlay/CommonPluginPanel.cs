@@ -54,6 +54,12 @@ internal sealed class CommonPluginPanel : StackPanel
         var owner = instance.Registration;
         _refresh.Add(() => health.Text = instance.Error ?? (owner is null ? "Starting" : $"{owner.Health.Health}: {owner.Health.Detail}"));
         if (owner?.Actions is not { } actions) { return; }
+        foreach (var widget in actions.Widgets)
+        {
+            PluginWidgetPin pin = new(instance.Identity.PluginId, instance.Identity.InstanceId, widget.Id);
+            Children.Add(new PluginWidgetPinControls(widget.Label,
+                pinned => CommonPluginOverlaySource.SetPinnedAsync(pin, pinned)));
+        }
         foreach (var group in actions.Contributions.GroupBy(contribution => contribution.Category))
         {
             Children.Add(new TextBlock { Text = group.Key, Classes = { "caption" } });
