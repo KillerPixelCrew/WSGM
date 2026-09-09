@@ -227,3 +227,9 @@ the named action, waits for the target identity, then applies the display profil
 Desktop profile before invoking the external action. A failed or unconfirmed step stops the sequence
 without retry. One bounded deadline covers the transition; cancellation reports possible uncertainty
 for an in-flight write. Production lifecycle wiring and wake policy remain tracked under #51.
+
+DisplayRouteBackend resolves the currently admitted plugin generation and sends actions with
+SessionAutomation origin through PluginHost. Windows display enumeration/waits and profile writes
+run off the UI thread through WDC. A Dispatched result permits the next step without claiming
+external readback; entry still waits for the configured display. Unconfirmed or rejected actions
+stop the sequence. The adapter does not admit, start or reconnect a plugin on demand.

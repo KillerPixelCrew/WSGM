@@ -8,6 +8,24 @@ public sealed class CommonPluginActionTests
     private static DateTimeOffset Deadline => DateTimeOffset.UtcNow.AddSeconds(5);
 
     [Fact]
+    public async Task DisplayRouteAdapterUsesSessionAutomationAndAdmittedInstance()
+    {
+        PluginHost host = new(action => action());
+        Provider plugin = new();
+        var registration = Admit(host, plugin);
+        await registration.StartAsync(Deadline, default);
+        try
+        {
+            var result = await new DisplayRouteBackend(host).InvokeAsync(
+                new(registration.Identity, "send", new Dictionary<string, PluginValue>()), Deadline, default);
+            Assert.Equal(PluginActionOutcome.Dispatched, result.Outcome);
+            Assert.Equal(PluginActionOrigin.SessionAutomation, plugin.Request!.Origin);
+            Assert.Equal(1, plugin.Dispatches);
+        }
+        finally { await Close(registration); }
+    }
+
+    [Fact]
     public async Task NamedActionsDistinguishDispatchFromVerifiedExternalState()
     {
         PluginHost host = new(action => action());

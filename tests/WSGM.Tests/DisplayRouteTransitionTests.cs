@@ -22,6 +22,15 @@ public sealed class DisplayRouteTransitionTests
     }
 
     [Fact]
+    public async Task DispatchedRouteStillRequiresTargetBeforeProfile()
+    {
+        Backend backend = new() { ActionOutcome = PluginActionOutcome.Dispatched };
+        var result = await new DisplayRouteTransition(backend).RunAsync(Plan, true, default);
+        Assert.True(result.Completed);
+        Assert.Equal(["action", "wait", "profile"], backend.Calls);
+    }
+
+    [Fact]
     public async Task MissingTargetDoesNotApplyProfileOrRepeatAction()
     {
         Backend backend = new() { Present = false };

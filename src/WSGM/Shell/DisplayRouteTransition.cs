@@ -43,7 +43,7 @@ internal sealed class DisplayRouteTransition(IDisplayRouteBackend backend)
                 stage = "plugin action";
                 timeout.Token.ThrowIfCancellationRequested();
                 var result = await backend.InvokeAsync(plan.Action, deadline, timeout.Token).WaitAsync(timeout.Token).ConfigureAwait(false);
-                return result.Outcome == PluginActionOutcome.AppliedVerified ? null
+                return result.Outcome is PluginActionOutcome.AppliedVerified or PluginActionOutcome.Dispatched ? null
                     : new(false, stage, result.Detail ?? result.Outcome.ToString());
             }
             async Task<DisplayRouteResult?> ProfileAsync()

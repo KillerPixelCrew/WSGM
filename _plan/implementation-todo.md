@@ -13,7 +13,7 @@ After #53, the immediate queue is #51 display-route orchestration, with #52 hard
 - #51 is in progress. DisplayRouteTransition implements plugin-action/display-wait/profile ordering
   for entry and profile/action ordering for exit, with a shared deadline and no retries. Six focused
   tests cover ordering, missing targets, uncertain actions, failed Desktop profiles and cancellation.
-  Session hooks, wake arbitration/debounce, production adapters and configuration remain to be wired.
+  The production adapter now routes through PluginHost with SessionAutomation origin and WDC display APIs. Dispatched actions proceed to display confirmation; 14 route/action tests pass. Session hooks, wake arbitration/debounce and configuration remain to be wired.
 
 - #53 is implemented. The common SDK supplies structured widgets with stable identities, state
   predicates, icons and category navigation. Device and IR use the shared renderer. Source-page
