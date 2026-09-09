@@ -16,6 +16,7 @@ namespace WSGM.Overlay;
 internal sealed class CommonPluginPanel : StackPanel
 {
     private readonly ICommonPluginOverlaySource _source;
+    private PluginOverlayInstance[] _observed = [];
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly List<Action> _refresh = [];
     private readonly CancellationTokenSource _closed = new();
@@ -39,13 +40,14 @@ internal sealed class CommonPluginPanel : StackPanel
     private void Refresh()
     {
         var instances = _source.Snapshot();
+        _observed = instances;
         if (_widget is { } pin)
         {
             instances = instances.Where(instance => instance.Identity.PluginId == pin.PluginId
                 && instance.Identity.InstanceId == pin.InstanceId).ToArray();
         }
         string structure = string.Join("|", instances.Select(instance =>
-            $"{instance.Identity}:{instance.Registration?.Context.Generation}:{instance.Registration?.Actions is not null}:{instance.Error}"));
+            $"{instance.Identity}:{instance.Generation}:{instance.Controls is not null}:{instance.Error}"));
         if (structure != _structure)
         {
             _structure = structure;
@@ -60,14 +62,14 @@ internal sealed class CommonPluginPanel : StackPanel
         foreach (var update in _refresh) { update(); }
     }
 
-    private void AddInstance(CommonPluginInstanceView instance)
+    private void AddInstance(PluginOverlayInstance instance)
     {
-        Children.Add(new TextBlock { Text = $"{instance.Manifest.Name} / {instance.Identity.InstanceId}", Classes = { "eyebrow" } });
+        Children.Add(new TextBlock { Text = $"{instance.Name} / {instance.Identity.InstanceId}", Classes = { "eyebrow" } });
         var health = new TextBlock { Classes = { "caption" }, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
         Children.Add(health);
-        var owner = instance.Registration;
-        _refresh.Add(() => health.Text = instance.Error ?? (owner is null ? "Starting" : $"{owner.Health.Health}: {owner.Health.Detail}"));
-        if (owner?.Actions is not { } actions) { return; }
+        var owner = instance;
+        _refresh.Add(() => health.Text = _observed.FirstOrDefault(value => value.Identity == instance.Identity) is { } current ? current.Error ?? current.Status : "Plugin unavailable");
+        if (owner.Controls is not { } actions) { return; }
         if (_widget is { } pinned)
         {
             var widget = actions.Widgets.FirstOrDefault(item => item.Id == pinned.WidgetId);
@@ -87,7 +89,7 @@ internal sealed class CommonPluginPanel : StackPanel
             Children.Add(secondary);
             _refresh.Add(() =>
             {
-                var states = _source.State(instance.Identity).Where(value => value.Generation == owner.Context.Generation).ToArray();
+                var states = _source.State(instance.Identity).Where(value => value.Generation == owner.Generation).ToArray();
                 bool Predicate(string? key) => key is null || states.FirstOrDefault(value => value.Key == key)?.Value.Boolean == true;
                 bool available = Predicate(widget.VisibleStateKey);
                 bool enabled = available && Predicate(widget.EnabledStateKey);
@@ -119,9 +121,9 @@ internal sealed class CommonPluginPanel : StackPanel
         { anchor.BringIntoView(); anchor.Focus(); }
     }
 
-    private void AddContribution(CommonPluginInstanceView instance, PluginRegistration owner, PluginUiContribution contribution)
+    private void AddContribution(PluginOverlayInstance instance, PluginOverlayInstance owner, PluginUiContribution contribution)
     {
-        long generation = owner.Context.Generation;
+        long generation = owner.Generation;
         var row = new StackPanel { Spacing = 4 };
         var effective = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap, Classes = { "caption" } };
         row.Children.Add(new TextBlock { Text = contribution.Label, Classes = { "setting-title" } });
@@ -135,7 +137,7 @@ internal sealed class CommonPluginPanel : StackPanel
         if (contribution.Kind == PluginUiKind.Status) { return; }
         var inputs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         if (contribution.Kind == PluginUiKind.Action
-            && owner.Actions!.Actions.First(value => value.Id == contribution.ActionId).Arguments.Count > 0)
+            && owner.Controls!.Actions.First(value => value.Id == contribution.ActionId).Arguments.Count > 0)
         {
             row.Children.Add(new Expander { Header = "Edit and run", Content = inputs });
         }
@@ -144,7 +146,7 @@ internal sealed class CommonPluginPanel : StackPanel
         if (contribution.Kind == PluginUiKind.Action)
         {
             inputs.Orientation = Orientation.Vertical;
-            var action = owner.Actions!.Actions.First(value => value.Id == contribution.ActionId);
+            var action = owner.Controls!.Actions.First(value => value.Id == contribution.ActionId);
             foreach (var field in action.Arguments)
             {
                 inputs.Children.Add(new TextBlock { Text = field.Label, Classes = { "caption" } });
@@ -175,7 +177,7 @@ internal sealed class CommonPluginPanel : StackPanel
             }
         }
         Func<PluginValue?> read = () => null;
-        var argument = owner.Actions!.Actions.First(action => action.Id == contribution.ActionId)
+        var argument = owner.Controls!.Actions.First(action => action.Id == contribution.ActionId)
             .Arguments.FirstOrDefault(value => value.Key == contribution.ArgumentKey);
         if (contribution.Kind == PluginUiKind.Toggle)
         {
@@ -205,7 +207,7 @@ internal sealed class CommonPluginPanel : StackPanel
         var result = new TextBlock { Classes = { "caption" }, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
         row.Children.Add(result);
         bool busy = false;
-        _refresh.Add(() => apply.IsEnabled = !busy && !owner.IsStopping && !owner.Quarantined && owner.Context.Generation == generation);
+        _refresh.Add(() => apply.IsEnabled = !busy && _observed.Any(value => value.Identity == instance.Identity && value.CanInvoke && value.Generation == generation));
         apply.Click += async (_, _) =>
         {
             if (busy) { return; }

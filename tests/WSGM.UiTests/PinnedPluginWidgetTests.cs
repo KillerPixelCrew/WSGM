@@ -26,7 +26,7 @@ public sealed class PinnedPluginWidgetTests
 
     private sealed class MissingProvider : ICommonPluginOverlaySource
     {
-        public CommonPluginInstanceView[] Snapshot() => [];
+        public PluginOverlayInstance[] Snapshot() => [];
         public PluginStatePublication[] State(PluginInstanceIdentity identity) => [];
         public Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,
             string action, IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken) =>

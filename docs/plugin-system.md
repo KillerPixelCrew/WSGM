@@ -194,3 +194,7 @@ then scrolls and focuses the owning plugin-instance/category anchor using stable
 Widget rendering consumes ICommonPluginOverlaySource for observations and explicit actions, without
 owning package lifecycle. The missing-provider headless test verifies a retained visible placeholder
 and no action dispatch. Device capability adaptation remains in progress.
+
+The rendering source returns detached PluginOverlayInstance and PluginOverlayControls records.
+Views no longer retain PluginRegistration or acquire lifecycle ownership. Current source observations
+control action availability; generation-bound action routing remains with the source adapter.
