@@ -95,6 +95,22 @@ public sealed class SteamControllerHandoffTests
     }
 
     [Fact]
+    public async Task ReplacedSteamProcessRestoresEvenWhenTheLivenessPollNeverSawAnExit()
+    {
+        int restores = 0;
+        await using SteamControllerHandoff owner = new(
+            _ => Task.FromResult(true),
+            _ => { restores++; return Task.FromResult(true); },
+            _ => throw new InvalidOperationException("The replacement CEF must not extend the old interaction"),
+            () => true, _ => { }, originalSteamExited: () => true);
+
+        owner.TryStart(_ => Task.FromResult(true));
+        await owner.Completion.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal(1, restores);
+        Assert.Equal(SteamControllerOwnership.Wsgm, owner.State);
+    }
+
+    [Fact]
     public async Task SteamExitRestoresWithoutTreatingCefFailureAsClosure()
     {
         int restores = 0;

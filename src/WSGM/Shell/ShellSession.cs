@@ -713,13 +713,14 @@ public sealed class ShellSession : IAsyncDisposable
             _steamUi.ApplySurfaceObservation(_config.Cef.Enabled);
             if (_deviceCoordinator is { } handoffDevice)
             {
-                _steamControllerOwnership = new SteamControllerOwnershipAdapter(handoffDevice, () => _monitor?.IsAlive == true);
+                _steamControllerOwnership = new SteamControllerOwnershipAdapter(handoffDevice, () => Steam.IsRunning);
                 _steamControllerHandoff = new SteamControllerHandoff(
                     _steamControllerOwnership.ReleaseAsync,
                     _steamControllerOwnership.RestoreAsync,
                     token => SteamSideMenuObserver.ReadAsync(_steamUiTransport!, token),
                     () => _monitor?.IsAlive == true,
-                    Log.Info);
+                    Log.Info,
+                    originalSteamExited: () => _steamControllerOwnership.OriginalSteamExited);
             }
             _steamUi.ApplyNetworkIndicator(_inGameMode && _wifiIndicatorEnabled);
             _steamUi.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);

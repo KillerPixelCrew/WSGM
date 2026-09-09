@@ -133,7 +133,10 @@ Restoration takes a temporary block claim before ending pass-through, reacquires
 and restores HidHide, then drops that temporary claim. A separate pass-through owner or unverified
 write prevents physical reacquisition; shutdown disposes the native claims and runs full device
 make-safe. A confirmed Steam exit permits physical restoration without an acknowledgement from its
-dead pipe. Restart/disconnect recovery and end-to-end verification remain open under #65.
+dead pipe. The native adapter retains an open handle to the original Steam process, so a quick
+restart missed by the five-second monitor cannot extend the old interaction. Restoration blocks
+the replacement Steam client before discarding the dead claim and reacquiring physical ownership.
+Disconnect recovery and end-to-end verification remain open under #65.
 
 ## Owner claims and the Settings handoff
 

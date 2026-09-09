@@ -1,16 +1,16 @@
 # WSGM 2.0 implementation tracker
 
 Status: the previous implementation baseline is on `master`; the current open workoff contains
-32 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
+31 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
 submodule changes, without feature branches or pull requests.
 
 ## Current issue workoff
 
-GitHub was read with `gh` on 2026-09-09: 39 issues are open.
-Issues #41–#45, #47 and #48 remain deferred; the other 32 are the 2.0 scope.
+After #66 closed on 2026-09-09, 38 issues remain open.
+Issues #41–#45, #47 and #48 remain deferred; the other 31 are the 2.0 scope.
 The immediate queue is #65, #69 investigation, #68, #67, #38/#39, #58, #59 and #61.
 
-- #66: SDL exclusion sanitization now covers every controlled child, including de-elevation
+- #66 is closed by `6cc870f`. SDL exclusion sanitization now covers every controlled child, including de-elevation
   without a lease and fallback after lease failure. Parent state and unrelated environment entries
   are preserved. All 81 launcher tests pass and the Release launcher build has zero warnings.
   Existing native sanitizer coverage and the dated 2026-09-08 Eden result remain applicable;
@@ -20,7 +20,8 @@ The immediate queue is #65, #69 investigation, #68, #67, #38/#39, #58, #59 and #
   pushed. WSGM registers overlay observation with the CEF session and has tested controller-pause
   operations and session-lifetime handoff policy. Physical/lease adapters and OEM QAM/Overlay
   dispatch are connected through exact-window native handlers. Main-window replay has live CEF
-  evidence; game-overlay dispatch is not live-verified. Restart/disconnect recovery and end-to-end
+  evidence; game-overlay dispatch is not live-verified. An original-process handle detects Steam
+  replacement even when the monitor misses its exit. Disconnect recovery and end-to-end
   verification remain pending.
 
 The maintainer directs issues to close when their fixes are committed and pushed; failed field

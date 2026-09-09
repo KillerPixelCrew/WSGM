@@ -25,6 +25,7 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
     private readonly Func<CancellationToken, Task<bool>> _restore;
     private readonly Func<CancellationToken, Task<SteamSideMenuSnapshot>> _observe;
     private readonly Func<bool> _steamAlive;
+    private readonly Func<bool> _originalSteamExited;
     private readonly Action<string> _trace;
     private readonly TimeProvider _time;
     private readonly TimeSpan _openTimeout;
@@ -40,12 +41,14 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
         Func<bool> steamAlive,
         Action<string> trace,
         TimeProvider? time = null,
-        TimeSpan? openTimeout = null)
+        TimeSpan? openTimeout = null,
+        Func<bool>? originalSteamExited = null)
     {
         _release = release;
         _restore = restore;
         _observe = observe;
         _steamAlive = steamAlive;
+        _originalSteamExited = originalSteamExited ?? (() => false);
         _trace = trace;
         _time = time ?? TimeProvider.System;
         _openTimeout = openTimeout ?? TimeSpan.FromSeconds(5);
@@ -111,7 +114,7 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
             _trace($"Steam handoff: semantic replay {(sent ? "accepted" : "refused")}.");
             long started = _time.GetTimestamp();
             bool opened = false;
-            while (!_shutdown.IsCancellationRequested && _steamAlive())
+            while (!_shutdown.IsCancellationRequested && _steamAlive() && !_originalSteamExited())
             {
                 SteamSideMenuSnapshot snapshot = await _observe(_shutdown.Token).ConfigureAwait(false);
                 bool visible = snapshot.Windows?.Any(window =>

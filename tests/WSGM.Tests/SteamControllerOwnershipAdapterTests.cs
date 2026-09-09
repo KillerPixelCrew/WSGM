@@ -77,6 +77,7 @@ public sealed class SteamControllerOwnershipAdapterTests
         internal bool Supported { get; init; } = true;
         internal bool RestoreAllowed { get; init; } = true;
         public bool SupportsPassThrough { get { calls.Add("support"); return Supported; } }
+        public bool OriginalSteamExited => false;
         public bool BeginPassThrough() { calls.Add("pass-through"); return true; }
         public bool BeginRestore() { calls.Add("block-steam"); return RestoreAllowed; }
         public void EndRestore() => calls.Add("end-block");
