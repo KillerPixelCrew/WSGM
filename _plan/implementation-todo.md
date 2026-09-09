@@ -10,6 +10,11 @@ After delivery of #38/#39, #58/#59, #61 and #65–#68 on 2026-09-09, 30 issues r
 Issues #41–#45, #47 and #48 remain deferred; the other 23 are the 2.0 scope.
 The immediate queue is #52 (XIAO now connected), #69 investigation and #53.
 
+- #53 is in progress. The common SDK declares compact widget groups referencing existing controls,
+  with stable identity, state predicates and navigation metadata. Package loading forwards them;
+  host admission validates links and captures immutable lists. Two focused validation tests pass.
+  Pin persistence, ordering, rendering and Device integration remain to implement.
+
 - #61 is implemented. Overlay and QAM share manual mode, paired dispatch and independent saved
   unified/advanced preferences. Unified mode shows one editable TDP slider and both readbacks.
   Profile restoration uses the plugin pair and restores advanced boost under the mutation gate.

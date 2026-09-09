@@ -25,6 +25,7 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
     public IReadOnlyList<PluginSetting> Settings => _plugin is IConfigurablePlugin configurable ? configurable.Settings : [];
     public IReadOnlyList<PluginAction> Actions => _plugin is IPluginActions actions ? actions.Actions : [];
     public IReadOnlyList<PluginUiContribution> Contributions => _plugin is IPluginUi ui ? ui.Contributions : [];
+    public IReadOnlyList<PluginWidget> Widgets => _plugin is IPluginUi ui ? ui.Widgets : [];
 
     internal static PluginManifest ReadManifest(string packageRoot)
     {

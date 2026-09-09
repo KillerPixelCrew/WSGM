@@ -164,3 +164,11 @@ part of this initial surface; the Device settings editor remains available.
 The migration follows common contracts, Device compatibility adapter, lifecycle/configuration/events,
 action/UI contributions, then an independent non-device consumer. Delivery status lives only in
 `_plan/implementation-todo.md`; existing device behavior stays the baseline throughout.
+
+### Widget declarations
+
+IPluginUi.Widgets is an optional additive declaration surface. The host admits at most 32 widgets,
+validates stable IDs and one to eight distinct existing contribution links, and copies plugin-owned
+lists. Navigation categories must exist. State predicates reference normal effective-state keys;
+missing predicate state means unavailable. Widget rendering and persistent front-page pinning are
+tracked as in-progress work under #53.

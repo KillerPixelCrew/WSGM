@@ -89,6 +89,24 @@ public sealed record PluginUiContribution(string Id, string Label, string Catego
 /// <summary>Optional declarative UI contribution source.</summary>
 public interface IPluginUi
 {
+    /// <summary>Optional compact groups of existing contributions, eligible for user pinning.</summary>
+    IReadOnlyList<PluginWidget> Widgets => [];
+
     /// <summary>Static bounded contributions whose action links are validated by the host.</summary>
     IReadOnlyList<PluginUiContribution> Contributions { get; }
 }
+
+/// <summary>A compact host-rendered widget scoped to its plugin instance identity.</summary>
+/// <param name="Id">Stable widget identity, independent of declaration order.</param>
+/// <param name="Label">Plain display title.</param>
+/// <param name="ContributionIds">One to eight existing status or control contribution identities.</param>
+/// <param name="Icon">Optional host icon key; never markup or executable UI.</param>
+/// <param name="SecondaryStateKey">Optional secondary effective-state value.</param>
+/// <param name="VisibleStateKey">Optional boolean state key; true makes the widget available for display.</param>
+/// <param name="EnabledStateKey">Optional boolean state key; true enables its controls.</param>
+/// <param name="NavigationCategory">Optional owning contribution category to open.</param>
+/// <remarks>State updates and commands use the normal plugin publication/action contracts. Missing
+/// predicate state means unavailable. Hosts retain a placeholder for a pinned unavailable widget.</remarks>
+public sealed record PluginWidget(string Id, string Label, IReadOnlyList<string> ContributionIds,
+    string? Icon = null, string? SecondaryStateKey = null, string? VisibleStateKey = null,
+    string? EnabledStateKey = null, string? NavigationCategory = null);

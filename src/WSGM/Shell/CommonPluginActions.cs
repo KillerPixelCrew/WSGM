@@ -14,6 +14,7 @@ internal sealed class CommonPluginActions
     private readonly IPluginActions? _provider;
     internal IReadOnlyList<PluginAction> Actions { get; }
     internal IReadOnlyList<PluginUiContribution> Contributions { get; }
+    internal IReadOnlyList<PluginWidget> Widgets { get; }
     internal PluginActionResult? LastResult { get; private set; }
 
     internal CommonPluginActions(IPlugin plugin)
@@ -46,6 +47,29 @@ internal sealed class CommonPluginActions
             { throw new ArgumentException("Plugin UI contribution has an invalid state or action link."); }
         }
         Contributions = Array.AsReadOnly(contributions.ToArray());
+        Widgets = CaptureWidgets(plugin is IPluginUi widgetSource ? widgetSource.Widgets : [], Contributions);
+    }
+
+    internal static IReadOnlyList<PluginWidget> CaptureWidgets(IReadOnlyList<PluginWidget> widgets,
+        IReadOnlyList<PluginUiContribution> contributions)
+    {
+        if (widgets is null || widgets.Count > 32) { throw new ArgumentException("Invalid plugin widget count."); }
+        HashSet<string> ids = new(StringComparer.Ordinal);
+        HashSet<string> controls = new(contributions.Select(item => item.Id), StringComparer.Ordinal);
+        List<PluginWidget> captured = [];
+        foreach (var widget in widgets)
+        {
+            if (widget is null || !PluginConfigurationRules.ValidKey(widget.Id) || !ids.Add(widget.Id)
+                || !Label(widget.Label) || widget.ContributionIds is null || widget.ContributionIds.Count is < 1 or > 8
+                || widget.ContributionIds.Distinct(StringComparer.Ordinal).Count() != widget.ContributionIds.Count
+                || widget.ContributionIds.Any(id => !controls.Contains(id))
+                || new[] { widget.Icon, widget.SecondaryStateKey, widget.VisibleStateKey, widget.EnabledStateKey }
+                    .Any(key => key is not null && !PluginConfigurationRules.ValidKey(key))
+                || (widget.NavigationCategory is not null && !contributions.Any(item => item.Category == widget.NavigationCategory)))
+            { throw new ArgumentException("Invalid plugin widget declaration or contribution link."); }
+            captured.Add(widget with { ContributionIds = Array.AsReadOnly(widget.ContributionIds.ToArray()) });
+        }
+        return captured.AsReadOnly();
     }
 
     internal async Task<PluginActionResult> ExecuteAsync(string actionId, PluginActionOrigin origin,

@@ -37,3 +37,8 @@ action forms to those declarations; text/numeric arguments can be edited through
 keyboard before explicit dispatch. Defaults initialize the draft and are not automatic commands.
 Other host-rendered controls link actions and effective state keys. No plugin UI code is
 injected, and action results cannot mutate saved preferences.
+
+IPluginUi.Widgets optionally declares up to 32 compact PluginWidget groups. Each stable widget ID
+references one to eight existing contribution IDs. Optional icon, secondary state, boolean visibility
+and enabled keys, and an owning navigation category remain data; no plugin UI code is loaded.
+The host combines widget IDs with plugin instance identity and captures immutable declarations.
