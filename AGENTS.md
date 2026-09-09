@@ -34,6 +34,9 @@ when the guidance conflicts.
 - src/WSGM.Plugin.Sdk holds common plugin contracts. The resident Shell host admits the existing
   Device runtime through an adapter and independently manages explicitly enabled non-device packages.
   Status is tracked in _plan/implementation-todo.md.
+- src/WSGM.Plugin.Ir owns the independent IR integration and its Firmware subtree. It is under
+  development; read its README and protocol.md before endpoint work. Firmware builds do not prove
+  live learn/transmit behavior, and carrier metadata must distinguish assumptions from measurements.
 - src/WSGM.Device.Sdk is the device contract. src/WSGM.DeviceLab is the hardware
   validation tool. src/WSGM.Device.Msi.Claw8A2Vm is the machine-specific package.
   src/WSGM.Device.HandheldCompanion is a design scaffold, not a working plugin.

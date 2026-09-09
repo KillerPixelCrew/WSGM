@@ -1,5 +1,10 @@
 # Common plugin contracts
 
+`src/WSGM.Plugin.Ir` is the first hardware-backed independent integration under development (#52).
+It owns its USB protocol, command library and companion firmware. Its initial declarative Tools
+contributions use the existing common host; command/scene management UX and hardware acceptance
+remain incomplete. See its README for the implemented boundary and current limitations.
+
 `src/WSGM.Plugin.Sdk` is the MIT, dependency-free common contract assembly. `WSGM.Device.Sdk`
 continues to define hardware detection, controllers, capabilities and Device Lab integration.
 The resident Shell session owns the common host. Its Device coordinator admits the existing

@@ -10,6 +10,14 @@ After delivery of #65–#68 on 2026-09-09, 35 issues remain open.
 Issues #41–#45, #47 and #48 remain deferred; the other 28 are the 2.0 scope.
 The immediate queue is #52 (XIAO now connected), #69 investigation, #38/#39, #58, #59 and #61.
 
+- #52 is in progress. The XIAO ESP32-C3 enumerates on COM3. A common-SDK IR package now owns
+  the USB endpoint protocol, persistent command/scene library, named actions and module-local firmware.
+  The firmware builds for the reference board; source and hardware archive from Seeed were inspected.
+  Management UI, live learn/send verification and complete package-host validation remain open.
+  Carrier provenance and a separate manual override are part of the initial payload/library/UI;
+  actual frequency measurement remains unverified. Flash backup stopped when COM3 disappeared;
+  no replacement firmware was written.
+
 - #67 is implemented: one Tools keyboard action routes by current mode, with Steam-specific invocation
   in the toolkit and Windows using the existing touch keyboard. Sheet dismissal precedes invocation;
   keyboard visibility participates in ownership restoration. Failures reopen the sheet with a warning.
