@@ -215,3 +215,7 @@ by the Shell source, allowing focused UI checks without reading or writing live 
 Widget icons use host keys: power, fan, battery, lighting, controller, display, settings and action.
 They render with the shared WSGM geometry and foreground color. Unknown keys omit the icon; plugin
 strings are never parsed as geometry or markup. The IR command widget uses the action icon.
+
+Controller confirmation opens widget editors and choice popups. While a selector is open, shared
+navigation keeps D-pad selection with its owning ComboBox despite popup-item focus. Confirmation
+closes the popup and restores selector focus; the separate Apply action dispatches the draft.

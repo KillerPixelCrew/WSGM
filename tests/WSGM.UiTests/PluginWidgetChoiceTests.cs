@@ -1,6 +1,9 @@
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.LogicalTree;
+using Avalonia.VisualTree;
+using Avalonia.Controls.Primitives;
+using WSGM.Input;
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Plugin.Sdk;
@@ -10,6 +13,47 @@ namespace WSGM.UiTests;
 
 public sealed class PluginWidgetChoiceTests
 {
+    [AvaloniaFact]
+    public void ControllerOpensChoiceEditorAndAppliesDraft()
+    {
+        using UiFixture fixture = new();
+        ChoiceSource source = new();
+        CommonPluginPanel panel = new(source, new PluginWidgetPin("test", "device", "fan"));
+        Window window = new() { Content = panel, Width = 600, Height = 500 };
+        Buttons buttons = new();
+        using GamepadNavigation navigation = new(buttons, window, () => { });
+        try
+        {
+            window.Show();
+            var expander = panel.GetLogicalDescendants().OfType<Expander>().Single();
+            var header = expander.GetVisualDescendants().OfType<ToggleButton>().Single();
+            Assert.True(header.Focus());
+            buttons.Press(GamepadButtons.A);
+            Assert.True(expander.IsExpanded);
+            window.UpdateLayout();
+            var choice = panel.GetLogicalDescendants().OfType<ComboBox>().Single();
+            Assert.True(choice.Focus());
+            buttons.Press(GamepadButtons.A);
+            Assert.True(choice.IsDropDownOpen);
+            buttons.Press(GamepadButtons.DPadDown);
+            Assert.Equal("turbo", choice.SelectedItem);
+            Assert.Null(source.Requested);
+            buttons.Press(GamepadButtons.A);
+            Assert.False(choice.IsDropDownOpen);
+            var apply = panel.GetLogicalDescendants().OfType<Button>().Single(button => Equals(button.Content, "Change fan"));
+            Assert.True(apply.Focus());
+            buttons.Press(GamepadButtons.A);
+            Assert.Equal("turbo", source.Requested);
+        }
+        finally { window.Close(); }
+    }
+
+    private sealed class Buttons : IUiButtonSource
+    {
+        public event Action<GamepadButtons>? ButtonPressed;
+        internal void Press(GamepadButtons buttons) => ButtonPressed?.Invoke(buttons);
+    }
+
     [AvaloniaFact]
     public void DevicePinPanelOffersPinsWithoutDuplicatingEditors()
     {

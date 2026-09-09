@@ -1,24 +1,22 @@
 # WSGM 2.0 implementation tracker
 
 Status: the previous implementation baseline is on `master`; the current open workoff contains
-23 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
+22 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
 submodule changes, without feature branches or pull requests.
 
 ## Current issue workoff
 
-After delivery of #38/#39, #58/#59, #61 and #65–#68 on 2026-09-09, 30 issues remain open.
-Issues #41–#45, #47 and #48 remain deferred; the other 23 are the 2.0 scope.
-The immediate queue is #52 (XIAO now connected), #69 investigation and #53.
+After delivery of #38/#39, #58/#59, #61 and #65–#68 on 2026-09-09, 29 issues remain open.
+Issues #41–#45, #47 and #48 remain deferred; the other 22 are the 2.0 scope.
+After #53, the immediate queue is #51 display-route orchestration, with #52 hardware capture and #69 investigation alongside it.
 
-- #53 is in progress. The common SDK declares compact widget groups referencing existing controls,
-  with stable identity, state predicates and navigation metadata. Package loading forwards them;
-  host admission validates links and captures immutable lists. Two focused validation tests pass.
-  Pin persistence and ordering now retain stable plugin-instance/widget identities, including missing
-  providers. Two serialization/order tests pass. Source pages now expose explicit Pin/Unpin controls;
-  the focused pointer test passes. Front-page widgets now reuse the host control renderer and expose
-  unpin, move and reset-order actions. Missing providers remain visible; predicates gate controls.
-  IR declares a selected-command widget. Eight IR and three package tests pass. Device integration,
-  navigation now opens the owning instance/category in Tools. The renderer now has an independent read/action source interface, and the missing-provider headless test passes. The source now exposes detached control records without plugin registrations, preserving current availability and generation checks. DeviceWidgetSource now supplies status, numeric and boolean widgets through the shared renderer and coordinator. Two identity/readback tests pass. Choice editing now uses declared options and an explicit action; the focused pointer test passes. Device-page pin access now uses a compact expander with no duplicate editors. Unload/recovery and stale-click checks now pass; actions recheck generation and predicates at invocation. Reorder/unpin focus now follows stable widget identity and neighboring pins; seven focused widget UI tests pass. Optional host icons now render through shared geometry, with documented keys and a text-only fallback. Controller-navigation review remains.
+- #53 is implemented. The common SDK supplies structured widgets with stable identities, state
+  predicates, icons and category navigation. Device and IR use the shared renderer. Source-page
+  pinning and front-page unpin/reorder/reset persist across restarts and retain unavailable providers.
+  Generation and availability checks reject stale actions; focus follows reordered or removed pins.
+  The controller choice-editor test uncovered and fixed popup focus routing in shared navigation.
+  Eight widget UI tests and 33 focused contract, persistence, adapter and input tests pass.
+  These are headless checks, not a physical controller or live hardware pass.
 
 - #61 is implemented. Overlay and QAM share manual mode, paired dispatch and independent saved
   unified/advanced preferences. Unified mode shows one editable TDP slider and both readbacks.

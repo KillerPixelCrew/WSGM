@@ -230,3 +230,7 @@ edits coordinate both limits through the plugin. Advanced mode keeps independent
 
 In unified TDP mode, the primary row is labeled TDP and the boost row becomes read-only. Switching
 to split restores independent editing without changing the observed limits.
+
+Open ComboBox popups retain their owning selector as the controller navigation target even when
+Avalonia focuses a popup item. D-pad selection stays inside the selector, and confirmation closes
+the popup and restores focus to the selector before another control is activated.

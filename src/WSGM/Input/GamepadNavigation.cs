@@ -153,6 +153,7 @@ public sealed class GamepadNavigation : IDisposable
                 // same popup behavior as a real keyboard event on every host.
                 // Own this operation explicitly so SDL confirmation is reliable.
                 combo.IsDropDownOpen = !combo.IsDropDownOpen;
+                if (!combo.IsDropDownOpen) { combo.Focus(NavigationMethod.Directional); }
             }
             else
             {
@@ -423,6 +424,10 @@ public sealed class GamepadNavigation : IDisposable
     /// is one of ours, otherwise the last element this class focused.</summary>
     private InputElement? CurrentTarget()
     {
+        // Popup item focus belongs to the open selector. Keep its controller operation
+        // active until confirmation or Back closes it, even across popup top levels.
+        if (_lastFocused is ComboBox { IsDropDownOpen: true, IsEffectivelyEnabled: true, IsEffectivelyVisible: true } selector && IsInWindow(selector))
+        { return selector; }
         var focused = GetFocused();
         if (focused is not null && focused is not Window && IsInWindow(focused))
         {
