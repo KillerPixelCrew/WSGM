@@ -652,6 +652,7 @@ public static class ConfigStore
             && application.FrameLimit is null
             && application.OverlayLevel is null
             && application.TdpWatts is null
+            && application.ManualTdp is null
             && application.AcPowerPreset is null
             && application.BatteryPowerPreset is null
             && application.VariableRefreshRate is null);

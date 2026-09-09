@@ -12,6 +12,7 @@ public sealed class PerformancePolicyPersistenceTests
         {
             FrameLimitStrategy = FrameLimitStrategy.FrameDoubling,
             TdpWatts = 22,
+            ManualTdp = new(true, 20, 22, 30),
             VariableRefreshRate = true,
             Applications =
             [
@@ -23,6 +24,7 @@ public sealed class PerformancePolicyPersistenceTests
                     OverlayLevel = 1,
                     UsePerGameProfile = true,
                     TdpWatts = 18,
+                    ManualTdp = new(false, 15, 18, 25),
                     VariableRefreshRate = false,
                 },
             ],
@@ -42,6 +44,7 @@ public sealed class PerformancePolicyPersistenceTests
         Assert.Equal(3, config.OverlayLevel);
         Assert.Equal(FrameLimitStrategy.FrameDoubling, config.FrameLimitStrategy);
         Assert.Equal(22, config.TdpWatts);
+        Assert.Equal(new(true, 20, 22, 30), config.ManualTdp);
         Assert.True(config.VariableRefreshRate);
         PerformanceApplicationConfig application = Assert.Single(config.Applications);
         Assert.Equal("game.exe", application.RtssProfileName);
@@ -49,6 +52,7 @@ public sealed class PerformancePolicyPersistenceTests
         Assert.Equal(2, application.OverlayLevel);
         Assert.True(application.UsePerGameProfile);
         Assert.Equal(18, application.TdpWatts);
+        Assert.Equal(new(false, 15, 18, 25), application.ManualTdp);
         Assert.False(application.VariableRefreshRate);
     }
 

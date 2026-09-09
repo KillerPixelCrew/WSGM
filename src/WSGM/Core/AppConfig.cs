@@ -525,6 +525,9 @@ public sealed class PerformanceConfig
     /// <summary>Global sustained power limit in watts, or null to leave it to the device.</summary>
     public int? TdpWatts { get; set; }
 
+    /// <summary>Global manual TDP mode and retained unified/advanced preferences.</summary>
+    public ManualTdpProfile? ManualTdp { get; set; }
+
     /// <summary>Global variable-refresh preference, or null to leave the panel as found.</summary>
     public bool? VariableRefreshRate { get; set; }
 
@@ -591,6 +594,9 @@ public sealed class PerformanceApplicationConfig
 
     /// <summary>Application sustained power limit in watts, or null to inherit.</summary>
     public int? TdpWatts { get; set; }
+
+    /// <summary>Application manual TDP preferences, or null to inherit the global profile.</summary>
+    public ManualTdpProfile? ManualTdp { get; set; }
 
     /// <summary>Application variable-refresh preference, or null to inherit.</summary>
     public bool? VariableRefreshRate { get; set; }

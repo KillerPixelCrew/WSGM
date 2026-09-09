@@ -725,6 +725,11 @@ Other plugins may publish different companion bounds and steps. The sustained de
 defines coordinated targets; the plugin owns the mapping and confirms both limits. Host validation
 does not impose the Claw's equal-limit policy on other hardware.
 
+The manual TDP profile model retains unified target and advanced sustained/boost preferences
+separately in global and per-game performance configuration. A missing per-game record inherits
+the global record. These values are preferences rather than readback; RTSS profile edits preserve
+them. The #61 control and hardware-restoration integration is still in progress.
+
 ## 15. Glyphs
 
 At cycle start the coordinator imports `glyphs\` through the SDK importer, logs
