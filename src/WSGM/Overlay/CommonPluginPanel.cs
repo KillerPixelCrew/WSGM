@@ -19,11 +19,13 @@ internal sealed class CommonPluginPanel : StackPanel
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly List<Action> _refresh = [];
     private readonly CancellationTokenSource _closed = new();
-    private string _structure = "";
+    private string _structure = "\0";
+    private readonly PluginWidgetPin? _widget;
 
-    internal CommonPluginPanel(CommonPluginOverlaySource source)
+    internal CommonPluginPanel(CommonPluginOverlaySource source, PluginWidgetPin? widget = null)
     {
         _source = source;
+        _widget = widget;
         Spacing = 8;
         _timer.Tick += (_, _) => Refresh();
         AttachedToVisualTree += (_, _) => { Refresh(); _timer.Start(); };
@@ -33,6 +35,11 @@ internal sealed class CommonPluginPanel : StackPanel
     private void Refresh()
     {
         var instances = _source.Snapshot();
+        if (_widget is { } pin)
+        {
+            instances = instances.Where(instance => instance.Identity.PluginId == pin.PluginId
+                && instance.Identity.InstanceId == pin.InstanceId).ToArray();
+        }
         string structure = string.Join("|", instances.Select(instance =>
             $"{instance.Identity}:{instance.Registration?.Context.Generation}:{instance.Registration?.Actions is not null}:{instance.Error}"));
         if (structure != _structure)
@@ -41,8 +48,10 @@ internal sealed class CommonPluginPanel : StackPanel
             Children.Clear();
             _refresh.Clear();
             foreach (var instance in instances) { AddInstance(instance); }
+            if (_widget is not null && instances.Length == 0)
+            { Children.Add(new TextBlock { Text = "Plugin unavailable", Classes = { "caption" } }); }
         }
-        IsVisible = instances.Length > 0;
+        IsVisible = _widget is not null || instances.Length > 0;
         foreach (var update in _refresh) { update(); }
     }
 
@@ -54,6 +63,29 @@ internal sealed class CommonPluginPanel : StackPanel
         var owner = instance.Registration;
         _refresh.Add(() => health.Text = instance.Error ?? (owner is null ? "Starting" : $"{owner.Health.Health}: {owner.Health.Detail}"));
         if (owner?.Actions is not { } actions) { return; }
+        if (_widget is { } pinned)
+        {
+            var widget = actions.Widgets.FirstOrDefault(item => item.Id == pinned.WidgetId);
+            if (widget is null) { Children.Add(new TextBlock { Text = "Widget unavailable" }); return; }
+            Children.Add(new TextBlock { Text = widget.Label, Classes = { "setting-title" } });
+            int firstControl = Children.Count;
+            foreach (var id in widget.ContributionIds)
+            { AddContribution(instance, owner, actions.Contributions.First(item => item.Id == id)); }
+            var controls = Children.Skip(firstControl).ToArray();
+            var secondary = new TextBlock { Classes = { "caption" } };
+            Children.Add(secondary);
+            _refresh.Add(() =>
+            {
+                var states = _source.State(instance.Identity).Where(value => value.Generation == owner.Context.Generation).ToArray();
+                bool Predicate(string? key) => key is null || states.FirstOrDefault(value => value.Key == key)?.Value.Boolean == true;
+                bool available = Predicate(widget.VisibleStateKey);
+                bool enabled = available && Predicate(widget.EnabledStateKey);
+                foreach (var control in controls) { control.IsEnabled = enabled; }
+                secondary.Text = !available ? "Widget unavailable" : widget.SecondaryStateKey is { } key
+                    ? states.FirstOrDefault(value => value.Key == key) is { } state ? Format(state.Value) : "No confirmed value" : "";
+            });
+            return;
+        }
         foreach (var widget in actions.Widgets)
         {
             PluginWidgetPin pin = new(instance.Identity.PluginId, instance.Identity.InstanceId, widget.Id);

@@ -328,7 +328,12 @@ public partial class OverlayWindow : Window
     internal void AttachCommonPlugins(CommonPluginOverlaySource? source)
     {
         CommonPluginRows.Children.Clear();
-        if (source is not null) { CommonPluginRows.Children.Add(new CommonPluginPanel(source)); }
+        PinnedPluginWidgetsHost.Children.Clear();
+        if (source is not null)
+        {
+            CommonPluginRows.Children.Add(new CommonPluginPanel(source));
+            PinnedPluginWidgetsHost.Children.Add(new PinnedPluginWidgets(source));
+        }
     }
 
     internal void AttachDeviceBridge(IDeviceOverlaySource? bridge)

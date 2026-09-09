@@ -200,6 +200,7 @@
                          grid's permanent last cell (mock: empty-slot affordance). -->
                     <StackPanel x:Name="PanelQuickAccess" Spacing="8" IsVisible="True">
                         <UniformGrid x:Name="PinnedGrid" Columns="4" />
+                        <StackPanel x:Name="PinnedPluginWidgetsHost" Spacing="8" />
                     </StackPanel>
 
                     <!-- Session (the Home destination). -->

@@ -91,3 +91,6 @@ a firmware build from successful capture and verified appliance behavior.
 See [protocol.md](protocol.md) for the shared wire contract. Main repository GPL licensing applies
 to this plugin and its authored firmware. The common SDK retains its MIT boundary. PlatformIO
 downloads the separately licensed IRremoteESP8266, ArduinoJson and Adafruit NeoPixel dependencies.
+
+The selected-command widget can be pinned from the plugin page. It shows the selected command and
+uses the existing explicit send action; pinning or displaying it never sends infrared.

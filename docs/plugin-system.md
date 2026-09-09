@@ -181,3 +181,9 @@ widget identity without removing pins. UI-facing mutations use the normal atomic
 The plugin source panel now exposes Pin widget and Unpin widget actions for each validated widget
 declaration. These edit preferences only on an explicit click and report persistence failures.
 Front-page rendering and order controls remain in progress under #53.
+
+Pinned common widgets now render below the front-page quick-access cards. The existing contribution
+renderer supplies live state and named actions; widget predicates disable unavailable controls.
+Missing plugin instances retain identity-labelled placeholders. Each card offers move up/down and
+unpin, with a reset-order action below the list. Device widget adaptation and navigation metadata
+remain in progress. The IR package declares a selected-command/send widget.

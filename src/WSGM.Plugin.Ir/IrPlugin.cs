@@ -59,6 +59,12 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     ];
 
     /// <inheritdoc />
+    public IReadOnlyList<PluginWidget> Widgets { get; } =
+    [
+        new("selected-command", "IR remote", ["selected", "send"], NavigationCategory: "commands"),
+    ];
+
+    /// <inheritdoc />
     public IReadOnlyList<PluginUiContribution> Contributions { get; } =
     [
         new("status", "IR endpoint", "infrared", PluginUiKind.Status, StateKey: "status"),
