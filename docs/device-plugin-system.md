@@ -728,7 +728,9 @@ does not impose the Claw's equal-limit policy on other hardware.
 The manual TDP profile model retains unified target and advanced sustained/boost preferences
 separately in global and per-game performance configuration. A missing per-game record inherits
 the global record. These values are preferences rather than readback; RTSS profile edits preserve
-them. The #61 control and hardware-restoration integration is still in progress.
+them. Saved unified targets restore through the paired command with captured generations and verified
+readback; profile-owned pair release also uses the coordinated path. The #61 controls and advanced
+boost-restoration integration are still in progress.
 
 ## 15. Glyphs
 

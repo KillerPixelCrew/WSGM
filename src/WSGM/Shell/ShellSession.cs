@@ -100,6 +100,7 @@ public sealed class ShellSession : IAsyncDisposable
     // read only from the running-application transition path and the manual funnels, all of which the
     // running-application coordinator serialises. See PerApplicationPowerPolicy / PerApplicationVrrPolicy.
     private bool _profilePowerImposed;
+    private bool _profilePowerPaired;
     private bool _profileVrrImposed;
 
     // The application identity the power limit was last reconciled for. The running-application
@@ -2561,10 +2562,7 @@ public sealed class ShellSession : IAsyncDisposable
         string? applicationId,
         CancellationToken cancellationToken)
     {
-        int? effective = PerApplicationPowerPolicy.ResolveEffective(
-            _config.Performance.TdpWatts,
-            entry?.TdpWatts,
-            perGameActive);
+        var (effective, paired) = ManualTdpPolicy.ResolveTarget(_config.Performance, entry, perGameActive);
         int ceiling = power.Descriptor.Maximum ?? 0;
         bool autoTdpEnabled = coordinator.AutoTdpEnabled;
         PerAppPowerDecision decision = PerApplicationPowerPolicy.DecideOnTargetChange(
@@ -2576,7 +2574,7 @@ public sealed class ShellSession : IAsyncDisposable
         switch (decision.Action)
         {
             case PerAppPowerAction.Apply:
-                if (await ApplyProfilePowerLimitAsync(power, decision.Watts, cancellationToken)
+                if (await ApplyProfilePowerLimitAsync(power, decision.Watts, cancellationToken, paired)
                     .ConfigureAwait(false))
                 {
                     // An explicit limit overrides automatic control exactly as moving the slider
@@ -2587,6 +2585,7 @@ public sealed class ShellSession : IAsyncDisposable
                     }
 
                     _profilePowerImposed = true;
+                    _profilePowerPaired = paired;
                     Log.Info(
                         $"Per-application power limit applied: {decision.Watts} W for "
                         + $"{applicationId ?? "the global profile"}.");
@@ -2597,6 +2596,7 @@ public sealed class ShellSession : IAsyncDisposable
             case PerAppPowerAction.ResumeAutomatic:
                 _autoTdp?.ResumeAutomaticControl();
                 _profilePowerImposed = false;
+                _profilePowerPaired = false;
                 Log.Info(
                     "Per-application power limit released; automatic control resumes for "
                     + $"{applicationId ?? "the global profile"}.");
@@ -2604,10 +2604,11 @@ public sealed class ShellSession : IAsyncDisposable
 
             case PerAppPowerAction.ReleaseToCeiling:
                 if (ceiling > 0
-                    && await ApplyProfilePowerLimitAsync(power, ceiling, cancellationToken)
+                    && await ApplyProfilePowerLimitAsync(power, ceiling, cancellationToken, _profilePowerPaired)
                         .ConfigureAwait(false))
                 {
                     _profilePowerImposed = false;
+                    _profilePowerPaired = false;
                     Log.Info(
                         $"Per-application power limit released to the device ceiling {ceiling} W for "
                         + $"{applicationId ?? "the global profile"}.");
@@ -2878,7 +2879,8 @@ public sealed class ShellSession : IAsyncDisposable
     private async Task<bool> ApplyProfilePowerLimitAsync(
         DeviceCapabilityView power,
         int watts,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool paired = false)
     {
         if (_deviceCoordinator is not { } coordinator)
         {
@@ -2893,9 +2895,13 @@ public sealed class ShellSession : IAsyncDisposable
             // Not a user action: the value is already the saved preference, so it must not re-enter
             // the manual funnel and be persisted again or re-resolved into the wrong layer.
             CapabilityCommandOrigin.ProfileRestore,
-            cancellationToken).ConfigureAwait(false);
-        bool applied = result.Outcome
-            is CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified;
+            cancellationToken,
+            expectedCycle: power.Projection.State.CycleGeneration,
+            expectedDescriptors: power.Projection.State.DescriptorGeneration,
+            applyPowerPair: paired).ConfigureAwait(false);
+        bool applied = paired
+            ? result.Outcome == CommandOutcome.AppliedVerified && result.ReadbackValue?.IntegerValue == watts
+            : result.Outcome is CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified;
         if (!applied)
         {
             Log.Warn(
