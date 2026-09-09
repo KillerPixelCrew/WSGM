@@ -1,19 +1,25 @@
 # WSGM 2.0 implementation tracker
 
 Status: the previous implementation baseline is on `master`; the current open workoff contains
-22 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
+21 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
 submodule changes, without feature branches or pull requests.
 
 ## Current issue workoff
 
-After delivery of #38/#39, #58/#59, #61 and #65–#68 on 2026-09-09, 29 issues remain open.
-Issues #41–#45, #47 and #48 remain deferred; the other 22 are the 2.0 scope.
-After #53, the immediate queue is #51 display-route orchestration, with #52 hardware capture and #69 investigation alongside it.
+After delivery of #38/#39, #51/#53, #58/#59, #61 and #65–#68, 28 issues remain open.
+Issues #41–#45, #47 and #48 remain deferred; the other 21 are the 2.0 scope.
+#51 and #53 are delivered. #52 hardware capture and #69 investigation remain open.
 
-- #51 is in progress. DisplayRouteTransition implements plugin-action/display-wait/profile ordering
-  for entry and profile/action ordering for exit, with a shared deadline and no retries. Six focused
-  tests cover ordering, missing targets, uncertain actions, failed Desktop profiles and cancellation.
-  The production adapter now routes through PluginHost with SessionAutomation origin and WDC display APIs. Dispatched actions proceed to display confirmation; 14 route/action tests pass. Persistent DisplayRoutes now stores opt-in enter/leave/startup/wake bindings, action arguments and WDC profiles; generated serialization and plan-capture checks pass. Desktop/Game Mode transitions now invoke route preparation with fresh configuration and shutdown cancellation. Entry refuses before Big Picture/Explorer takeover on route failure, and successful route profiles bypass legacy display posture. Exit routing waits for successful Desktop recovery. Fourteen route/session tests pass; Desktop startup beside Explorer and system resume now invoke configured bindings, serialized with mode route work. Duplicate events are suppressed during work and for five seconds; queued work rechecks mode before dispatch. Thirteen focused route/admission tests pass. Route dispatch now awaits initial common-plugin admission and rechecks mode after that wait. Desktop-first logon now uses an opt-in DesktopResident manifest flag and --shell --desktop-resident, bypassing takeover even before Explorer appears. Twenty-one focused manifest/decision tests and both application/service builds pass. Route preparation now owns a splash hold through display wait/profile application, with cancellation from its Desktop button and dismissal on errors/session warnings. Fourteen focused route/session tests pass; live transition review, failure compensation and the configuration editor remain.
+- #51 is implemented. Overlay > Tools > Display routes binds declared plugin actions, arguments,
+  display targets and captured profiles to entry, exit, Desktop startup and Desktop wake. Saves are
+  explicit and update only their owned policy. The logon manifest supports Desktop residency.
+  Entry switches route, waits for an available target, applies its profile and places Steam there
+  under a cancellable splash. Exit restores the Desktop profile before its external action.
+  Failed takeover restores the pre-entry topology; still-running native work blocks subsequent
+  route dispatch. Wake/startup requests wait for plugin readiness, recheck mode and coalesce duplicates.
+  Release application/service builds are warning-clean. Focused route/session/logon checks, headless
+  editor checks and WDC wait validation pass. Live HDMI, Steam placement and sign-in review is not
+  claimed; the maintainer requested implementation closure with review later.
 
 - #53 is implemented. The common SDK supplies structured widgets with stable identities, state
   predicates, icons and category navigation. Device and IR use the shared renderer. Source-page

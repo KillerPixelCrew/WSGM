@@ -31,13 +31,13 @@ shell, so no arguments means Settings.
 | Flag                           | Mode                                            |
 | ------------------------------ | ----------------------------------------------- |
 | `--boot`                       | service-launched takeover at logon              |
-| `--shell`                      | shell session started by hand (dev deploy only) |
+| `--shell`                      | resident shell session                         |
 | `--settings` (or no arguments) | Settings window                                 |
 | `--overlay-test`               | overlay without a shell session                 |
 
 Only shell mode holds the single-instance mutex `Local\WSGM.Shell`; the installer keys its restart
 decision off it. A crash-loop breaker counts shell starts: three inside two minutes disarms the
-service boot (`GameModeBoot=false` in boot.json, the config flag off, shell snapshot restored,
+service boot (`GameModeBoot=false` and `DesktopResident=false` in boot.json, the config flag off, shell snapshot restored,
 Explorer started if none runs). A clean exit resets the counter, otherwise two update restarts plus
 a sign-in inside two minutes read as a loop.
 
@@ -367,22 +367,25 @@ reboot or reported nothing (stay conservative when the bounded status file is mi
 upgrades are not marked for reboot. Silent setup always returns `False`, because `/VERYSILENT` could
 otherwise reboot automatically.
 
-Configured display-route preparation runs before a Desktop-to-Game Mode Big Picture request and
-Explorer takeover. A preparation failure preserves Desktop and reports the failed stage. On a
-successful return to Desktop, the route hook restores the configured profile before requesting the
-external entertainment input. Overlay-test sessions do not install these lifecycle hooks.
+## Display-route automation
 
-When GameModeBoot is false, boot.json can opt into DesktopResident for enabled display-route
-automation. The service then launches --shell --desktop-resident with the usual user-token policy.
-This explicit mode remains on Desktop even before Explorer appears and does not run boot takeover,
-startup apps or Game Mode display posture. GameModeBoot takes precedence when both flags are true.
-Old manifests omit DesktopResident and retain their previous behavior. Crash-loop manifest disabling
-clears both automatic launch choices. This path has offline decision/build coverage; it has not been
-installed or exercised through a live sign-in in this workoff.
+With GameModeBoot disabled, boot.json can opt into DesktopResident for enabled route automation.
+The service launches --shell --desktop-resident with its usual user-token/elevation policy. This
+mode remains on Desktop even before Explorer appears and does not run takeover, startup apps or
+Game Mode display posture. GameModeBoot takes precedence when both flags are true. Old manifests
+omit DesktopResident and retain their previous behavior. Crash-loop manifest disabling clears both
+automatic launch choices.
 
-Configured Game Mode route preparation always shows the transition cover, independently of the
-optional boot-splash preference. Steam-window detection is held until route preparation settles;
-the existing hard timeout still applies. The Desktop button cancels active preparation. Failure
-or a session transition warning dismisses the cover, while successful preparation releases the
-hold so normal Big Picture detection can fade it out. This path has not had a live display-switch
-pass; focused route/session tests and warning-clean compilation cover the current change.
+Desktop-to-Game Mode transitions prepare the configured external route and display profile before
+requesting Big Picture or removing Explorer. A splash hold prevents premature dismissal when Steam
+already has a window. Steam is placed on the configured target before takeover. Cancellation, an
+unavailable target or a failed preparation leaves Desktop available and reports the failed stage.
+A later failed takeover restores the captured pre-entry topology once. Calls that outlive cancellation
+remain tracked, and new route work is refused until they settle.
+
+Successful Desktop recovery precedes the leave binding, which applies the Desktop profile before
+sending its external action. Startup/resume bindings are coalesced and serialized with mode changes,
+and are suppressed while in or entering Game Mode. Overlay-test installs no lifecycle route hooks.
+Configuration and operating instructions are in [plugin-system.md](plugin-system.md#display-route-automation).
+Offline decision, persistence, sequencing and UI tests cover this implementation. No live service
+installation, logon, HDMI switching or Steam-window placement was performed for this change.

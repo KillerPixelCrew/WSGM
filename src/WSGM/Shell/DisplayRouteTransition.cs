@@ -44,9 +44,21 @@ internal interface IDisplayRouteBackend
 /// <summary>Runs a single route transition without retries or device-specific routing knowledge.</summary>
 internal sealed class DisplayRouteTransition(IDisplayRouteBackend backend)
 {
+    private Task _pending = Task.CompletedTask;
+
+    private Task<T> Track<T>(Task<T> operation)
+    {
+        _pending = operation;
+        _ = operation.ContinueWith(static task => { _ = task.Exception; }, CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        return operation;
+    }
+
     internal async Task<DisplayRouteResult> RunAsync(DisplayRoutePlan plan, bool enteringGameMode,
         CancellationToken cancellationToken)
     {
+        if (!_pending.IsCompleted)
+        { return new(false, "previous operation", "The previous route operation is still settling. No new action was sent."); }
         if (plan.Timeout < TimeSpan.FromSeconds(1) || plan.Timeout > TimeSpan.FromMinutes(2))
         { return new(false, "configuration", "Route timeout must be between 1 and 120 seconds."); }
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -60,7 +72,7 @@ internal sealed class DisplayRouteTransition(IDisplayRouteBackend backend)
                 if (plan.Action is null) { return null; }
                 stage = "plugin action";
                 timeout.Token.ThrowIfCancellationRequested();
-                var result = await backend.InvokeAsync(plan.Action, deadline, timeout.Token).WaitAsync(timeout.Token).ConfigureAwait(false);
+                var result = await Track(backend.InvokeAsync(plan.Action, deadline, timeout.Token)).WaitAsync(timeout.Token).ConfigureAwait(false);
                 return result.Outcome is PluginActionOutcome.AppliedVerified or PluginActionOutcome.Dispatched ? null
                     : new(false, stage, result.Detail ?? result.Outcome.ToString());
             }
@@ -69,7 +81,7 @@ internal sealed class DisplayRouteTransition(IDisplayRouteBackend backend)
                 if (plan.Profile is null) { return null; }
                 stage = "display profile";
                 timeout.Token.ThrowIfCancellationRequested();
-                var result = await backend.ApplyAsync(plan.Profile, timeout.Token).WaitAsync(timeout.Token).ConfigureAwait(false);
+                var result = await Track(backend.ApplyAsync(plan.Profile, timeout.Token)).WaitAsync(timeout.Token).ConfigureAwait(false);
                 return result.Applied ? null : new(false, stage, result.Detail);
             }
             if (enteringGameMode)
@@ -81,7 +93,7 @@ internal sealed class DisplayRouteTransition(IDisplayRouteBackend backend)
                     timeout.Token.ThrowIfCancellationRequested();
                     var remaining = deadline - DateTimeOffset.UtcNow;
                     if (remaining <= TimeSpan.Zero) { return new(false, stage, "Route deadline elapsed."); }
-                    var outcome = await backend.WaitAsync(target, remaining, timeout.Token).WaitAsync(timeout.Token).ConfigureAwait(false);
+                    var outcome = await Track(backend.WaitAsync(target, remaining, timeout.Token)).WaitAsync(timeout.Token).ConfigureAwait(false);
                     if (outcome != DisplayWaitOutcome.Present) { return new(false, stage, "Target display did not appear."); }
                 }
                 if (await ProfileAsync().ConfigureAwait(false) is { } profileFailure) { return profileFailure; }

@@ -84,6 +84,14 @@ public sealed class SessionModes
 
     /// <summary>Runs configured route preparation on the transition worker; null leaves displays under legacy policy.</summary>
     internal Func<bool, System.Threading.Tasks.Task<DisplayRouteResult?>>? PrepareDisplayRouteAsync { get; set; }
+    /// <summary>Restores pre-entry display state if route preparation succeeded but Game Mode was not committed.</summary>
+    internal Func<System.Threading.Tasks.Task>? RecoverDisplayRouteAsync { get; set; }
+    /// <summary>Places the new Big Picture window on the prepared target before removing Desktop.</summary>
+    internal Func<System.Threading.Tasks.Task<bool>>? FinishDisplayRouteAsync { get; set; }
+    /// <summary>Whether the route splash requested Desktop during the entry transaction.</summary>
+    internal Func<bool>? DisplayRouteCancelled { get; set; }
+    /// <summary>Releases route UI state after entry commits or rolls back.</summary>
+    internal Action? DisplayRouteSettled { get; set; }
 
     /// <summary>Surfaces a shell-transition warning through the overlay's existing warning path.</summary>
     internal void ReportWarning(string warning) => SteamStartFailed?.Invoke(warning);
@@ -361,6 +369,8 @@ public sealed class SessionModes
         _ = System.Threading.Tasks.Task.Run(async () =>
         {
             bool explorerWasRemoved = false;
+            bool routePrepared = false;
+            bool gameModeCommitted = false;
             try
             {
                 var route = PrepareDisplayRouteAsync is { } prepareRoute
@@ -371,6 +381,7 @@ public sealed class SessionModes
                         SteamStartFailed?.Invoke($"Game Mode route: {route.Stage}: {route.Detail}"));
                     return;
                 }
+                routePrepared = route is { Completed: true, ProfileApplied: true };
                 string? steamWarning;
                 try
                 {
@@ -385,6 +396,15 @@ public sealed class SessionModes
                     steamWarning = BigPictureStartFailedWarning;
                 }
 
+                if (route is { Completed: true } && FinishDisplayRouteAsync is { } finishRoute
+                    && !await finishRoute().ConfigureAwait(false))
+                {
+                    ExitBigPicture();
+                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                        SteamStartFailed?.Invoke("Steam could not be placed on the configured display. Desktop was preserved."));
+                    return;
+                }
+
                 var exited = false;
                 // The normal desktop can be recreated only if its current taskbar owner is
                 // captured while it still exists. A contaminated/unknown shell is preserved.
@@ -394,6 +414,8 @@ public sealed class SessionModes
                 {
                     if (preparation.Prepared)
                     {
+                        if (route is not null && DisplayRouteCancelled?.Invoke() == true)
+                        { throw new OperationCanceledException("Display route entry was cancelled."); }
                         exited = ExplorerControl.ExitExplorerAndWait(ExplorerExitTimeout);
                     }
                 }
@@ -445,6 +467,8 @@ public sealed class SessionModes
                     }
                 }
                 explorerWasRemoved = exited && !preserveDesktop;
+                if (route is not null && DisplayRouteCancelled?.Invoke() == true)
+                { throw new OperationCanceledException("Display route entry was cancelled."); }
 
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
@@ -460,6 +484,7 @@ public sealed class SessionModes
                     }
                     if (route?.ProfileApplied != true) { ApplyGameModePosture(); }
                     GameModeEntered?.Invoke();
+                    gameModeCommitted = true;
                     if (_monitor is not null)
                     {
                         _monitor.Paused = false;
@@ -492,7 +517,13 @@ public sealed class SessionModes
             }
             finally
             {
+                if (routePrepared && !gameModeCommitted && RecoverDisplayRouteAsync is { } recoverRoute)
+                {
+                    try { await recoverRoute().ConfigureAwait(false); }
+                    catch (Exception ex) { Log.Error("Recovering the Desktop display route failed", ex); }
+                }
                 SteamUiBigPictureRequestSettled?.Invoke();
+                DisplayRouteSettled?.Invoke();
                 EndTransition();
             }
         });

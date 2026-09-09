@@ -220,40 +220,48 @@ Controller confirmation opens widget editors and choice popups. While a selector
 navigation keeps D-pad selection with its owning ComboBox despite popup-item focus. Confirmation
 closes the popup and restores selector focus; the separate Apply action dispatches the draft.
 
-### Display-route transition sequencing
+### Display-route automation
 
-DisplayRouteTransition defines the Core sequence for generic external route actions. Entry invokes
-the named action, waits for the target identity, then applies the display profile. Exit restores the
-Desktop profile before invoking the external action. A failed or unconfirmed step stops the sequence
-without retry. One bounded deadline covers the transition; cancellation reports possible uncertainty
-for an in-flight write. Production lifecycle wiring and wake policy remain tracked under #51.
+Overlay > Tools > Display routes edits WSGM lifecycle bindings. Choose Enter Game Mode, Leave Game
+Mode, Desktop startup or Desktop wake, then choose a declared action from a resident common plugin.
+The editor renders its primitive arguments, including controller-accessible text/number entry.
+Unavailable saved providers retain their identities and arguments. Reload refreshes the action list.
 
-DisplayRouteBackend resolves the currently admitted plugin generation and sends actions with
-SessionAutomation origin through PluginHost. Windows display enumeration/waits and profile writes
-run off the UI thread through WDC. A Dispatched result permits the next step without claiming
-external readback; entry still waits for the configured display. Unconfirmed or rejected actions
-stop the sequence. The adapter does not admit, start or reconnect a plugin on demand.
+Capture current display profile records the active WDC topology without changing it. Capture the TV
+layout for entry and the Desktop layout for leave/startup/wake as needed. Entry can additionally wait
+for a captured display identity. Configure the layouts through Windows or Overlay display controls
+before capture. Save each event separately; changing the event replaces the unsaved draft. Clear event
+binding removes only that event. Saving does not invoke a plugin action or change the current display.
 
-AppConfig.DisplayRoutes persists an explicit Enabled flag and independent EnterGameMode,
-LeaveGameMode, DesktopStartup and DesktopWake bindings. Each binding stores provider/instance and
-action identities, primitive arguments, an optional WDC target/profile and a 1–120 second deadline.
-Absent configuration is disabled. Plan construction copies arguments and rejects incomplete action
-identities before dispatch. Enter/leave bindings are consumed by SessionModes; startup/wake bindings and the editor remain pending.
+Enable route automation is an explicit opt-in. AppConfig.DisplayRoutes stores that switch, four
+independent bindings, primitive arguments, optional WDC targets/profiles and 1–120 second deadlines.
+Saving updates only the chosen binding and switch against fresh configuration, then projects the boot
+manifest. With Game Mode boot disabled, an enabled route configuration starts the resident Desktop
+runtime at sign-in through --shell --desktop-resident. The installed logon service is required.
 
-ShellSession supplies route preparation to SessionModes outside overlay-test mode. It loads fresh
-configuration, uses session shutdown cancellation and logs the event, stage and result. Enter route
-preparation finishes before Big Picture or Explorer takeover; failure surfaces through the existing
-warning path and preserves Desktop. A successfully applied route profile bypasses legacy Game Mode
-display posture. Leave routing runs only after successful Explorer recovery, retaining the Desktop
-on a route failure. Startup/wake policy and transition splash/recovery integration remain in #51.
+SessionModes owns Desktop/Game Mode transitions. Entry invokes the configured action, waits for its
+display to become available (including a connected but disabled monitor), and applies the saved
+profile before requesting Big Picture or removing Explorer. The transition splash stays visible
+through route preparation and Steam placement. Steam's process-owned Big Picture window is placed
+on the selected monitor using its freshly rematched GDI route, with window-bounds readback. Failed
+preparation or placement preserves Desktop. If a later takeover fails after applying the profile,
+the pre-entry Desktop topology is restored once; an uncertain write is never automatically retried.
 
-Desktop startup beside a running Explorer and system-resume events now request their configured
-bindings. DesktopRouteAdmission coalesces notifications while work runs and for five seconds from
-admission, including failed outcomes. A shared session semaphore orders route work with mode
-transitions. Queued Desktop work reloads configuration and rechecks Game Mode/transition state
-before dispatch. Game Mode entry waits for any already-running route sequence to settle.
+Leave restores the configured Desktop profile before invoking the external entertainment-route
+action, after Explorer recovery succeeds. Startup and wake route work runs only on Desktop, awaits
+initial plugin admission and resume completion, and rechecks mode before dispatch. Notifications are
+coalesced while work runs and for five seconds from admission. One session semaphore serializes
+route work with mode transitions, so queued Desktop work cannot switch away during Game Mode entry.
 
-Route dispatch awaits the initial common-plugin reconciliation before resolving its configured
-provider. Desktop lifecycle dispatch rechecks mode after this wait, so plugin startup cannot defer
-a Desktop action into a newly started Game Mode transition. Failed admission still produces a
-refusal through the normal host; waiting does not retry or reconnect a provider.
+DisplayRouteBackend uses PluginHost with SessionAutomation origin and the currently admitted
+instance generation. Core contains no IR protocol or HDMI-device logic. Dispatched permits the next
+step without claiming external hardware readback; Unconfirmed and Rejected stop the sequence.
+Display waits and profile calls run off the UI thread. Deadline/cancellation failures name the stage
+and preserve a handle to still-running work, refusing subsequent routes until it settles. Errors and
+lifecycle reasons are logged; transition and Desktop route failures use the existing warning surface.
+The Desktop splash button cancels entry, including the wait for Steam's target window.
+
+Validation uses fake providers, source-generated config round trips, ordered route tests, admission
+checks and headless editor interactions. It does not represent a physical HDMI-switch, live logon,
+Modern Standby or Steam-window placement pass. Those remain hardware review scenarios, separate from
+#52's carrier measurement and real-remote acceptance.

@@ -703,7 +703,7 @@ public sealed class AppConfig
     public string AccentColor { get; set; } = Themes.AccentPalette.DefaultAccent;
     /// <summary>Whether the logon service boots the session into game mode. Projected
     /// into boot.json (see Core\BootManifest) because the SYSTEM service never parses
-    /// this file. False = sign-in leaves the plain desktop alone.</summary>
+    /// this file. False preserves Desktop; enabled route automation may still start the resident runtime.</summary>
     public bool GameModeBootEnabled { get; set; } = true;
 
     /// <summary>Settle delay after explorer's shell window and taskbar both exist,

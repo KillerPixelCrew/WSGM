@@ -37,8 +37,8 @@ public static class BootManifestWriter
         }
     }
 
-    /// <summary>Rewrites boot.json with game-mode boot force-disabled, keeping the
-    /// rest current. Used by the crash-loop breaker so the next sign-in is a plain
+    /// <summary>Rewrites boot.json with Game Mode boot and route residency disabled.
+    /// Used by the crash-loop breaker so the next sign-in is a plain
     /// desktop even when config.json cannot be saved.</summary>
     public static void WriteDisabled(AppConfig config)
     {

@@ -6,6 +6,26 @@ namespace WSGM.Tests;
 
 public sealed class DisplayRouteTransitionTests
 {
+    [Fact]
+    public async Task CancelledNativeWriteBlocksNewRouteUntilItSettles()
+    {
+        TaskCompletionSource<DisplayProfileResult> pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Backend backend = new() { ProfileWork = pending.Task };
+        DisplayRouteTransition transition = new(backend);
+        using CancellationTokenSource cancellation = new();
+        var first = transition.RunAsync(Plan, false, cancellation.Token);
+        Assert.Equal(["profile"], backend.Calls);
+        cancellation.Cancel();
+        Assert.False((await first).Completed);
+        var blocked = await transition.RunAsync(Plan, true, default);
+        Assert.False(blocked.Completed);
+        Assert.Equal("previous operation", blocked.Stage);
+        Assert.Equal(["profile"], backend.Calls);
+        pending.SetResult(new(true, 0, false, false, "Settled"));
+        Assert.True((await transition.RunAsync(Plan, true, default)).Completed);
+        Assert.Equal(["profile", "action", "wait", "profile"], backend.Calls);
+    }
+
     private static readonly DisplayRoutePlan Plan = new(
         new(new("test", "default"), "route", new Dictionary<string, PluginValue>()),
         new("monitor", null, null, "TV", 0, 0, 1), new(1, [], [], []), TimeSpan.FromSeconds(10));
@@ -73,6 +93,7 @@ public sealed class DisplayRouteTransitionTests
         internal bool Present { get; init; } = true;
         internal bool Applied { get; init; } = true;
         internal PluginActionOutcome ActionOutcome { get; init; } = PluginActionOutcome.AppliedVerified;
+        internal Task<DisplayProfileResult>? ProfileWork { get; init; }
         public Task<PluginActionResult> InvokeAsync(DisplayRouteAction action, DateTimeOffset deadline, CancellationToken cancellationToken)
         {
             Calls.Add("action");
@@ -86,7 +107,7 @@ public sealed class DisplayRouteTransitionTests
         public Task<DisplayProfileResult> ApplyAsync(DisplayProfile profile, CancellationToken cancellationToken)
         {
             Calls.Add("profile");
-            return Task.FromResult(new DisplayProfileResult(Applied, 0, false, false, "Test outcome"));
+            return ProfileWork ?? Task.FromResult(new DisplayProfileResult(Applied, 0, false, false, "Test outcome"));
         }
     }
 }

@@ -329,9 +329,11 @@ public partial class OverlayWindow : Window
     {
         CommonPluginRows.Children.Clear();
         DeviceWidgetPinsHost.Children.Clear();
+        DisplayRouteEditorHost.Children.Clear();
         PinnedPluginWidgetsHost.Children.Clear();
         if (source is not null)
         {
+            DisplayRouteEditorHost.Children.Add(new DisplayRouteEditor(DisplayRouteEditorSource.Create(source)));
             CommonPluginPanel panel = new(source);
             CommonPluginRows.Children.Add(panel);
             if (source.Device is { } device)

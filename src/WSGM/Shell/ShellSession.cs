@@ -44,6 +44,12 @@ public sealed class ShellSession : IAsyncDisposable
     private readonly CancellationTokenSource _shutdownCancellation = new();
     private readonly SemaphoreSlim _displayRouteGate = new(1, 1);
     private readonly DesktopRouteAdmission _desktopRouteAdmission = new();
+    private DisplayRouteTransition? _displayRouteTransition;
+    private WindowsDeviceControl.DisplayProfile? _displayRouteRecovery;
+    private WindowsDeviceControl.DisplayTargetIdentity? _displayRouteTarget;
+    private bool _holdingDisplayRouteSplash;
+    private volatile bool _displayRouteCancelRequested;
+    private bool _displayRouteEntryActive;
     private volatile bool _shutdownRequested;
     // Replaced (not just cancelled) on every game-mode entry: a single cancelled
     // source would permanently kill boot syncing after the first desktop trip.
@@ -580,7 +586,19 @@ public sealed class ShellSession : IAsyncDisposable
         _modes = _desktopHost is null
             ? new SessionModes(_config, _monitor)
             : new SessionModes(_config, _monitor, _desktopHost);
-        if (!_overlayTestOnly) { _modes.PrepareDisplayRouteAsync = PrepareDisplayRouteAsync; }
+        if (!_overlayTestOnly)
+        {
+            _modes.PrepareDisplayRouteAsync = PrepareDisplayRouteAsync;
+            _modes.RecoverDisplayRouteAsync = RecoverDisplayRouteAsync;
+            _modes.FinishDisplayRouteAsync = FinishDisplayRouteAsync;
+            _modes.DisplayRouteCancelled = () => _displayRouteCancelRequested;
+            _modes.DisplayRouteSettled = () => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                _holdingDisplayRouteSplash = false;
+                _displayRouteCancelRequested = false;
+                _displayRouteEntryActive = false;
+            });
+        }
         _modes.SteamStartFailed += _ => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             _splash?.Dismiss("session transition warning"));
         // Session-lifetime on purpose (survives desktop trips): a Steam download must
@@ -1547,7 +1565,6 @@ public sealed class ShellSession : IAsyncDisposable
     {
         bool acquired = false;
         BootSplash? routeSplash = null;
-        bool holdingSplash = false;
         bool preparationActive = true;
         using var routeCancellation = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCancellation.Token);
         try
@@ -1559,29 +1576,41 @@ public sealed class ShellSession : IAsyncDisposable
             var binding = enteringGameMode ? routes.EnterGameMode : routes.LeaveGameMode;
             if (binding is null) { return null; }
             await _commonPluginStartup.WaitAsync(_shutdownCancellation.Token).ConfigureAwait(false);
+            Task powerReady;
+            lock (_devicePowerGate) { powerReady = _devicePowerWork; }
+            await powerReady.WaitAsync(_shutdownCancellation.Token).ConfigureAwait(false);
+            if (enteringGameMode)
+            {
+                _displayRouteCancelRequested = false;
+                _displayRouteRecovery = binding.Profile is null ? null
+                    : await Task.Run(WindowsDeviceControl.DisplayTopology.CaptureProfile, routeCancellation.Token).ConfigureAwait(false);
+            }
             if (enteringGameMode)
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    holdingSplash = true;
+                    _holdingDisplayRouteSplash = true;
+                    _displayRouteEntryActive = true;
                     _splash?.Dismiss("display route preparation");
                     routeSplash = new BootSplash(config, () =>
                     {
+                        if (!_displayRouteEntryActive) { SwitchToDesktopFromSplash(); return; }
+                        _displayRouteCancelRequested = true;
                         if (preparationActive) { routeCancellation.Cancel(); }
-                        else { SwitchToDesktopFromSplash(); }
-                    }, () => holdingSplash);
+                    }, () => _holdingDisplayRouteSplash);
                     _splash = routeSplash;
                     routeSplash.Show();
                 });
             }
-            var transition = new DisplayRouteTransition(new DisplayRouteBackend(_pluginHost));
+            var transition = _displayRouteTransition ??= new(new DisplayRouteBackend(_pluginHost));
             var result = await transition.RunAsync(DisplayRoutePlan.FromBinding(binding), enteringGameMode,
                 routeCancellation.Token).ConfigureAwait(false);
+            if (enteringGameMode) { _displayRouteTarget = result.Completed ? binding.Target : null; }
             if (!result.Completed && routeSplash is not null)
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => routeSplash.Dismiss("route preparation failed"));
             }
-            Log.Info($"Display route {(enteringGameMode ? "enter" : "leave")}: {result.Stage}: {result.Detail}");
+            Log.Info($"Display route {(enteringGameMode ? "enter" : "leave")} {binding.Plugin?.PluginId}/{binding.Plugin?.InstanceId}:{binding.ActionId ?? "(profile only)"}: {result.Stage}: {result.Detail}");
             return result;
         }
         catch (Exception ex)
@@ -1597,7 +1626,6 @@ public sealed class ShellSession : IAsyncDisposable
         {
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                holdingSplash = false;
                 preparationActive = false;
             });
             if (acquired) { _displayRouteGate.Release(); }
@@ -1608,6 +1636,41 @@ public sealed class ShellSession : IAsyncDisposable
     {
         QueueDevicePowerTransition(suspend: false, "system resumed");
         QueueDesktopRoute(startup: false);
+    }
+
+    private async Task RecoverDisplayRouteAsync()
+    {
+        await _displayRouteGate.WaitAsync(_shutdownCancellation.Token).ConfigureAwait(false);
+        try
+        {
+            var profile = _displayRouteRecovery;
+            _displayRouteRecovery = null;
+            if (profile is null) { return; }
+            var transition = _displayRouteTransition ??= new(new DisplayRouteBackend(_pluginHost));
+            var result = await transition.RunAsync(new(null, null, profile, TimeSpan.FromSeconds(15)), false,
+                _shutdownCancellation.Token).ConfigureAwait(false);
+            Log.Info($"Display route recovery: {result.Stage}: {result.Detail}");
+            if (!result.Completed)
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    _modes?.ReportWarning($"Desktop display recovery: {result.Detail}"));
+            }
+        }
+        finally { _displayRouteGate.Release(); }
+    }
+
+    private async Task<bool> FinishDisplayRouteAsync()
+    {
+        try
+        {
+            var target = _displayRouteTarget;
+            return !_displayRouteCancelRequested && (target is null || await Task.Run(() => DisplayRouteSteamWindow.PlaceAsync(target,
+                () => _displayRouteCancelRequested, _shutdownCancellation.Token), _shutdownCancellation.Token).ConfigureAwait(false));
+        }
+        finally
+        {
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => _holdingDisplayRouteSplash = false);
+        }
     }
 
     private void QueueDesktopRoute(bool startup) => Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
@@ -1625,10 +1688,14 @@ public sealed class ShellSession : IAsyncDisposable
             var binding = startup ? routes.DesktopStartup : routes.DesktopWake;
             if (binding is null) { return; }
             await _commonPluginStartup.WaitAsync(_shutdownCancellation.Token);
+            Task powerReady;
+            lock (_devicePowerGate) { powerReady = _devicePowerWork; }
+            await powerReady.WaitAsync(_shutdownCancellation.Token);
             if (_shutdownRequested || _inGameMode || _modes?.TransitionInProgress != false) { return; }
-            var result = await new DisplayRouteTransition(new DisplayRouteBackend(_pluginHost)).RunAsync(
+            var transition = _displayRouteTransition ??= new(new DisplayRouteBackend(_pluginHost));
+            var result = await transition.RunAsync(
                 DisplayRoutePlan.FromBinding(binding), false, _shutdownCancellation.Token);
-            Log.Info($"Display route {(startup ? "startup" : "wake")}: {result.Stage}: {result.Detail}");
+            Log.Info($"Display route {(startup ? "startup" : "wake")} {binding.Plugin?.PluginId}/{binding.Plugin?.InstanceId}:{binding.ActionId ?? "(profile only)"}: {result.Stage}: {result.Detail}");
             if (!result.Completed) { _modes?.ReportWarning($"Desktop route: {result.Detail}"); }
         }
         catch (OperationCanceledException) { }

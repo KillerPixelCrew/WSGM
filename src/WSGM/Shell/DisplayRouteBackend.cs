@@ -27,8 +27,7 @@ internal sealed class DisplayRouteBackend(PluginHost host) : IDisplayRouteBacken
     public Task<DisplayWaitOutcome> WaitAsync(DisplayTargetIdentity target, TimeSpan timeout,
         CancellationToken cancellationToken) => Task.Run(async () =>
         {
-            var result = await DisplayTopology.WaitForPresentAsync(target, timeout, cancellationToken).ConfigureAwait(false);
-            return result.Outcome;
+            return await DisplayTopology.WaitForAvailableAsync(target, timeout, cancellationToken).ConfigureAwait(false);
         }, cancellationToken);
 
     public Task<DisplayProfileResult> ApplyAsync(DisplayProfile profile, CancellationToken cancellationToken) =>

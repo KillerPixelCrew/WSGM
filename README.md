@@ -169,3 +169,7 @@ with the installer.
 In Desktop Mode, the WSGM notification icon opens the Overlay, Settings or Game Mode and provides
 Exit WSGM. Start WSGM again from the Start Menu; launching it while running opens the existing
 session. Setup also offers an optional Desktop shortcut.
+
+Overlay > Tools > Display routes can bind plugin actions and captured display profiles to Game Mode
+entry/exit and Desktop startup/wake. This supports external HDMI/input routing without putting
+device protocols in Core. See [configuration and behavior](docs/plugin-system.md#display-route-automation).
