@@ -5,6 +5,31 @@ namespace WSGM.Tests;
 public sealed class NativeQamBrightnessServiceTests
 {
     [Fact]
+    public async Task SharedStateTracksExternalChangesAndDisplayLossWithoutWriting()
+    {
+        int? brightness = 42;
+        int changes = 0;
+        using NativeQamBrightnessService service = new(() => true, () => { },
+            () => brightness, _ => throw new InvalidOperationException("Readback must not write."), Timeout.InfiniteTimeSpan);
+        service.Changed += () => changes++;
+        await service.ReadAsync();
+        Assert.Equal(42, service.Current!.Percent);
+        await service.ReadAsync();
+        Assert.Equal(1, changes);
+        brightness = 73;
+        await service.ReadAsync();
+        Assert.Equal(73, service.Current!.Percent);
+        brightness = null;
+        await service.ReadAsync();
+        Assert.Null(service.Current);
+        Assert.Equal(3, changes);
+        brightness = 21;
+        await service.ReadAsync();
+        Assert.Equal(21, service.Current!.Percent);
+        Assert.Equal(4, changes);
+    }
+
+    [Fact]
     public async Task OverlappingSliderRequestsApplyInAdmissionOrder()
     {
         using ManualResetEventSlim release = new();

@@ -19,6 +19,9 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
     private long _revision;
     private int _lastPolled = -1;
     private bool _disposed;
+    private SteamBrightnessState? _current;
+    internal event Action? Changed;
+    internal SteamBrightnessState? Current { get { lock (_gate) { return _current; } } }
 
     internal NativeQamBrightnessService(Func<bool> active, Action publish)
         : this(active, publish,
@@ -48,9 +51,15 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
         }
     }
 
-    private SteamBrightnessState? ReadUnderGate() => _read() is int percent and >= 0 and <= 100
-        ? new SteamBrightnessState(percent, ++_revision)
-        : null;
+    private SteamBrightnessState? ReadUnderGate()
+    {
+        SteamBrightnessState? next = _read() is int percent and >= 0 and <= 100
+            ? new SteamBrightnessState(percent, ++_revision) : null;
+        bool changed = next?.Percent != _current?.Percent;
+        _current = next;
+        if (changed) { Changed?.Invoke(); }
+        return next;
+    }
 
     /// <inheritdoc />
     public async Task<SteamUiCommandResult> SetBrightnessAsync(int percent, CancellationToken cancellationToken)
@@ -98,13 +107,15 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
     {
         try
         {
-            if (!_active() || ReadCurrent() is not { } current
-                || current.Percent == Interlocked.Exchange(ref _lastPolled, current.Percent))
+            if (!_active()) { return; }
+            SteamBrightnessState? current = ReadCurrent();
+            int percent = current?.Percent ?? -1;
+            if (percent == Interlocked.Exchange(ref _lastPolled, percent))
             {
                 return;
             }
 
-            Log.Change("display.backlight", $"Panel backlight at {current.Percent}%.");
+            Log.Change("display.backlight", current is null ? "Panel backlight unavailable." : $"Panel backlight at {current.Percent}%.");
             _publish();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)

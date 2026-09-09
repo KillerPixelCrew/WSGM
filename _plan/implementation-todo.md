@@ -1,14 +1,16 @@
 # WSGM 2.0 implementation tracker
 
 Status: the previous implementation baseline is on `master`; the current open workoff contains
-28 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
+27 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
 submodule changes, without feature branches or pull requests.
 
 ## Current issue workoff
 
-After delivery of #65–#68 on 2026-09-09, 35 issues remain open.
-Issues #41–#45, #47 and #48 remain deferred; the other 28 are the 2.0 scope.
-The immediate queue is #52 (XIAO now connected), #69 investigation, #38/#39, #58, #59 and #61.
+After delivery of #58 and #65–#68 on 2026-09-09, 34 issues remain open.
+Issues #41–#45, #47 and #48 remain deferred; the other 27 are the 2.0 scope.
+The immediate queue is #52 (XIAO now connected), #69 investigation, #38/#39, #59 and #61.
+
+- #58 is implemented: Overlay Tools shares the session-owned brightness service with Steam QAM, including with CEF disabled. Confirmed reads update a retained slider without writes; unavailable displays disable it. Seven service tests and one headless UI test pass. Live hardware review remains.
 
 - #52 is in progress. The XIAO ESP32-C3 enumerates on COM3. A common-SDK IR package now owns
   the USB endpoint protocol, persistent command/scene library, named actions and module-local firmware.

@@ -406,7 +406,10 @@ perf delta field equal to the desired value is dropped as an echo
 
 ### Degradation
 
-Brightness reads and user writes are serialized by `NativeQamBrightnessService`. Each successful
+Brightness reads and user writes are serialized by `NativeQamBrightnessService`. The resident
+session owns its single poll, so Overlay Tools brightness works with CEF disabled. Both surfaces
+share confirmed state. Unavailable readback disables the retained Overlay slider, and projection
+changes never dispatch a write. Each successful
 read receives a monotonic revision; a successful write returns its verified readback using the same
 sequence. The toolkit separates pending requests from confirmed state and rejects older revisions.
 It applies matching readback to Steam's observable even when the user requested that same percent:

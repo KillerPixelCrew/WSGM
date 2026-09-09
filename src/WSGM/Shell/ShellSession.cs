@@ -139,6 +139,7 @@ public sealed class ShellSession : IAsyncDisposable
     private RtssFrametimeReader? _pairingFrametimes;
     private ForegroundWindowWatcher? _foregroundWindows;
     private AutoTdpService? _autoTdp;
+    private NativeQamBrightnessService? _brightness;
     private Task<bool> ShowOnScreenKeyboardAsync(CancellationToken cancellationToken)
     {
         Log.Info($"On-screen keyboard requested: {(_inGameMode ? "Steam" : "Windows")}.");
@@ -610,6 +611,11 @@ public sealed class ShellSession : IAsyncDisposable
             powerAssignments: _deviceCoordinator?.PowerAssignments,
             commonPlugins: _commonPlugins is null ? null : new CommonPluginOverlaySource(_commonPlugins, _pluginHost));
         _overlay.ShowOnScreenKeyboard = ShowOnScreenKeyboardAsync;
+        if (!_overlayTestOnly)
+        {
+            _brightness = new NativeQamBrightnessService(() => !_shutdownRequested, () => { });
+            _overlay.Brightness = _brightness;
+        }
         // The sheet is recreated per open, so its one-time cost — compiled-XAML populate JIT for
         // the process's largest window — lands on the user's first swipe (~1.5 s on the Claw).
         // Pay it at idle instead; every later open constructs against warm code.
@@ -732,7 +738,8 @@ public sealed class ShellSession : IAsyncDisposable
                 // user-facing wrapper persists the state to the per-application layer in force; the
                 // bare ApplyVariableRefreshRateAsync stays the profile restore's device write.
                 _deviceCoordinator is null ? null : SetVariableRefreshRateFromUserAsync,
-                () => _overlay?.ShowBluetoothPanel() == true);
+                () => _overlay?.ShowBluetoothPanel() == true,
+                _brightness);
             _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
             _steamUi.ApplySurfaceObservation(_config.Cef.Enabled);
             if (_deviceCoordinator is { } handoffDevice)
@@ -1972,6 +1979,7 @@ public sealed class ShellSession : IAsyncDisposable
         _disposed = true;
         _shutdownRequested = true;
         _shutdownCancellation.Cancel();
+        _brightness?.Dispose();
         // Every cleanup step still runs after an earlier one fails; the collected
         // failures are reported once at the end so the outer coordinator records the
         // shutdown as unverified without any step having been skipped.

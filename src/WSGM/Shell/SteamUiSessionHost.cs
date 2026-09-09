@@ -32,6 +32,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly DeviceCoordinatorNativeQamAutoTdpService _autoTdp;
     private readonly DeviceCoordinatorNativeQamControllerTargetService _controllerTarget;
     private readonly NativeQamBrightnessService _brightness;
+    private readonly bool _ownsBrightness;
     private readonly NativeQamPowerPresetService _powerPresets;
     private readonly NativeQamPowerProfileService _powerProfiles = new(PowerSchemes.Windows,
         id => ConfigStore.Mutate(config => config.LastSelectedPowerSchemeId = id));
@@ -99,6 +100,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <param name="applyRefreshRate">Applies a manually chosen refresh rate, or null.</param>
     /// <param name="applyVariableRefreshRate">Applies the VRR flag, or null.</param>
     /// <param name="showBluetoothPanel">Opens the session's Bluetooth prompt and status surface.</param>
+    /// <param name="brightness">Session-owned brightness, or null for a standalone host.</param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
@@ -111,7 +113,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         Func<NativeQamPerfSupport>? perfSupport = null,
         Func<int, bool>? applyRefreshRate = null,
         Func<bool, CancellationToken, Task<bool>>? applyVariableRefreshRate = null,
-        Func<bool>? showBluetoothPanel = null)
+        Func<bool>? showBluetoothPanel = null,
+        NativeQamBrightnessService? brightness = null)
     {
         _resolution = resolution is null ? null : new NativeQamResolutionService(resolution);
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
@@ -137,9 +140,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 () => !_disposed && _networkIndicatorEnabled,
                 QueueStatePublication);
         _bluetooth = radios is null ? null : new NativeQamBluetoothService(radios, showBluetoothPanel);
-        _brightness = new NativeQamBrightnessService(
+        _ownsBrightness = brightness is null;
+        _brightness = brightness ?? new NativeQamBrightnessService(
             () => !_disposed && _enabled,
             QueueStatePublication);
+        _brightness.Changed += QueueStatePublication;
         _modules = new SteamUiModuleSet(CreateModules());
         // WSGM's composed asset and the module-derived vocabulary, named here rather than reached
         // for from inside the bridge.
@@ -635,7 +640,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
         await DisableAsync().ConfigureAwait(false);
         _disposed = true;
-        _brightness.Dispose();
+        _brightness.Changed -= QueueStatePublication;
+        if (_ownsBrightness) { _brightness.Dispose(); }
         if (_bluetooth is { } bluetooth) { await bluetooth.StopDiscoveryAsync().ConfigureAwait(false); }
         // A session that ends while Steam's network page is open would otherwise leave the radio
         // sweeping and this host subscribed to a collection it no longer publishes.

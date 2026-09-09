@@ -212,3 +212,7 @@ fields. A latched suppression would silently disable the refocus for the rest of
 and a stale target would call back a window the user has since left. The fields live in
 `OverlayController`; this is why they are reset in the cancelled-close path and not only in
 `Closed`.
+
+Panel brightness is available in Tools through the resident session's shared brightness service.
+Steam QAM and Overlay use the same serialized writes and confirmed readback. The slider remains
+in place during updates, disables when readback is unavailable, and works with CEF disabled.
