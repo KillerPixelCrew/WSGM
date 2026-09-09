@@ -67,7 +67,7 @@ public enum PluginUiKind
 {
     /// <summary>A named effective-state value.</summary>
     Status,
-    /// <summary>A button invoking a named action with its declared defaults.</summary>
+    /// <summary>A named action with editable primitive arguments initialized from its declared defaults.</summary>
     Action,
     /// <summary>A boolean state and one boolean action argument.</summary>
     Toggle,

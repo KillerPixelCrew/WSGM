@@ -9,6 +9,46 @@ namespace WSGM.Tests;
 public sealed class CommonPluginPackageTests
 {
     [Fact]
+    public async Task RealIrPackageLoadsAlongsideDeviceCategoryAndPersistsLibraryWithoutHardware()
+    {
+        using TemporaryDirectory temporary = new();
+        string root = temporary.GetPath("ir-package");
+        Directory.CreateDirectory(root);
+        string assembly = typeof(WSGM.Plugin.Ir.IrPlugin).Assembly.Location;
+        File.Copy(assembly, Path.Combine(root, "WSGM.Plugin.Ir.dll"));
+        await File.WriteAllTextAsync(Path.Combine(root, "plugin.wsgm.json"), """
+            {"id":"wsgm.ir","name":"IR Blaster","version":"0.1.0","category":"wsgm.infrared",
+             "entryAssembly":"WSGM.Plugin.Ir.dll","entryType":"WSGM.Plugin.Ir.IrPlugin"}
+            """);
+        var manifest = CommonPluginPackage.ReadManifest(root);
+        var package = await CommonPluginPackage.LoadAsync(root, manifest, default);
+        PluginHost host = new(action => action(), new MemoryStore());
+        string deviceState = temporary.GetPath("device-state");
+        string irState = temporary.GetPath("ir-state");
+        Directory.CreateDirectory(deviceState);
+        Directory.CreateDirectory(irState);
+        var device = host.Admit(new CommonPluginFixture(), new("test.common-fixture", "device"),
+            PluginCategories.Device, PluginCategoryPolicy.Device, true, 1, deviceState);
+        var ir = host.Admit(package, new(package.Id, "one"), manifest.Category, PluginCategoryPolicy.Multiple, false, 1, irState);
+        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        await device.StartAsync(deadline, default);
+        await ir.StartAsync(deadline, default);
+        Assert.Equal(2, host.Snapshot().Length);
+        Assert.Contains(ir.Actions!.Actions, action => action.Id == "save-scene");
+        var backup = await host.InvokeActionAsync(ir.Identity, 1, "export", new Dictionary<string, PluginValue>(),
+            PluginActionOrigin.User, deadline, default);
+        Assert.Equal(PluginActionOutcome.AppliedVerified, backup.Outcome);
+        Assert.True(File.Exists(Path.Combine(irState, "library.backup.json")));
+        await host.SetModeAsync(PluginSessionMode.Game, deadline, default);
+        Assert.True(await ir.StopAsync(deadline, default));
+        await ir.DisposeAsync();
+        Assert.Single(host.Snapshot());
+        Assert.True(await device.StopAsync(deadline, default));
+        await device.DisposeAsync();
+        Assert.Empty(host.Snapshot());
+    }
+
+    [Fact]
     public async Task ACollectibleNonDevicePackageRunsConfigurationActionsAndResidentTransitions()
     {
         using TemporaryDirectory temporary = new();

@@ -2,8 +2,9 @@
 
 `src/WSGM.Plugin.Ir` is the first hardware-backed independent integration under development (#52).
 It owns its USB protocol, command library and companion firmware. Its initial declarative Tools
-contributions use the existing common host; command/scene management UX and hardware acceptance
-remain incomplete. See its README for the implemented boundary and current limitations.
+contributions use the existing common host. Command selection, naming, relearning, timing and scene
+management are available through host-rendered action forms. Hardware acceptance remains incomplete.
+See its README for the implemented boundary and current limitations.
 
 `src/WSGM.Plugin.Sdk` is the MIT, dependency-free common contract assembly. `WSGM.Device.Sdk`
 continues to define hardware detection, controllers, capabilities and Device Lab integration.
@@ -74,6 +75,9 @@ action/argument link and requires numeric bounds for sliders. WSGM owns actual c
 plugins cannot inject UI code. The overlay Tools page renders common contributions, grouped by
 instance and contribution category. Status readback is separate from an editable draft; toggles and
 sliders require an explicit Apply press. Refresh never invokes an action. Pinning follows in #53.
+Action contributions expose their declared arguments in collapsible forms. Text and numeric fields
+use press-to-edit buttons and the Overlay keyboard, so controller navigation never depends on focusing
+a bare TextBox. Drafts remain separate from readback and are sent only on explicit invocation.
 
 Stop closes action admission immediately and cooperatively cancels the active lifecycle/action call.
 The stop and disposal operations still wait behind that call's actual completion, so cancellation

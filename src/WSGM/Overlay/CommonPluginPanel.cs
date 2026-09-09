@@ -6,6 +6,7 @@ using System.Threading;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Threading;
+using WSGM.Core;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 
@@ -66,7 +67,7 @@ internal sealed class CommonPluginPanel : StackPanel
         var row = new StackPanel { Spacing = 4 };
         var effective = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap, Classes = { "caption" } };
         row.Children.Add(new TextBlock { Text = contribution.Label, Classes = { "setting-title" } });
-        row.Children.Add(effective);
+        if (contribution.StateKey is not null) { row.Children.Add(effective); }
         Children.Add(row);
         _refresh.Add(() =>
         {
@@ -75,7 +76,46 @@ internal sealed class CommonPluginPanel : StackPanel
         });
         if (contribution.Kind == PluginUiKind.Status) { return; }
         var inputs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        row.Children.Add(inputs);
+        if (contribution.Kind == PluginUiKind.Action
+            && owner.Actions!.Actions.First(value => value.Id == contribution.ActionId).Arguments.Count > 0)
+        {
+            row.Children.Add(new Expander { Header = "Edit and run", Content = inputs });
+        }
+        else { row.Children.Add(inputs); }
+        Dictionary<string, Func<PluginValue>> argumentReaders = [];
+        if (contribution.Kind == PluginUiKind.Action)
+        {
+            inputs.Orientation = Orientation.Vertical;
+            var action = owner.Actions!.Actions.First(value => value.Id == contribution.ActionId);
+            foreach (var field in action.Arguments)
+            {
+                inputs.Children.Add(new TextBlock { Text = field.Label, Classes = { "caption" } });
+                if (field.Kind == PluginSettingKind.Boolean)
+                {
+                    var editor = new ToggleSwitch { IsChecked = field.Default.Boolean };
+                    inputs.Children.Add(editor);
+                    argumentReaders.Add(field.Key, () => new(Boolean: editor.IsChecked == true));
+                }
+                else if (field.Kind == PluginSettingKind.Number)
+                {
+                    var (editor, readArgument) = CreateTextArgumentEditor(field);
+                    inputs.Children.Add(editor);
+                    argumentReaders.Add(field.Key, readArgument);
+                }
+                else if (field.Choices is { } choices)
+                {
+                    var editor = new ComboBox { ItemsSource = choices, SelectedItem = field.Default.Text };
+                    inputs.Children.Add(editor);
+                    argumentReaders.Add(field.Key, () => new(Text: editor.SelectedItem as string ?? ""));
+                }
+                else
+                {
+                    var (editor, readArgument) = CreateTextArgumentEditor(field);
+                    inputs.Children.Add(editor);
+                    argumentReaders.Add(field.Key, readArgument);
+                }
+            }
+        }
         Func<PluginValue?> read = () => null;
         var argument = owner.Actions!.Actions.First(action => action.Id == contribution.ActionId)
             .Arguments.FirstOrDefault(value => value.Key == contribution.ArgumentKey);
@@ -114,6 +154,7 @@ internal sealed class CommonPluginPanel : StackPanel
             busy = true;
             apply.IsEnabled = false;
             Dictionary<string, PluginValue> arguments = [];
+            foreach (var field in argumentReaders) { arguments.Add(field.Key, field.Value()); }
             if (read() is { } value) { arguments.Add(contribution.ArgumentKey!, value); }
             result.Text = "Requested…";
             try
@@ -128,4 +169,22 @@ internal sealed class CommonPluginPanel : StackPanel
 
     private static string Format(PluginValue value) => value.Boolean is { } boolean ? (boolean ? "On" : "Off")
         : value.Number?.ToString("G", CultureInfo.CurrentCulture) ?? value.Text ?? "No confirmed value";
+
+    internal static (Button Editor, Func<PluginValue> Read) CreateTextArgumentEditor(PluginSetting field)
+    {
+        string draft = field.Default.Text ?? field.Default.Number?.ToString("G", CultureInfo.CurrentCulture) ?? "";
+        Button editor = new() { Content = draft.Length > 0 ? draft : "Enter value" };
+        editor.Click += (_, _) =>
+        {
+            bool opened = KeyboardService.Request(field.Label, draft, field.Kind == PluginSettingKind.Number ? 64 : 4096, value =>
+            {
+                draft = value;
+                editor.Content = draft.Length > 0 ? draft : "Enter value";
+            });
+            if (!opened) { editor.Content = "Keyboard unavailable. Reopen the overlay to retry."; }
+        };
+        return (editor, () => field.Kind == PluginSettingKind.Number
+            ? new(Number: double.TryParse(draft, NumberStyles.Float, CultureInfo.CurrentCulture, out double number) ? number : double.NaN)
+            : new(Text: draft));
+    }
 }

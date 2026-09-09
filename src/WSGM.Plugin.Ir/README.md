@@ -2,12 +2,12 @@
 
 This independent `wsgm.infrared` package owns its command library, USB protocol and XIAO IR Mate
 firmware. It uses the common Plugin SDK and has no Device SDK dependency. The Device plugin can
-remain active alongside it. This is the initial #52 implementation, not a completed management UX.
+remain active alongside it. Hardware acceptance is still in progress under #52.
 
 Implemented: endpoint identity/version checks, bounded raw learn/send, cancellation, command and
-scene storage, backup/restore, named actions, common-host lifecycle and basic Tools contributions.
-Still required: endpoint pairing UI, command selection/naming/editing/relearning UI, scene editing,
-full package-host coexistence verification and live remote capture/transmission. A COM port list is
+scene storage, backup/restore, named actions, common-host lifecycle and Tools management forms.
+The real package has passed collectible host loading alongside a Device-category fixture.
+Live remote capture/transmission remains pending. A COM port list is
 discovery information only; only a successful protocol identity reply establishes compatibility.
 
 ## Build and package
@@ -23,6 +23,16 @@ python -m venv .codex/ir-tools
 The package contains `plugin.wsgm.json`, its entry assembly and package dependencies. Install and
 enable it through the existing common plugin package workflow. Set the USB port in plugin preferences,
 then use Connect in Overlay Tools. Loading or changing modes does not emit IR automatically.
+
+Tools action forms use the existing controller/touch keyboard. Learn takes a device and command name;
+Select accepts the displayed `Device / command` name. The selection survives a plugin restart.
+Rename and Relearn keep command identity, so existing scenes keep referring to that command. Relearn
+also preserves any explicit carrier override. Repeat timing controls the selected command.
+
+Create or replace scene takes a scene name and a semicolon-separated sequence of displayed command
+names, plus a delay after each command. Run/delete accept a scene name. Core callers may use stable
+IDs instead. A command referenced by a scene cannot be deleted until those references are removed.
+Action editors keep drafts separate from published state; only the explicit action button dispatches.
 
 The host stores `library.json` in its assigned private state directory. Learned signals are complete
 payloads, not firmware slot numbers. `library.backup.json` is an explicit backup in the same directory;
@@ -67,6 +77,13 @@ XIAO ESP32-C3 endpoint. For an attended upload:
 ```
 
 COM3 was this workstation's observed port, not a portable identity. Use the actual enumerated port.
+On this workstation, bundled esptool 4.5.1's stub stalled during flash reads. esptool 5.1.0 with
+`--no-stub` read the full 4 MiB and uploaded all four PlatformIO images successfully. The private
+factory backup is `.codex/issue-52/factory-flash.bin`, SHA-256
+`0e7b02cb0e63d6e4fa4642d9f9ef512b68b89ff144f6d371e00c4be432de391f`.
+The running C# plugin identified firmware 0.1.0/protocol 1 on the flashed XIAO on 2026-09-09.
+Live checks also passed protocol mismatch rejection, malformed-frame recovery, invalid-send refusal,
+learn cancellation and idle health readback. Those checks did not transmit IR or establish appliance behavior.
 The ESP32-C3 ROM loader remains the recovery path; Seeed also links a factory firmware flasher from
 the wiki. Reflashing does not touch the host command library. Hardware acceptance must distinguish
 a firmware build from successful capture and verified appliance behavior.

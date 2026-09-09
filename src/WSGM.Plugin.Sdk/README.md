@@ -33,5 +33,7 @@ through `PluginValue`; schema validation is available in `PluginConfigurationRul
 
 `IPluginActions` declares named operations for UI and Core automation. Results distinguish dispatched
 commands, independently verified effects, rejection and uncertain outcomes. `IPluginUi` links bounded
-host-rendered control descriptions to those actions and effective state keys. No plugin UI code is
+action forms to those declarations; text/numeric arguments can be edited through the host's controller
+keyboard before explicit dispatch. Defaults initialize the draft and are not automatic commands.
+Other host-rendered controls link actions and effective state keys. No plugin UI code is
 injected, and action results cannot mutate saved preferences.

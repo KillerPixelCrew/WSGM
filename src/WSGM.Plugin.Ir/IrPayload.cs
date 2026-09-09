@@ -30,7 +30,7 @@ internal sealed record IrCommand(string Id, string Device, string Name, IrPayloa
 }
 internal sealed record IrSceneStep(string CommandId, int DelayAfterMs = 0);
 internal sealed record IrScene(string Id, string Name, IrSceneStep[] Steps);
-internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Scenes)
+internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Scenes, string? SelectedCommandId = null)
 {
     internal static IrLibrary Empty => new(1, [], []);
     internal static JsonSerializerOptions Json { get; } = new(JsonSerializerDefaults.Web)
@@ -58,6 +58,10 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
             command.TransmitPayload.Validate(command.Repeats, command.GapMs);
         }
         HashSet<string> scenes = new(StringComparer.Ordinal);
+        if (SelectedCommandId is not null && !identities.Contains(SelectedCommandId))
+        {
+            throw new InvalidDataException("Selected IR command is absent.");
+        }
         foreach (IrScene scene in Scenes)
         {
             if (scene is null || !ValidName(scene.Id) || !scenes.Add(scene.Id) || !ValidName(scene.Name)

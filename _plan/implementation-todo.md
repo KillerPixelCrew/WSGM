@@ -13,10 +13,16 @@ The immediate queue is #52 (XIAO now connected), #69 investigation, #38/#39, #58
 - #52 is in progress. The XIAO ESP32-C3 enumerates on COM3. A common-SDK IR package now owns
   the USB endpoint protocol, persistent command/scene library, named actions and module-local firmware.
   The firmware builds for the reference board; source and hardware archive from Seeed were inspected.
-  Management UI, live learn/send verification and complete package-host validation remain open.
+  Tools now provides command selection, naming, relearning, repeat timing and scene management using
+  common action forms and the controller keyboard. Real package loading alongside a Device-category
+  fixture passes. Live learn/send verification remains open.
   Carrier provenance and a separate manual override are part of the initial payload/library/UI;
-  actual frequency measurement remains unverified. Flash backup stopped when COM3 disappeared;
-  no replacement firmware was written.
+  actual frequency measurement remains unverified. A full 4 MiB factory backup and firmware upload
+  succeeded through esptool 5.1's ROM path after the older stub stalled. The real C# plugin identified
+  the flashed XIAO on COM3 as firmware 0.1.0/protocol 1. Eight plugin tests, three package tests and the
+  focused controller-keyboard editor test pass.
+  Live firmware checks also pass malformed/version rejection, invalid-send refusal and learn cancellation.
+  The package is staged at `publish/plugins/wsgm.ir`; a real remote/button is requested for capture/replay.
 
 - #67 is implemented: one Tools keyboard action routes by current mode, with Steam-specific invocation
   in the toolkit and Windows using the existing touch keyboard. Sheet dismissal precedes invocation;
