@@ -216,3 +216,10 @@ and a stale target would call back a window the user has since left. The fields 
 Panel brightness is available in Tools through the resident session's shared brightness service.
 Steam QAM and Overlay use the same serialized writes and confirmed readback. The slider remains
 in place during updates, disables when readback is unavailable, and works with CEF disabled.
+
+Tools also shows resolution and refresh for the first active display in Windows path-priority order.
+Pickers contain driver-validated modes; changing resolution updates the offered refresh rates.
+Only Apply changes the display. Fresh observations every five seconds while open replace stale
+choices after reconnect, resume or profile changes. Windows Device Control rechecks target identity
+and driver validation before applying, confirms readback and attempts rollback on an unconfirmed
+write. Ambiguous clone sources are unavailable. This does not establish physical visibility.

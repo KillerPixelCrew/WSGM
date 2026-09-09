@@ -1,14 +1,16 @@
 # WSGM 2.0 implementation tracker
 
 Status: the previous implementation baseline is on `master`; the current open workoff contains
-25 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
+24 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
 submodule changes, without feature branches or pull requests.
 
 ## Current issue workoff
 
-After delivery of #38/#39, #58 and #65–#68 on 2026-09-09, 32 issues remain open.
-Issues #41–#45, #47 and #48 remain deferred; the other 25 are the 2.0 scope.
-The immediate queue is #52 (XIAO now connected), #69 investigation, #59 and #61.
+After delivery of #38/#39, #58/#59 and #65–#68 on 2026-09-09, 31 issues remain open.
+Issues #41–#45, #47 and #48 remain deferred; the other 24 are the 2.0 scope.
+The immediate queue is #52 (XIAO now connected), #69 investigation and #61.
+
+- #59 is implemented: Tools offers current resolution/refresh and supported mode drafts with explicit Apply. Windows Device Control owns fresh enumeration, exact-route revalidation, readback and rollback. A headless picker test and warning-clean builds pass. Physical mode changes remain for field review.
 
 - #38/#39 are implemented: Desktop notification icon, Settings focus, Game Mode entry and coordinated Exit; Start Menu and optional Desktop shortcuts start or activate the resident session. The activation test and 21 existing shutdown tests pass; the build is warning-clean. Installer and live tray review remain for field validation.
 

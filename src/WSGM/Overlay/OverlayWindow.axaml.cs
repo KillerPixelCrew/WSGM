@@ -54,7 +54,11 @@ public partial class OverlayWindow : Window
     private bool _performanceDetailsExpanded;
 
     internal void AttachPowerPresets(DevicePowerPresetSelection selection) => DevicePowerPresetHost.Attach(selection);
-    internal void AttachBrightness(NativeQamBrightnessService service) => DisplayBrightnessHost.Children.Add(new DisplayBrightnessView(service));
+    internal void AttachBrightness(NativeQamBrightnessService service)
+    {
+        DisplayBrightnessHost.Children.Add(new DisplayBrightnessView(service));
+        DisplayBrightnessHost.Children.Add(new DisplayModeView());
+    }
 
     internal void AttachSteamOwnership(Func<SteamControllerHandoff?> getOwner)
     {
