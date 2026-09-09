@@ -4,9 +4,12 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using Avalonia.Controls;
+using Avalonia.Data;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Threading;
 using WSGM.Core;
+using WSGM.Controls;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 
@@ -76,7 +79,26 @@ internal sealed class CommonPluginPanel : StackPanel
         {
             var widget = actions.Widgets.FirstOrDefault(item => item.Id == pinned.WidgetId);
             if (widget is null) { Children.Add(new TextBlock { Text = "Widget unavailable" }); return; }
-            Children.Add(new TextBlock { Text = widget.Label, Classes = { "setting-title" } });
+            var title = new TextBlock { Text = widget.Label, Classes = { "setting-title" }, TextWrapping = TextWrapping.Wrap };
+            DockPanel heading = new() { LastChildFill = true };
+            if (WidgetIcon(widget.Icon) is { } geometry)
+            {
+                Avalonia.Controls.Shapes.Path icon = new()
+                {
+                    Data = geometry,
+                    Width = 20,
+                    Height = 20,
+                    Stretch = Stretch.Uniform,
+                    StrokeThickness = 2,
+                    Margin = new(0, 0, 8, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                icon.Bind(Avalonia.Controls.Shapes.Shape.StrokeProperty, new Binding("Foreground") { Source = title });
+                DockPanel.SetDock(icon, Dock.Left);
+                heading.Children.Add(icon);
+            }
+            heading.Children.Add(title);
+            Children.Add(heading);
             if (widget.NavigationCategory is { } category && _navigate is not null)
             {
                 Button open = new() { Content = "Open plugin controls" };
@@ -241,6 +263,19 @@ internal sealed class CommonPluginPanel : StackPanel
             finally { busy = false; }
         };
     }
+
+    internal static Geometry? WidgetIcon(string? key) => key switch
+    {
+        "power" => Icons.Power,
+        "fan" => Icons.Snowflake,
+        "battery" => Icons.Battery,
+        "lighting" => Icons.Palette,
+        "controller" => Icons.Grid4,
+        "display" => Icons.Monitor,
+        "settings" => Icons.Gear,
+        "action" => Icons.Play,
+        _ => null,
+    };
 
     private static string Format(PluginValue value) => value.Boolean is { } boolean ? (boolean ? "On" : "Off")
         : value.Number?.ToString("G", CultureInfo.CurrentCulture) ?? value.Text ?? "No confirmed value";

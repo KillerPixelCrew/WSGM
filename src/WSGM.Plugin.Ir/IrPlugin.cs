@@ -61,7 +61,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     /// <inheritdoc />
     public IReadOnlyList<PluginWidget> Widgets { get; } =
     [
-        new("selected-command", "IR remote", ["selected", "send"], NavigationCategory: "commands"),
+        new("selected-command", "IR remote", ["selected", "send"], Icon: "action", NavigationCategory: "commands"),
     ];
 
     /// <inheritdoc />

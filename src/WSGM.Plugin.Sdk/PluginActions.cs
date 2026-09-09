@@ -100,7 +100,8 @@ public interface IPluginUi
 /// <param name="Id">Stable widget identity, independent of declaration order.</param>
 /// <param name="Label">Plain display title.</param>
 /// <param name="ContributionIds">One to eight existing status or control contribution identities.</param>
-/// <param name="Icon">Optional host icon key; never markup or executable UI.</param>
+/// <param name="Icon">Optional host icon key: power, fan, battery, lighting, controller, display,
+/// settings or action. Unknown keys render without an icon; never markup or executable UI.</param>
 /// <param name="SecondaryStateKey">Optional secondary effective-state value.</param>
 /// <param name="VisibleStateKey">Optional boolean state key; true makes the widget available for display.</param>
 /// <param name="EnabledStateKey">Optional boolean state key; true enables its controls.</param>
