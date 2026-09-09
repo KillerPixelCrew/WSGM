@@ -113,6 +113,7 @@ internal static class Program
 
         using var lease = options.AnyLease ? SteamInputLeaseHost.TryAcquire(options) : null;
         var payload = LaunchPayload.Capture(options.Command, inputLeaseAcquired: lease is not null);
+        LogSdlEnvironment(options.Command[0], lease is not null ? "removed from child payload" : "preserved without lease");
         return elevated == false
             ? await LaunchAndWaitAsync(payload)
             : await RunElevatedParentAsync(payload);
@@ -123,8 +124,10 @@ internal static class Program
         try
         {
             using var client = SteamInputLeaseHost.CreateClient(options);
+            LogSdlEnvironment(options.Command[0], "native child removal pending lease acquisition");
             Console.WriteLine("Acquiring Steam Input block lease...");
             var run = client.RunWrapped(options.Command);
+            LogSdlEnvironment(options.Command[0], "removed from native child environment; process tree exited");
             Console.WriteLine("Game process tree exited; Steam Input unblocked.");
             LaunchLog.Info($"Steam Input lease wrapper finished with exit code {run.ExitCode}.");
             // Blocking is lifted either way (the lease is a pipe Windows closes with
@@ -152,8 +155,17 @@ internal static class Program
             LaunchLog.Error($"Steam Input lease wrapper failed: {ex.Message}. Launching without it.");
             Console.Error.WriteLine($"Steam Input block unavailable: {ex.Message}");
             var payload = LaunchPayload.Capture(options.Command);
+            LogSdlEnvironment(options.Command[0], "preserved after lease launch failure");
             return await LaunchAndWaitAsync(payload);
         }
+    }
+
+    private static void LogSdlEnvironment(string target, string disposition)
+    {
+        var present = Environment.GetEnvironmentVariable("SDL_GAMECONTROLLER_IGNORE_DEVICES") is not null;
+        LaunchLog.Info($"SDL_GAMECONTROLLER_IGNORE_DEVICES present={present}, " +
+                       $"disposition={(present ? disposition : "absent; no change")}, " +
+                       $"target={Path.GetFileName(target)}.");
     }
 
     private static int RunStatus(LaunchOptions options)

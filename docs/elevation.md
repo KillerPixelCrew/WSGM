@@ -87,6 +87,12 @@ wrapped launch and the de-elevated payload remove the variable case-insensitivel
 caller's environment, Steam app/overlay variables and other SDL hints. De-elevation without a lease
 and failed lease acquisition keep the original environment.
 
+`launch.log` records whether `SDL_GAMECONTROLLER_IGNORE_DEVICES` was present, its child-environment
+disposition, and the target filename under the wrapper PID. It never records the variable value or
+the environment block. Native wrapped launches report removal as pending before the blocking call
+and confirm it after the process tree exits successfully through that call; failure records that the
+fallback preserves the original environment.
+
 The lease is the outer behaviour. The elevated parent acquires it before the de-elevation hand-off
 and releases it after the medium child reports the target's exit. This also keeps the explicitly
 requested injection route at Steam's integrity; a medium process cannot inject into elevated Steam.
