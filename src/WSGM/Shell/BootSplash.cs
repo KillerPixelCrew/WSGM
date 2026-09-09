@@ -26,6 +26,7 @@ public sealed class BootSplash
 
     private readonly AppConfig _config;
     private readonly Action _switchToDesktop;
+    private readonly Func<bool>? _holdForPreparation;
     private BootSplashWindow? _window;
     private GamepadService? _gamepad;
     private GamepadNavigation? _navigation;
@@ -39,11 +40,13 @@ public sealed class BootSplash
     /// <param name="config">The shell configuration containing splash and display settings.</param>
     /// <param name="switchToDesktop">The session-owned action that cancels any
     /// active boot takeover and completes the desktop fallback.</param>
-    public BootSplash(AppConfig config, Action switchToDesktop)
+    /// <param name="holdForPreparation">Optional UI-thread predicate that defers Steam detection while route preparation runs.</param>
+    public BootSplash(AppConfig config, Action switchToDesktop, Func<bool>? holdForPreparation = null)
     {
         ArgumentNullException.ThrowIfNull(switchToDesktop);
         _config = config;
         _switchToDesktop = switchToDesktop;
+        _holdForPreparation = holdForPreparation;
     }
 
     /// <summary>UI thread only (ShellSession.Start is).</summary>
@@ -87,7 +90,7 @@ public sealed class BootSplash
             CloseAfter(TouchCloseGrace);
             return;
         }
-        if (Steam.IsBigPictureVisible)
+        if (_holdForPreparation?.Invoke() != true && Steam.IsBigPictureVisible)
         {
             OnBigPictureDetected();
         }

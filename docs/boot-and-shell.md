@@ -379,3 +379,10 @@ startup apps or Game Mode display posture. GameModeBoot takes precedence when bo
 Old manifests omit DesktopResident and retain their previous behavior. Crash-loop manifest disabling
 clears both automatic launch choices. This path has offline decision/build coverage; it has not been
 installed or exercised through a live sign-in in this workoff.
+
+Configured Game Mode route preparation always shows the transition cover, independently of the
+optional boot-splash preference. Steam-window detection is held until route preparation settles;
+the existing hard timeout still applies. The Desktop button cancels active preparation. Failure
+or a session transition warning dismisses the cover, while successful preparation releases the
+hold so normal Big Picture detection can fade it out. This path has not had a live display-switch
+pass; focused route/session tests and warning-clean compilation cover the current change.

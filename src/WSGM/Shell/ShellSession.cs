@@ -581,6 +581,8 @@ public sealed class ShellSession : IAsyncDisposable
             ? new SessionModes(_config, _monitor)
             : new SessionModes(_config, _monitor, _desktopHost);
         if (!_overlayTestOnly) { _modes.PrepareDisplayRouteAsync = PrepareDisplayRouteAsync; }
+        _modes.SteamStartFailed += _ => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            _splash?.Dismiss("session transition warning"));
         // Session-lifetime on purpose (survives desktop trips): a Steam download must
         // keep the device awake in both modes, and the manual hold belongs to the user.
         // The automatic side is off in overlay-test mode: its poll drives the live
@@ -1544,6 +1546,10 @@ public sealed class ShellSession : IAsyncDisposable
     private async Task<DisplayRouteResult?> PrepareDisplayRouteAsync(bool enteringGameMode)
     {
         bool acquired = false;
+        BootSplash? routeSplash = null;
+        bool holdingSplash = false;
+        bool preparationActive = true;
+        using var routeCancellation = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCancellation.Token);
         try
         {
             await _displayRouteGate.WaitAsync(_shutdownCancellation.Token).ConfigureAwait(false);
@@ -1553,18 +1559,49 @@ public sealed class ShellSession : IAsyncDisposable
             var binding = enteringGameMode ? routes.EnterGameMode : routes.LeaveGameMode;
             if (binding is null) { return null; }
             await _commonPluginStartup.WaitAsync(_shutdownCancellation.Token).ConfigureAwait(false);
+            if (enteringGameMode)
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    holdingSplash = true;
+                    _splash?.Dismiss("display route preparation");
+                    routeSplash = new BootSplash(config, () =>
+                    {
+                        if (preparationActive) { routeCancellation.Cancel(); }
+                        else { SwitchToDesktopFromSplash(); }
+                    }, () => holdingSplash);
+                    _splash = routeSplash;
+                    routeSplash.Show();
+                });
+            }
             var transition = new DisplayRouteTransition(new DisplayRouteBackend(_pluginHost));
             var result = await transition.RunAsync(DisplayRoutePlan.FromBinding(binding), enteringGameMode,
-                _shutdownCancellation.Token).ConfigureAwait(false);
+                routeCancellation.Token).ConfigureAwait(false);
+            if (!result.Completed && routeSplash is not null)
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => routeSplash.Dismiss("route preparation failed"));
+            }
             Log.Info($"Display route {(enteringGameMode ? "enter" : "leave")}: {result.Stage}: {result.Detail}");
             return result;
         }
         catch (Exception ex)
         {
+            if (routeSplash is not null)
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => routeSplash.Dismiss("route preparation error"));
+            }
             Log.Error("Display route preparation failed", ex);
             return new(false, "configuration", ex.Message);
         }
-        finally { if (acquired) { _displayRouteGate.Release(); } }
+        finally
+        {
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                holdingSplash = false;
+                preparationActive = false;
+            });
+            if (acquired) { _displayRouteGate.Release(); }
+        }
     }
 
     private void OnSystemResumed()
