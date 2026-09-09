@@ -81,6 +81,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private DevicePluginRuntime? _client;
     private DevicePluginRuntime? _steamControllerOwner;
     private long _steamControllerGeneration;
+    private IReadOnlyList<PhysicalDeviceIdentity> _steamReleasedDevices = [];
+    private int? _steamPresenceResult;
     private Task _controllerPublication = Task.CompletedTask;
     private readonly PluginHost _pluginHost;
     private PluginRegistration? _pluginRegistration;
@@ -1409,6 +1411,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             _steamControllerGeneration = await _controllers.BeginSteamOwnershipPauseAsync(cancellationToken)
                 .ConfigureAwait(false);
             _steamControllerOwner = client;
+            _steamReleasedDevices = [];
+            _steamPresenceResult = null;
             ControllerHandoff release = await client.ReleaseControllerAsync(
                 HandoffScope.ControllerOnly, DateTimeOffset.UtcNow.AddSeconds(6), cancellationToken)
                 .ConfigureAwait(false);
@@ -1420,6 +1424,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             }
 
             await _hapticSink.WithdrawAsync().ConfigureAwait(false);
+            _steamReleasedDevices = release.ReleasedDevices;
             return await _controllers.ReleaseSteamVisibilityAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -1455,6 +1460,32 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         {
             _transitionGate.Release();
         }
+    }
+
+    internal async Task<bool> IsReleasedControllerPresentAsync(CancellationToken cancellationToken)
+    {
+        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_steamReleasedDevices.Count == 0)
+            {
+                throw new InvalidOperationException("The plugin supplied no verified released controller identities.");
+            }
+            int result = 0;
+            foreach (PhysicalDeviceIdentity device in _steamReleasedDevices)
+            {
+                result = NativeStorage.LocatePresentDeviceInstance(device.InstancePath);
+                if (result != 0) { break; }
+            }
+            if (_steamPresenceResult != result)
+            {
+                _steamPresenceResult = result;
+                Log.Info(result == 0 ? "Steam handoff: released controller interfaces are present."
+                    : $"Steam handoff: waiting for released controller interfaces; Configuration Manager result=0x{result:X}.");
+            }
+            return result == 0;
+        }
+        finally { _transitionGate.Release(); }
     }
 
     internal async Task<bool> IsSteamControllerOwnershipCurrentAsync(CancellationToken cancellationToken)

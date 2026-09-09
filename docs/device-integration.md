@@ -226,7 +226,12 @@ If suspend, disable or runtime replacement retires the saved owner, the interact
 its native claims without reacquiring hardware. Owner changes during restoration are distinguished
 from unverified writes, so they cannot strand a temporary block. The same ownership check runs
 before semantic replay to reject a request overtaken by teardown.
-Restart/disconnect recovery and end-to-end verification remain pending. Main-window semantic replay
+After surface closure, disconnected physical interfaces delay restoration while Steam access remains
+enabled and the virtual target stays neutral. The host checks the exact instance IDs from verified
+release in the currently configured device tree, without phantom lookup. This is a read-only wait;
+hardware acquisition runs once after presence returns. Owner retirement and shutdown cancel the wait.
+The plugin still revalidates topology and firmware before its write, and uncertain writes are not retried.
+Lease-only OEM handoffs and end-to-end verification remain pending. Main-window semantic replay
 has live CEF evidence; game-overlay dispatch has deterministic identity/refusal tests only.
 
 ### Make-safe removes the target after the physical release and HidHide entries after the target

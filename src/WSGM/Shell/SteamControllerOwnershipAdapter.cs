@@ -22,22 +22,26 @@ internal sealed class SteamControllerOwnershipAdapter : IDisposable
     private readonly ISteamControllerGate _gate;
     private readonly Func<bool> _steamAlive;
     private readonly Func<CancellationToken, Task<bool>> _ownerIsCurrent;
+    private readonly Func<CancellationToken, Task<bool>> _physicalIsPresent;
 
     internal SteamControllerOwnershipAdapter(DeviceCoordinator device, Func<bool> steamAlive)
         : this(device.ReleaseControllerForSteamAsync, device.RestoreControllerFromSteamAsync,
-            new NativeSteamControllerGate(), steamAlive, device.IsSteamControllerOwnershipCurrentAsync)
+            new NativeSteamControllerGate(), steamAlive, device.IsSteamControllerOwnershipCurrentAsync,
+            device.IsReleasedControllerPresentAsync)
     {
     }
 
     internal SteamControllerOwnershipAdapter(Func<CancellationToken, Task<bool>> releasePhysical,
         Func<CancellationToken, Task<SteamPhysicalRestoreResult>> restorePhysical, ISteamControllerGate gate,
-        Func<bool>? steamAlive = null, Func<CancellationToken, Task<bool>>? ownerIsCurrent = null)
+        Func<bool>? steamAlive = null, Func<CancellationToken, Task<bool>>? ownerIsCurrent = null,
+        Func<CancellationToken, Task<bool>>? physicalIsPresent = null)
     {
         _releasePhysical = releasePhysical;
         _restorePhysical = restorePhysical;
         _gate = gate;
         _steamAlive = steamAlive ?? (() => true);
         _ownerIsCurrent = ownerIsCurrent ?? (_ => Task.FromResult(true));
+        _physicalIsPresent = physicalIsPresent ?? (_ => Task.FromResult(true));
     }
 
     internal async Task<bool> ReleaseAsync(CancellationToken cancellationToken)
@@ -55,6 +59,13 @@ internal sealed class SteamControllerOwnershipAdapter : IDisposable
     internal async Task<bool> RestoreAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        // This loop performs presence reads only. Keep Steam access and the neutral virtual target
+        // while disconnected; do not start a hardware acquisition or take a native block to poll.
+        while (await _ownerIsCurrent(cancellationToken).ConfigureAwait(false)
+            && !await _physicalIsPresent(cancellationToken).ConfigureAwait(false))
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken).ConfigureAwait(false);
+        }
         if (!await _ownerIsCurrent(cancellationToken).ConfigureAwait(false))
         {
             _gate.Dispose();

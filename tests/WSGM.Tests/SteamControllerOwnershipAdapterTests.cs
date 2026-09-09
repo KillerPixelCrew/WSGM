@@ -95,6 +95,53 @@ public sealed class SteamControllerOwnershipAdapterTests
         Assert.Equal(["block-steam", "dispose"], calls);
     }
 
+    [Fact]
+    public async Task DisconnectWaitsWithoutNativeBlockThenReacquiresOnceAfterReconnection()
+    {
+        List<string> calls = [];
+        int present = 0;
+        using SteamControllerOwnershipAdapter adapter = new(
+            _ => Task.FromResult(true),
+            _ => { calls.Add("restore-physical"); return Task.FromResult(SteamPhysicalRestoreResult.Restored); },
+            new Gate(calls), physicalIsPresent: _ => Task.FromResult(Volatile.Read(ref present) == 1));
+        Task<bool> restore = adapter.RestoreAsync(CancellationToken.None);
+        Assert.False(restore.IsCompleted);
+        Assert.Empty(calls);
+        Volatile.Write(ref present, 1);
+        Assert.True(await restore.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.Equal(["block-steam", "restore-physical", "end-block"], calls);
+    }
+
+    [Fact]
+    public async Task RetiringOwnerDuringDisconnectWaitReleasesClaimsWithoutReacquisition()
+    {
+        List<string> calls = [];
+        int current = 1;
+        using SteamControllerOwnershipAdapter adapter = new(
+            _ => Task.FromResult(true), _ => throw new InvalidOperationException("Retired device"),
+            new Gate(calls), ownerIsCurrent: _ => Task.FromResult(Volatile.Read(ref current) == 1),
+            physicalIsPresent: _ => Task.FromResult(false));
+        Task<bool> restore = adapter.RestoreAsync(CancellationToken.None);
+        Assert.Empty(calls);
+        Volatile.Write(ref current, 0);
+        Assert.True(await restore.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.Equal(["dispose"], calls);
+    }
+
+    [Fact]
+    public async Task ShutdownCancelsDisconnectWaitWithoutAnyHardwareAcquisition()
+    {
+        List<string> calls = [];
+        using CancellationTokenSource cancellation = new();
+        using SteamControllerOwnershipAdapter adapter = new(
+            _ => Task.FromResult(true), _ => throw new InvalidOperationException("No acquisition during shutdown"),
+            new Gate(calls), physicalIsPresent: _ => Task.FromResult(false));
+        Task<bool> restore = adapter.RestoreAsync(cancellation.Token);
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => restore);
+        Assert.Empty(calls);
+    }
+
     private sealed class Gate(List<string> calls) : ISteamControllerGate
     {
         internal bool Supported { get; init; } = true;

@@ -139,7 +139,10 @@ the replacement Steam client before discarding the dead claim and reacquiring ph
 Device owner retirement also ends the interaction. Suspend, disable and runtime replacement discard
 the old native claims without acquiring a replacement controller; unverified physical restoration
 still requires recovery rather than an automatic retry.
-Disconnect recovery and end-to-end verification remain open under #65.
+When released controller interfaces disconnect, restoration waits for their exact instance IDs to
+return before taking a native block or reacquiring hardware. Device retirement or shutdown ends the
+read-only wait. Lease-only OEM handoffs (without an active managed target) and end-to-end verification
+remain open under #65.
 
 ## Owner claims and the Settings handoff
 

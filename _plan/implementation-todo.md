@@ -23,7 +23,8 @@ The immediate queue is #65, #69 investigation, #68, #67, #38/#39, #58, #59 and #
   evidence; game-overlay dispatch is not live-verified. An original-process handle detects Steam
   replacement even when the monitor misses its exit. Suspend, disable and runtime replacement now
   retire the old interaction without a stale replay, hardware reacquisition or stranded block.
-  Physical disconnect/reconnect recovery and end-to-end
+  Physical disconnect/reconnect now waits for verified released instance IDs before blocking Steam
+  and reacquiring once. Lease-only OEM handoffs without an active managed target and end-to-end
   verification remain pending.
 
 The maintainer directs issues to close when their fixes are committed and pushed; failed field

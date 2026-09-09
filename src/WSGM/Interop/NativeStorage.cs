@@ -395,6 +395,15 @@ internal static unsafe partial class NativeStorage
         return [.. result];
     }
 
+    /// <summary>Checks an exact instance ID in the currently configured device tree without phantom lookup.</summary>
+    /// <param name="instanceId">The nonempty device instance ID to locate.</param>
+    /// <returns>The Configuration Manager result; zero indicates a current devnode.</returns>
+    internal static int LocatePresentDeviceInstance(string instanceId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
+        return CM_Locate_DevNodeW(out _, instanceId, 0);
+    }
+
     /// <summary>Resolves a device-interface path to its devnode.</summary>
     /// <param name="interfacePath">A path from <see cref="ListDiskInterfaces"/>.</param>
     /// <param name="devInst">The devnode handle.</param>
