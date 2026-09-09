@@ -165,3 +165,7 @@ test projects, retain their MIT licenses under `src` and `tests`. See
 
 Bundled third-party components keep their own licenses; their notices ship beside the executable and
 with the installer.
+
+In Desktop Mode, the WSGM notification icon opens the Overlay, Settings or Game Mode and provides
+Exit WSGM. Start WSGM again from the Start Menu; launching it while running opens the existing
+session. Setup also offers an optional Desktop shortcut.

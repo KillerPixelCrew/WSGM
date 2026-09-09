@@ -13,6 +13,18 @@ Related:
 
 ## Process modes
 
+The Start Menu shortcut runs `WSGM.exe --shell --activate`; the installer optionally creates the
+same shortcut on the Desktop. With Explorer running, this starts the resident Desktop session.
+A repeat launch signals the existing mutex owner to open the Overlay, including requests queued
+during startup. No arguments still open Settings. Shortcuts are updated and removed by Inno Setup.
+
+Desktop Mode shows a WSGM notification icon with Open WSGM, Enter Game Mode, Settings and Exit WSGM.
+Primary activation opens the Overlay; Settings focuses its existing window. The icon is hidden in
+Game Mode and disposed during shutdown. Exit uses the ordinary coordinated application shutdown:
+integrations and runtime resources retire, Explorer is restored, and the interactive process ends.
+The installed logon service remains available for the next sign-in; Exit does not uninstall it or
+change the configured next-logon preference. This icon is separate from Game Mode's `TrayHost`.
+
 `Program.DecideMode` picks one mode from the command line. WSGM never registers as the Windows
 shell, so no arguments means Settings.
 

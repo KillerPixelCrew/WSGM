@@ -277,8 +277,11 @@ public static class Program
             }
         }
 
+        using EventWaitHandle? activation = Mode == RunMode.Shell
+            ? new(false, EventResetMode.AutoReset, SessionActivation.EventName) : null;
         if (Mode == RunMode.Shell)
         {
+            if (args.Contains("--activate", StringComparer.OrdinalIgnoreCase)) { activation!.Set(); }
             if (!AcquireShellMutex())
             {
                 Log.Warn("Another WSGM shell instance is running; exiting.");

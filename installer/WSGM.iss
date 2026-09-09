@@ -73,6 +73,7 @@ Name: "devicelab"; Description: "Device Lab and offline device-development tools
 Name: "controller"; Description: "Virtual controller support (requires the USBIP driver; remains disabled until enabled in WSGM Settings)"; Types: full
 
 [Tasks]
+Name: "desktopicon"; Description: "Create a Desktop shortcut"; GroupDescription: "Shortcuts"; Flags: unchecked
 ; The one place the USB/IP driver may be installed from. It is a separate, visibly ticked line
 ; rather than a silent consequence of the component because it installs a signed third-party kernel
 ; driver, restarts every USB 3.0 hub while it runs, and needs a reboot afterwards. Unticking it
@@ -135,7 +136,8 @@ Source: "{#DevicePackagesPublishDir}\*"; DestDir: "{autopf}\WSGM\DevicePlugins\.
 Source: "{#DeviceToolsPublishDir}\*"; DestDir: "{app}\Tools"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: devicelab
 
 [Icons]
-Name: "{userprograms}\{#AppName}"; Filename: "{app}\WSGM.exe"; Comment: "WSGM settings"
+Name: "{userprograms}\{#AppName}"; Filename: "{app}\WSGM.exe"; Parameters: "--shell --activate"; IconFilename: "{app}\WSGM.exe"; Comment: "Open WSGM"
+Name: "{userdesktop}\{#AppName}"; Filename: "{app}\WSGM.exe"; Parameters: "--shell --activate"; IconFilename: "{app}\WSGM.exe"; Tasks: desktopicon; Comment: "Open WSGM"
 
 [Run]
 ; --setup: install per-user files, migrate OFF a legacy shell registration

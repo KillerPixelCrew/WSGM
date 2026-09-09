@@ -140,6 +140,8 @@ public sealed class ShellSession : IAsyncDisposable
     private ForegroundWindowWatcher? _foregroundWindows;
     private AutoTdpService? _autoTdp;
     private NativeQamBrightnessService? _brightness;
+    private DesktopTray? _desktopTray;
+    private SessionActivation? _activation;
     private Task<bool> ShowOnScreenKeyboardAsync(CancellationToken cancellationToken)
     {
         Log.Info($"On-screen keyboard requested: {(_inGameMode ? "Steam" : "Windows")}.");
@@ -613,6 +615,17 @@ public sealed class ShellSession : IAsyncDisposable
         _overlay.ShowOnScreenKeyboard = ShowOnScreenKeyboardAsync;
         if (!_overlayTestOnly)
         {
+            _desktopTray = new DesktopTray(
+                () => { if (!_shutdownRequested) { _overlay.ShowOverlay(); } },
+                () => { if (!_shutdownRequested) { _modes.EnterGameMode(); } },
+                ApplicationShutdownRequest.ShutdownLifetime);
+            _activation = new SessionActivation(() =>
+            {
+                if (!_shutdownRequested) { _overlay.ShowOverlay(); }
+            });
+        }
+        if (!_overlayTestOnly)
+        {
             _brightness = new NativeQamBrightnessService(() => !_shutdownRequested, () => { });
             _overlay.Brightness = _brightness;
         }
@@ -774,6 +787,7 @@ public sealed class ShellSession : IAsyncDisposable
         _modes.DesktopModeStarting += () =>
         {
             _inGameMode = false;
+            _desktopTray?.SetDesktop(true);
             _ = NotifyPluginModeAsync(WSGM.Plugin.Sdk.PluginSessionMode.Desktop);
             RequestSteamUiTransportGateCheck();
             _tabBootSyncCancellation.Cancel();
@@ -795,6 +809,7 @@ public sealed class ShellSession : IAsyncDisposable
         _modes.GameModeEntered += () =>
         {
             _inGameMode = true;
+            _desktopTray?.SetDesktop(false);
             ReleaseSteamUiBigPictureHold();
             RequestSteamUiTransportGateCheck();
             EnterGameModeSurfaces();
@@ -879,6 +894,7 @@ public sealed class ShellSession : IAsyncDisposable
             // startup apps, no Steam, no game posture/scale — with the overlay armed
             // so the panel is available; EnterGameMode brings everything back.
             Log.Info("Shell started with a live desktop — resuming in desktop mode (overlay armed).");
+            _desktopTray?.SetDesktop(true);
             // No DesktopModeStarting fires for a session that never entered game
             // mode, so clear the flag here: the game-mode-only CEF injections must
             // not start next to a live explorer (and nothing would retract them).
@@ -2334,6 +2350,10 @@ public sealed class ShellSession : IAsyncDisposable
 
     private void RetireTrayHostForShutdown()
     {
+        _desktopTray?.Dispose();
+        _desktopTray = null;
+        _activation?.Dispose();
+        _activation = null;
         // Every later cleanup is recoverable through process exit. Explorer restoration is not:
         // it must never run beside WSGM's Shell_TrayWnd and create two taskbar owners.
         _trayHost?.Dispose();
