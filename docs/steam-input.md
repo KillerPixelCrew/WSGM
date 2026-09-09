@@ -136,6 +136,9 @@ make-safe. A confirmed Steam exit permits physical restoration without an acknow
 dead pipe. The native adapter retains an open handle to the original Steam process, so a quick
 restart missed by the five-second monitor cannot extend the old interaction. Restoration blocks
 the replacement Steam client before discarding the dead claim and reacquiring physical ownership.
+Device owner retirement also ends the interaction. Suspend, disable and runtime replacement discard
+the old native claims without acquiring a replacement controller; unverified physical restoration
+still requires recovery rather than an automatic retry.
 Disconnect recovery and end-to-end verification remain open under #65.
 
 ## Owner claims and the Settings handoff

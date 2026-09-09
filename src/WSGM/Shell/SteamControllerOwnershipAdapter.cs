@@ -7,26 +7,37 @@ using SteamInterop;
 
 namespace WSGM.Shell;
 
+internal enum SteamPhysicalRestoreResult
+{
+    Restored,
+    OwnerChanged,
+    Unverified,
+}
+
 /// <summary>Owns native claims around the device coordinator's physical handoff.</summary>
 internal sealed class SteamControllerOwnershipAdapter : IDisposable
 {
     private readonly Func<CancellationToken, Task<bool>> _releasePhysical;
-    private readonly Func<CancellationToken, Task<bool>> _restorePhysical;
+    private readonly Func<CancellationToken, Task<SteamPhysicalRestoreResult>> _restorePhysical;
     private readonly ISteamControllerGate _gate;
     private readonly Func<bool> _steamAlive;
+    private readonly Func<CancellationToken, Task<bool>> _ownerIsCurrent;
 
     internal SteamControllerOwnershipAdapter(DeviceCoordinator device, Func<bool> steamAlive)
-        : this(device.ReleaseControllerForSteamAsync, device.RestoreControllerFromSteamAsync, new NativeSteamControllerGate(), steamAlive)
+        : this(device.ReleaseControllerForSteamAsync, device.RestoreControllerFromSteamAsync,
+            new NativeSteamControllerGate(), steamAlive, device.IsSteamControllerOwnershipCurrentAsync)
     {
     }
 
     internal SteamControllerOwnershipAdapter(Func<CancellationToken, Task<bool>> releasePhysical,
-        Func<CancellationToken, Task<bool>> restorePhysical, ISteamControllerGate gate, Func<bool>? steamAlive = null)
+        Func<CancellationToken, Task<SteamPhysicalRestoreResult>> restorePhysical, ISteamControllerGate gate,
+        Func<bool>? steamAlive = null, Func<CancellationToken, Task<bool>>? ownerIsCurrent = null)
     {
         _releasePhysical = releasePhysical;
         _restorePhysical = restorePhysical;
         _gate = gate;
         _steamAlive = steamAlive ?? (() => true);
+        _ownerIsCurrent = ownerIsCurrent ?? (_ => Task.FromResult(true));
     }
 
     internal async Task<bool> ReleaseAsync(CancellationToken cancellationToken)
@@ -44,28 +55,39 @@ internal sealed class SteamControllerOwnershipAdapter : IDisposable
     internal async Task<bool> RestoreAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (!await _ownerIsCurrent(cancellationToken).ConfigureAwait(false))
+        {
+            _gate.Dispose();
+            return true;
+        }
         if (!_steamAlive())
         {
             // With Steam confirmed exited, no native reader remains to block. Its old pipe
             // cannot acknowledge a transition, and must not prevent physical restoration.
             _gate.Dispose();
-            return await _restorePhysical(cancellationToken).ConfigureAwait(false);
+            return await _restorePhysical(cancellationToken).ConfigureAwait(false) != SteamPhysicalRestoreResult.Unverified;
         }
         if (!_gate.BeginRestore())
         {
             return false;
         }
-        bool restored = await _restorePhysical(cancellationToken).ConfigureAwait(false);
-        if (restored)
+        SteamPhysicalRestoreResult restored = await _restorePhysical(cancellationToken).ConfigureAwait(false);
+        if (restored == SteamPhysicalRestoreResult.OwnerChanged)
+        {
+            _gate.Dispose();
+        }
+        else if (restored == SteamPhysicalRestoreResult.Restored)
         {
             _gate.EndRestore();
         }
-        return restored;
+        return restored != SteamPhysicalRestoreResult.Unverified;
     }
 
     public void Dispose() => _gate.Dispose();
 
     internal bool OriginalSteamExited => _gate.OriginalSteamExited;
+
+    internal Task<bool> OwnerIsCurrentAsync(CancellationToken cancellationToken) => _ownerIsCurrent(cancellationToken);
 }
 
 /// <summary>The native lease boundary used by controller ownership orchestration.</summary>

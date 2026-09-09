@@ -111,6 +111,21 @@ public sealed class SteamControllerHandoffTests
     }
 
     [Fact]
+    public async Task DeviceOwnerRetirementEndsInteractionWithoutWaitingForSteamSurfaceClosure()
+    {
+        int retired = 0;
+        await using SteamControllerHandoff owner = new(
+            _ => Task.FromResult(true),
+            _ => { retired++; return Task.FromResult(true); },
+            _ => throw new InvalidOperationException("No CEF read is needed for an obsolete owner"),
+            () => true, _ => { }, ownerIsCurrent: _ => Task.FromResult(false));
+        owner.TryStart(_ => throw new InvalidOperationException("A retired owner must not replay input"));
+        await owner.Completion.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal(1, retired);
+        Assert.Equal(SteamControllerOwnership.Wsgm, owner.State);
+    }
+
+    [Fact]
     public async Task SteamExitRestoresWithoutTreatingCefFailureAsClosure()
     {
         int restores = 0;

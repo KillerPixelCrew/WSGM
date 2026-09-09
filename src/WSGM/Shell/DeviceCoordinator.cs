@@ -422,6 +422,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 return;
             }
 
+            _steamControllerOwner = null;
             DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(5);
             if (_controllers.State is ControllerManagementState.Active
                 or ControllerManagementState.Faulted)
@@ -1428,7 +1429,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>Reacquires only the runtime and controller cycle that entered the Steam pause.</summary>
-    internal async Task<bool> RestoreControllerFromSteamAsync(CancellationToken cancellationToken)
+    internal async Task<SteamPhysicalRestoreResult> RestoreControllerFromSteamAsync(CancellationToken cancellationToken)
     {
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -1439,7 +1440,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 || !_config.DeviceIntegration.Enabled || !_config.DeviceIntegration.ControllerManagementEnabled
                 || _controllers.State != ControllerManagementState.Active)
             {
-                return false;
+                return SteamPhysicalRestoreResult.OwnerChanged;
             }
 
             // Consume before the hardware call: timeout or an unverified result must never turn
@@ -1448,12 +1449,25 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             await SetControllerManagementUnderGateAsync(true, cancellationToken).ConfigureAwait(false);
             await Volatile.Read(ref _controllerPublication).WaitAsync(cancellationToken).ConfigureAwait(false);
             return await _controllers.RestoreSteamOwnershipAsync(_steamControllerGeneration, cancellationToken)
-                .ConfigureAwait(false);
+                .ConfigureAwait(false) ? SteamPhysicalRestoreResult.Restored : SteamPhysicalRestoreResult.Unverified;
         }
         finally
         {
             _transitionGate.Release();
         }
+    }
+
+    internal async Task<bool> IsSteamControllerOwnershipCurrentAsync(CancellationToken cancellationToken)
+    {
+        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return !_disposed && _steamControllerOwner is { } owner && ReferenceEquals(owner, _client)
+                && owner.CycleGeneration == _steamControllerGeneration
+                && _config.DeviceIntegration.Enabled && _config.DeviceIntegration.ControllerManagementEnabled
+                && _controllers.State == ControllerManagementState.Active;
+        }
+        finally { _transitionGate.Release(); }
     }
 
     private async Task SetControllerManagementUnderGateAsync(

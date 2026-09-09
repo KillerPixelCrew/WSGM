@@ -26,6 +26,7 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
     private readonly Func<CancellationToken, Task<SteamSideMenuSnapshot>> _observe;
     private readonly Func<bool> _steamAlive;
     private readonly Func<bool> _originalSteamExited;
+    private readonly Func<CancellationToken, Task<bool>> _ownerIsCurrent;
     private readonly Action<string> _trace;
     private readonly TimeProvider _time;
     private readonly TimeSpan _openTimeout;
@@ -42,13 +43,15 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
         Action<string> trace,
         TimeProvider? time = null,
         TimeSpan? openTimeout = null,
-        Func<bool>? originalSteamExited = null)
+        Func<bool>? originalSteamExited = null,
+        Func<CancellationToken, Task<bool>>? ownerIsCurrent = null)
     {
         _release = release;
         _restore = restore;
         _observe = observe;
         _steamAlive = steamAlive;
         _originalSteamExited = originalSteamExited ?? (() => false);
+        _ownerIsCurrent = ownerIsCurrent ?? (_ => Task.FromResult(true));
         _trace = trace;
         _time = time ?? TimeProvider.System;
         _openTimeout = openTimeout ?? TimeSpan.FromSeconds(5);
@@ -110,12 +113,19 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
             }
 
             SetState(SteamControllerOwnership.Steam, "physical controller released");
-            bool sent = await replay(_shutdown.Token).ConfigureAwait(false);
+            bool sent = !_originalSteamExited()
+                && await _ownerIsCurrent(_shutdown.Token).ConfigureAwait(false)
+                && await replay(_shutdown.Token).ConfigureAwait(false);
             _trace($"Steam handoff: semantic replay {(sent ? "accepted" : "refused")}.");
             long started = _time.GetTimestamp();
             bool opened = false;
             while (!_shutdown.IsCancellationRequested && _steamAlive() && !_originalSteamExited())
             {
+                if (!await _ownerIsCurrent(_shutdown.Token).ConfigureAwait(false))
+                {
+                    _trace("Steam handoff: device ownership changed; retiring the old interaction.");
+                    break;
+                }
                 SteamSideMenuSnapshot snapshot = await _observe(_shutdown.Token).ConfigureAwait(false);
                 bool visible = snapshot.Windows?.Any(window =>
                     window.Menu != SteamSideMenu.None || window.OverlayActive == true) == true;
@@ -145,7 +155,7 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
             restorationAttempted = true;
             bool restored = await _restore(_shutdown.Token).ConfigureAwait(false);
             SetState(restored ? SteamControllerOwnership.Wsgm : SteamControllerOwnership.RecoveryRequired,
-                restored ? "controller ownership restored" : "restoration was unverified");
+                restored ? "controller handoff completed" : "restoration was unverified");
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
         {

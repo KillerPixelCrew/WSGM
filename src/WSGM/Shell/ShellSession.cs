@@ -720,7 +720,8 @@ public sealed class ShellSession : IAsyncDisposable
                     token => SteamSideMenuObserver.ReadAsync(_steamUiTransport!, token),
                     () => _monitor?.IsAlive == true,
                     Log.Info,
-                    originalSteamExited: () => _steamControllerOwnership.OriginalSteamExited);
+                    originalSteamExited: () => _steamControllerOwnership.OriginalSteamExited,
+                    ownerIsCurrent: _steamControllerOwnership.OwnerIsCurrentAsync);
             }
             _steamUi.ApplyNetworkIndicator(_inGameMode && _wifiIndicatorEnabled);
             _steamUi.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);

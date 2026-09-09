@@ -10,7 +10,7 @@ public sealed class SteamControllerOwnershipAdapterTests
         List<string> calls = [];
         using SteamControllerOwnershipAdapter adapter = new(
             _ => { calls.Add("release-physical"); return Task.FromResult(true); },
-            _ => { calls.Add("restore-physical"); return Task.FromResult(true); },
+            _ => { calls.Add("restore-physical"); return Task.FromResult(SteamPhysicalRestoreResult.Restored); },
             new Gate(calls));
         Assert.True(await adapter.ReleaseAsync(CancellationToken.None));
         Assert.True(await adapter.RestoreAsync(CancellationToken.None));
@@ -23,7 +23,7 @@ public sealed class SteamControllerOwnershipAdapterTests
         List<string> calls = [];
         using SteamControllerOwnershipAdapter adapter = new(
             _ => throw new InvalidOperationException("must not touch physical controller"),
-            _ => Task.FromResult(true), new Gate(calls) { Supported = false });
+            _ => Task.FromResult(SteamPhysicalRestoreResult.Restored), new Gate(calls) { Supported = false });
         Assert.False(await adapter.ReleaseAsync(CancellationToken.None));
         Assert.Equal(["support"], calls);
     }
@@ -33,7 +33,7 @@ public sealed class SteamControllerOwnershipAdapterTests
     {
         List<string> calls = [];
         using SteamControllerOwnershipAdapter adapter = new(
-            _ => Task.FromResult(false), _ => Task.FromResult(true), new Gate(calls));
+            _ => Task.FromResult(false), _ => Task.FromResult(SteamPhysicalRestoreResult.Restored), new Gate(calls));
         Assert.False(await adapter.ReleaseAsync(CancellationToken.None));
         Assert.Equal(["support"], calls);
     }
@@ -55,7 +55,7 @@ public sealed class SteamControllerOwnershipAdapterTests
     {
         List<string> calls = [];
         using SteamControllerOwnershipAdapter adapter = new(
-            _ => Task.FromResult(true), _ => Task.FromResult(false), new Gate(calls));
+            _ => Task.FromResult(true), _ => Task.FromResult(SteamPhysicalRestoreResult.Unverified), new Gate(calls));
         Assert.False(await adapter.RestoreAsync(CancellationToken.None));
         Assert.Equal(["block-steam"], calls);
     }
@@ -66,10 +66,33 @@ public sealed class SteamControllerOwnershipAdapterTests
         List<string> calls = [];
         using SteamControllerOwnershipAdapter adapter = new(
             _ => Task.FromResult(true),
-            _ => { calls.Add("restore-physical"); return Task.FromResult(true); },
+            _ => { calls.Add("restore-physical"); return Task.FromResult(SteamPhysicalRestoreResult.Restored); },
             new Gate(calls), () => false);
         Assert.True(await adapter.RestoreAsync(CancellationToken.None));
         Assert.Equal(["dispose", "restore-physical"], calls);
+    }
+
+    [Fact]
+    public async Task RetiredDeviceOwnerDropsNativeClaimsWithoutBlockingOrReacquiring()
+    {
+        List<string> calls = [];
+        using SteamControllerOwnershipAdapter adapter = new(
+            _ => Task.FromResult(true),
+            _ => throw new InvalidOperationException("The retired owner must not reacquire"),
+            new Gate(calls), ownerIsCurrent: _ => Task.FromResult(false));
+        Assert.True(await adapter.RestoreAsync(CancellationToken.None));
+        Assert.Equal(["dispose"], calls);
+    }
+
+    [Fact]
+    public async Task OwnerChangingDuringRestoreDropsTheTemporaryBlock()
+    {
+        List<string> calls = [];
+        using SteamControllerOwnershipAdapter adapter = new(
+            _ => Task.FromResult(true),
+            _ => Task.FromResult(SteamPhysicalRestoreResult.OwnerChanged), new Gate(calls));
+        Assert.True(await adapter.RestoreAsync(CancellationToken.None));
+        Assert.Equal(["block-steam", "dispose"], calls);
     }
 
     private sealed class Gate(List<string> calls) : ISteamControllerGate

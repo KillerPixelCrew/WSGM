@@ -222,6 +222,10 @@ require recovery instead of retry; session shutdown leaves hardware release to f
 restoration consumes the saved runtime once and waits for its fresh physical publication. Stale
 publications cannot replace the newer controller generation. The native adapter grants pass-through
 after visibility cleanup, then holds a temporary block while physical ownership and HidHide return.
+If suspend, disable or runtime replacement retires the saved owner, the interaction stops and drops
+its native claims without reacquiring hardware. Owner changes during restoration are distinguished
+from unverified writes, so they cannot strand a temporary block. The same ownership check runs
+before semantic replay to reject a request overtaken by teardown.
 Restart/disconnect recovery and end-to-end verification remain pending. Main-window semantic replay
 has live CEF evidence; game-overlay dispatch has deterministic identity/refusal tests only.
 
