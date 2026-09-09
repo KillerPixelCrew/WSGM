@@ -202,3 +202,7 @@ Numeric and boolean edits use the Device coordinator with captured cycle/descrip
 no second Device lifecycle is created. Stable widget keys encode capability and instance identity.
 The combined source includes Device widgets even without common packages. Choice widgets show readback and an explicit action with the currently declared options. Selection
 alone does not dispatch. Device-page pin controls use this same source and persistence path.
+
+Widget action clicks re-read provider availability, generation and widget predicates before dispatch,
+including changes between timer refreshes. Reloaded providers rebuild the retained pin using the
+new generation. Focused headless tests cover unload/recovery and stale-click refusal.

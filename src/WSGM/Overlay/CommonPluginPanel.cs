@@ -39,7 +39,7 @@ internal sealed class CommonPluginPanel : StackPanel
         DetachedFromVisualTree += (_, _) => { _timer.Stop(); _closed.Cancel(); };
     }
 
-    private void Refresh()
+    internal void Refresh()
     {
         var instances = _source.Snapshot();
         _observed = instances;
@@ -213,7 +213,19 @@ internal sealed class CommonPluginPanel : StackPanel
         _refresh.Add(() => apply.IsEnabled = !busy && _observed.Any(value => value.Identity == instance.Identity && value.CanInvoke && value.Generation == generation));
         apply.Click += async (_, _) =>
         {
-            if (busy) { return; }
+            if (busy || _closed.IsCancellationRequested) { return; }
+            var current = _source.Snapshot().FirstOrDefault(value => value.Identity == instance.Identity);
+            if (current is null || !current.CanInvoke || current.Generation != generation)
+            { result.Text = "Widget unavailable. Select it again."; return; }
+            if (_widget is { } pin)
+            {
+                var widget = current.Controls?.Widgets.FirstOrDefault(value => value.Id == pin.WidgetId);
+                var states = _source.State(instance.Identity);
+                bool Available(string? key) => key is null || states.Any(value => value.Generation == generation
+                    && value.Key == key && value.Value.Boolean == true);
+                if (widget is null || !Available(widget.VisibleStateKey) || !Available(widget.EnabledStateKey))
+                { result.Text = "Widget unavailable."; return; }
+            }
             busy = true;
             apply.IsEnabled = false;
             Dictionary<string, PluginValue> arguments = [];
