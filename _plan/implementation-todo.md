@@ -10,6 +10,11 @@ After delivery of #38/#39, #58/#59, #61 and #65–#68 on 2026-09-09, 29 issues r
 Issues #41–#45, #47 and #48 remain deferred; the other 22 are the 2.0 scope.
 After #53, the immediate queue is #51 display-route orchestration, with #52 hardware capture and #69 investigation alongside it.
 
+- #51 is in progress. DisplayRouteTransition implements plugin-action/display-wait/profile ordering
+  for entry and profile/action ordering for exit, with a shared deadline and no retries. Six focused
+  tests cover ordering, missing targets, uncertain actions, failed Desktop profiles and cancellation.
+  Session hooks, wake arbitration/debounce, production adapters and configuration remain to be wired.
+
 - #53 is implemented. The common SDK supplies structured widgets with stable identities, state
   predicates, icons and category navigation. Device and IR use the shared renderer. Source-page
   pinning and front-page unpin/reorder/reset persist across restarts and retain unavailable providers.

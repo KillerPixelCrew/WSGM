@@ -219,3 +219,11 @@ strings are never parsed as geometry or markup. The IR command widget uses the a
 Controller confirmation opens widget editors and choice popups. While a selector is open, shared
 navigation keeps D-pad selection with its owning ComboBox despite popup-item focus. Confirmation
 closes the popup and restores selector focus; the separate Apply action dispatches the draft.
+
+### Display-route transition sequencing
+
+DisplayRouteTransition defines the Core sequence for generic external route actions. Entry invokes
+the named action, waits for the target identity, then applies the display profile. Exit restores the
+Desktop profile before invoking the external action. A failed or unconfirmed step stops the sequence
+without retry. One bounded deadline covers the transition; cancellation reports possible uncertainty
+for an in-flight write. Production lifecycle wiring and wake policy remain tracked under #51.
