@@ -21,6 +21,8 @@ public sealed class BootManifest
 
     /// <summary>Whether sign-in should boot into game mode at all.</summary>
     public bool GameModeBoot { get; set; }
+    /// <summary>Whether Desktop-first sign-in should start the resident runtime without takeover.</summary>
+    public bool DesktopResident { get; set; }
 
     /// <summary>Whether WSGM should be launched with the user's elevated (linked)
     /// token. Precomputed from the same condition Core\SelfElevation checks —

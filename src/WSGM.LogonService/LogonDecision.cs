@@ -11,13 +11,13 @@ namespace WSGM.LogonService;
 /// <summary>What the service should do about one session logon.</summary>
 internal enum LogonAction
 {
-    /// <summary>Launch WSGM --boot with the plain user token.</summary>
+    /// <summary>Launch the configured WSGM mode with the plain user token.</summary>
     Launch,
 
-    /// <summary>Launch WSGM --boot with the elevated linked token.</summary>
+    /// <summary>Launch the configured WSGM mode with the elevated linked token.</summary>
     LaunchElevated,
 
-    /// <summary>Game-mode boot is disabled in the manifest — leave the desktop alone.</summary>
+    /// <summary>Both Game Mode boot and Desktop residency are disabled; leave the desktop alone.</summary>
     SkipDisabled,
 
     /// <summary>No usable manifest for this user — leave the desktop alone.</summary>
@@ -59,10 +59,13 @@ internal static class LogonDecision
         {
             return LogonAction.SkipNoManifest;
         }
-        if (!manifest.GameModeBoot)
+        if (!manifest.GameModeBoot && !manifest.DesktopResident)
         {
             return LogonAction.SkipDisabled;
         }
         return manifest.Elevate ? LogonAction.LaunchElevated : LogonAction.Launch;
     }
+
+    internal static string ArgumentsFor(BootManifest manifest) =>
+        manifest.GameModeBoot ? "--boot" : "--shell --desktop-resident";
 }

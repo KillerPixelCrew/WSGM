@@ -93,6 +93,7 @@ public sealed class ShellSession : IAsyncDisposable
     private readonly PluginHost _pluginHost = new(action => Avalonia.Threading.Dispatcher.UIThread.Post(action));
     private CommonPluginManager? _commonPlugins;
     private Task _commonPluginStartup = Task.CompletedTask;
+    private readonly bool _desktopResident;
     private IDeviceOverlaySource? _deviceOverlay;
     private PerformanceService? _performance;
     private RefreshRatePairingService? _refreshPairing;
@@ -216,10 +217,12 @@ public sealed class ShellSession : IAsyncDisposable
     /// <param name="overlayTestOnly">Whether to omit normal shell startup for the manual overlay test.</param>
     /// <param name="serviceBoot">Whether the logon service launched this process over a
     /// live, still-initializing explorer (--boot) — enables the takeover flow.</param>
+    /// <param name="desktopResident">Whether to remain on Desktop even while its logon shell is still starting.</param>
     public ShellSession(
         AppConfig config,
         bool overlayTestOnly = false,
-        bool serviceBoot = false)
+        bool serviceBoot = false,
+        bool desktopResident = false)
     {
         _config = config;
         _cefMasterEnabled = config.Cef.Enabled;
@@ -233,6 +236,8 @@ public sealed class ShellSession : IAsyncDisposable
         SteamInputShim.SetEnabled(config.SteamInputManagementEnabled);
         _overlayTestOnly = overlayTestOnly;
         _serviceBoot = serviceBoot;
+        _desktopResident = desktopResident;
+        if (desktopResident) { _inGameMode = false; }
     }
 
     /// <summary>Opens or closes the Steam UI transport from the master switch, the shell mode and
@@ -889,13 +894,13 @@ public sealed class ShellSession : IAsyncDisposable
         // owns every explorer state: its readiness poll waits for explorer to
         // appear AND finish logon prep, then shuts it down cleanly; if explorer
         // never shows within the 60 s cap it proceeds like a plain game-mode boot.
-        if (_serviceBoot)
+        if (_serviceBoot && !_desktopResident)
         {
             StartBootTakeover();
             return;
         }
 
-        if (ExplorerControl.IsRunningInSession())
+        if (_desktopResident || ExplorerControl.IsRunningInSession())
         {
             // A live desktop at --shell start means this is NOT a logon boot: it is
             // the update restart (updates only run in desktop mode) or a manual

@@ -108,12 +108,13 @@ internal static class SessionLauncher
 
             try
             {
-                if (!TryLaunchWithRetries(launchToken, manifest!.ExePath, "--boot", sessionId,
+                var arguments = LogonDecision.ArgumentsFor(manifest!);
+                if (!TryLaunchWithRetries(launchToken, manifest!.ExePath, arguments, sessionId,
                         out var hProcess, out var pid))
                 {
                     return;
                 }
-                ServiceLog.Info($"Launching WSGM --boot into session {sessionId} ({tokenKind}) — pid {pid}.");
+                ServiceLog.Info($"Launching WSGM {arguments} into session {sessionId} ({tokenKind}) — pid {pid}.");
 
                 var state = new SessionState { UserToken = userToken, ProcessHandle = hProcess, ProcessId = pid };
                 lock (Gate)

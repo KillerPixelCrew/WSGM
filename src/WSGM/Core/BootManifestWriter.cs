@@ -23,6 +23,7 @@ public static class BootManifestWriter
             var manifest = new BootManifest
             {
                 GameModeBoot = config.GameModeBootEnabled,
+                DesktopResident = config.DisplayRoutes is { Enabled: true },
                 Elevate = config.StartupApps.Any(a => a.Enabled && a.Elevated) || Steam.RequiresElevatedShell,
                 // Inno is the only installer, so the installed path is the only path.
                 ExePath = Installer.InstalledExePath,
@@ -42,6 +43,7 @@ public static class BootManifestWriter
     public static void WriteDisabled(AppConfig config)
     {
         config.GameModeBootEnabled = false;
+        if (config.DisplayRoutes is { } routes) { routes.Enabled = false; }
         WriteCurrent(config);
     }
 }

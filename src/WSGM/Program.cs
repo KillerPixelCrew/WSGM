@@ -41,6 +41,8 @@ public static class Program
     /// (--boot): the session boots over a live, still-initializing explorer that
     /// the takeover flow waits out and then cleanly shuts down.</summary>
     public static bool ServiceBoot { get; private set; }
+    /// <summary>Gets whether startup must remain resident on Desktop, even before Explorer appears.</summary>
+    public static bool DesktopResident { get; private set; }
 
     private static Mutex? _shellMutex;
 
@@ -253,6 +255,7 @@ public static class Program
         }
 
         ServiceBoot = IsServiceBoot(args);
+        DesktopResident = args.Contains("--desktop-resident", StringComparer.OrdinalIgnoreCase);
         Mode = DecideMode(args);
         if (ServiceBoot)
         {

@@ -371,3 +371,11 @@ Configured display-route preparation runs before a Desktop-to-Game Mode Big Pict
 Explorer takeover. A preparation failure preserves Desktop and reports the failed stage. On a
 successful return to Desktop, the route hook restores the configured profile before requesting the
 external entertainment input. Overlay-test sessions do not install these lifecycle hooks.
+
+When GameModeBoot is false, boot.json can opt into DesktopResident for enabled display-route
+automation. The service then launches --shell --desktop-resident with the usual user-token policy.
+This explicit mode remains on Desktop even before Explorer appears and does not run boot takeover,
+startup apps or Game Mode display posture. GameModeBoot takes precedence when both flags are true.
+Old manifests omit DesktopResident and retain their previous behavior. Crash-loop manifest disabling
+clears both automatic launch choices. This path has offline decision/build coverage; it has not been
+installed or exercised through a live sign-in in this workoff.

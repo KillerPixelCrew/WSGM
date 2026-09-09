@@ -42,7 +42,7 @@ public class App : Application
                     // No main window — the shell session runs headless until the
                     // overlay is summoned. Keep the app alive explicitly.
                     desktop.ShutdownMode = Avalonia.Controls.ShutdownMode.OnExplicitShutdown;
-                    _session = new ShellSession(config, serviceBoot: Program.ServiceBoot);
+                    _session = new ShellSession(config, serviceBoot: Program.ServiceBoot, desktopResident: Program.DesktopResident);
                     _ = ObserveSessionStartupAsync(_session.StartAsync(), desktop);
                     break;
 

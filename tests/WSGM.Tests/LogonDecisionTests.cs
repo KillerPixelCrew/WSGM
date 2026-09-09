@@ -11,6 +11,18 @@ public sealed class LogonDecisionTests
         => new() { GameModeBoot = enabled, Elevate = elevate, ExePath = @"C:\x\WSGM.exe" };
 
     [Fact]
+    public void DesktopAutomationLaunchesWithoutGameModeTakeover()
+    {
+        var manifest = Manifest(enabled: false);
+        manifest.DesktopResident = true;
+        Assert.Equal(LogonAction.Launch, LogonDecision.Decide(
+            manifest, true, false, null, StaleAfter));
+        Assert.Equal("--shell --desktop-resident", LogonDecision.ArgumentsFor(manifest));
+        manifest.GameModeBoot = true;
+        Assert.Equal("--boot", LogonDecision.ArgumentsFor(manifest));
+    }
+
+    [Fact]
     public void FreshLogonWithEnabledManifestLaunches()
     {
         Assert.Equal(LogonAction.Launch, LogonDecision.Decide(
