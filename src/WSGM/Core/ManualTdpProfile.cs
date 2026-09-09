@@ -12,6 +12,9 @@ public sealed record ManualTdpProfile(bool Unified, int? UnifiedWatts, int? Sust
 /// <summary>Resolves the selected manual profile without deriving preferences from readback.</summary>
 internal static class ManualTdpPolicy
 {
+    internal static ManualTdpProfile WithTarget(ManualTdpProfile profile, int watts) =>
+        profile.Unified ? profile with { UnifiedWatts = watts } : profile with { SustainedWatts = watts };
+
     internal static ManualTdpProfile? Resolve(PerformanceConfig global, PerformanceApplicationConfig? application,
         bool perGameActive) => perGameActive && application?.ManualTdp is { } own ? own : global.ManualTdp;
 

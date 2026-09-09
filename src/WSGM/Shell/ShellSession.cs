@@ -2670,11 +2670,14 @@ public sealed class ShellSession : IAsyncDisposable
             : null;
         bool applicationLayer = entry is { UsePerGameProfile: true };
         int? current = applicationLayer ? entry!.TdpWatts : _config.Performance.TdpWatts;
+        var manual = ManualTdpPolicy.Resolve(_config.Performance, entry, applicationLayer);
+        if (manual is not null) { current = manual.Unified ? manual.UnifiedWatts : manual.SustainedWatts; }
 
         // The manual funnel fires on the value WSGM's own restore just wrote as well — its origin
         // keeps it out of here, but a value that already matches the layer is skipped regardless so
         // a drag that ends on the stored value writes no config.
         _profilePowerImposed = true;
+        _profilePowerPaired = manual?.Unified == true;
         if (current == watts)
         {
             return;
@@ -2691,12 +2694,14 @@ public sealed class ShellSession : IAsyncDisposable
                         StringComparison.Ordinal));
                 if (target is not null)
                 {
-                    target.TdpWatts = watts;
+                    if (manual is null) { target.TdpWatts = watts; }
+                    else { target.ManualTdp = ManualTdpPolicy.WithTarget(manual, watts); }
                     return;
                 }
             }
 
-            config.Performance.TdpWatts = watts;
+            if (manual is null) { config.Performance.TdpWatts = watts; }
+            else { config.Performance.ManualTdp = ManualTdpPolicy.WithTarget(manual, watts); }
         });
         Log.Info(
             $"Power limit {watts} W saved to the "

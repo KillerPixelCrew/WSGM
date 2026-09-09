@@ -16,7 +16,9 @@ The immediate queue is #52 (XIAO now connected), #69 investigation and #61.
   preferences. RTSS profile merges preserve them, with two focused persistence tests passing.
   Saved unified targets now resolve through the active profile and restore through the paired command
   with cycle/descriptor checks and verified readback. Pair ownership is retained for ceiling release.
-  Two focused policy tests pass. Unified/split controls, shared surface projection and advanced boost
+  Manual sustained edits from both surfaces now select paired dispatch through the coordinator when
+  the active profile requests unified mode, and save only that mode's target. Three policy tests pass.
+  Unified/split controls, shared surface projection and advanced boost
   restoration remain to implement.
 
 - #59 is implemented: Tools offers current resolution/refresh and supported mode drafts with explicit Apply. Windows Device Control owns fresh enumeration, exact-route revalidation, readback and rollback. A headless picker test and warning-clean builds pass. Physical mode changes remain for field review.

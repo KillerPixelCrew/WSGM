@@ -731,6 +731,9 @@ the global record. These values are preferences rather than readback; RTSS profi
 them. Saved unified targets restore through the paired command with captured generations and verified
 readback; profile-owned pair release also uses the coordinated path. The #61 controls and advanced
 boost-restoration integration are still in progress.
+Manual sustained edits from Overlay and QAM now consult the same active profile in the coordinator
+to select paired dispatch. Saving a unified target preserves the stored advanced values, and saving
+an advanced sustained value preserves the unified target. The mode-selection UI remains unfinished.
 
 ## 15. Glyphs
 

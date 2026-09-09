@@ -1879,6 +1879,13 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     {
         bool power = FindDescriptor(capabilityId, instanceId)?.Role is
             CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit or CapabilityRole.ScenarioMode;
+        if (origin == CapabilityCommandOrigin.User
+            && FindDescriptor(capabilityId, instanceId)?.Role == CapabilityRole.PowerSustainedLimit)
+        {
+            var application = _config.Performance.Applications.Find(entry => entry.ApplicationId == _runningApplicationId);
+            applyPowerPair |= ManualTdpPolicy.Resolve(_config.Performance, application,
+                application?.UsePerGameProfile == true)?.Unified == true;
+        }
         if (power) { await PowerPresets.MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false); }
         try
         {
