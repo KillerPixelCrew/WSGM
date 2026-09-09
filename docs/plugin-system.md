@@ -246,3 +246,9 @@ preparation finishes before Big Picture or Explorer takeover; failure surfaces t
 warning path and preserves Desktop. A successfully applied route profile bypasses legacy Game Mode
 display posture. Leave routing runs only after successful Explorer recovery, retaining the Desktop
 on a route failure. Startup/wake policy and transition splash/recovery integration remain in #51.
+
+Desktop startup beside a running Explorer and system-resume events now request their configured
+bindings. DesktopRouteAdmission coalesces notifications while work runs and for five seconds from
+admission, including failed outcomes. A shared session semaphore orders route work with mode
+transitions. Queued Desktop work reloads configuration and rechecks Game Mode/transition state
+before dispatch. Game Mode entry waits for any already-running route sequence to settle.
