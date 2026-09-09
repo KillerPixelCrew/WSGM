@@ -281,6 +281,7 @@ public sealed class ShellSession : IAsyncDisposable
         _gameModeCefTransitionPending = false;
         RequestSteamUiTransportGateCheck();
         _steamUi?.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
+        _steamUi?.ApplySurfaceObservation(_config.Cef.Enabled);
         _steamUi?.ApplyNetworkIndicator(_inGameMode && _wifiIndicatorEnabled);
         _steamUi?.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
         KickTabBootSync();
@@ -679,6 +680,7 @@ public sealed class ShellSession : IAsyncDisposable
                 _deviceCoordinator is null ? null : SetVariableRefreshRateFromUserAsync,
                 () => _overlay?.ShowBluetoothPanel() == true);
             _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
+            _steamUi.ApplySurfaceObservation(_config.Cef.Enabled);
             _steamUi.ApplyNetworkIndicator(_inGameMode && _wifiIndicatorEnabled);
             _steamUi.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
             ApplyGlyphConfig(_config);
@@ -1776,6 +1778,7 @@ public sealed class ShellSession : IAsyncDisposable
                         if (config.Cef.Enabled)
                         {
                             _steamUi?.Apply(config.Cef.NativeQuickAccess);
+                            _steamUi?.ApplySurfaceObservation(true);
                             ApplyGlyphConfig(config);
                         }
                         ApplySteamInputManagement(config.SteamInputManagementEnabled);

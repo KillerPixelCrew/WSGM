@@ -164,7 +164,10 @@ through readiness rather than opening directly.
 `SteamUiPatchManager`, one `SteamUiModuleSet` and one `SteamUiModuleRuntime`. It registers the
 bootstrap patch first and every module's patches after it, starts with everything disabled, and
 follows the transport's generation events and every service's `StateChanged`. The shell applies four
-switches in order: native Quick Access, the network indicator, download sort, glyph delivery.
+switches for native Quick Access, surface observation, the network indicator, download sort and
+glyph delivery. Surface observation registers the toolkit's bounded overlay-activation callback
+while CEF is enabled, independently of custom QAM rows. Generation changes reinstall it; disabling
+CEF removes it. Unknown overlay activation after a reload remains unknown until a fresh event.
 
 ### Modules and their commands
 

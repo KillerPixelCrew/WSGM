@@ -465,6 +465,24 @@ public sealed class SteamUiSessionHostTests
             snapshot => Assert.False(snapshot.Enabled));
     }
 
+    [Fact]
+    public async Task SurfaceObservationSurvivesNativeRowDisableAndStopsWithCef()
+    {
+        await using var transport = new SessionHostTransport();
+        await using var performance = new PerformanceService(
+            new SimulatedRtssAdapter(), (_, _) => Task.CompletedTask);
+        await using var host = new SteamUiSessionHost(
+            transport, _ => Task.FromResult(true), null, performance);
+        host.ApplySurfaceObservation(true);
+        host.Apply(true);
+        host.Apply(false);
+        Assert.True(host.GetPatchSnapshots().Single(
+            snapshot => snapshot.Id == "steam-ui.overlay-activation").Enabled);
+        await host.DisableAsync();
+        Assert.False(host.GetPatchSnapshots().Single(
+            snapshot => snapshot.Id == "steam-ui.overlay-activation").Enabled);
+    }
+
     private static async Task WaitForAsync(Func<bool> condition)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));

@@ -1,15 +1,19 @@
 # WSGM 2.0 implementation tracker
 
-Status: the previous implementation baseline is on `master`; the current 2.0 workoff contains
-the original 39-issue scope. The maintainer directed this workoff to use default-branch commits, including
+Status: the previous implementation baseline is on `master`; the current open workoff contains
+32 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
 submodule changes, without feature branches or pull requests.
 
 ## Current issue workoff
 
-GitHub was read with `gh` on 2026-09-08: implementation issues #19 through #64 formed the initial backlog.
-Issues #41–#45, #47 and #48 remain deferred; the other 39 are the 2.0 scope.
-The immediate queue is #60, #57, #55A, #56A and #56B. The later Windows-policy part of #56
-depends on #25, #35 and #36 and must not block the controller repair.
+GitHub was read with `gh` on 2026-09-09: 39 issues are open.
+Issues #41–#45, #47 and #48 remain deferred; the other 32 are the 2.0 scope.
+The immediate queue is #66, #65, #69 investigation, #68, #67, #38/#39, #58, #59 and #61.
+
+- #65 remains in progress. Native pass-through claims and the toolkit's surface observer are
+  pushed. WSGM registers overlay observation with the CEF session and has tested controller-pause
+  operations and session-lifetime handoff policy. Physical/lease adapter composition, OEM dispatch
+  wiring and end-to-end verification remain pending.
 
 The maintainer directs issues to close when their fixes are committed and pushed; failed field
 validation will be handled by reopening them. Hardware checks are not a closure gate. #60, #57 and

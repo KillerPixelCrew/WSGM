@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
+using SteamUiToolkit.Surfaces;
 
 namespace WSGM.Shell;
 
@@ -68,6 +69,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly SteamInputGlyphDeliveryState _glyphDeliveryState = new();
     private readonly SteamUiBridgeHost _bridge;
     private readonly SteamUiPatchManager _patches;
+    private readonly SteamOverlayActivationPatch _overlayActivation = new();
     private readonly Task _synchronization;
     private int _signalPending;
     private IDisposable? _performanceObservation;
@@ -77,6 +79,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private volatile bool _glyphsEnabled;
     private volatile bool _glyphDeliveryEnabled;
     private volatile bool _disposed;
+    private volatile bool _surfaceObservationEnabled;
 
     /// <summary>Creates the host and its surface services.</summary>
     /// <param name="transport">The one process-long Steam UI transport.</param>
@@ -148,6 +151,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _modules.AllowedCommands);
         _patches = new SteamUiPatchManager(_transport);
         _patches.Register(new SteamUiBridgePatch(_bridge));
+        _patches.Register(_overlayActivation);
+        _patches.SetPatchEnabled(_overlayActivation.Id, false);
         _modules.RegisterPatches(_patches);
         SetPatchStates(bootstrap: false, components: false);
         SetGlyphDeliveryPatchStates();
@@ -172,6 +177,22 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         _synchronization = Task.Run(SynchronizeLoopAsync);
+    }
+
+    /// <summary>Observes native surface lifetime independently of custom QAM rows.</summary>
+    internal void ApplySurfaceObservation(bool enabled)
+    {
+        if (_disposed || _surfaceObservationEnabled == enabled)
+        {
+            return;
+        }
+        _surfaceObservationEnabled = enabled;
+        _patches.SetPatchEnabled(_overlayActivation.Id, enabled);
+        if (enabled)
+        {
+            _patches.SetGlobalEnabled(true);
+        }
+        QueueSynchronization();
     }
 
     internal void Apply(bool enabled)
@@ -281,6 +302,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _networkIndicatorEnabled = false;
         _downloadSortEnabled = false;
         _glyphsEnabled = false;
+        _surfaceObservationEnabled = false;
+        _patches.SetPatchEnabled(_overlayActivation.Id, false);
         CancelAllInflightRequests();
         ReleasePerformanceObservation();
         if (_network is { } network)
@@ -314,7 +337,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             || _networkIndicatorEnabled
             || _downloadSortEnabled
             || _glyphsEnabled
-            || _glyphDeliveryEnabled)
+            || _glyphDeliveryEnabled
+            || _surfaceObservationEnabled)
         {
             QueueSynchronization();
         }
@@ -359,7 +383,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     ReleasePerformanceObservation();
                     SetPatchStates(bootstrap: false, components: false);
                     _patches.SetGlobalEnabled(
-                        _downloadSortEnabled || _glyphsEnabled || _glyphDeliveryEnabled);
+                        _downloadSortEnabled || _glyphsEnabled || _glyphDeliveryEnabled || _surfaceObservationEnabled);
                     await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
                 }
             }
@@ -501,7 +525,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // outlive native QAM to keep the configured header indicator.
         foreach (SteamUiPatchSnapshot patch in _patches.GetSnapshots())
         {
-            if (patch.Id == SteamInputGlyphStylePatch.PatchId)
+            if (patch.Id == SteamInputGlyphStylePatch.PatchId || patch.Id == _overlayActivation.Id)
             {
                 continue;
             }

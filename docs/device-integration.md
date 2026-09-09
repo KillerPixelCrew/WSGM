@@ -212,7 +212,12 @@ Capture neutralizes the existing target and suppresses both game forwarding and 
 An ownership pause retains that target across physical identity publications; restoration requires
 a newer source generation and verified HidHide activation. Full make-safe clears the pause so a
 later controller start can proceed. These operations have deterministic test coverage, but the
-session coordinator and OEM actions do not yet invoke them. End-to-end Steam handoff remains open.
+OEM actions do not yet invoke them. `SteamControllerHandoff` supplies the session-lifetime policy:
+one admitted replay, observation across surface switches and CEF reloads, and one restoration after
+verified closure or Steam exit. Unknown state cannot expire into assumed closure. Unverified writes
+require recovery instead of retry; session shutdown leaves hardware release to full make-safe.
+Physical/lease adapter composition and OEM dispatch wiring remain pending, so end-to-end Steam
+handoff remains open.
 
 ### Make-safe removes the target after the physical release and HidHide entries after the target
 
