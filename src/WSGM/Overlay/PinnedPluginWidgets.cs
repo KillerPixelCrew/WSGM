@@ -12,7 +12,7 @@ namespace WSGM.Overlay;
 /// <summary>Retains pinned plugin controls on the front page, including missing-provider placeholders.</summary>
 internal sealed class PinnedPluginWidgets : StackPanel
 {
-    internal PinnedPluginWidgets(CommonPluginOverlaySource source)
+    internal PinnedPluginWidgets(CommonPluginOverlaySource source, Action<PluginWidgetPin, string> navigate)
     {
         Spacing = 8;
         PluginWidgetPin[] previous = [];
@@ -33,7 +33,7 @@ internal sealed class PinnedPluginWidgets : StackPanel
                 {
                     StackPanel card = new() { Spacing = 4 };
                     card.Children.Add(new TextBlock { Text = $"{pin.PluginId} / {pin.InstanceId} / {pin.WidgetId}", Classes = { "caption" } });
-                    card.Children.Add(new CommonPluginPanel(source, pin));
+                    card.Children.Add(new CommonPluginPanel(source, pin, navigate));
                     StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
                     void Add(string label, Func<Task> action)
                     {

@@ -21,11 +21,15 @@ internal sealed class CommonPluginPanel : StackPanel
     private readonly CancellationTokenSource _closed = new();
     private string _structure = "\0";
     private readonly PluginWidgetPin? _widget;
+    private readonly Action<PluginWidgetPin, string>? _navigate;
+    private readonly Dictionary<(string Plugin, string Instance, string Category), Control> _categories = [];
 
-    internal CommonPluginPanel(CommonPluginOverlaySource source, PluginWidgetPin? widget = null)
+    internal CommonPluginPanel(CommonPluginOverlaySource source, PluginWidgetPin? widget = null,
+        Action<PluginWidgetPin, string>? navigate = null)
     {
         _source = source;
         _widget = widget;
+        _navigate = navigate;
         Spacing = 8;
         _timer.Tick += (_, _) => Refresh();
         AttachedToVisualTree += (_, _) => { Refresh(); _timer.Start(); };
@@ -47,6 +51,7 @@ internal sealed class CommonPluginPanel : StackPanel
             _structure = structure;
             Children.Clear();
             _refresh.Clear();
+            _categories.Clear();
             foreach (var instance in instances) { AddInstance(instance); }
             if (_widget is not null && instances.Length == 0)
             { Children.Add(new TextBlock { Text = "Plugin unavailable", Classes = { "caption" } }); }
@@ -68,6 +73,12 @@ internal sealed class CommonPluginPanel : StackPanel
             var widget = actions.Widgets.FirstOrDefault(item => item.Id == pinned.WidgetId);
             if (widget is null) { Children.Add(new TextBlock { Text = "Widget unavailable" }); return; }
             Children.Add(new TextBlock { Text = widget.Label, Classes = { "setting-title" } });
+            if (widget.NavigationCategory is { } category && _navigate is not null)
+            {
+                Button open = new() { Content = "Open plugin controls" };
+                open.Click += (_, _) => _navigate(pinned, category);
+                Children.Add(open);
+            }
             int firstControl = Children.Count;
             foreach (var id in widget.ContributionIds)
             { AddContribution(instance, owner, actions.Contributions.First(item => item.Id == id)); }
@@ -94,9 +105,18 @@ internal sealed class CommonPluginPanel : StackPanel
         }
         foreach (var group in actions.Contributions.GroupBy(contribution => contribution.Category))
         {
-            Children.Add(new TextBlock { Text = group.Key, Classes = { "caption" } });
+            TextBlock anchor = new() { Text = group.Key, Classes = { "caption" }, Focusable = true };
+            _categories[(instance.Identity.PluginId, instance.Identity.InstanceId, group.Key)] = anchor;
+            Children.Add(anchor);
             foreach (var contribution in group) { AddContribution(instance, owner, contribution); }
         }
+    }
+
+    internal void FocusCategory(PluginWidgetPin pin, string category)
+    {
+        Refresh();
+        if (_categories.TryGetValue((pin.PluginId, pin.InstanceId, category), out var anchor))
+        { anchor.BringIntoView(); anchor.Focus(); }
     }
 
     private void AddContribution(CommonPluginInstanceView instance, PluginRegistration owner, PluginUiContribution contribution)

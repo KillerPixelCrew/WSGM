@@ -331,8 +331,13 @@ public partial class OverlayWindow : Window
         PinnedPluginWidgetsHost.Children.Clear();
         if (source is not null)
         {
-            CommonPluginRows.Children.Add(new CommonPluginPanel(source));
-            PinnedPluginWidgetsHost.Children.Add(new PinnedPluginWidgets(source));
+            CommonPluginPanel panel = new(source);
+            CommonPluginRows.Children.Add(panel);
+            PinnedPluginWidgetsHost.Children.Add(new PinnedPluginWidgets(source, (pin, category) =>
+            {
+                SelectDestination(OverlayDestination.System);
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => panel.FocusCategory(pin, category));
+            }));
         }
     }
 

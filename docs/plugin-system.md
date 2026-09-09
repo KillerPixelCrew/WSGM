@@ -187,3 +187,6 @@ renderer supplies live state and named actions; widget predicates disable unavai
 Missing plugin instances retain identity-labelled placeholders. Each card offers move up/down and
 unpin, with a reset-order action below the list. Device widget adaptation and navigation metadata
 remain in progress. The IR package declares a selected-command/send widget.
+
+Pinned widgets with NavigationCategory now offer Open plugin controls. The Overlay selects Tools,
+then scrolls and focuses the owning plugin-instance/category anchor using stable identities.

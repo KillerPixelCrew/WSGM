@@ -18,7 +18,7 @@ The immediate queue is #52 (XIAO now connected), #69 investigation and #53.
   the focused pointer test passes. Front-page widgets now reuse the host control renderer and expose
   unpin, move and reset-order actions. Missing providers remain visible; predicates gate controls.
   IR declares a selected-command widget. Eight IR and three package tests pass. Device integration,
-  navigation metadata and focused widget UI validation remain.
+  navigation now opens the owning instance/category in Tools. Device integration and focused widget UI validation remain.
 
 - #61 is implemented. Overlay and QAM share manual mode, paired dispatch and independent saved
   unified/advanced preferences. Unified mode shows one editable TDP slider and both readbacks.
