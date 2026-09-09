@@ -12,6 +12,10 @@ public sealed record ManualTdpProfile(bool Unified, int? UnifiedWatts, int? Sust
 /// <summary>Resolves the selected manual profile without deriving preferences from readback.</summary>
 internal static class ManualTdpPolicy
 {
+    internal static bool Accepts(int? minimum, int? maximum, int? step, int watts) =>
+        minimum is { } min && maximum is { } max && step is > 0
+        && watts >= min && watts <= max && ((long)watts - min) % step.Value == 0;
+
     internal static ManualTdpProfile WithBoost(ManualTdpProfile profile, int watts) =>
         profile with { Unified = false, BoostWatts = watts };
 

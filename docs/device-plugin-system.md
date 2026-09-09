@@ -730,7 +730,9 @@ separately in global and per-game performance configuration. A missing per-game 
 the global record. These values are preferences rather than readback; RTSS profile edits preserve
 them. Saved unified targets restore through the paired command with captured generations and verified
 readback; profile-owned pair release also uses the coordinated path. The #61 controls and advanced
-boost-restoration integration are still in progress.
+presentation integration is still in progress. Split restoration validates the saved boost against
+its descriptor, applies the plugin's coordinated target and then restores the independent boost
+under one power-mutation gate. Both results must be verified; there is no retry after uncertainty.
 Manual sustained edits from Overlay and QAM now consult the same active profile in the coordinator
 to select paired dispatch. Verified independent boost edits save the advanced boost value and select
 split mode while retaining unified history. Manual sustained edits use the active mode

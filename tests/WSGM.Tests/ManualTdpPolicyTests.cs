@@ -4,6 +4,18 @@ namespace WSGM.Tests;
 
 public sealed class ManualTdpPolicyTests
 {
+    [Theory]
+    [InlineData(10, true)]
+    [InlineData(50, true)]
+    [InlineData(9, false)]
+    [InlineData(51, false)]
+    [InlineData(11, false)]
+    public void SplitRestoreUsesTheCompanionsOwnRangeAndStep(int watts, bool accepted)
+    {
+        Assert.Equal(accepted, ManualTdpPolicy.Accepts(10, 50, 2, watts));
+        Assert.False(ManualTdpPolicy.Accepts(10, 50, null, watts));
+    }
+
     [Fact]
     public void IndependentBoostEditSelectsSplitAndPreservesUnifiedHistory()
     {

@@ -20,8 +20,9 @@ The immediate queue is #52 (XIAO now connected), #69 investigation and #61.
   the active profile requests unified mode, and save only that mode's target. Three policy tests pass.
   Overlay now provides the mode selector, with no hardware write on selection and a focused headless test passing.
   Verified independent boost edits now persist the advanced preference and select split mode without
-  deleting the unified target. Unified QAM presentation, shared surface projection and advanced boost
-  restoration remain to implement.
+  deleting the unified target. Split restoration now validates the boost range, establishes the
+  plugin-owned pair and restores boost under one mutation gate, stopping on unconfirmed readback.
+  Nine policy cases pass. Unified QAM presentation and shared surface projection remain to implement.
 
 - #59 is implemented: Tools offers current resolution/refresh and supported mode drafts with explicit Apply. Windows Device Control owns fresh enumeration, exact-route revalidation, readback and rollback. A headless picker test and warning-clean builds pass. Physical mode changes remain for field review.
 

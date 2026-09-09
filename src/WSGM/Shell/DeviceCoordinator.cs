@@ -1929,6 +1929,35 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         finally { if (power) { PowerPresets.MutationGate.Release(); } }
     }
 
+    internal async Task<bool> RestoreSplitPowerAsync(DeviceCapabilityView primary, int sustained, int boost,
+        CancellationToken cancellationToken)
+    {
+        string? peerId = primary.Descriptor.PairedPowerLimitId;
+        if (peerId is null) { return false; }
+        await PowerPresets.MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var peer = FindCapability(peerId, null);
+            if (peer is null || !ManualTdpPolicy.Accepts(peer.Descriptor.Minimum, peer.Descriptor.Maximum,
+                peer.Descriptor.Step, boost)) { return false; }
+            var state = primary.Projection.State;
+            // The plugin establishes its valid coordinated envelope before the independent boost
+            // preference is restored. No host-authored sustained/boost relationship is assumed.
+            var pair = await ExecuteCapabilityCoreAsync(primary.Descriptor.CapabilityId, primary.Descriptor.InstanceId,
+                new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = sustained },
+                TimeSpan.FromSeconds(5), CapabilityCommandOrigin.ProfileRestore, cancellationToken,
+                state.CycleGeneration, state.DescriptorGeneration, applyPowerPair: true).ConfigureAwait(false);
+            if (pair.Outcome != CommandOutcome.AppliedVerified || pair.ReadbackValue?.IntegerValue != sustained) { return false; }
+            _assignedPowerOverride?.Invoke(sustained);
+            var result = await ExecuteCapabilityCoreAsync(peerId, null,
+                new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = boost },
+                TimeSpan.FromSeconds(5), CapabilityCommandOrigin.ProfileRestore, cancellationToken,
+                state.CycleGeneration, state.DescriptorGeneration).ConfigureAwait(false);
+            return result.Outcome == CommandOutcome.AppliedVerified && result.ReadbackValue?.IntegerValue == boost;
+        }
+        finally { PowerPresets.MutationGate.Release(); }
+    }
+
     private async Task<CapabilityCommandResult> ExecuteCapabilityCoreAsync(
         string capabilityId, string? instanceId, CapabilityValue? value, TimeSpan timeout,
         CapabilityCommandOrigin origin, CancellationToken cancellationToken,

@@ -2564,6 +2564,7 @@ public sealed class ShellSession : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         var (effective, paired) = ManualTdpPolicy.ResolveTarget(_config.Performance, entry, perGameActive);
+        var manualProfile = ManualTdpPolicy.Resolve(_config.Performance, entry, perGameActive);
         int ceiling = power.Descriptor.Maximum ?? 0;
         bool autoTdpEnabled = coordinator.AutoTdpEnabled;
         PerAppPowerDecision decision = PerApplicationPowerPolicy.DecideOnTargetChange(
@@ -2575,8 +2576,12 @@ public sealed class ShellSession : IAsyncDisposable
         switch (decision.Action)
         {
             case PerAppPowerAction.Apply:
-                if (await ApplyProfilePowerLimitAsync(power, decision.Watts, cancellationToken, paired)
-                    .ConfigureAwait(false))
+                bool splitPair = manualProfile is { Unified: false, BoostWatts: not null };
+                bool applied = splitPair
+                    ? await coordinator.RestoreSplitPowerAsync(power, decision.Watts, manualProfile!.BoostWatts!.Value,
+                        cancellationToken).ConfigureAwait(false)
+                    : await ApplyProfilePowerLimitAsync(power, decision.Watts, cancellationToken, paired).ConfigureAwait(false);
+                if (applied)
                 {
                     // An explicit limit overrides automatic control exactly as moving the slider
                     // does; pausing while it is applied keeps AutoTDP from writing over it next tick.
@@ -2586,7 +2591,7 @@ public sealed class ShellSession : IAsyncDisposable
                     }
 
                     _profilePowerImposed = true;
-                    _profilePowerPaired = paired;
+                    _profilePowerPaired = paired || splitPair;
                     Log.Info(
                         $"Per-application power limit applied: {decision.Watts} W for "
                         + $"{applicationId ?? "the global profile"}.");
