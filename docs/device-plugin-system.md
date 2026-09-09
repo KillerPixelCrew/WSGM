@@ -721,6 +721,9 @@ relinquish runtime control and clear the enabled setting; see `rtss.md` for the 
 original limits are retained for release; readback after an uncertain result must be newer than
 that result before automatic control can continue. The Claw maps the target to equal PL1/PL2 values
 through its existing ordered-write and rollback implementation.
+Other plugins may publish different companion bounds and steps. The sustained descriptor's range
+defines coordinated targets; the plugin owns the mapping and confirms both limits. Host validation
+does not impose the Claw's equal-limit policy on other hardware.
 
 ## 15. Glyphs
 

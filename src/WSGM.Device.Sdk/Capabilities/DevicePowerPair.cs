@@ -14,7 +14,7 @@ public static class DevicePowerPair
     public static bool TryValidate(IReadOnlyList<CapabilityDescriptor> descriptors, out string? error)
     {
         ArgumentNullException.ThrowIfNull(descriptors);
-        error = "A power pair requires unique sustained/boost watt controls with matching bounds and step.";
+        error = "A power pair requires unique readable and writable sustained/boost watt controls with valid bounds and step.";
         foreach (CapabilityDescriptor primary in descriptors)
         {
             if (primary.PairedPowerLimitId is null) { continue; }
@@ -23,8 +23,6 @@ public static class DevicePowerPair
             CapabilityDescriptor[] peers = descriptors.Where(d => d.CapabilityId == primary.PairedPowerLimitId).ToArray();
             if (peers.Length != 1 || !IsLimit(peers[0]) || peers[0].Role != CapabilityRole.PowerSlowLimit
                 || peers[0].PairedPowerLimitId is not null || peers[0].CapabilityId == primary.CapabilityId
-                || peers[0].Minimum != primary.Minimum || peers[0].Maximum != primary.Maximum
-                || peers[0].Step != primary.Step
                 || descriptors.Count(d => d.PairedPowerLimitId == primary.PairedPowerLimitId) != 1)
             { return false; }
         }

@@ -24,9 +24,18 @@ public sealed class SdkPowerPairTests
         var boost = Limit("boost", CapabilityRole.PowerSlowLimit);
         Assert.False(DevicePowerPair.TryValidate([primary], out _));
         Assert.False(DevicePowerPair.TryValidate([primary, boost, boost], out _));
-        Assert.False(DevicePowerPair.TryValidate([primary, boost with { Minimum = 9 }], out _));
+        Assert.False(DevicePowerPair.TryValidate([primary, boost with { Minimum = 40 }], out _));
         Assert.False(DevicePowerPair.TryValidate([primary, boost with { SupportsWrite = false }], out _));
         Assert.False(DevicePowerPair.TryValidate([primary, boost with { PairedPowerLimitId = "primary" }], out _));
+    }
+
+    [Fact]
+    public void PluginDefinesCompanionRangeAndStepIndependently()
+    {
+        var primary = Limit("primary", CapabilityRole.PowerSustainedLimit) with { PairedPowerLimitId = "boost" };
+        var boost = Limit("boost", CapabilityRole.PowerSlowLimit) with { Minimum = 10, Maximum = 50, Step = 2 };
+        Assert.True(DevicePowerPair.TryValidate([primary, boost], out _));
+        Assert.False(DevicePowerPair.TryValidate([primary, boost with { Step = 0 }], out _));
     }
 
     private static CapabilityDescriptor Limit(string id, CapabilityRole role) => new()

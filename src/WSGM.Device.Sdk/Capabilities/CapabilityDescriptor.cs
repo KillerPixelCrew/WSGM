@@ -100,8 +100,10 @@ public sealed record CapabilityDescriptor
     /// asks the plugin to apply and verify both limits using its device-specific relationship.
     /// Ordinary commands retain their independent-limit behavior. The host snapshots both observed
     /// limits before taking ownership and restores the sustained pair followed by the original boost
-    /// value. Both descriptors must be readable, writable watt limits with matching bounds and step;
-    /// the plugin must permit an equal sustained/boost pair throughout that range.</remarks>
+    /// value. Both descriptors must be readable, writable watt limits with valid bounds and step.
+    /// The primary range describes valid coordinated targets. The plugin maps each target to its
+    /// companion limit within that companion's independently declared range and step, and verifies
+    /// both values. Hosts must not assume that the two limits are equal.</remarks>
     public string? PairedPowerLimitId { get; init; }
 
     /// <summary>Legal options for a choice capability.</summary>

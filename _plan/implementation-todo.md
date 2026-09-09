@@ -10,6 +10,10 @@ After delivery of #38/#39, #58/#59 and #65–#68 on 2026-09-09, 31 issues remain
 Issues #41–#45, #47 and #48 remain deferred; the other 24 are the 2.0 scope.
 The immediate queue is #52 (XIAO now connected), #69 investigation and #61.
 
+- #61 is in progress. The paired-command contract now permits plugin-defined companion bounds
+  and steps rather than requiring the Claw's identical ranges. Three focused SDK tests pass.
+  Unified/split selection, shared surface projection and profile persistence remain to implement.
+
 - #59 is implemented: Tools offers current resolution/refresh and supported mode drafts with explicit Apply. Windows Device Control owns fresh enumeration, exact-route revalidation, readback and rollback. A headless picker test and warning-clean builds pass. Physical mode changes remain for field review.
 
 - #38/#39 are implemented: Desktop notification icon, Settings focus, Game Mode entry and coordinated Exit; Start Menu and optional Desktop shortcuts start or activate the resident session. The activation test and 21 existing shutdown tests pass; the build is warning-clean. Installer and live tray review remain for field validation.
