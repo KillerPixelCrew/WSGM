@@ -23,18 +23,24 @@ internal sealed class SteamControllerOwnershipAdapter : IDisposable
     private readonly Func<bool> _steamAlive;
     private readonly Func<CancellationToken, Task<bool>> _ownerIsCurrent;
     private readonly Func<CancellationToken, Task<bool>> _physicalIsPresent;
+    private readonly Func<bool> _managesPhysical;
+    private readonly Func<bool, CancellationToken, Task> _captureUi;
+    private bool _usesPhysical = true;
 
-    internal SteamControllerOwnershipAdapter(DeviceCoordinator device, Func<bool> steamAlive)
+    internal SteamControllerOwnershipAdapter(DeviceCoordinator device, Func<bool> steamAlive,
+        Func<bool, CancellationToken, Task> captureUi)
         : this(device.ReleaseControllerForSteamAsync, device.RestoreControllerFromSteamAsync,
             new NativeSteamControllerGate(), steamAlive, device.IsSteamControllerOwnershipCurrentAsync,
-            device.IsReleasedControllerPresentAsync)
+            device.IsReleasedControllerPresentAsync,
+            () => device.Controllers.State == ControllerManagementState.Active, captureUi)
     {
     }
 
     internal SteamControllerOwnershipAdapter(Func<CancellationToken, Task<bool>> releasePhysical,
         Func<CancellationToken, Task<SteamPhysicalRestoreResult>> restorePhysical, ISteamControllerGate gate,
         Func<bool>? steamAlive = null, Func<CancellationToken, Task<bool>>? ownerIsCurrent = null,
-        Func<CancellationToken, Task<bool>>? physicalIsPresent = null)
+        Func<CancellationToken, Task<bool>>? physicalIsPresent = null,
+        Func<bool>? managesPhysical = null, Func<bool, CancellationToken, Task>? captureUi = null)
     {
         _releasePhysical = releasePhysical;
         _restorePhysical = restorePhysical;
@@ -42,18 +48,35 @@ internal sealed class SteamControllerOwnershipAdapter : IDisposable
         _steamAlive = steamAlive ?? (() => true);
         _ownerIsCurrent = ownerIsCurrent ?? (_ => Task.FromResult(true));
         _physicalIsPresent = physicalIsPresent ?? (_ => Task.FromResult(true));
+        _managesPhysical = managesPhysical ?? (() => true);
+        _captureUi = captureUi ?? ((_, _) => Task.CompletedTask);
     }
 
     internal async Task<bool> ReleaseAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!_gate.SupportsPassThrough
-            || !await _releasePhysical(cancellationToken).ConfigureAwait(false))
+        if (!_gate.SupportsPassThrough)
         {
             return false;
         }
-        cancellationToken.ThrowIfCancellationRequested();
-        return _gate.BeginPassThrough();
+        _usesPhysical = _managesPhysical();
+        try
+        {
+            await _captureUi(true, cancellationToken).ConfigureAwait(false);
+            if (_usesPhysical && !await _releasePhysical(cancellationToken).ConfigureAwait(false))
+            {
+                await _captureUi(false, cancellationToken).ConfigureAwait(false);
+                return false;
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            return _gate.BeginPassThrough();
+        }
+        catch
+        {
+            _gate.Dispose();
+            await _captureUi(false, CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
     }
 
     internal async Task<bool> RestoreAsync(CancellationToken cancellationToken)
@@ -61,14 +84,15 @@ internal sealed class SteamControllerOwnershipAdapter : IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         // This loop performs presence reads only. Keep Steam access and the neutral virtual target
         // while disconnected; do not start a hardware acquisition or take a native block to poll.
-        while (await _ownerIsCurrent(cancellationToken).ConfigureAwait(false)
+        while (_usesPhysical && await _ownerIsCurrent(cancellationToken).ConfigureAwait(false)
             && !await _physicalIsPresent(cancellationToken).ConfigureAwait(false))
         {
             await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken).ConfigureAwait(false);
         }
-        if (!await _ownerIsCurrent(cancellationToken).ConfigureAwait(false))
+        if (!await OwnerIsCurrentAsync(cancellationToken).ConfigureAwait(false))
         {
             _gate.Dispose();
+            await _captureUi(false, cancellationToken).ConfigureAwait(false);
             return true;
         }
         if (!_steamAlive())
@@ -76,13 +100,17 @@ internal sealed class SteamControllerOwnershipAdapter : IDisposable
             // With Steam confirmed exited, no native reader remains to block. Its old pipe
             // cannot acknowledge a transition, and must not prevent physical restoration.
             _gate.Dispose();
-            return await _restorePhysical(cancellationToken).ConfigureAwait(false) != SteamPhysicalRestoreResult.Unverified;
+            bool restoredWithoutSteam = !_usesPhysical
+                || await _restorePhysical(cancellationToken).ConfigureAwait(false) != SteamPhysicalRestoreResult.Unverified;
+            await _captureUi(false, cancellationToken).ConfigureAwait(false);
+            return restoredWithoutSteam;
         }
         if (!_gate.BeginRestore())
         {
             return false;
         }
-        SteamPhysicalRestoreResult restored = await _restorePhysical(cancellationToken).ConfigureAwait(false);
+        SteamPhysicalRestoreResult restored = _usesPhysical
+            ? await _restorePhysical(cancellationToken).ConfigureAwait(false) : SteamPhysicalRestoreResult.Restored;
         if (restored == SteamPhysicalRestoreResult.OwnerChanged)
         {
             _gate.Dispose();
@@ -91,6 +119,7 @@ internal sealed class SteamControllerOwnershipAdapter : IDisposable
         {
             _gate.EndRestore();
         }
+        await _captureUi(false, cancellationToken).ConfigureAwait(false);
         return restored != SteamPhysicalRestoreResult.Unverified;
     }
 
@@ -98,7 +127,8 @@ internal sealed class SteamControllerOwnershipAdapter : IDisposable
 
     internal bool OriginalSteamExited => _gate.OriginalSteamExited;
 
-    internal Task<bool> OwnerIsCurrentAsync(CancellationToken cancellationToken) => _ownerIsCurrent(cancellationToken);
+    internal Task<bool> OwnerIsCurrentAsync(CancellationToken cancellationToken) => _usesPhysical
+        ? _ownerIsCurrent(cancellationToken) : Task.FromResult(!_managesPhysical());
 }
 
 /// <summary>The native lease boundary used by controller ownership orchestration.</summary>

@@ -142,6 +142,20 @@ public sealed class SteamControllerOwnershipAdapterTests
         Assert.Empty(calls);
     }
 
+    [Fact]
+    public async Task LeaseOnlyHandoffUsesNativeClaimsAndUiCaptureWithoutDeviceWrites()
+    {
+        List<string> calls = [];
+        using SteamControllerOwnershipAdapter adapter = new(
+            _ => throw new InvalidOperationException("No physical release in lease-only mode"),
+            _ => throw new InvalidOperationException("No physical acquisition in lease-only mode"),
+            new Gate(calls), managesPhysical: () => false,
+            captureUi: (active, _) => { calls.Add(active ? "pause-ui" : "resume-ui"); return Task.CompletedTask; });
+        Assert.True(await adapter.ReleaseAsync(CancellationToken.None));
+        Assert.True(await adapter.RestoreAsync(CancellationToken.None));
+        Assert.Equal(["support", "pause-ui", "pass-through", "block-steam", "end-block", "resume-ui"], calls);
+    }
+
     private sealed class Gate(List<string> calls) : ISteamControllerGate
     {
         internal bool Supported { get; init; } = true;

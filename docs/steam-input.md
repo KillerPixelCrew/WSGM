@@ -141,8 +141,9 @@ the old native claims without acquiring a replacement controller; unverified phy
 still requires recovery rather than an automatic retry.
 When released controller interfaces disconnect, restoration waits for their exact instance IDs to
 return before taking a native block or reacquiring hardware. Device retirement or shutdown ends the
-read-only wait. Lease-only OEM handoffs (without an active managed target) and end-to-end verification
-remain open under #65.
+read-only wait. Lease-only OEM handoffs use the same native claims without physical device writes.
+WSGM closes its SDL readers during Steam ownership and waits for neutral input after reopening them.
+End-to-end hardware verification remains deferred to field review.
 
 ## Owner claims and the Settings handoff
 

@@ -10,6 +10,7 @@ using WSGM.Device.Sdk.Plugin;
 using WSGM.Interop;
 using WSGM.Overlay;
 using SteamUiToolkit.Surfaces;
+using WSGM.Input;
 
 namespace WSGM.Shell;
 
@@ -162,10 +163,6 @@ public sealed class ShellSession : IAsyncDisposable
         Task<bool> Replay(CancellationToken token) => SteamNativeSurfaceCommands.ReplayAsync(
             transport, action, target.ProcessId, target.AppId, snapshot.Generations, token);
 
-        if (_deviceCoordinator?.Controllers.State != ControllerManagementState.Active)
-        {
-            return await Replay(cancellationToken).ConfigureAwait(false);
-        }
         return _steamControllerHandoff?.TryStart(Replay) == true;
     }
 
@@ -713,7 +710,8 @@ public sealed class ShellSession : IAsyncDisposable
             _steamUi.ApplySurfaceObservation(_config.Cef.Enabled);
             if (_deviceCoordinator is { } handoffDevice)
             {
-                _steamControllerOwnership = new SteamControllerOwnershipAdapter(handoffDevice, () => Steam.IsRunning);
+                _steamControllerOwnership = new SteamControllerOwnershipAdapter(handoffDevice, () => Steam.IsRunning,
+                    (active, token) => RunUiActionAsync(() => { SdlGamepads.SetSteamOwnership(active); return true; }, token));
                 _steamControllerHandoff = new SteamControllerHandoff(
                     _steamControllerOwnership.ReleaseAsync,
                     _steamControllerOwnership.RestoreAsync,
@@ -2000,6 +1998,7 @@ public sealed class ShellSession : IAsyncDisposable
         }
         _steamControllerOwnership?.Dispose();
         _steamControllerOwnership = null;
+        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => SdlGamepads.SetSteamOwnership(false));
 
         // Run it before waiting on shell transitions or doing Explorer/CEF/RTSS teardown.
         // If the outer owner reaches its deadline, process exit still unloads the in-process

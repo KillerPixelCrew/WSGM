@@ -231,7 +231,8 @@ enabled and the virtual target stays neutral. The host checks the exact instance
 release in the currently configured device tree, without phantom lookup. This is a read-only wait;
 hardware acquisition runs once after presence returns. Owner retirement and shutdown cancel the wait.
 The plugin still revalidates topology and firmware before its write, and uncertain writes are not retried.
-Lease-only OEM handoffs and end-to-end verification remain pending. Main-window semantic replay
+Lease-only OEM handoffs use the same native claims without device writes and suspend WSGM SDL readers.
+End-to-end hardware verification remains deferred to field review. Main-window semantic replay
 has live CEF evidence; game-overlay dispatch has deterministic identity/refusal tests only.
 
 ### Make-safe removes the target after the physical release and HidHide entries after the target

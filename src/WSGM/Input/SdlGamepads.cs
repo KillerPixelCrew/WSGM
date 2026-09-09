@@ -37,6 +37,8 @@ internal static unsafe class SdlGamepads
 
     private static bool _initialized;
     private static bool _failed;
+    private static bool _steamOwnsInput;
+    private static bool _awaitNeutral;
     private static readonly Dictionary<SDL_JoystickID, nint> Pads = new();
     private static readonly List<PadSnapshot> Snapshot = new();
 
@@ -113,6 +115,29 @@ internal static unsafe class SdlGamepads
         var v = SDL_GetVersion();
         Log.Info($"SDL {v / 1000000}.{v / 1000 % 1000}.{v % 1000} gamepad subsystem initialized.");
 
+        if (!_steamOwnsInput) { OpenConnectedPads(); }
+    }
+
+    /// <summary>Closes WSGM's SDL readers during a Steam handoff; UI thread only.</summary>
+    internal static void SetSteamOwnership(bool active)
+    {
+        if (_steamOwnsInput == active) { return; }
+        _steamOwnsInput = active;
+        Snapshot.Clear();
+        if (active)
+        {
+            foreach (nint handle in Pads.Values) { SDL_CloseGamepad((SDL_Gamepad*)handle); }
+            Pads.Clear();
+        }
+        else
+        {
+            _awaitNeutral = true;
+            if (_initialized) { OpenConnectedPads(); }
+        }
+    }
+
+    private static void OpenConnectedPads()
+    {
         int count;
         var ids = SDL_GetGamepads(&count);
         if (ids != null)
@@ -131,7 +156,7 @@ internal static unsafe class SdlGamepads
     public static IReadOnlyList<PadSnapshot> Update()
     {
         Snapshot.Clear();
-        if (!_initialized)
+        if (!_initialized || _steamOwnsInput)
         {
             return Snapshot;
         }
@@ -196,6 +221,13 @@ internal static unsafe class SdlGamepads
             }
 
             Snapshot.Add(new PadSnapshot((uint)id, current));
+        }
+        if (_awaitNeutral)
+        {
+            bool held = false;
+            foreach (PadSnapshot pad in Snapshot) { held |= pad.Buttons != 0; }
+            if (held) { Snapshot.Clear(); }
+            else if (Snapshot.Count > 0) { _awaitNeutral = false; }
         }
         return Snapshot;
     }

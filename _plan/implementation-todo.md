@@ -1,14 +1,14 @@
 # WSGM 2.0 implementation tracker
 
 Status: the previous implementation baseline is on `master`; the current open workoff contains
-31 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
+30 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
 submodule changes, without feature branches or pull requests.
 
 ## Current issue workoff
 
-After #66 closed on 2026-09-09, 38 issues remain open.
-Issues #41–#45, #47 and #48 remain deferred; the other 31 are the 2.0 scope.
-The immediate queue is #65, #69 investigation, #68, #67, #38/#39, #58, #59 and #61.
+After delivery of #65 and #66 on 2026-09-09, 37 issues remain open.
+Issues #41–#45, #47 and #48 remain deferred; the other 30 are the 2.0 scope.
+The immediate queue is #69 investigation, #68, #67, #38/#39, #58, #59 and #61.
 
 - #66 is closed by `6cc870f`. SDL exclusion sanitization now covers every controlled child, including de-elevation
   without a lease and fallback after lease failure. Parent state and unrelated environment entries
@@ -16,7 +16,7 @@ The immediate queue is #65, #69 investigation, #68, #67, #38/#39, #58, #59 and #
   Existing native sanitizer coverage and the dated 2026-09-08 Eden result remain applicable;
   no fresh live-game validation is claimed for this follow-up.
 
-- #65 remains in progress. Native pass-through claims and the toolkit's surface observer are
+- #65 is implemented. Native pass-through claims and the toolkit's surface observer are
   pushed. WSGM registers overlay observation with the CEF session and has tested controller-pause
   operations and session-lifetime handoff policy. Physical/lease adapters and OEM QAM/Overlay
   dispatch are connected through exact-window native handlers. Main-window replay has live CEF
@@ -24,8 +24,9 @@ The immediate queue is #65, #69 investigation, #68, #67, #38/#39, #58, #59 and #
   replacement even when the monitor misses its exit. Suspend, disable and runtime replacement now
   retire the old interaction without a stale replay, hardware reacquisition or stranded block.
   Physical disconnect/reconnect now waits for verified released instance IDs before blocking Steam
-  and reacquiring once. Lease-only OEM handoffs without an active managed target and end-to-end
-  verification remain pending.
+  and reacquiring once. Lease-only handoffs use the same native claims without device writes.
+  WSGM closes its SDL readers during Steam ownership and waits for neutral input on return.
+  All 78 focused tests pass. End-to-end hardware verification remains deferred to field review.
 
 The maintainer directs issues to close when their fixes are committed and pushed; failed field
 validation will be handled by reopening them. Hardware checks are not a closure gate. #60, #57 and
