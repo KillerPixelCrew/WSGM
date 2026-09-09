@@ -74,7 +74,7 @@ must not treat an IR endpoint acknowledgment as proof that a television changed 
 action/argument link and requires numeric bounds for sliders. WSGM owns actual controls and placement;
 plugins cannot inject UI code. The overlay Tools page renders common contributions, grouped by
 instance and contribution category. Status readback is separate from an editable draft; toggles and
-sliders require an explicit Apply press. Refresh never invokes an action. Pinning follows in #53.
+sliders require an explicit Apply press. Refresh never invokes an action. Declared widgets can be pinned to Quick Access.
 Action contributions expose their declared arguments in collapsible forms. Text and numeric fields
 use press-to-edit buttons and the Overlay keyboard, so controller navigation never depends on focusing
 a bare TextBox. Drafts remain separate from readback and are sent only on explicit invocation.
@@ -170,8 +170,7 @@ action/UI contributions, then an independent non-device consumer. Delivery statu
 IPluginUi.Widgets is an optional additive declaration surface. The host admits at most 32 widgets,
 validates stable IDs and one to eight distinct existing contribution links, and copies plugin-owned
 lists. Navigation categories must exist. State predicates reference normal effective-state keys;
-missing predicate state means unavailable. Widget rendering and persistent front-page pinning are
-tracked as in-progress work under #53.
+missing predicate state means unavailable.
 
 Widget pin persistence stores plugin ID, configured instance ID and widget ID separately in
 AppConfig.PluginWidgetPins. Order follows the list. Normalization removes malformed/duplicate entries,
@@ -180,20 +179,19 @@ widget identity without removing pins. UI-facing mutations use the normal atomic
 
 The plugin source panel now exposes Pin widget and Unpin widget actions for each validated widget
 declaration. These edit preferences only on an explicit click and report persistence failures.
-Front-page rendering and order controls remain in progress under #53.
+The Device page exposes the same pin controls in its Quick Access widgets expander, without duplicating capability editors.
 
 Pinned common widgets now render below the front-page quick-access cards. The existing contribution
 renderer supplies live state and named actions; widget predicates disable unavailable controls.
 Missing plugin instances retain identity-labelled placeholders. Each card offers move up/down and
-unpin, with a reset-order action below the list. Device widget adaptation and navigation metadata
-remain in progress. The IR package declares a selected-command/send widget.
+unpin, with a reset-order action below the list. The IR package declares a selected-command/send widget.
 
 Pinned widgets with NavigationCategory now offer Open plugin controls. The Overlay selects Tools,
 then scrolls and focuses the owning plugin-instance/category anchor using stable identities.
 
 Widget rendering consumes ICommonPluginOverlaySource for observations and explicit actions, without
 owning package lifecycle. The missing-provider headless test verifies a retained visible placeholder
-and no action dispatch. Device capability adaptation remains in progress.
+and no action dispatch.
 
 The rendering source returns detached PluginOverlayInstance and PluginOverlayControls records.
 Views no longer retain PluginRegistration or acquire lifecycle ownership. Current source observations
@@ -203,4 +201,4 @@ DeviceWidgetSource now projects readable Device capabilities through the common 
 Numeric and boolean edits use the Device coordinator with captured cycle/descriptor generations;
 no second Device lifecycle is created. Stable widget keys encode capability and instance identity.
 The combined source includes Device widgets even without common packages. Choice widgets show readback and an explicit action with the currently declared options. Selection
-alone does not dispatch. Device-page pin entry points remain in progress.
+alone does not dispatch. Device-page pin controls use this same source and persistence path.

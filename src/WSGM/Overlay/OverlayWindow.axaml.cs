@@ -328,11 +328,14 @@ public partial class OverlayWindow : Window
     internal void AttachCommonPlugins(CommonPluginOverlaySource? source)
     {
         CommonPluginRows.Children.Clear();
+        DeviceWidgetPinsHost.Children.Clear();
         PinnedPluginWidgetsHost.Children.Clear();
         if (source is not null)
         {
             CommonPluginPanel panel = new(source);
             CommonPluginRows.Children.Add(panel);
+            if (source.Device is { } device)
+            { DeviceWidgetPinsHost.Children.Add(new CommonPluginPanel(device, pinsOnly: true)); }
             PinnedPluginWidgetsHost.Children.Add(new PinnedPluginWidgets(source, (pin, category) =>
             {
                 SelectDestination(OverlayDestination.System);

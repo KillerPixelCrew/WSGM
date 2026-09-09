@@ -431,6 +431,9 @@
                             </Border>
                         </Grid>
                         <StackPanel x:Name="DeviceCapabilityList" Spacing="4" />
+                        <Expander Header="Quick Access widgets" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                            <StackPanel x:Name="DeviceWidgetPinsHost" Spacing="8" />
+                        </Expander>
                         <Expander x:Name="DeviceWindowsPower" Header="Windows energy plan" IsVisible="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Margin="0,12,0,0">
                             <ov:PowerSchemeView x:Name="DevicePowerSchemeHost" />
                         </Expander>

@@ -22,14 +22,16 @@ internal sealed class CommonPluginPanel : StackPanel
     private readonly CancellationTokenSource _closed = new();
     private string _structure = "\0";
     private readonly PluginWidgetPin? _widget;
+    private readonly bool _pinsOnly;
     private readonly Action<PluginWidgetPin, string>? _navigate;
     private readonly Dictionary<(string Plugin, string Instance, string Category), Control> _categories = [];
 
     internal CommonPluginPanel(ICommonPluginOverlaySource source, PluginWidgetPin? widget = null,
-        Action<PluginWidgetPin, string>? navigate = null)
+        Action<PluginWidgetPin, string>? navigate = null, bool pinsOnly = false)
     {
         _source = source;
         _widget = widget;
+        _pinsOnly = pinsOnly;
         _navigate = navigate;
         Spacing = 8;
         _timer.Tick += (_, _) => Refresh();
@@ -105,6 +107,7 @@ internal sealed class CommonPluginPanel : StackPanel
             Children.Add(new PluginWidgetPinControls(widget.Label,
                 pinned => CommonPluginOverlaySource.SetPinnedAsync(pin, pinned)));
         }
+        if (_pinsOnly) { return; }
         foreach (var group in actions.Contributions.GroupBy(contribution => contribution.Category))
         {
             TextBlock anchor = new() { Text = group.Key, Classes = { "caption" }, Focusable = true };

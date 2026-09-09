@@ -27,6 +27,8 @@ internal interface ICommonPluginOverlaySource
 internal sealed class CommonPluginOverlaySource(CommonPluginManager? manager, PluginHost host,
     ICommonPluginOverlaySource? device = null) : ICommonPluginOverlaySource
 {
+    internal ICommonPluginOverlaySource? Device => device;
+
     internal static Task SetPinnedAsync(PluginWidgetPin pin, bool pinned) => Task.Run(() =>
         ConfigStore.Mutate(config => PluginWidgetPins.Set(config.PluginWidgetPins, pin, pinned)));
 

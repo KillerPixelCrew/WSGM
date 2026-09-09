@@ -11,6 +11,23 @@ namespace WSGM.UiTests;
 public sealed class PluginWidgetChoiceTests
 {
     [AvaloniaFact]
+    public void DevicePinPanelOffersPinsWithoutDuplicatingEditors()
+    {
+        using UiFixture fixture = new();
+        ChoiceSource source = new();
+        CommonPluginPanel panel = new(source, pinsOnly: true);
+        Window window = new() { Content = panel, Width = 600, Height = 500 };
+        try
+        {
+            window.Show();
+            Assert.Single(panel.GetLogicalDescendants().OfType<PluginWidgetPinControls>());
+            Assert.Empty(panel.GetLogicalDescendants().OfType<ComboBox>());
+            Assert.Null(source.Requested);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public void ChoiceDraftDispatchesOnlyAfterExplicitAction()
     {
         using UiFixture fixture = new();
