@@ -190,3 +190,7 @@ remain in progress. The IR package declares a selected-command/send widget.
 
 Pinned widgets with NavigationCategory now offer Open plugin controls. The Overlay selects Tools,
 then scrolls and focuses the owning plugin-instance/category anchor using stable identities.
+
+Widget rendering consumes ICommonPluginOverlaySource for observations and explicit actions, without
+owning package lifecycle. The missing-provider headless test verifies a retained visible placeholder
+and no action dispatch. Device capability adaptation remains in progress.

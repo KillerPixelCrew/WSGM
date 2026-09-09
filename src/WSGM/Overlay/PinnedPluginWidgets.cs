@@ -12,7 +12,7 @@ namespace WSGM.Overlay;
 /// <summary>Retains pinned plugin controls on the front page, including missing-provider placeholders.</summary>
 internal sealed class PinnedPluginWidgets : StackPanel
 {
-    internal PinnedPluginWidgets(CommonPluginOverlaySource source, Action<PluginWidgetPin, string> navigate)
+    internal PinnedPluginWidgets(ICommonPluginOverlaySource source, Action<PluginWidgetPin, string> navigate)
     {
         Spacing = 8;
         PluginWidgetPin[] previous = [];

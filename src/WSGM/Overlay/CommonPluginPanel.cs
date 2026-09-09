@@ -15,7 +15,7 @@ namespace WSGM.Overlay;
 /// <summary>Host-rendered common plugin controls. Only an explicit button press dispatches an action.</summary>
 internal sealed class CommonPluginPanel : StackPanel
 {
-    private readonly CommonPluginOverlaySource _source;
+    private readonly ICommonPluginOverlaySource _source;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly List<Action> _refresh = [];
     private readonly CancellationTokenSource _closed = new();
@@ -24,7 +24,7 @@ internal sealed class CommonPluginPanel : StackPanel
     private readonly Action<PluginWidgetPin, string>? _navigate;
     private readonly Dictionary<(string Plugin, string Instance, string Category), Control> _categories = [];
 
-    internal CommonPluginPanel(CommonPluginOverlaySource source, PluginWidgetPin? widget = null,
+    internal CommonPluginPanel(ICommonPluginOverlaySource source, PluginWidgetPin? widget = null,
         Action<PluginWidgetPin, string>? navigate = null)
     {
         _source = source;
