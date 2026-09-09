@@ -23,7 +23,9 @@ internal static class ManualTdpPolicy
         profile.Unified ? profile with { UnifiedWatts = watts } : profile with { SustainedWatts = watts };
 
     internal static ManualTdpProfile? Resolve(PerformanceConfig global, PerformanceApplicationConfig? application,
-        bool perGameActive) => perGameActive && application?.ManualTdp is { } own ? own : global.ManualTdp;
+        bool perGameActive) => perGameActive && application?.ManualTdp is { } own ? own
+        : perGameActive && application?.TdpWatts is { } watts ? new(false, null, watts, null)
+        : global.ManualTdp;
 
     internal static (int? Watts, bool Paired) ResolveTarget(PerformanceConfig global,
         PerformanceApplicationConfig? application, bool perGameActive)

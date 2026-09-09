@@ -227,3 +227,6 @@ write. Ambiguous clone sources are unavailable. This does not establish physical
 Device provides a manual TDP mode selector when a paired capability is available. Selecting Unified
 saves the active global/per-game preference without writing hardware. Subsequent sustained-slider
 edits coordinate both limits through the plugin. Advanced mode keeps independent edits.
+
+In unified TDP mode, the primary row is labeled TDP and the boost row becomes read-only. Switching
+to split restores independent editing without changing the observed limits.

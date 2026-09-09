@@ -1,28 +1,20 @@
 # WSGM 2.0 implementation tracker
 
 Status: the previous implementation baseline is on `master`; the current open workoff contains
-24 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
+23 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
 submodule changes, without feature branches or pull requests.
 
 ## Current issue workoff
 
-After delivery of #38/#39, #58/#59 and #65–#68 on 2026-09-09, 31 issues remain open.
-Issues #41–#45, #47 and #48 remain deferred; the other 24 are the 2.0 scope.
-The immediate queue is #52 (XIAO now connected), #69 investigation and #61.
+After delivery of #38/#39, #58/#59, #61 and #65–#68 on 2026-09-09, 30 issues remain open.
+Issues #41–#45, #47 and #48 remain deferred; the other 23 are the 2.0 scope.
+The immediate queue is #52 (XIAO now connected), #69 investigation and #53.
 
-- #61 is in progress. The paired-command contract now permits plugin-defined companion bounds
-  and steps rather than requiring the Claw's identical ranges. Three focused SDK tests pass.
-  Global and per-game profiles now store manual mode plus separate unified/sustained/boost
-  preferences. RTSS profile merges preserve them, with two focused persistence tests passing.
-  Saved unified targets now resolve through the active profile and restore through the paired command
-  with cycle/descriptor checks and verified readback. Pair ownership is retained for ceiling release.
-  Manual sustained edits from both surfaces now select paired dispatch through the coordinator when
-  the active profile requests unified mode, and save only that mode's target. Three policy tests pass.
-  Overlay now provides the mode selector, with no hardware write on selection and a focused headless test passing.
-  Verified independent boost edits now persist the advanced preference and select split mode without
-  deleting the unified target. Split restoration now validates the boost range, establishes the
-  plugin-owned pair and restores boost under one mutation gate, stopping on unconfirmed readback.
-  Nine policy cases pass. QAM now has a shared-mode toggle and a single unified slider with both readbacks; 17 toolkit surface tests and the emitted slider-readback check pass. Overlay single-slider presentation remains to implement.
+- #61 is implemented. Overlay and QAM share manual mode, paired dispatch and independent saved
+  unified/advanced preferences. Unified mode shows one editable TDP slider and both readbacks.
+  Profile restoration uses the plugin pair and restores advanced boost under the mutation gate.
+  Eleven policy/projection cases pass for this follow-up; earlier focused SDK, persistence, UI and
+  toolkit checks remain applicable. Live AC/battery, reconnect and gameplay review remains.
 
 - #59 is implemented: Tools offers current resolution/refresh and supported mode drafts with explicit Apply. Windows Device Control owns fresh enumeration, exact-route revalidation, readback and rollback. A headless picker test and warning-clean builds pass. Physical mode changes remain for field review.
 

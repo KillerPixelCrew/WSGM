@@ -4,6 +4,15 @@ namespace WSGM.Tests;
 
 public sealed class ManualTdpPolicyTests
 {
+    [Fact]
+    public void ExistingPerGameLimitStillOverridesANewGlobalManualProfile()
+    {
+        PerformanceConfig global = new() { ManualTdp = new(true, 30, 20, 35) };
+        PerformanceApplicationConfig app = new() { TdpWatts = 15 };
+        Assert.Equal((15, false), ManualTdpPolicy.ResolveTarget(global, app, true));
+        Assert.Equal((30, true), ManualTdpPolicy.ResolveTarget(global, app, false));
+    }
+
     [Theory]
     [InlineData(10, true)]
     [InlineData(50, true)]

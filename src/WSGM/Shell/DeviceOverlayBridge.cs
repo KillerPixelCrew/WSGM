@@ -296,6 +296,14 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     public Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default) =>
         _coordinator.CycleAuthoredProfileAsync(cancellationToken);
 
+    internal static DeviceOverlayCapability ProjectManualTdp(DeviceOverlayCapability capability, bool unified) =>
+        !unified ? capability : capability.Role switch
+        {
+            CapabilityRole.PowerSustainedLimit => capability with { Title = "TDP" },
+            CapabilityRole.PowerSlowLimit => capability with { Writable = false, CanInvoke = false },
+            _ => capability,
+        };
+
     public DeviceOverlaySnapshot Snapshot()
     {
         DeviceCycleState state = _coordinator.State;
@@ -309,6 +317,13 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             .Take(128)
             .Select(view => ToOverlayCapability(view, declaredSectionIds))
             .ToList();
+        if (_coordinator.ManualTdpMode.Unified)
+        {
+            for (int index = 0; index < capabilities.Count; index++)
+            {
+                capabilities[index] = ProjectManualTdp(capabilities[index], true);
+            }
+        }
         DescriptorRow glyphSelection = PhysicalGlyphSelectionView(
             _coordinator.PhysicalGlyphSelection,
             _coordinator.PhysicalGlyphSelectionSnapshot());

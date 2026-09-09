@@ -729,15 +729,14 @@ The manual TDP profile model retains unified target and advanced sustained/boost
 separately in global and per-game performance configuration. A missing per-game record inherits
 the global record. These values are preferences rather than readback; RTSS profile edits preserve
 them. Saved unified targets restore through the paired command with captured generations and verified
-readback; profile-owned pair release also uses the coordinated path. The #61 controls and advanced
-presentation integration is still in progress. Split restoration validates the saved boost against
+readback; profile-owned pair release also uses the coordinated path. Both surfaces expose the shared mode and retain readback. Split restoration validates the saved boost against
 its descriptor, applies the plugin's coordinated target and then restores the independent boost
 under one power-mutation gate. Both results must be verified; there is no retry after uncertainty.
 Manual sustained edits from Overlay and QAM now consult the same active profile in the coordinator
 to select paired dispatch. Verified independent boost edits save the advanced boost value and select
 split mode while retaining unified history. Manual sustained edits use the active mode
 to select paired dispatch. Saving a unified target preserves the stored advanced values, and saving
-an advanced sustained value preserves the unified target. Overlay Device now exposes an Advanced/split versus Unified selector. Selection persists only policy; a subsequent sustained-slider edit applies the coordinated target. QAM mode presentation remains unfinished.
+an advanced sustained value preserves the unified target. Overlay Device now exposes an Advanced/split versus Unified selector. Selection persists only policy; a subsequent sustained-slider edit applies the coordinated target. QAM exposes the same mode toggle and one TDP slider in unified mode.
 
 ## 15. Glyphs
 

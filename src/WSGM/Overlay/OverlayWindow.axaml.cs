@@ -594,6 +594,11 @@ public partial class OverlayWindow : Window
                         capability.Step ?? 1, capability.CurrentValue?.IntegerValue ?? capability.Minimum.Value,
                         capability.CanInvoke);
                 }
+                else if (capability is not null)
+                {
+                    row.RefreshReadback(capability.Minimum ?? 0, capability.Maximum ?? 0,
+                        capability.Step ?? 1, capability.CurrentValue?.IntegerValue ?? 0, false);
+                }
             }
             return;
         }
