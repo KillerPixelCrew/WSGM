@@ -252,3 +252,8 @@ bindings. DesktopRouteAdmission coalesces notifications while work runs and for 
 admission, including failed outcomes. A shared session semaphore orders route work with mode
 transitions. Queued Desktop work reloads configuration and rechecks Game Mode/transition state
 before dispatch. Game Mode entry waits for any already-running route sequence to settle.
+
+Route dispatch awaits the initial common-plugin reconciliation before resolving its configured
+provider. Desktop lifecycle dispatch rechecks mode after this wait, so plugin startup cannot defer
+a Desktop action into a newly started Game Mode transition. Failed admission still produces a
+refusal through the normal host; waiting does not retry or reconnect a provider.

@@ -92,6 +92,7 @@ public sealed class ShellSession : IAsyncDisposable
     private DeviceCoordinator? _deviceCoordinator;
     private readonly PluginHost _pluginHost = new(action => Avalonia.Threading.Dispatcher.UIThread.Post(action));
     private CommonPluginManager? _commonPlugins;
+    private Task _commonPluginStartup = Task.CompletedTask;
     private IDeviceOverlaySource? _deviceOverlay;
     private PerformanceService? _performance;
     private RefreshRatePairingService? _refreshPairing;
@@ -402,7 +403,7 @@ public sealed class ShellSession : IAsyncDisposable
             {
                 _commonPlugins = new(_pluginHost, CommonPluginCatalog.InstalledRoot, System.IO.Path.Combine(Log.Directory, "PluginState"),
                     action => Avalonia.Threading.Dispatcher.UIThread.Post(action));
-                _ = ApplyCommonPluginConfigAsync(_config);
+                _commonPluginStartup = ApplyCommonPluginConfigAsync(_config);
             }
             coordinator = _overlayTestOnly
                 ? null
@@ -1546,6 +1547,7 @@ public sealed class ShellSession : IAsyncDisposable
             if (config.DisplayRoutes is not { Enabled: true } routes) { return null; }
             var binding = enteringGameMode ? routes.EnterGameMode : routes.LeaveGameMode;
             if (binding is null) { return null; }
+            await _commonPluginStartup.WaitAsync(_shutdownCancellation.Token).ConfigureAwait(false);
             var transition = new DisplayRouteTransition(new DisplayRouteBackend(_pluginHost));
             var result = await transition.RunAsync(DisplayRoutePlan.FromBinding(binding), enteringGameMode,
                 _shutdownCancellation.Token).ConfigureAwait(false);
@@ -1580,6 +1582,8 @@ public sealed class ShellSession : IAsyncDisposable
                 || config.DisplayRoutes is not { Enabled: true } routes) { return; }
             var binding = startup ? routes.DesktopStartup : routes.DesktopWake;
             if (binding is null) { return; }
+            await _commonPluginStartup.WaitAsync(_shutdownCancellation.Token);
+            if (_shutdownRequested || _inGameMode || _modes?.TransitionInProgress != false) { return; }
             var result = await new DisplayRouteTransition(new DisplayRouteBackend(_pluginHost)).RunAsync(
                 DisplayRoutePlan.FromBinding(binding), false, _shutdownCancellation.Token);
             Log.Info($"Display route {(startup ? "startup" : "wake")}: {result.Stage}: {result.Detail}");
