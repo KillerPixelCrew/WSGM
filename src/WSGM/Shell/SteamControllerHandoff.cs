@@ -61,6 +61,22 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
         get { lock (_gate) { return _interaction; } }
     }
 
+    /// <summary>Chooses one observed game overlay, or the visible main window when no game overlay exists.</summary>
+    internal static SteamWindowSideMenu? SelectReplayTarget(SteamSideMenuSnapshot snapshot, bool mainVisible)
+    {
+        if (snapshot.Windows is not { Count: > 0 } windows)
+        {
+            return null;
+        }
+        SteamWindowSideMenu[] overlays = windows.Where(window => window.ProcessId != 0).ToArray();
+        return overlays.Length switch
+        {
+            0 => mainVisible ? windows[0] : null,
+            1 => overlays[0],
+            _ => null,
+        };
+    }
+
     /// <summary>Admits one semantic replay; repeated presses cannot toggle the surface again.</summary>
     internal bool TryStart(Func<CancellationToken, Task<bool>> replay)
     {

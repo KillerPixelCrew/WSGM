@@ -169,6 +169,11 @@ glyph delivery. Surface observation registers the toolkit's bounded overlay-acti
 while CEF is enabled, independently of custom QAM rows. Generation changes reinstall it; disabling
 CEF removes it. Unknown overlay activation after a reload remains unknown until a fresh event.
 
+OEM Steam QAM and Overlay actions borrow the same transport to replay the toolkit's native button
+handler on an exact observed process/app identity and CEF generation. The session's controller
+handoff owns physical release and restoration; the toolkit neither changes controller ownership
+nor retries a command whose execution is uncertain.
+
 ### Modules and their commands
 
 Every module but `shell` is a toolkit surface's `Module(enabled, read, backend)`; the patch id and

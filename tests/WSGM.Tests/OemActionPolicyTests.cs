@@ -60,6 +60,7 @@ public sealed class OemActionPolicyTests
             "Disabled",
             "ToggleWsgmOverlay",
             "ToggleSteamQuickAccess",
+            "ToggleSteamOverlay",
             "ShowWsgmDevicePage",
             "ToggleWsgmTaskbar",
             "ToggleDesktopGameMode",

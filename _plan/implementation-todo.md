@@ -12,8 +12,9 @@ The immediate queue is #66, #65, #69 investigation, #68, #67, #38/#39, #58, #59 
 
 - #65 remains in progress. Native pass-through claims and the toolkit's surface observer are
   pushed. WSGM registers overlay observation with the CEF session and has tested controller-pause
-  operations and session-lifetime handoff policy. Physical/lease adapters and Big Picture OEM QAM
-  dispatch are connected. In-game QAM/Overlay dispatch, restart/disconnect recovery and end-to-end
+  operations and session-lifetime handoff policy. Physical/lease adapters and OEM QAM/Overlay
+  dispatch are connected through exact-window native handlers. Main-window replay has live CEF
+  evidence; game-overlay dispatch is not live-verified. Restart/disconnect recovery and end-to-end
   verification remain pending.
 
 The maintainer directs issues to close when their fixes are committed and pushed; failed field

@@ -365,6 +365,9 @@ public enum OemAction
 
     /// <summary>Forward as the current target's second rear control. Rear placement only.</summary>
     VirtualTargetRearButton2,
+
+    /// <summary>Invoke Steam's native Home/Overlay button for the active Steam window.</summary>
+    ToggleSteamOverlay,
 }
 
 /// <summary>One allowlisted OEM-control assignment.</summary>

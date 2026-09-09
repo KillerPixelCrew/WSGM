@@ -11,6 +11,19 @@ public sealed class SteamControllerHandoffTests
         [new(0, 0, SteamSideMenu.QuickAccess, false)]);
 
     [Fact]
+    public void TargetSelectionRequiresOneExactGameOverlayAndNeverGuessesBetweenGames()
+    {
+        SteamWindowSideMenu main = new(0, 0, SteamSideMenu.None, false);
+        SteamWindowSideMenu game = new(42, 123, SteamSideMenu.None, false);
+        Assert.Equal(main, SteamControllerHandoff.SelectReplayTarget(new(default, [main]), true));
+        Assert.Null(SteamControllerHandoff.SelectReplayTarget(new(default, [main]), false));
+        Assert.Equal(game, SteamControllerHandoff.SelectReplayTarget(new(default, [main, game]), true));
+        Assert.Null(SteamControllerHandoff.SelectReplayTarget(
+            new(default, [main, game, new(43, 456, SteamSideMenu.None, false)]), true));
+        Assert.Null(SteamControllerHandoff.SelectReplayTarget(new(default, null), true));
+    }
+
+    [Fact]
     public async Task ReleaseAndReplayPrecedeObservationAndOneRestoration()
     {
         List<string> calls = [];

@@ -623,7 +623,8 @@ notation; the findings behind that and the pre-start allowlist are in `device-in
 | Action                                                    | Effect                                                                |
 | --------------------------------------------------------- | --------------------------------------------------------------------- |
 | `ToggleWsgmOverlay`                                       | Toggle the overlay.                                                   |
-| `ToggleSteamQuickAccess`                                  | Send Big Picture's Quick Access shortcut when Big Picture is visible. |
+| `ToggleSteamQuickAccess`                                  | Replay Steam's native Quick Access button through the controller handoff. |
+| `ToggleSteamOverlay`                                      | Replay Steam's native Home/Overlay button through the same handoff. |
 | `ShowWsgmDevicePage`                                      | Open the overlay's Device page.                                       |
 | `ToggleWsgmTaskbar`                                       | Toggle the Open apps strip.                                           |
 | `ToggleDesktopGameMode`                                   | Enter Game Mode if Explorer runs, else Desktop Mode.                  |

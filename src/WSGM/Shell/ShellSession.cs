@@ -139,19 +139,34 @@ public sealed class ShellSession : IAsyncDisposable
     private ForegroundWindowWatcher? _foregroundWindows;
     private AutoTdpService? _autoTdp;
     private RunningApplicationCoordinator? _runningApplicationTargets;
-    private Task<bool> ToggleSteamQuickAccessWithHandoffAsync(CancellationToken cancellationToken)
+    private async Task<bool> ToggleSteamSurfaceWithHandoffAsync(SteamNativeSurfaceAction action, CancellationToken cancellationToken)
     {
-        Task<bool> Replay(CancellationToken token) => RunUiActionAsync(() =>
-            _monitor?.IsAlive is true && Steam.IsBigPictureVisible
-            && Steam.TrySendBigPictureShortcut(BigPictureShortcut.QuickAccess), token);
-
         cancellationToken.ThrowIfCancellationRequested();
+        if (!_config.Cef.Enabled || _monitor?.IsAlive != true || _steamUiTransport is not { } transport)
+        {
+            // Preserve the existing desktop shortcut path when no managed physical handoff is
+            // needed. Managed ownership requires authoritative CEF closure before releasing.
+            return _deviceCoordinator?.Controllers.State != ControllerManagementState.Active
+                && await RunUiActionAsync(() => _monitor?.IsAlive == true && Steam.IsBigPictureVisible
+                    && Steam.TrySendBigPictureShortcut(action == SteamNativeSurfaceAction.QuickAccess
+                        ? BigPictureShortcut.QuickAccess : BigPictureShortcut.SteamMenu), cancellationToken)
+                    .ConfigureAwait(false);
+        }
+        SteamSideMenuSnapshot snapshot = await SteamSideMenuObserver.ReadAsync(transport, cancellationToken)
+            .ConfigureAwait(false);
+        SteamWindowSideMenu? target = SteamControllerHandoff.SelectReplayTarget(snapshot, Steam.IsBigPictureVisible);
+        if (target is null)
+        {
+            return false;
+        }
+        Task<bool> Replay(CancellationToken token) => SteamNativeSurfaceCommands.ReplayAsync(
+            transport, action, target.ProcessId, target.AppId, snapshot.Generations, token);
+
         if (_deviceCoordinator?.Controllers.State != ControllerManagementState.Active)
         {
-            return Replay(cancellationToken);
+            return await Replay(cancellationToken).ConfigureAwait(false);
         }
-        return Task.FromResult(_config.Cef.Enabled && _monitor?.IsAlive == true && Steam.IsBigPictureVisible
-            && _steamControllerHandoff?.TryStart(Replay) == true);
+        return _steamControllerHandoff?.TryStart(Replay) == true;
     }
 
     private SteamUiSessionHost? _steamUi;
@@ -629,7 +644,8 @@ public sealed class ShellSession : IAsyncDisposable
                 _overlay?.ToggleOverlay();
                 return _overlay is not null;
             }, cancellationToken),
-            ToggleSteamQuickAccessAsync = ToggleSteamQuickAccessWithHandoffAsync,
+            ToggleSteamQuickAccessAsync = token => ToggleSteamSurfaceWithHandoffAsync(SteamNativeSurfaceAction.QuickAccess, token),
+            ToggleSteamOverlayAsync = token => ToggleSteamSurfaceWithHandoffAsync(SteamNativeSurfaceAction.Home, token),
             ToggleDevicePageAsync = cancellationToken => RunUiActionAsync(() =>
             {
                 _overlay?.ShowDevicePage();

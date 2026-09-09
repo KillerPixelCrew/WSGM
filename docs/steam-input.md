@@ -121,16 +121,18 @@ which descriptor was used.
 
 ## Temporary Steam controller ownership
 
-The resident session's managed-controller OEM Quick Access path uses a native pass-through claim
-while Big Picture is visible. The claim preserves existing game and UI block leases. WSGM first
+The resident session's managed-controller OEM Quick Access and Overlay paths use a native
+pass-through claim. The claim preserves existing game and UI block leases. WSGM first
 neutralizes its virtual target, verifies physical release and removes its own HidHide deltas, then
-grants Steam access and replays the semantic shortcut. Surface observations govern restoration.
+grants Steam access and invokes Steam's native semantic button handler on the exact observed window
+and CEF generation. One registered game overlay takes precedence over the main window; ambiguous
+game targets are refused. Surface observations govern restoration.
 
 Restoration takes a temporary block claim before ending pass-through, reacquires physical ownership
 and restores HidHide, then drops that temporary claim. A separate pass-through owner or unverified
 write prevents physical reacquisition; shutdown disposes the native claims and runs full device
 make-safe. A confirmed Steam exit permits physical restoration without an acknowledgement from its
-dead pipe. In-game dispatch and restart/disconnect recovery are still being implemented under #65.
+dead pipe. Restart/disconnect recovery and end-to-end verification remain open under #65.
 
 ## Owner claims and the Settings handoff
 
