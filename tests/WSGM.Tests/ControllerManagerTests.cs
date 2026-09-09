@@ -647,6 +647,21 @@ public sealed class ControllerManagerTests
         Assert.True(await manager.RouteAsync(Sample(1, CanonicalButtons.None), CancellationToken.None));
     }
 
+    [Fact]
+    public async Task StalePhysicalPublicationCannotReplaceTheRestoredControllerGeneration()
+    {
+        Harness harness = new();
+        await using ControllerManager manager = harness.Manager;
+        await StartActiveAsync(manager);
+        long generation = await manager.BeginSteamOwnershipPauseAsync(CancellationToken.None);
+        await manager.ReleaseSteamVisibilityAsync(CancellationToken.None);
+        await manager.StartAsync(Enabled(ManagedControllerTarget.Xbox360), [Device()], null,
+            generation + 1, CancellationToken.None);
+        await manager.StartAsync(Enabled(ManagedControllerTarget.Xbox360), [], null,
+            generation, CancellationToken.None);
+        Assert.True(await manager.RestoreSteamOwnershipAsync(generation, CancellationToken.None));
+    }
+
     private sealed class Harness
     {
         internal Harness(

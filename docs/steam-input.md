@@ -119,6 +119,19 @@ instance and its worker. The owner comes from `GetTokenInformation(TokenOwner)` 
 fails, the pipe uses the Windows default descriptor so blocking stays available; the trace says
 which descriptor was used.
 
+## Temporary Steam controller ownership
+
+The resident session's managed-controller OEM Quick Access path uses a native pass-through claim
+while Big Picture is visible. The claim preserves existing game and UI block leases. WSGM first
+neutralizes its virtual target, verifies physical release and removes its own HidHide deltas, then
+grants Steam access and replays the semantic shortcut. Surface observations govern restoration.
+
+Restoration takes a temporary block claim before ending pass-through, reacquires physical ownership
+and restores HidHide, then drops that temporary claim. A separate pass-through owner or unverified
+write prevents physical reacquisition; shutdown disposes the native claims and runs full device
+make-safe. A confirmed Steam exit permits physical restoration without an acknowledgement from its
+dead pipe. In-game dispatch and restart/disconnect recovery are still being implemented under #65.
+
 ## Owner claims and the Settings handoff
 
 Several surfaces can need the one process-wide lease at once, so each focused surface registers a

@@ -211,13 +211,16 @@ The controller manager also provides a temporary Steam capture and ownership pau
 Capture neutralizes the existing target and suppresses both game forwarding and WSGM UI delivery.
 An ownership pause retains that target across physical identity publications; restoration requires
 a newer source generation and verified HidHide activation. Full make-safe clears the pause so a
-later controller start can proceed. These operations have deterministic test coverage, but the
-OEM actions do not yet invoke them. `SteamControllerHandoff` supplies the session-lifetime policy:
+later controller start can proceed. The OEM Steam Quick Access action invokes this path while
+managed ownership is active and Big Picture is visible. `SteamControllerHandoff` supplies the session-lifetime policy:
 one admitted replay, observation across surface switches and CEF reloads, and one restoration after
 verified closure or Steam exit. Unknown state cannot expire into assumed closure. Unverified writes
 require recovery instead of retry; session shutdown leaves hardware release to full make-safe.
-Physical/lease adapter composition and OEM dispatch wiring remain pending, so end-to-end Steam
-handoff remains open.
+`DeviceCoordinator` serializes physical release and restoration with its existing lifecycle gate;
+restoration consumes the saved runtime once and waits for its fresh physical publication. Stale
+publications cannot replace the newer controller generation. The native adapter grants pass-through
+after visibility cleanup, then holds a temporary block while physical ownership and HidHide return.
+In-game QAM/Overlay dispatch, restart/disconnect recovery and end-to-end verification remain pending.
 
 ### Make-safe removes the target after the physical release and HidHide entries after the target
 

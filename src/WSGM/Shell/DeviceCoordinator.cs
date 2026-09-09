@@ -79,6 +79,9 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private DeviceIdentitySnapshot? _identity;
     private string? _deviceDefinitionId;
     private DevicePluginRuntime? _client;
+    private DevicePluginRuntime? _steamControllerOwner;
+    private long _steamControllerGeneration;
+    private Task _controllerPublication = Task.CompletedTask;
     private readonly PluginHost _pluginHost;
     private PluginRegistration? _pluginRegistration;
     private DevicePluginCompatibilityAdapter? _pluginAdapter;
@@ -1152,6 +1155,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         _intentionalStop = true;
+        _steamControllerOwner = null;
         DevicePluginRuntime? client = _client;
         _client = null;
         PluginRegistration? registration = _pluginRegistration;
@@ -1388,6 +1392,70 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private static DateTimeOffset NormalShutdownDeadline() =>
         DateTimeOffset.UtcNow.AddSeconds(15);
 
+    /// <summary>Releases physical acquisition while retaining the neutral virtual target.</summary>
+    internal async Task<bool> ReleaseControllerForSteamAsync(CancellationToken cancellationToken)
+    {
+        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_disposed || _steamControllerOwner is not null || _client is not { } client
+                || !_config.DeviceIntegration.Enabled || !_config.DeviceIntegration.ControllerManagementEnabled
+                || _controllers.State != ControllerManagementState.Active)
+            {
+                return false;
+            }
+
+            _steamControllerGeneration = await _controllers.BeginSteamOwnershipPauseAsync(cancellationToken)
+                .ConfigureAwait(false);
+            _steamControllerOwner = client;
+            ControllerHandoff release = await client.ReleaseControllerAsync(
+                HandoffScope.ControllerOnly, DateTimeOffset.UtcNow.AddSeconds(6), cancellationToken)
+                .ConfigureAwait(false);
+            if (release.Step != ControllerHandoffStep.TopologyVerified
+                || release.Result != ControllerHandoffResult.ReleasedVerified)
+            {
+                Log.Warn($"Steam controller release was unverified: {release.Step}, {release.Result}.");
+                return false;
+            }
+
+            await _hapticSink.WithdrawAsync().ConfigureAwait(false);
+            return await _controllers.ReleaseSteamVisibilityAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _transitionGate.Release();
+        }
+    }
+
+    /// <summary>Reacquires only the runtime and controller cycle that entered the Steam pause.</summary>
+    internal async Task<bool> RestoreControllerFromSteamAsync(CancellationToken cancellationToken)
+    {
+        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            DevicePluginRuntime? owner = _steamControllerOwner;
+            if (_disposed || owner is null || !ReferenceEquals(owner, _client)
+                || owner.CycleGeneration != _steamControllerGeneration
+                || !_config.DeviceIntegration.Enabled || !_config.DeviceIntegration.ControllerManagementEnabled
+                || _controllers.State != ControllerManagementState.Active)
+            {
+                return false;
+            }
+
+            // Consume before the hardware call: timeout or an unverified result must never turn
+            // the next invocation into an implicit retry of physical acquisition.
+            _steamControllerOwner = null;
+            await SetControllerManagementUnderGateAsync(true, cancellationToken).ConfigureAwait(false);
+            await Volatile.Read(ref _controllerPublication).WaitAsync(cancellationToken).ConfigureAwait(false);
+            return await _controllers.RestoreSteamOwnershipAsync(_steamControllerGeneration, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _transitionGate.Release();
+        }
+    }
+
     private async Task SetControllerManagementUnderGateAsync(
         bool enabled,
         CancellationToken cancellationToken)
@@ -1401,6 +1469,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(6);
         if (!enabled)
         {
+            _steamControllerOwner = null;
             ControllerHandoff handoff = await _controllers.MakeSafeAsync(
                 HandoffScope.ControllerOnly,
                 token => client.ReleaseControllerAsync(
@@ -1507,9 +1576,9 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     {
         long generation = Interlocked.Read(ref _cycleGeneration);
         _hapticSink.Publish(notification.Output, generation);
-        Observe(
-            StartControllerManagementAsync(notification.Devices, generation),
-            "controller management start");
+        Task publication = StartControllerManagementAsync(notification.Devices, generation);
+        Volatile.Write(ref _controllerPublication, publication);
+        Observe(publication, "controller management start");
     }
 
     private async Task StartControllerManagementAsync(

@@ -215,6 +215,10 @@ internal sealed class ControllerManager : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            if (sourceGeneration < Interlocked.Read(ref _sourceGeneration))
+            {
+                return Snapshot();
+            }
             _physicalDevices = physicalDevices;
             _selection = selection;
             Interlocked.Exchange(ref _sourceGeneration, sourceGeneration);

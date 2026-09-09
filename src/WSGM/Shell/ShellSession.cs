@@ -9,6 +9,7 @@ using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Interop;
 using WSGM.Overlay;
+using SteamUiToolkit.Surfaces;
 
 namespace WSGM.Shell;
 
@@ -138,7 +139,24 @@ public sealed class ShellSession : IAsyncDisposable
     private ForegroundWindowWatcher? _foregroundWindows;
     private AutoTdpService? _autoTdp;
     private RunningApplicationCoordinator? _runningApplicationTargets;
+    private Task<bool> ToggleSteamQuickAccessWithHandoffAsync(CancellationToken cancellationToken)
+    {
+        Task<bool> Replay(CancellationToken token) => RunUiActionAsync(() =>
+            _monitor?.IsAlive is true && Steam.IsBigPictureVisible
+            && Steam.TrySendBigPictureShortcut(BigPictureShortcut.QuickAccess), token);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_deviceCoordinator?.Controllers.State != ControllerManagementState.Active)
+        {
+            return Replay(cancellationToken);
+        }
+        return Task.FromResult(_config.Cef.Enabled && _monitor?.IsAlive == true && Steam.IsBigPictureVisible
+            && _steamControllerHandoff?.TryStart(Replay) == true);
+    }
+
     private SteamUiSessionHost? _steamUi;
+    private SteamControllerHandoff? _steamControllerHandoff;
+    private SteamControllerOwnershipAdapter? _steamControllerOwnership;
     private MessageWindow? _messageWindow;
     private readonly object _devicePowerGate = new();
     private Task _devicePowerWork = Task.CompletedTask;
@@ -611,11 +629,7 @@ public sealed class ShellSession : IAsyncDisposable
                 _overlay?.ToggleOverlay();
                 return _overlay is not null;
             }, cancellationToken),
-            ToggleSteamQuickAccessAsync = cancellationToken => RunUiActionAsync(() =>
-                _monitor?.IsAlive is true
-                && Steam.IsBigPictureVisible
-                && Steam.TrySendBigPictureShortcut(BigPictureShortcut.QuickAccess),
-                cancellationToken),
+            ToggleSteamQuickAccessAsync = ToggleSteamQuickAccessWithHandoffAsync,
             ToggleDevicePageAsync = cancellationToken => RunUiActionAsync(() =>
             {
                 _overlay?.ShowDevicePage();
@@ -681,6 +695,16 @@ public sealed class ShellSession : IAsyncDisposable
                 () => _overlay?.ShowBluetoothPanel() == true);
             _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
             _steamUi.ApplySurfaceObservation(_config.Cef.Enabled);
+            if (_deviceCoordinator is { } handoffDevice)
+            {
+                _steamControllerOwnership = new SteamControllerOwnershipAdapter(handoffDevice, () => _monitor?.IsAlive == true);
+                _steamControllerHandoff = new SteamControllerHandoff(
+                    _steamControllerOwnership.ReleaseAsync,
+                    _steamControllerOwnership.RestoreAsync,
+                    token => SteamSideMenuObserver.ReadAsync(_steamUiTransport!, token),
+                    () => _monitor?.IsAlive == true,
+                    Log.Info);
+            }
             _steamUi.ApplyNetworkIndicator(_inGameMode && _wifiIndicatorEnabled);
             _steamUi.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
             ApplyGlyphConfig(_config);
@@ -1951,6 +1975,14 @@ public sealed class ShellSession : IAsyncDisposable
         _tabBootSyncCancellation.Cancel();
 
         // Device cleanup is the safety-critical part of the outer application budget.
+        if (_steamControllerHandoff is not null)
+        {
+            await _steamControllerHandoff.DisposeAsync().ConfigureAwait(false);
+            _steamControllerHandoff = null;
+        }
+        _steamControllerOwnership?.Dispose();
+        _steamControllerOwnership = null;
+
         // Run it before waiting on shell transitions or doing Explorer/CEF/RTSS teardown.
         // If the outer owner reaches its deadline, process exit still unloads the in-process
         // runtime while the shell anchor remains available for owner-loss desktop recovery.
