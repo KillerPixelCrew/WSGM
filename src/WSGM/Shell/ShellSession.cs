@@ -612,7 +612,10 @@ public sealed class ShellSession : IAsyncDisposable
             radios: _radios,
             powerPresets: _deviceCoordinator?.PowerPresets,
             powerAssignments: _deviceCoordinator?.PowerAssignments,
-            commonPlugins: _commonPlugins is null ? null : new CommonPluginOverlaySource(_commonPlugins, _pluginHost));
+            commonPlugins: _commonPlugins is null && _deviceCoordinator is null ? null
+                : new CommonPluginOverlaySource(_commonPlugins, _pluginHost,
+                    _deviceCoordinator is not null && _deviceOverlay is not null
+                        ? new DeviceWidgetSource(_deviceCoordinator, _deviceOverlay) : null));
         _overlay.ShowOnScreenKeyboard = ShowOnScreenKeyboardAsync;
         _overlay.ManualTdp = _deviceCoordinator;
         if (!_overlayTestOnly)

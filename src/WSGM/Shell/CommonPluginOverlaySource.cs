@@ -24,7 +24,8 @@ internal interface ICommonPluginOverlaySource
 }
 
 /// <summary>Routes overlay intent to the resident common host without giving views lifecycle ownership.</summary>
-internal sealed class CommonPluginOverlaySource(CommonPluginManager manager, PluginHost host) : ICommonPluginOverlaySource
+internal sealed class CommonPluginOverlaySource(CommonPluginManager? manager, PluginHost host,
+    ICommonPluginOverlaySource? device = null) : ICommonPluginOverlaySource
 {
     internal static Task SetPinnedAsync(PluginWidgetPin pin, bool pinned) => Task.Run(() =>
         ConfigStore.Mutate(config => PluginWidgetPins.Set(config.PluginWidgetPins, pin, pinned)));
@@ -35,7 +36,7 @@ internal sealed class CommonPluginOverlaySource(CommonPluginManager manager, Plu
     internal static Task ResetPinOrderAsync() => Task.Run(() =>
         ConfigStore.Mutate(config => PluginWidgetPins.ResetOrder(config.PluginWidgetPins)));
 
-    public PluginOverlayInstance[] Snapshot() => manager.Snapshot().Select(instance =>
+    public PluginOverlayInstance[] Snapshot() => (manager?.Snapshot() ?? []).Select(instance =>
     {
         var owner = instance.Registration;
         var actions = owner?.Actions;
@@ -43,10 +44,13 @@ internal sealed class CommonPluginOverlaySource(CommonPluginManager manager, Plu
             actions is null ? null : new(actions.Actions, actions.Contributions, actions.Widgets),
             owner is null ? "Starting" : $"{owner.Health.Health}: {owner.Health.Detail}",
             owner is not null && !owner.IsStopping && !owner.Quarantined, instance.Error);
-    }).ToArray();
-    public PluginStatePublication[] State(PluginInstanceIdentity identity) => host.StateSnapshot(identity);
+    }).Concat(device?.Snapshot() ?? []).ToArray();
+    public PluginStatePublication[] State(PluginInstanceIdentity identity) =>
+        device?.Snapshot().Any(instance => instance.Identity == identity) == true ? device.State(identity) : host.StateSnapshot(identity);
     public Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,
         string action, IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken)
-        => host.InvokeActionAsync(identity, generation, action, arguments, PluginActionOrigin.User,
+        => device?.Snapshot().Any(instance => instance.Identity == identity) == true
+            ? device.InvokeAsync(identity, generation, action, arguments, cancellationToken)
+            : host.InvokeActionAsync(identity, generation, action, arguments, PluginActionOrigin.User,
             DateTimeOffset.UtcNow.AddSeconds(10), cancellationToken);
 }

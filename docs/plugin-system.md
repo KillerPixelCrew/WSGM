@@ -198,3 +198,9 @@ and no action dispatch. Device capability adaptation remains in progress.
 The rendering source returns detached PluginOverlayInstance and PluginOverlayControls records.
 Views no longer retain PluginRegistration or acquire lifecycle ownership. Current source observations
 control action availability; generation-bound action routing remains with the source adapter.
+
+DeviceWidgetSource now projects readable Device capabilities through the common widget vocabulary.
+Numeric and boolean edits use the Device coordinator with captured cycle/descriptor generations;
+no second Device lifecycle is created. Stable widget keys encode capability and instance identity.
+The combined source includes Device widgets even without common packages. Choice values currently
+render as status; choice editing and Device-page pin entry points remain in progress.
