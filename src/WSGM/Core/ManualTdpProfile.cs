@@ -12,6 +12,9 @@ public sealed record ManualTdpProfile(bool Unified, int? UnifiedWatts, int? Sust
 /// <summary>Resolves the selected manual profile without deriving preferences from readback.</summary>
 internal static class ManualTdpPolicy
 {
+    internal static ManualTdpProfile WithBoost(ManualTdpProfile profile, int watts) =>
+        profile with { Unified = false, BoostWatts = watts };
+
     internal static ManualTdpProfile WithTarget(ManualTdpProfile profile, int watts) =>
         profile.Unified ? profile with { UnifiedWatts = watts } : profile with { SustainedWatts = watts };
 

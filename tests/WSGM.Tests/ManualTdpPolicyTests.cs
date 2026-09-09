@@ -5,6 +5,13 @@ namespace WSGM.Tests;
 public sealed class ManualTdpPolicyTests
 {
     [Fact]
+    public void IndependentBoostEditSelectsSplitAndPreservesUnifiedHistory()
+    {
+        ManualTdpProfile profile = new(true, 20, 18, 28);
+        Assert.Equal(new(false, 20, 18, 32), ManualTdpPolicy.WithBoost(profile, 32));
+    }
+
+    [Fact]
     public void ManualEditChangesOnlyTheSelectedModesTarget()
     {
         ManualTdpProfile profile = new(true, 20, 18, 28);

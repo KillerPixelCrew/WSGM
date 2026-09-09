@@ -1947,6 +1947,12 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             if (origin is CapabilityCommandOrigin.User)
             {
                 NotifyManualPowerChange(capabilityId, instanceId, value, result);
+                if (value?.IntegerValue is { } boostWatts
+                    && result.Outcome == CommandOutcome.AppliedVerified
+                    && FindDescriptor(capabilityId, instanceId)?.Role == CapabilityRole.PowerSlowLimit)
+                {
+                    await PersistManualBoostAsync(boostWatts, cancellationToken).ConfigureAwait(false);
+                }
                 NotifyManualVariableRefreshChange(capabilityId, instanceId, value, result);
                 await PersistUserCapabilityValueAsync(
                     capabilityId,
@@ -1969,6 +1975,27 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         {
             if (user) { Interlocked.Decrement(ref _userCapabilityCommands); }
         }
+    }
+
+    private async Task PersistManualBoostAsync(int watts, CancellationToken cancellationToken)
+    {
+        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            string? applicationId = _runningApplicationId;
+            await PersistConfigurationAsync(config =>
+            {
+                var application = config.Performance.Applications.Find(entry => entry.ApplicationId == applicationId);
+                bool own = application?.UsePerGameProfile == true;
+                var profile = ManualTdpPolicy.Resolve(config.Performance, application, own);
+                if (profile is null) { return; }
+                // An explicit independent boost edit selects advanced mode; unified history is retained.
+                profile = ManualTdpPolicy.WithBoost(profile, watts);
+                if (own) { application!.ManualTdp = profile; }
+                else { config.Performance.ManualTdp = profile; }
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        finally { _transitionGate.Release(); }
     }
 
     private void NotifyManualPowerChange(
