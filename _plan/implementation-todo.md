@@ -18,7 +18,7 @@ The immediate queue is #52 (XIAO now connected), #69 investigation and #53.
   the focused pointer test passes. Front-page widgets now reuse the host control renderer and expose
   unpin, move and reset-order actions. Missing providers remain visible; predicates gate controls.
   IR declares a selected-command widget. Eight IR and three package tests pass. Device integration,
-  navigation now opens the owning instance/category in Tools. The renderer now has an independent read/action source interface, and the missing-provider headless test passes. The source now exposes detached control records without plugin registrations, preserving current availability and generation checks. DeviceWidgetSource now supplies status, numeric and boolean widgets through the shared renderer and coordinator. Two identity/readback tests pass. Choice editing, Device-page pin access and final widget validation remain.
+  navigation now opens the owning instance/category in Tools. The renderer now has an independent read/action source interface, and the missing-provider headless test passes. The source now exposes detached control records without plugin registrations, preserving current availability and generation checks. DeviceWidgetSource now supplies status, numeric and boolean widgets through the shared renderer and coordinator. Two identity/readback tests pass. Choice editing now uses declared options and an explicit action; the focused pointer test passes. Device-page pin access and final widget validation remain.
 
 - #61 is implemented. Overlay and QAM share manual mode, paired dispatch and independent saved
   unified/advanced preferences. Unified mode shows one editable TDP slider and both readbacks.

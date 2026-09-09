@@ -202,5 +202,5 @@ control action availability; generation-bound action routing remains with the so
 DeviceWidgetSource now projects readable Device capabilities through the common widget vocabulary.
 Numeric and boolean edits use the Device coordinator with captured cycle/descriptor generations;
 no second Device lifecycle is created. Stable widget keys encode capability and instance identity.
-The combined source includes Device widgets even without common packages. Choice values currently
-render as status; choice editing and Device-page pin entry points remain in progress.
+The combined source includes Device widgets even without common packages. Choice widgets show readback and an explicit action with the currently declared options. Selection
+alone does not dispatch. Device-page pin entry points remain in progress.

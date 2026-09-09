@@ -49,10 +49,23 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
             { kind = PluginUiKind.Slider; argument = new("value", row.Title, PluginSettingKind.Number, value, min, max); }
             else if (row.Writable && descriptor.ValueKind == CapabilityValueKind.Boolean && value.Boolean is not null)
             { kind = PluginUiKind.Toggle; argument = new("value", row.Title, PluginSettingKind.Boolean, value); }
+            else if (row.Writable && descriptor.ValueKind == CapabilityValueKind.Choice && value.Text is not null
+                && descriptor.Choices.Count > 0)
+            {
+                argument = new("value", row.Title, PluginSettingKind.Text, value,
+                    Choices: descriptor.Choices.Select(choice => choice.Value).ToArray());
+            }
             if (argument is not null) { actions.Add(new(key, row.Title, [argument])); }
+            bool choiceControl = argument?.Choices is not null;
             controls.Add(new(key, row.Title, "device", kind, key, argument is null ? null : key,
                 argument is null ? null : "value"));
-            widgets.Add(new(key, row.Title, [key], EnabledStateKey: "enabled." + key, NavigationCategory: "device"));
+            if (choiceControl)
+            {
+                controls[^1] = new(key, row.Title, "device", PluginUiKind.Status, key);
+                controls.Add(new(key + ".edit", "Change " + row.Title, "device", PluginUiKind.Action, ActionId: key));
+            }
+            widgets.Add(new(key, row.Title, choiceControl ? [key, key + ".edit"] : [key],
+                EnabledStateKey: "enabled." + key, NavigationCategory: "device"));
         }
         return [new(_identity, plugin, _generation, new(actions, controls, widgets), snapshot.Status, true, null)];
     }
@@ -92,6 +105,9 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
                 new() { Kind = CapabilityValueKind.Integer, IntegerValue = (int)number },
             CapabilityValueKind.Boolean when value.Boolean is { } enabled =>
                 new() { Kind = CapabilityValueKind.Boolean, BooleanValue = enabled },
+            CapabilityValueKind.Choice when value.Text is { } choice
+                && view.Descriptor.Choices.Any(option => option.Value == choice) =>
+                new() { Kind = CapabilityValueKind.Choice, ChoiceValue = choice },
             _ => null,
         };
         if (requested is null) { return new(operation, PluginActionOutcome.Rejected, "Invalid Device widget value."); }
