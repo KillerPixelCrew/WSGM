@@ -663,6 +663,26 @@ public sealed class AppConfig
     /// key from steamgriddb.com to enable artwork search.</summary>
     public string SteamGridDbApiKey { get; set; } = "";
 
+    /// <summary>Whether Screenscraper.fr is searched alongside SteamGridDB.</summary>
+    /// <remarks>
+    /// Off by default because it needs credentials WSGM cannot supply: Screenscraper issues
+    /// developer ids per application and enforces per-user quotas, so there is no equivalent of
+    /// SteamGridDB's free personal key that a shipped build could carry.
+    /// </remarks>
+    public bool ScreenscraperEnabled { get; set; }
+
+    /// <summary>The Screenscraper developer id, registered at screenscraper.fr.</summary>
+    public string ScreenscraperDevId { get; set; } = "";
+
+    /// <summary>The Screenscraper developer password that goes with the id.</summary>
+    public string ScreenscraperDevPassword { get; set; } = "";
+
+    /// <summary>Optional Screenscraper user account, which raises the request quota.</summary>
+    public string ScreenscraperUser { get; set; } = "";
+
+    /// <summary>The password for <see cref="ScreenscraperUser"/>.</summary>
+    public string ScreenscraperUserPassword { get; set; } = "";
+
     /// <summary>Remembered SteamGridDB game matches for targets whose Steam app id
     /// cannot be looked up there (non-Steam shortcuts) — so the artwork changer does
     /// not re-ask which game a shortcut is on every visit.</summary>

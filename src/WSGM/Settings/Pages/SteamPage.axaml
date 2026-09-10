@@ -59,7 +59,7 @@
                 </Border>
 
                 <Border Classes="section-header">
-                    <TextBlock Text="STEAMGRIDDB" />
+                    <TextBlock Text="ARTWORK SOURCES" />
                 </Border>
                 <Border Classes="setting-row alt">
                     <StackPanel Spacing="6">
@@ -74,6 +74,20 @@
                         </Grid>
                         <TextBlock Text="Get one free at steamgriddb.com/profile/preferences/api"
                                    Classes="caption" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+                <Border Classes="setting-row">
+                    <StackPanel Spacing="6">
+                        <CheckBox Content="Also search Screenscraper.fr"
+                                  IsChecked="{Binding ScreenscraperEnabled}" />
+                        <TextBlock Text="A second artwork source, useful where SteamGridDB has little for a title. Screenscraper issues developer credentials per application, so WSGM cannot ship a key: register at screenscraper.fr and paste your own below. A Screenscraper account is optional and only raises the request quota."
+                                   Classes="caption" TextWrapping="Wrap" />
+                        <TextBox Text="{Binding ScreenscraperDevId}" PlaceholderText="Developer ID" />
+                        <TextBox Text="{Binding ScreenscraperDevPassword}" PasswordChar="•"
+                                 PlaceholderText="Developer password" />
+                        <TextBox Text="{Binding ScreenscraperUser}" PlaceholderText="Account name (optional)" />
+                        <TextBox Text="{Binding ScreenscraperUserPassword}" PasswordChar="•"
+                                 PlaceholderText="Account password (optional)" />
                     </StackPanel>
                 </Border>
             </StackPanel>

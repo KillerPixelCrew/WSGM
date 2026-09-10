@@ -29,6 +29,14 @@ public sealed class ArtworkView : OverlaySubView
     private long _appId;
     private string _appName = "";
     private string _apiKey = "";
+
+    // The whole configuration, because provider credentials are no longer one key: each provider
+    // decides its own readiness from it, and the picker must not learn what any of them needs.
+    private AppConfig _config = new();
+
+    // The match the user picked, tagged with the provider that issued it. A bare id is not enough
+    // once there is more than one source: the same number means different games to each of them.
+    private ArtworkGameMatch? _match;
     private IReadOnlyList<SteamCollections.AppInfo>? _games;
 
     // When > 0, artwork is sourced from this SteamGridDB game id (a manual name search)
@@ -54,13 +62,18 @@ public sealed class ArtworkView : OverlaySubView
         _sgdbGameId = 0;
         var config = await Task.Run(LibraryTabManager.LoadConfig);
         if (generation != _navigationGeneration) { return; }
+        _config = config;
         _apiKey = SteamGridDb.ResolveKey(config);
+        _match = null;
         _sgdbLinks.Clear();
         foreach (var link in config.SgdbLinks.Where(l => l.SgdbGameId > 0))
         {
             _sgdbLinks[link.AppId] = (link.SgdbGameId, link.Name);
         }
-        if (string.IsNullOrEmpty(_apiKey))
+
+        // Any ready provider is enough. Gating on the SteamGridDB key alone would hide the picker
+        // from someone who configured only the other source.
+        if (!ArtworkSearch.Providers.Any(p => p.GetStatus(config).IsReady))
         {
             Navigate(RenderNoKey);
             return;
@@ -294,19 +307,19 @@ public sealed class ArtworkView : OverlaySubView
         {
             return;
         }
-        Navigate(() => RenderMessage("Search SteamGridDB", $"Searching for \"{term}\"…"));
+        Navigate(() => RenderMessage("Search artwork sources", $"Searching for \"{term}\"…"));
         // Navigate invalidates the previous level, so snapshot after it.
         var generation = _navigationGeneration;
-        IReadOnlyList<SgdbGame> matches;
+        IReadOnlyList<ArtworkGameMatch> matches;
         string? failure = null;
         try
         {
-            matches = await SteamGridDb.SearchGamesAsync(term, _apiKey);
+            matches = await ArtworkSearch.SearchGamesAsync(term, _config);
         }
         catch (Exception ex)
         {
-            Log.Warn($"Artwork: SGDB search failed: {ex.Message}");
-            matches = Array.Empty<SgdbGame>();
+            Log.Warn($"Artwork: title search failed: {ex.Message}");
+            matches = [];
             failure = ex.Message;
         }
         if (generation != _navigationGeneration) { return; }
@@ -319,16 +332,23 @@ public sealed class ArtworkView : OverlaySubView
             }
             else if (matches.Count == 0)
             {
-                stack.Children.Add(Caption("No matches on SteamGridDB. Try a different name."));
+                stack.Children.Add(Caption("No matches from any configured source. Try a different name."));
             }
             foreach (var game in matches.Take(30))
             {
                 var g = game;
-                stack.Children.Add(Row(g.Name, "", Icons.Palette, () =>
+                // The source is on the row: two providers can both match a title, and which one a
+                // result came from decides what artwork the next screen can offer.
+                stack.Children.Add(Row(g.Name, ProviderNameFor(g.ProviderId), Icons.Palette, () =>
                 {
-                    _sgdbGameId = g.Id;
+                    _match = g;
+                    _sgdbGameId = g.ProviderId == "steamgriddb"
+                        && int.TryParse(g.Id, out int sgdbId) ? sgdbId : 0;
                     _appName = g.Name;
-                    RememberSgdbLink(g.Id, g.Name);
+                    if (_sgdbGameId > 0)
+                    {
+                        RememberSgdbLink(_sgdbGameId, g.Name);
+                    }
                     // Drop exactly what this flow pushed — the search level, plus
                     // the inline keyboard screen when that fallback was used —
                     // and land back on the asset types.
@@ -368,33 +388,39 @@ public sealed class ArtworkView : OverlaySubView
 
     private async Task OpenArtGridAsync(ArtworkAsset asset)
     {
+        var sourceMatch = _match;
         var sourceGameId = _sgdbGameId;
         var targetAppId = _appId;
-        Navigate(() => RenderMessage(AssetLabel(asset), "Loading artwork from SteamGridDB…"));
+        Navigate(() => RenderMessage(AssetLabel(asset), "Loading artwork…"));
         // Navigate invalidates the previous level, so snapshot after it.
         var generation = _navigationGeneration;
-        IReadOnlyList<SgdbAsset> assets;
+        ArtworkSearchResult result;
         string? failure = null;
         try
         {
-            assets = sourceGameId > 0
-                ? await SteamGridDb.GetAssetsForGameAsync(asset, sourceGameId, _apiKey)
-                : await SteamGridDb.GetAssetsForSteamAppAsync(asset, targetAppId, _apiKey);
+            // A chosen match belongs to one provider; without one, every provider that can address
+            // a Steam app id is asked at once.
+            result = sourceMatch is not null
+                ? await ArtworkSearch.GetAssetsForMatchAsync(asset, sourceMatch, _config)
+                : await ArtworkSearch.GetAssetsForSteamAppAsync(asset, targetAppId, _config);
         }
         catch (Exception ex)
         {
-            Log.Warn($"Artwork: SGDB fetch failed: {ex.Message}");
-            assets = Array.Empty<SgdbAsset>();
+            Log.Warn($"Artwork: fetch failed: {ex.Message}");
+            result = new ArtworkSearchResult([], []);
             failure = ex.Message;
         }
         if (generation != _navigationGeneration || targetAppId != _appId || sourceGameId != _sgdbGameId)
         {
             return;
         }
-        Replace(() => RenderArtGrid(asset, assets, failure));
+        Replace(() => RenderArtGrid(asset, result, failure));
     }
 
-    private void RenderArtGrid(ArtworkAsset asset, IReadOnlyList<SgdbAsset> assets, string? failure)
+    private static string ProviderNameFor(string providerId) =>
+        ArtworkSearch.Find(providerId)?.DisplayName ?? providerId;
+
+    private void RenderArtGrid(ArtworkAsset asset, ArtworkSearchResult result, string? failure)
     {
         var stack = NewStack(AssetLabel(asset));
         stack.Children.Add(Caption($"{_appName} — pick one to apply, or reset."));
@@ -405,19 +431,32 @@ public sealed class ArtworkView : OverlaySubView
         {
             stack.Children.Add(Caption(failure));
         }
-        else if (assets.Count == 0)
+        else if (result.Candidates.Count == 0)
         {
-            stack.Children.Add(Caption("No artwork found for this game/slot on SteamGridDB."));
+            // Why there is nothing matters. A source that was never asked, and a source that was
+            // asked and had nothing, look identical in an empty grid, so each is said explicitly.
+            stack.Children.Add(Caption(result.NoProviderAnswered
+                ? "No artwork source answered for this slot."
+                : "No artwork found for this game and slot."));
         }
         else
         {
             var (w, h) = ThumbSize(asset);
             var grid = new WrapPanel { Orientation = Orientation.Horizontal };
-            foreach (var art in assets.Where(a => ImageHeader.IsWithinLimits(a.Width, a.Height)).Take(30))
+            // A zero dimension means the provider did not report one, which Screenscraper never
+            // does; the limit still applies to everything that did.
+            foreach (var art in result.Candidates
+                .Where(a => a.Width == 0 || ImageHeader.IsWithinLimits(a.Width, a.Height)).Take(30))
             {
                 grid.Children.Add(ThumbButton(art, w, h, () => Apply(asset, art)));
             }
             stack.Children.Add(grid);
+        }
+
+        // One provider failing must not read as the other's answer, so every refusal is named.
+        foreach (string message in result.Failures.Concat(result.Skipped))
+        {
+            stack.Children.Add(Caption(message));
         }
 
         stack.Children.Add(SectionLabel(""));
@@ -425,7 +464,7 @@ public sealed class ArtworkView : OverlaySubView
         SetContent(stack);
     }
 
-    private Button ThumbButton(SgdbAsset art, double w, double h, Action onClick)
+    private Button ThumbButton(ArtworkCandidate art, double w, double h, Action onClick)
     {
         var image = new Image { Stretch = Stretch.UniformToFill };
         var button = new Button
@@ -549,9 +588,9 @@ public sealed class ArtworkView : OverlaySubView
 
     // ---- Apply / reset ----
 
-    private void Apply(ArtworkAsset asset, SgdbAsset? art) => _ = RunSafelyAsync(ApplyAsync(asset, art), "apply");
+    private void Apply(ArtworkAsset asset, ArtworkCandidate? art) => _ = RunSafelyAsync(ApplyAsync(asset, art), "apply");
 
-    private async Task ApplyAsync(ArtworkAsset asset, SgdbAsset? art)
+    private async Task ApplyAsync(ArtworkAsset asset, ArtworkCandidate? art)
     {
         var targetAppId = _appId;
         Navigate(() => RenderMessage(AssetLabel(asset),

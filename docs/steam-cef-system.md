@@ -478,11 +478,34 @@ The findings behind each of these are in `docs\steam-cef.md`.
 | Collections          | `Core\SteamCollections.cs`                                      | read-only: lists collections, batches filter predicates into one evaluation, counts store tags; one-time cleanup of ids older builds created                                                                                                                   | —                       |
 | Downloads            | `Core\SteamDownloads.cs`, `Core\SteamDownloadSort.cs`           | overview is a one-shot `RegisterForDownloadOverview` with immediate unregister (keep-awake, screen-off mute); the sort patch wraps the JSX runtime's `jsx`/`jsxs`, builds buttons from Valve's `Focusable`, renumbers through `SetQueueIndex` every 120 ms     | `Cef.DownloadQueueSort` |
 | Launch configuration | `Core\SteamLaunchConfig.cs`, `Core\SteamCustomLaunchCommand.cs` | reads through `RegisterForAppDetails` (3 s timeout, unregister); writes `SetAppLaunchOptions` for titles, `SetShortcutExe` + `SetShortcutLaunchOptions` for shortcuts, verbatim, 400 ms settle; clipboard fallback with CEF off                                | —                       |
-| Artwork              | `Core\SteamArtwork.cs`, `Core\SteamGridDb.cs`                   | SteamGridDB over HTTPS, 20 s timeout, bounded downloads; clear, 500 ms, `SetCustomArtworkForApp`; icons refused                                                                                                                                                | `Cef.Artwork`           |
+| Artwork              | `Core\SteamArtwork.cs`, `Core\ArtworkProviders.cs`, `Core\SteamGridDb.cs` | providers searched in parallel behind `ArtworkSearch`; SteamGridDB and Screenscraper.fr over HTTPS, 20 s timeout, bounded downloads; clear, 500 ms, `SetCustomArtworkForApp`; icons refused                                                          | `Cef.Artwork`           |
 | Libraries            | `Core\SteamCdp.cs`, `Shell\SteamLibraryVdf.cs`                  | `AddInstallFolder` on the running client after purging same-path registrations; removal iterates one snapshot; `libraryfolders.vdf` splice with Steam closed                                                                                                   | `Cef.SdFormat`          |
 
 The tab boot sync waits for the Big Picture window plus `webpackChunksteamui`, `collectionStore` and
 `appStore`, retries a failed sync in full, and retries the badge alone thirty times.
+
+### Artwork sources
+
+`ArtworkSearch` asks every ready provider at once rather than falling back in order. Fallback would
+let a slow or empty primary hide a good secondary result, and the point of a second source is that
+one failing does not remove the other's answers — which only holds if the others were asked.
+Declaration order then decides ties, so SteamGridDB still leads.
+
+Two states the picker must keep apart, and the reason the provider contract carries readiness at
+all: a source that was never asked and a source that was asked and had nothing both produce an empty
+grid. Every refusal is named on screen — a rate limit, a missing credential, a provider switched off
+— so an empty result never silently reads as "this game has no artwork".
+
+The providers differ in exactly the ways that shaped the contract. SteamGridDB takes a free personal
+key and can be addressed by Steam app id. Screenscraper issues developer credentials per
+application, so WSGM cannot ship any and the user supplies their own; it indexes emulated systems by
+ROM, so a Steam app id means nothing to it and it answers only title searches. Its media vocabulary
+(`box-2D`, `wheel`, `fanart`, `screenmarquee`) does not line up one-to-one with Steam's slots, so
+that mapping and its world-region-first preference live inside the provider. Its documented quota
+failures are distinct: HTTP 429 is the thread or minute quota, 430 the daily one.
+
+Applying is provider-independent and unchanged: one `SetCustomArtworkForApp` call, whichever source
+supplied the bytes.
 
 ## 9. Configuration
 
@@ -497,6 +520,9 @@ The tab boot sync waits for the Big Picture window plus `webpackChunksteamui`, `
 | `SteamAutoRelaunch`                                                 | false   | Relaunch Big Picture 10 s after Steam exits.                                         |
 | `SteamLaunchUnelevated`                                             | false   | De-elevated Steam launch through the scheduled task.                                 |
 | `SteamGridDbApiKey`                                                 | empty   | Bearer key for artwork search.                                                       |
+| `ScreenscraperEnabled`                                              | false   | Search Screenscraper.fr alongside SteamGridDB.                                       |
+| `ScreenscraperDevId`, `ScreenscraperDevPassword`                    | empty   | Screenscraper developer credentials; it issues them per application, so none ships.  |
+| `ScreenscraperUser`, `ScreenscraperUserPassword`                    | empty   | Optional Screenscraper account, which only raises the request quota.                 |
 | `LeftEdgeSteamMenu`, `RightEdgeSteamQuickAccess`                    | true    | Edge swipes send Ctrl+1 and Ctrl+2.                                                  |
 
 Glyph delivery requires `Cef.Enabled`, Device Integration on and a glyph selection other than native
