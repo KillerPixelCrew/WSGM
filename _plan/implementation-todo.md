@@ -1,14 +1,98 @@
 # WSGM 2.0 implementation tracker
 
 Status: the previous implementation baseline is on `master`; the current open workoff contains
-21 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
+15 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
 submodule changes, without feature branches or pull requests.
 
 ## Current issue workoff
 
-After delivery of #38/#39, #51/#53, #58/#59, #61 and #65–#68, 28 issues remain open.
-Issues #41–#45, #47 and #48 remain deferred; the other 21 are the 2.0 scope.
-#51 and #53 are delivered. #52 hardware capture and #69 investigation remain open.
+After delivery of #38/#39, #51/#53, #58/#59, #61, #65–#68 and #20/#22/#26/#28/#35/#36,
+22 issues remain open. Issues #41–#45, #47 and #48 remain deferred; the other 15 are the 2.0 scope.
+#52 hardware capture and #69 investigation remain open.
+
+Every remaining 2.0 issue is waiting on something outside the repository, which is why the count
+stops here rather than at zero:
+
+- #32, #33, #37 and #64 need one maintainer decision — where Intel-specific code lives. It is not
+  Windows Device Control's charter and not the Claw package alone. The mechanism is settled: Intel's
+  `ControlLib.dll` ships with the graphics driver and exports `ctlInit`, `ctlEnumerateDevices`,
+  `ctlGetSupported3DCapabilities` and `ctlGetSet3DFeature`, so no native wrapper is needed.
+- #23, #24, #30 and #31 begin with discovering Steam's own routes, components or stores. #24 rules
+  out DOM replacement explicitly, and #30 opens with "discover the relevant routes". That is a live
+  Steam session, and sweeping the module registry is not an unattended action.
+- #21 and #52 need the hardware: power-button capture over ACPI/HID/EC, and live IR learn/transmit.
+- #69 needs one attended measurement; the runnable probe is on the issue.
+- #34 needs a fork created in the KillerPixelCrew organization; #46 needs Screenscraper credentials.
+- #27 and #40 are implemented as far as they can be without a device session and the brand mark.
+
+- #35 is implemented. Windows Device Control exposes hybrid processor core placement: efficiency
+  classes from CPU set information, whether a scheme actually exposes HETEROPOLICY, SCHEDPOLICY and
+  SHORTSCHEDPOLICY, the values Windows publishes for each, and per-power-source read/write with an
+  explicit scheme reapply. The library stays policy neutral. Twelve parse and support cases pass.
+  Verified on the Core Ultra 200V handheld: four cores in each of two efficiency classes, all three
+  settings readable, one stored value written and restored with confirmed readback. The scheme was
+  not reactivated during that check, so running behaviour never changed.
+
+- #36 is implemented. `Core\HybridCores` owns the modes, the write and the readback; the overlay
+  puts it on Device > Power beside the Windows energy plan and Steam gets the same control as a
+  Performance dropdown through a new toolkit row. Both surfaces hold one policy object and one id
+  vocabulary, and neither caches — activating a scheme can carry a different preference with it.
+  WSGM writes only the two thread settings Windows names itself and carries the heterogeneous-policy
+  value through untouched, because `powercfg /qh` publishes no meaning for its numbers. A stored
+  pair that disagrees with itself reads back as no mode rather than the nearest one. 23 core/QAM
+  cases, 5 overlay cases and 8 toolkit cases pass. Live Steam QAM review remains.
+
+- #26 is implemented. Windows Device Control reports S0 low-power-idle capability and the mandatory
+  wake paths, enumerates the actionable wake sources — programmable, plus armed-but-fixed — and
+  arms one named device at a time, re-reading programmability before it writes. There is no call
+  that disables every source, and the power button, sleep button and lid are reported rather than
+  writable. Verified against `powercfg` on the reference handheld: capabilities match `powercfg /a`,
+  the device list matches `devicequery wake_programmable` and `wake_armed` exactly, and arming a
+  disarmed device then restoring from the snapshot returned the machine to its exact prior arming.
+  Writes need elevation; unelevated Windows fails them with `ERROR_WMI_SET_FAILURE`.
+
+- #20 is implemented. Steam, Tools and Power present large category tiles and their controls live
+  one level down as ordinary sub-views, so Back and B leave a category like any other page. A page
+  opened from inside a category names that category as its parent, so one press moves one level.
+  Two latent defects surfaced: leaving any non-`OverlaySubView` page called the format panel's
+  return-to-origin, which silently did nothing for anything else, and switching destination closed a
+  hand-written list of pages that had already gone stale. Both are driven by the stack now. Three
+  new visual baselines and interaction cases for enter/leave, nested return and destination switch.
+
+- #28 is implemented. The library badge anchors under the hero art rather than over Steam's search
+  bar, is larger, names the internal library from the absence of a map entry, and states connection
+  with a glyph and a word rather than colour alone. A disconnected library keeps its remembered name
+  because that name comes from the card's own marker. Hidden cards are pushed as well: hiding
+  governs the tab, not where the game is. Seven payload cases pass, including that a library name is
+  untrusted text from a card and is escaped before it reaches the script. The hero anchor has not
+  been seen on a live page; a page without hero art keeps the old corner.
+
+- #22 is implemented, and was already wired end to end before the issue was filed — the microphone
+  Quick Settings work landed on 2026-09-01. `CoreAudio.AudioDirection.Capture` carries the volume
+  both ways, `AudioManager` polls Windows once a second so external changes reflect back, and Steam's
+  own audio store backs both the Quick Access section and the Settings audio page. What was missing
+  was any test coverage of the capture half; four projection cases now cover it, including that a
+  machine with no capture endpoint publishes no microphone volume rather than zero. Steam's Settings
+  audio page was not re-opened to confirm the slider on today's client.
+
+- #27 is implemented as far as it can be here. `Core\ModernStandbyPolicy` decides and
+  `Shell\ModernStandbyGuard` acts: after a wake Windows attributes to the machine rather than a
+  person, with the display dark and no input, the handheld is suspended again. Off by default, from
+  Settings > System > Power. WSGM changes no power settings and arms no wake sources, so nothing
+  global is left to restore — that shape came from decompiling Winhanced, whose sleep coordinator
+  writes no scheme values at all, unlike Handheld Companion's Enhanced Sleep. The display gate is
+  what stops it suspending a machine under someone's hands, because a gamepad does not advance the
+  last-input time. Eleven policy cases pass. The issue asks for measured drain reduction, which
+  needs standby sessions on the device, so it stays open.
+
+- #40 is partially implemented. A WSGM 2.0 preset seeds a fresh configuration; one that already
+  carries a splash section keeps whatever it says. Composed from the application's own tokens, with
+  a bottom accent sweep, a ground a hair above black for OLED, and a caption at the muted text token
+  rather than the older presets' #5F5F5F — roughly 3:1 on black for the line that has to carry a
+  startup failure. A defect surfaced doing it: `Normalize` repaired an individual splash field to
+  `new AppConfig().Splash`, which would have spliced 2.0 values into a Classic splash; field repair
+  now targets `SplashConfig`'s own defaults. It stays open for the brand mark, which is not mine to
+  invent, and for the resolution and DPI validation the issue asks for.
 
 - #51 is implemented. Overlay > Tools > Display routes binds declared plugin actions, arguments,
   display targets and captured profiles to entry, exit, Desktop startup and Desktop wake. Saves are
