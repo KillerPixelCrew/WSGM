@@ -1725,6 +1725,329 @@
     return { install, remove, status };
   }
   registerGate("brightness", createBrightnessGate());
+  // Steam's left slideout navigation panel, as an extension surface.
+  //
+  // The panel is module-private. Mapped against the live client on 2026-09-10:
+  //
+  //   v_            an exported React.memo, the VR-aware outer wrapper
+  //     fe          navID "MainNavMenuContainer", role "application"
+  //       c.g       nav context
+  //         Ie      the panel root, props { loggedIn, menuOpen }   <- local, not exported
+  //           d.Z   role "menu", aria-label #MainMenu_Title, flow-children "column"
+  //             Ae  one route entry, props { route, active, label, icon, onGamepadFocus }
+  //
+  // `Ie` builds its list from `ve(loggedIn)` and maps it to entry elements keyed by the descriptor's
+  // own `key`. Neither `Ie` nor `ve` is exported, and `ve` calls hooks — calling the module's own
+  // exported list builder from outside a render throws React error #321, which is how that was
+  // established rather than assumed. So both reading the entries and changing them have to happen
+  // during a render, and one wrapper serves both.
+  //
+  // The claim is on the exported memo's `type`, which is the only public handle on the panel. From
+  // there the descent reaches `Ie` by rendering: a component's children do not exist until React
+  // renders it, so a walk over props.children alone arrives nowhere. That is the same mechanism
+  // `hideNativeRows` in components.ts already uses, pointed at a different target.
+  //
+  // Entries are identified by `route` and by their React key, never by index or by a generated class
+  // name. Both come from Valve's own descriptor and are stable across builds and languages; the
+  // rendered labels are localized and the class names are content hashes, so neither is an anchor.
+  function createNavigationPanel() {
+    const patchId = "steam-ui.navigation-panel";
+    const claimKeys = {
+      marker: "__steamUiNavigationPanelClaimed",
+      original: "__steamUiNavigationPanelOriginal",
+    };
+    // The two tokens that identify the panel root. `#MainMenu_Title` occurs in exactly one module of
+    // the 2581 the client loads, and `RunnningAppSeparator` — Valve's own typo — occurs in three, so
+    // the pair is unique where neither is alone. Deliberately not the localized title: that changes
+    // with the user's language, and this has to match on a client running in any of them.
+    const PanelRootTokens = ["#MainMenu_Title", "RunnningAppSeparator"];
+    const OuterToken = "MainNavMenuContainer";
+    // A panel with more entries than this is not the panel this was written against, and cloning an
+    // unbounded child list on every render is not something a navigation menu should ever ask for.
+    const MaximumEntries = 64;
+    const MaximumDescent = 12;
+    let runtime;
+    let react;
+    let icon;
+    let memo = null;
+    let installed = false;
+    let lastError = "";
+    let unsubscribe = null;
+    // What the last render actually saw and did. Everything else can report success while the panel
+    // shows exactly what Valve shipped, because insertion depends on the tree Steam rendered.
+    let observed = [];
+    let lastOutcome = "never rendered";
+    // The host's desired additions and hidden entries, replaced whole on each publication.
+    let desired = { items: [], hidden: [] };
+    const descendCache = new Map();
+    const panelCache = new Map();
+    const textOf = (value) => {
+      if (typeof value === "string") return value;
+      if (value && typeof value === "object" && typeof value.props?.children === "string") {
+        return value.props.children;
+      }
+      return "";
+    };
+    // A rendered entry's identity. `route` is the descriptor's own destination and the anchor an
+    // "insert after Library" is written against; the React key is Valve's descriptor key and is what
+    // survives when an entry has no route at all, such as the power button.
+    const identify = (element) => {
+      const route = typeof element?.props?.route === "string" ? element.props.route : null;
+      const key = typeof element?.key === "string" ? element.key.replace(/^\.\$/u, "") : "";
+      return { key, route, label: textOf(element?.props?.label) };
+    };
+    const matchesAnchor = (element, anchor) => {
+      if (typeof anchor !== "string" || !anchor) return false;
+      const identity = identify(element);
+      return identity.route === anchor || identity.key === anchor;
+    };
+    // One added entry. Rendered as Valve's own row would be if it could take arbitrary props: a
+    // menuitem div carrying the same role and accessible name, so the panel's keyboard and controller
+    // flow treats it as one of its own. It deliberately does not reuse Valve's route entry component —
+    // that one resolves its own active state from the router, and an entry pointing at a toolkit
+    // consumer's surface has no route in Steam's router to resolve.
+    const renderItem = (item) =>
+      react.createElement(
+        "div",
+        {
+          key: `steam-ui-nav-${item.id}`,
+          role: "menuitem",
+          "aria-label": item.label,
+          onClick: () => {
+            request(patchId, "activate", { id: item.id }).catch(() => {});
+          },
+        },
+        item.icon && icon ? icon(item.icon) : null,
+        react.createElement("span", null, item.label),
+      );
+    // Applies the host's list to the panel's own children.
+    //
+    // Order of operations matters and is fixed: hide first, then insert. Anchoring an insertion to an
+    // entry that was just hidden would otherwise place it against something the user cannot see, and
+    // "after Library" would silently become "at the end" depending on an unrelated setting.
+    const applyEntries = (children) => {
+      const kept = [];
+      observed = [];
+      let hidden = 0;
+      for (const child of children) {
+        const identity = identify(child);
+        if (react.isValidElement(child) && (identity.route || identity.key)) {
+          observed.push(identity);
+          if (
+            desired.hidden.includes(identity.route ?? "") ||
+            desired.hidden.includes(identity.key)
+          ) {
+            hidden++;
+            continue;
+          }
+        }
+        kept.push(child);
+      }
+      const pending = desired.items.slice(0, MaximumEntries);
+      const placed = new Set();
+      const result = [];
+      for (const item of pending) {
+        if (item.position === "start") {
+          result.push(renderItem(item));
+          placed.add(item.id);
+        }
+      }
+      for (const child of kept) {
+        for (const item of pending) {
+          if (!placed.has(item.id) && matchesAnchor(child, item.before)) {
+            result.push(renderItem(item));
+            placed.add(item.id);
+          }
+        }
+        result.push(child);
+        for (const item of pending) {
+          if (!placed.has(item.id) && matchesAnchor(child, item.after)) {
+            result.push(renderItem(item));
+            placed.add(item.id);
+          }
+        }
+      }
+      // Anything left over goes at the end, including an entry whose anchor is not in this panel.
+      // Dropping it would be the silent-control failure the guidance forbids: the caller asked for a
+      // row and would have no way to tell that Steam simply does not have the item it named.
+      let orphaned = 0;
+      for (const item of pending) {
+        if (placed.has(item.id)) continue;
+        if (item.before || item.after) orphaned++;
+        result.push(renderItem(item));
+      }
+      lastOutcome = `entries=${observed.length} hidden=${hidden} added=${pending.length} orphaned=${orphaned}`;
+      return result;
+    };
+    // Wraps the panel root so its OUTPUT can be changed. Cached against the original, because a fresh
+    // component identity on every render would remount the whole menu each time React reconciles it.
+    const wrapPanelRoot = (original) => {
+      let wrapped = panelCache.get(original);
+      if (wrapped) return wrapped;
+      wrapped = function SteamUiNavigationPanel(props) {
+        const tree = original(props);
+        if (!react.isValidElement(tree)) return tree;
+        const children = react.Children.toArray(tree.props?.children);
+        if (!children.length || children.length > MaximumEntries) {
+          lastOutcome = `panel had ${children.length} children; left alone`;
+          return tree;
+        }
+        return react.cloneElement(tree, {}, ...applyEntries(children));
+      };
+      panelCache.set(original, wrapped);
+      return wrapped;
+    };
+    const isPanelRoot = (type) => {
+      if (typeof type !== "function") return false;
+      const source = String(type);
+      return PanelRootTokens.every((token) => source.includes(token));
+    };
+    // Descends the rendered tree to the panel root. Function components on the way down are replaced
+    // by wrappers that render the original and keep descending, because their children do not exist
+    // until they render. Class components, memo and forwardRef objects are left alone: they cannot be
+    // called directly, and wrapping them would change identity for refs.
+    const descend = (element, depth) => {
+      if (depth > MaximumDescent || !react.isValidElement(element)) return element;
+      const type = element.type;
+      if (isPanelRoot(type)) {
+        return react.createElement(
+          wrapPanelRoot(type),
+          element.key === null ? element.props : { ...element.props, key: element.key },
+        );
+      }
+      if (typeof type === "function" && !type.prototype?.isReactComponent) {
+        let wrapper = descendCache.get(type);
+        if (!wrapper) {
+          wrapper = function SteamUiNavigationDescend(props) {
+            return descend(type(props), 0);
+          };
+          descendCache.set(type, wrapper);
+        }
+        return react.createElement(
+          wrapper,
+          element.key === null ? element.props : { ...element.props, key: element.key },
+        );
+      }
+      const kids = react.Children.toArray(element.props?.children);
+      if (!kids.length) return element;
+      let changed = false;
+      const next = [];
+      for (const kid of kids) {
+        const replacement = descend(kid, depth + 1);
+        changed ||= replacement !== kid;
+        next.push(replacement);
+      }
+      return changed ? react.cloneElement(element, {}, ...next) : element;
+    };
+    const resolve = () => {
+      runtime = getWebpackRuntime("navigation-panel");
+      const reactFactory = runtime.findUnique([
+        "react.transitional.element",
+        "useState",
+        "cloneElement",
+        "createElement",
+      ]);
+      if (!reactFactory) {
+        lastError = "React runtime was not a unique match";
+        return false;
+      }
+      react = runtime(reactFactory[0]);
+      icon = createIconRenderer(react);
+      const menuFactory = runtime.findUnique([PanelRootTokens[0], OuterToken]);
+      if (!menuFactory) {
+        lastError = "main menu module was not a unique match";
+        return false;
+      }
+      // The one export whose memo renders the outer container. Selected by what its component draws,
+      // never by its minified export name: those are right for today's build and nothing more.
+      const exports = runtime(menuFactory[0]);
+      const candidates = Object.keys(exports).filter((name) => {
+        const value = exports[name];
+        return (
+          value &&
+          typeof value === "object" &&
+          typeof value.type === "function" &&
+          String(value.type).includes(OuterToken)
+        );
+      });
+      if (candidates.length !== 1) {
+        lastError = `main menu export was ${candidates.length ? "ambiguous" : "absent"}`;
+        return false;
+      }
+      memo = exports[candidates[0]];
+      return true;
+    };
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      try {
+        if (!resolve()) return { ok: false, error: lastError };
+      } catch (error) {
+        lastError = "navigation panel resolution failed: " + String(error);
+        return { ok: false, error: lastError };
+      }
+      // The memo object is the public handle, and every consumer holds the same one, so claiming its
+      // `type` reaches the panel wherever it is rendered without patching a single caller.
+      const claim = claimMember(memo, "type", claimKeys, (original) => {
+        if (typeof original !== "function") return original;
+        return function SteamUiNavigationRoot(props) {
+          return descend(original(props), 0);
+        };
+      });
+      if (!claim.ok) {
+        lastError = claim.error;
+        return { ok: false, error: lastError };
+      }
+      installed = true;
+      lastError = "";
+      unsubscribe = subscribe(patchId, (state) => {
+        const items = Array.isArray(state?.items) ? state.items : [];
+        const hidden = Array.isArray(state?.hidden) ? state.hidden : [];
+        desired = {
+          items: items
+            .filter((item) => item && typeof item.id === "string" && typeof item.label === "string")
+            .slice(0, MaximumEntries),
+          hidden: hidden.filter((value) => typeof value === "string").slice(0, MaximumEntries),
+        };
+        // Nothing re-renders the menu on its own, so a change published while it is closed shows the
+        // next time Steam draws it. That is the whole of the reapply story: the claim is on the type,
+        // so every future render already runs through it.
+      });
+      return { ok: true, installed: true, reclaimed: claim.reclaimed };
+    };
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      installed = false;
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+      desired = { items: [], hidden: [] };
+      descendCache.clear();
+      panelCache.clear();
+      const released = releaseMember(memo, "type", claimKeys);
+      if (!released.ok) {
+        lastError = released.error ?? "navigation panel release failed";
+        return { ok: false, error: lastError };
+      }
+      lastOutcome = "removed";
+      return { ok: true, removed: true };
+    };
+    const status = () => ({
+      ok: true,
+      installed,
+      resolved: !!memo,
+      claimed: memberClaimed(memo, "type", claimKeys),
+      // Everything above can be true while the panel shows exactly what Valve shipped, because
+      // insertion depends on the tree Steam rendered. This is the part that says what happened.
+      entries: observed,
+      items: desired.items.length,
+      hidden: desired.hidden.length,
+      lastOutcome,
+      lastError,
+    });
+    return { install, remove, status };
+  }
+  registerGate("navigationPanel", createNavigationPanel());
   // Wi-Fi is hidden by one getter, not by an absent backend. Steam's Windows client genuinely
   // tracks the wireless device — hasWirelessDevice and isWifiEnabled are true here without any
   // help — and only `get networkManagementAvailable(){return TS.IS_STEAMOS}` keeps the UI away.
@@ -1933,6 +2256,298 @@
     return { install, remove, status };
   }
   registerGate("network", createNetworkGate());
+  // Custom pages inside Steam's Game Mode UI.
+  //
+  // Mapped against the live client on 2026-09-10, and cross-read against decky-loader's RouterHook
+  // (b4b8be3) as evidence for the approach:
+  //
+  //   <memo>            source carries "Settings.Root()"; the router
+  //     fd              Steam's own switch: computedMatch + TopLevelTransition, 31 route children
+  //       <Route ...>   one per page, children of fd rather than rendered output
+  //
+  // `fd` is not react-router's Switch. Its source shows the selection rule: it walks `children`, takes
+  // the FIRST valid element whose `path` matches, and clones it with `location` and `computedMatch`.
+  // Two things follow, and both are in the API rather than hidden:
+  //
+  //   - appending is safe for a path Steam does not have, and overriding one of Steam's requires
+  //     going in front of it, so a page declares which it wants;
+  //   - routes are plain elements passed as `children`, so registering a page is a list operation on
+  //     props. No descent into rendered output is needed, unlike the navigation panel, where entries
+  //     do not exist until the root renders.
+  //
+  // The Route component is Steam's own, resolved from the module that carries "router-backstack",
+  // never react-router's. That is what gives a custom page native back-navigation: Steam's Route
+  // registers the match with the back stack, so B and the back gesture pop the page the way they pop
+  // /settings. Using react-router's Route renders the same content and silently loses that.
+  function createPageHost() {
+    const patchId = "steam-ui.pages";
+    const claimKeys = {
+      marker: "__steamUiPageHostClaimed",
+      original: "__steamUiPageHostOriginal",
+    };
+    // The router, unique on this pair. "Settings.Root()" alone matches six modules and
+    // "TopLevelTransition" is the switch's own; together they name exactly one.
+    const RouterTokens = ["Settings.Root()", "TopLevelTransition"];
+    const BackstackToken = "router-backstack";
+    // decky-loader's fingerprint for Steam's back-stack Route, confirmed against this client: the
+    // export whose body threads the match's path into routePath.
+    const RoutePattern = /routePath:.\.match\?\.path./u;
+    // A path every build of the client has and no consumer would register, used to recognise the
+    // route list among the router's children.
+    const KnownRoute = "/library/home";
+    const MaximumPages = 32;
+    const MaximumDescent = 8;
+    // The router sits about a hundred levels down the live tree, so the bound is generous; it exists
+    // to stop a cyclic or pathological tree, not to limit a legitimate search.
+    const MaximumNodesVisited = 60000;
+    let runtime;
+    let react;
+    let RouteComponent = null;
+    let memo = null;
+    let installed = false;
+    let lastError = "";
+    let unsubscribe = null;
+    let pages = [];
+    let lastOutcome = "never rendered";
+    let observedRoutes = [];
+    const descendCache = new Map();
+    // One registered page. The content is described by the host rather than supplied as a component:
+    // a consumer's React lives in its own process, not in this asset, so what crosses the bridge is
+    // data. A page renders its title and asks the host for its body, which is the same shape the
+    // Quick Access rows already use.
+    const renderPage = (page) =>
+      react.createElement(
+        "div",
+        {
+          className: "steam-ui-page",
+          role: "region",
+          "aria-label": page.title,
+        },
+        react.createElement("h1", null, page.title),
+        react.createElement("div", { id: `steam-ui-page-body-${page.id}` }),
+      );
+    const buildRoute = (page) =>
+      react.createElement(
+        RouteComponent,
+        { path: page.path, key: `steam-ui-page-${page.id}` },
+        renderPage(page),
+      );
+    // Whether an array of elements is the router's route list.
+    const isRouteList = (value) =>
+      Array.isArray(value) &&
+      value.length > 2 &&
+      value.length < 512 &&
+      value.some((item) => react.isValidElement(item) && item.props?.path === KnownRoute);
+    // Inserts the registered pages into the route list.
+    //
+    // Overrides go in front of Steam's own routes and additions behind them, because the switch takes
+    // the first match. Both keep their relative order, so two overrides of the same path resolve in
+    // registration order rather than arbitrarily.
+    const applyPages = (routes) => {
+      observedRoutes = routes
+        .filter((route) => react.isValidElement(route) && typeof route.props?.path === "string")
+        .map((route) => route.props.path);
+      const wanted = pages.slice(0, MaximumPages);
+      if (!wanted.length) {
+        lastOutcome = `routes=${routes.length} pages=0`;
+        return routes;
+      }
+      const overrides = wanted.filter((page) => page.override === true).map(buildRoute);
+      const additions = wanted.filter((page) => page.override !== true).map(buildRoute);
+      lastOutcome = `routes=${routes.length} overrides=${overrides.length} additions=${additions.length}`;
+      return [...overrides, ...routes, ...additions];
+    };
+    // Finds the route list in the router's returned element tree and replaces it.
+    //
+    // The list is found by content — the array holding a route for a path the client always has —
+    // rather than by an index chain into props. decky-loader's gamepad path indexes
+    // children.props.children[0].props.children, which is exactly the kind of selector that breaks on
+    // a client update with no diagnostic; its own desktop path searches by /library/home instead, and
+    // that is the half worth following.
+    const replaceRouteList = (element, depth) => {
+      if (depth > MaximumDescent || !react.isValidElement(element)) return element;
+      const children = element.props?.children;
+      if (isRouteList(children)) {
+        return react.cloneElement(element, { children: applyPages(children) });
+      }
+      const kids = react.Children.toArray(children);
+      if (!kids.length) return element;
+      let changed = false;
+      const next = [];
+      for (const kid of kids) {
+        const replacement = replaceRouteList(kid, depth + 1);
+        changed ||= replacement !== kid;
+        next.push(replacement);
+      }
+      return changed ? react.cloneElement(element, {}, ...next) : element;
+    };
+    const descend = (element, depth) => {
+      if (depth > MaximumDescent || !react.isValidElement(element)) return element;
+      const replaced = replaceRouteList(element, 0);
+      if (replaced !== element) return replaced;
+      const type = element.type;
+      if (typeof type === "function" && !type.prototype?.isReactComponent) {
+        let wrapper = descendCache.get(type);
+        if (!wrapper) {
+          wrapper = function SteamUiPageDescend(props) {
+            return descend(type(props), 0);
+          };
+          descendCache.set(type, wrapper);
+        }
+        return react.createElement(
+          wrapper,
+          element.key === null ? element.props : { ...element.props, key: element.key },
+        );
+      }
+      return element;
+    };
+    const resolve = () => {
+      runtime = getWebpackRuntime("pages");
+      const reactFactory = runtime.findUnique([
+        "react.transitional.element",
+        "useState",
+        "cloneElement",
+        "createElement",
+      ]);
+      if (!reactFactory) {
+        lastError = "React runtime was not a unique match";
+        return false;
+      }
+      react = runtime(reactFactory[0]);
+      const backstack = runtime.findUnique([BackstackToken]);
+      if (!backstack) {
+        lastError = "router-backstack module was not a unique match";
+        return false;
+      }
+      const backstackExports = runtime(backstack[0]);
+      const routes = Object.keys(backstackExports).filter(
+        (name) =>
+          typeof backstackExports[name] === "function" &&
+          RoutePattern.test(String(backstackExports[name])),
+      );
+      if (routes.length !== 1) {
+        lastError = `Steam's Route export was ${routes.length ? "ambiguous" : "absent"}`;
+        return false;
+      }
+      RouteComponent = backstackExports[routes[0]];
+      // The router module is confirmed to exist and to be unique, but it exports nothing that
+      // reaches the router: the memo is built locally inside the module. Verified against the live
+      // client on 2026-09-10 — every export of that module was inspected and none is a memo whose
+      // type carries the marker. So the handle comes from the rendered tree instead, which is also
+      // where decky-loader gets it. Checking the module anyway keeps the failure specific: "Steam
+      // moved the router" and "the tree has not been built yet" are different problems.
+      if (!runtime.findUnique([RouterTokens[0], RouterTokens[1]])) {
+        lastError = "router module was not a unique match";
+        return false;
+      }
+      memo = findRouterMemo();
+      if (!memo) {
+        lastError = "router was not found in the rendered tree";
+        return false;
+      }
+      return true;
+    };
+    // Finds the router's memo through SharedJSContext's own React root.
+    //
+    // SharedJSContext holds the tree that every Steam window renders from, which is why a claim made
+    // here reaches the Big Picture window and the menu window alike. The search is bounded in both
+    // nodes visited and depth so a pathological tree cannot hang the injection, and it matches on the
+    // component's source rather than on a path through the tree.
+    const findRouterMemo = () => {
+      const host = document.getElementById("root");
+      if (!host) return null;
+      const key = Object.keys(host).find((name) => name.startsWith("__reactContainer$"));
+      if (!key) return null;
+      const seen = new Set();
+      let visited = 0;
+      const walk = (node) => {
+        if (!node || seen.has(node) || visited > MaximumNodesVisited) return null;
+        seen.add(node);
+        visited++;
+        if (
+          typeof node.type === "function" &&
+          String(node.type).includes(RouterTokens[0]) &&
+          node.elementType &&
+          typeof node.elementType === "object" &&
+          node.elementType.type === node.type
+        ) {
+          return node.elementType;
+        }
+        return walk(node.child) || walk(node.sibling);
+      };
+      return walk(host[key]);
+    };
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      try {
+        if (!resolve()) return { ok: false, error: lastError };
+      } catch (error) {
+        lastError = "page host resolution failed: " + String(error);
+        return { ok: false, error: lastError };
+      }
+      const claim = claimMember(memo, "type", claimKeys, (original) => {
+        if (typeof original !== "function") return original;
+        return function SteamUiPageRouter(props) {
+          return descend(original(props), 0);
+        };
+      });
+      if (!claim.ok) {
+        lastError = claim.error;
+        return { ok: false, error: lastError };
+      }
+      installed = true;
+      lastError = "";
+      unsubscribe = subscribe(patchId, (state) => {
+        const declared = Array.isArray(state?.pages) ? state.pages : [];
+        pages = declared
+          .filter(
+            (page) =>
+              page &&
+              typeof page.id === "string" &&
+              typeof page.title === "string" &&
+              typeof page.path === "string" &&
+              // A path has to be absolute or Steam's matcher never sees it, and a page that claims
+              // every route would black out the client.
+              page.path.startsWith("/") &&
+              page.path !== "/",
+          )
+          .slice(0, MaximumPages);
+      });
+      return { ok: true, installed: true, reclaimed: claim.reclaimed };
+    };
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      installed = false;
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+      pages = [];
+      descendCache.clear();
+      const released = releaseMember(memo, "type", claimKeys);
+      if (!released.ok) {
+        lastError = released.error ?? "page host release failed";
+        return { ok: false, error: lastError };
+      }
+      lastOutcome = "removed";
+      return { ok: true, removed: true };
+    };
+    const status = () => ({
+      ok: true,
+      installed,
+      resolved: !!memo,
+      routeResolved: !!RouteComponent,
+      claimed: memberClaimed(memo, "type", claimKeys),
+      pages: pages.length,
+      // What the last render actually saw. Everything above can be true while no page is reachable,
+      // because insertion depends on finding the route list in the tree Steam rendered.
+      routeCount: observedRoutes.length,
+      lastOutcome,
+      lastError,
+    });
+    return { install, remove, status };
+  }
+  registerGate("pages", createPageHost());
   // The performance surface is the largest absent backend: SystemPerfStore's constructor
   // optional-chains through a SteamClient.System.Perf that does not exist on Windows, so its state
   // stays empty and every control renders null. Availability for each control is read out of that
@@ -2078,6 +2693,230 @@
     return { install, remove, status };
   }
   registerGate("perf", createPerfNamespace());
+  // Steam's own storage device manager, revived on Windows.
+  //
+  // Big Picture ships a complete SteamOS storage UI — drives, block devices, format, adopt, eject,
+  // trim — and on Windows it never appears. Mapped against the live client on 2026-09-10: the whole
+  // surface hangs off one question. Its hooks call
+  //
+  //   StorageDeviceManager.IsServiceAvailable#1
+  //
+  // through the WebUI service transport, and every other query is `enabled:` on that answer. The
+  // Windows client has no service behind it, so the answer never arrives and the UI stays inert.
+  //
+  // The transport is where this is claimable. Each generated client resolves
+  // `GetDefaultTransport().SendMsg(name, request, responseType, options)`, and `SendMsg` lives on the
+  // transport prototype as a writable, configurable property. Claiming it on the *instance* scopes
+  // the change to the one live transport and lets removal delete the own property so the prototype
+  // method shows through again, untouched.
+  //
+  // Everything not addressed to StorageDeviceManager is forwarded to the original synchronously and
+  // unexamined. This carries all of Steam's service traffic, so the filter is a name prefix checked
+  // first and nothing else happens on that path.
+  //
+  // The service vocabulary, read from the client's own message classes:
+  //
+  //   IsServiceAvailable, GetState, StateChanged, Eject, Adopt, Format, Unmount, TrimAll
+  //   CStorageDeviceManagerDrive        id, is_formattable, is_unformatted
+  //   CStorageDeviceManagerBlockDevice  block_device_id, drive_id, mount_paths, has_steam_library
+  //   CStorageDeviceManagerState        drives, block_devices, is_adopt_supported,
+  //                                     is_unmount_supported, is_trim_supported, is_trim_running
+  function createStorageService() {
+    const patchId = "steam-ui.storage";
+    const claimKeys = {
+      marker: "__steamUiStorageClaimed",
+      original: "__steamUiStorageOriginal",
+    };
+    const ServicePrefix = "StorageDeviceManager.";
+    const TransportToken = "GetDefaultTransport";
+    const ServiceToken = "StorageDeviceManager.IsServiceAvailable#1";
+    // A machine with more drives than this is not a handheld, and the state is rendered as rows.
+    const MaximumDrives = 32;
+    let runtime;
+    let transport = null;
+    let installed = false;
+    let lastError = "";
+    let unsubscribe = null;
+    // What the host says the machine's storage looks like. Empty until it publishes, and an empty
+    // state is still answered: "no removable drives" is a truthful answer and the page renders it,
+    // where refusing to answer leaves Steam's spinner up forever.
+    let state = {
+      drives: [],
+      block_devices: [],
+      is_adopt_supported: false,
+      is_unmount_supported: false,
+      is_trim_supported: false,
+      is_trim_running: false,
+    };
+    let answered = 0;
+    let forwarded = 0;
+    let lastMethod = "";
+    // Steam's callers only ever ask a response two things, so the response is duck-typed rather than
+    // built as a protobuf. Constructing a real Message would mean owning the wire format, which is
+    // the client's business and not something this should mirror.
+    const ok = (body) => Promise.resolve({ BSuccess: () => true, Body: () => body });
+    const failed = (reason) =>
+      Promise.resolve({ BSuccess: () => false, Body: () => ({}), GetErrorMessage: () => reason });
+    // The request arrives already encoded. Steam's encoder yields a Message, which answers toObject(),
+    // so the fields are readable without decoding bytes; anything that does not is treated as empty
+    // rather than guessed at.
+    const readRequest = (request) => {
+      try {
+        const fields = typeof request?.toObject === "function" ? request.toObject() : request;
+        return fields && typeof fields === "object" ? fields : {};
+      } catch {
+        return {};
+      }
+    };
+    const handle = (name, request) => {
+      lastMethod = name;
+      answered++;
+      const method = name.slice(ServicePrefix.length).split("#")[0];
+      const fields = readRequest(request);
+      switch (method) {
+        case "IsServiceAvailable":
+          return ok({ is_available: () => true });
+        case "GetState":
+          return ok({ toObject: () => ({ state }) });
+        // Every action is the host's to perform: this half owns no storage operation, which is what
+        // keeps Windows formatting and ejecting in one place rather than two.
+        case "Adopt":
+        case "Unmount":
+        case "Eject":
+        case "Format":
+        case "TrimAll": {
+          const command = method.toLowerCase();
+          request0(command, {
+            driveId: typeof fields.drive_id === "string" ? fields.drive_id : "",
+            blockDeviceId: typeof fields.block_device_id === "string" ? fields.block_device_id : "",
+          });
+          return ok({ toObject: () => ({}) });
+        }
+        default:
+          return failed(`unhandled storage method ${method}`);
+      }
+    };
+    // Fire-and-forget: Steam's UI does not wait on the action's own response, it waits for the state
+    // to change. Reporting the outcome is the host's job through the next publication.
+    const request0 = (command, payload) => {
+      try {
+        request(patchId, command, payload).catch(() => {});
+      } catch {
+        // An unallowlisted command must not take the transport down with it.
+      }
+    };
+    const resolve = () => {
+      runtime = getWebpackRuntime("storage");
+      // The service module names the method this whole surface is gated on.
+      if (!runtime.findUnique([ServiceToken])) {
+        lastError = "storage service module was not a unique match";
+        return false;
+      }
+      // The transport provider: exactly one module exports a function returning an object with
+      // GetDefaultTransport.
+      const ids = runtime.findUnique([TransportToken, "m_transport"]);
+      if (!ids) {
+        lastError = "transport provider was not a unique match";
+        return false;
+      }
+      const exports = runtime(ids[0]);
+      const keys = Object.keys(exports).filter((name) => typeof exports[name] === "function");
+      for (const key of keys) {
+        try {
+          const provider = exports[key]();
+          const candidate = provider?.GetDefaultTransport?.();
+          if (candidate && typeof candidate.SendMsg === "function") {
+            transport = candidate;
+            return true;
+          }
+        } catch {
+          // Not the provider; keep looking.
+        }
+      }
+      lastError = "no export yielded a transport";
+      return false;
+    };
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      try {
+        if (!resolve()) return { ok: false, error: lastError };
+      } catch (error) {
+        lastError = "storage transport resolution failed: " + String(error);
+        return { ok: false, error: lastError };
+      }
+      const claim = claimMember(transport, "SendMsg", claimKeys, (original) => {
+        if (typeof original !== "function") return original;
+        return function SteamUiStorageSendMsg(name, request, response, options) {
+          // Prefix first and nothing else on the pass-through path: this method carries every
+          // service call Steam makes.
+          if (typeof name === "string" && name.startsWith(ServicePrefix)) {
+            return handle(name, request);
+          }
+          forwarded++;
+          return original.call(this, name, request, response, options);
+        };
+      });
+      if (!claim.ok) {
+        lastError = claim.error;
+        return { ok: false, error: lastError };
+      }
+      installed = true;
+      lastError = "";
+      unsubscribe = subscribe(patchId, (published) => {
+        if (!published || typeof published !== "object") return;
+        const drives = Array.isArray(published.drives) ? published.drives : [];
+        const devices = Array.isArray(published.blockDevices) ? published.blockDevices : [];
+        state = {
+          drives: drives.slice(0, MaximumDrives).map((drive) => ({
+            id: String(drive?.id ?? ""),
+            is_formattable: drive?.formattable === true,
+            is_unformatted: drive?.unformatted === true,
+          })),
+          block_devices: devices.slice(0, MaximumDrives).map((device) => ({
+            block_device_id: String(device?.id ?? ""),
+            drive_id: String(device?.driveId ?? ""),
+            mount_paths: Array.isArray(device?.mountPaths) ? device.mountPaths.map(String) : [],
+            has_steam_library: device?.hasSteamLibrary === true,
+          })),
+          is_adopt_supported: published.adoptSupported === true,
+          is_unmount_supported: published.unmountSupported === true,
+          is_trim_supported: published.trimSupported === true,
+          is_trim_running: published.trimRunning === true,
+        };
+      });
+      return { ok: true, installed: true, reclaimed: claim.reclaimed };
+    };
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      installed = false;
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+      const released = releaseMember(transport, "SendMsg", claimKeys);
+      if (!released.ok) {
+        lastError = released.error ?? "storage transport release failed";
+        return { ok: false, error: lastError };
+      }
+      return { ok: true, removed: true };
+    };
+    const status = () => ({
+      ok: true,
+      installed,
+      resolved: !!transport,
+      claimed: memberClaimed(transport, "SendMsg", claimKeys),
+      drives: state.drives.length,
+      blockDevices: state.block_devices.length,
+      // Everything above can be true while the page shows nothing, because Steam only asks once its
+      // own route is open. These say whether it ever asked.
+      answered,
+      forwarded,
+      lastMethod,
+      lastError,
+    });
+    return { install, remove, status };
+  }
+  registerGate("storage", createStorageService());
   function createNativeComponentHost() {
     const registrations = new Map();
     const listeners = new Set();
