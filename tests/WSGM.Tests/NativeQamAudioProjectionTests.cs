@@ -77,6 +77,61 @@ public sealed class NativeQamAudioProjectionTests
         Assert.Equal(string.Empty, state.ActiveOutputDeviceId);
     }
 
+    [Fact]
+    public void Project_MicrophoneVolume_ReachesSteamSeparatelyFromTheSpeakerVolume()
+    {
+        // The two volumes travel as separate fields because Steam keys them by direction. Steam's
+        // own audio store is what backs both the Quick Access audio section and the Settings audio
+        // page, so this one projection is what puts the microphone on both of them.
+        AudioManager audio = Manager();
+        audio.OutputEndpoints.Add(Endpoint("speakers", "Speakers"));
+        audio.InputEndpoints.Add(Endpoint("mic", "Microphone"));
+        // ApplyInputVolume records what Windows reported. The public setter is the user's path and
+        // queues a hardware write, which a test must never take.
+        audio.ApplyInputVolume(75, muted: false);
+
+        SteamAudioState state = AudioManagerNativeQamAudioService.Project(audio);
+
+        Assert.Equal(75, state.InputVolumePercent);
+        Assert.False(state.InputMuted);
+    }
+
+    [Fact]
+    public void Project_MicrophoneMute_IsCarriedApartFromTheSpeakerMute()
+    {
+        AudioManager audio = Manager();
+        audio.InputEndpoints.Add(Endpoint("mic", "Microphone"));
+        audio.ApplyInputVolume(60, muted: true);
+
+        SteamAudioState state = AudioManagerNativeQamAudioService.Project(audio);
+
+        Assert.True(state.InputMuted);
+        Assert.False(state.Muted);
+    }
+
+    [Fact]
+    public void Project_NoCaptureEndpoint_LeavesTheMicrophoneVolumeUnstatedRatherThanZero()
+    {
+        // Zero is a volume a user can set. A machine with no capture endpoint has no microphone
+        // volume at all, and publishing zero would render a real slider sitting at silent.
+        AudioManager audio = Manager();
+        audio.OutputEndpoints.Add(Endpoint("speakers", "Speakers"));
+
+        SteamAudioState state = AudioManagerNativeQamAudioService.Project(audio);
+
+        Assert.Null(state.InputVolumePercent);
+    }
+
+    [Fact]
+    public void Project_MicrophoneAtZero_IsPublishedAsZeroRatherThanAsAbsent()
+    {
+        AudioManager audio = Manager();
+        audio.InputEndpoints.Add(Endpoint("mic", "Microphone"));
+        audio.ApplyInputVolume(0, muted: true);
+
+        Assert.Equal(0, AudioManagerNativeQamAudioService.Project(audio).InputVolumePercent);
+    }
+
     private static AudioManager Manager() => new();
 
     private static AudioEndpointEntry Endpoint(string id, string name) => new(id, name);

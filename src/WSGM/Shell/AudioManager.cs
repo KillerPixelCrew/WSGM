@@ -467,7 +467,15 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
         Muted = muted;
     }
 
-    private void ApplyInputVolume(int percentage, bool muted)
+    /// <summary>Records what Windows reports for the capture endpoint, without writing to it.</summary>
+    /// <remarks>
+    /// Internal rather than private so the Steam projection can be tested against observed state.
+    /// The <see cref="InputVolumePercent"/> setter is the user's path and queues a hardware write;
+    /// a test driving that would change the volume on the machine running the suite.
+    /// </remarks>
+    /// <param name="percentage">Observed volume, 0 to 100.</param>
+    /// <param name="muted">Observed mute state.</param>
+    internal void ApplyInputVolume(int percentage, bool muted)
     {
         int normalized = NormalizeVolume(percentage);
         if (_inputVolumePercent is not { } current || Math.Abs(current - normalized) >= 0.01)
