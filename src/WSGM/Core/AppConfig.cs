@@ -715,6 +715,15 @@ public sealed class AppConfig
     /// it is the user's to switch on. WSGM changes no Windows power settings and arms no wake
     /// sources for it, so switching it off leaves nothing behind to restore.</summary>
     public bool ResuspendUnexplainedWakes { get; set; }
+
+    /// <summary>Allow Steam's own storage pages to erase a drive through WSGM's format workflow.</summary>
+    /// <remarks>
+    /// Off by default. Reviving those pages makes eject and library registration reachable from Big
+    /// Picture, which are recoverable; erasing a card is not, and Steam's page can offer it to a
+    /// single controller press. The format itself is <see cref="Shell.SdFormatManager"/>'s, with all
+    /// of its identity re-checks — this only decides whether that path may be started from Steam.
+    /// </remarks>
+    public bool SteamStorageFormatEnabled { get; set; }
     /// <summary>Fullscreen "Please wait" cover at logon that hides startup-app
     /// window flashes until Steam Big Picture is on screen (see Shell\BootSplash).</summary>
     public bool BootSplashEnabled { get; set; } = true;
