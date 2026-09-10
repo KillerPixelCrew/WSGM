@@ -201,6 +201,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         CefDownloadKeepAwake = _config.Cef.DownloadKeepAwake;
         CefDownloadQueueSort = _config.Cef.DownloadQueueSort;
         MuteWhileDisplayOff = _config.MuteWhileDisplayOff;
+        ResuspendUnexplainedWakes = _config.ResuspendUnexplainedWakes;
         VerboseLogging = _config.LogVerbosity == LogVerbosity.Verbose;
         _hotkey = _config.Hotkey;
         _chord = _config.GamepadChord;
@@ -934,6 +935,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private bool _performanceEnabled;
     private int _frameLimitStrategyIndex;
     private bool _muteWhileDisplayOff;
+    private bool _resuspendUnexplainedWakes;
     private bool _verboseLogging;
 
     /// <summary>Gets or sets the shared RTSS performance integration master switch.</summary>
@@ -1057,6 +1059,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Gets or sets muting system audio while the screen is off.</summary>
     public bool MuteWhileDisplayOff { get => _muteWhileDisplayOff; set { _muteWhileDisplayOff = value; Raise(nameof(MuteWhileDisplayOff)); } }
+
+    /// <summary>Gets or sets suspending again after a standby wake nothing accounts for.</summary>
+    public bool ResuspendUnexplainedWakes { get => _resuspendUnexplainedWakes; set { _resuspendUnexplainedWakes = value; Raise(nameof(ResuspendUnexplainedWakes)); } }
 
     /// <summary>Gets or sets whether the log records debug detail.</summary>
     public bool VerboseLogging { get => _verboseLogging; set { _verboseLogging = value; Raise(nameof(VerboseLogging)); } }
@@ -1452,6 +1457,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.Cef.DownloadKeepAwake = CefDownloadKeepAwake;
         config.Cef.DownloadQueueSort = CefDownloadQueueSort;
         config.MuteWhileDisplayOff = MuteWhileDisplayOff;
+        config.ResuspendUnexplainedWakes = ResuspendUnexplainedWakes;
         config.LogVerbosity = VerboseLogging ? LogVerbosity.Verbose : LogVerbosity.Normal;
         config.Hotkey = _hotkey;
         config.GamepadChord = _chord;
@@ -1684,6 +1690,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.Cef.DownloadKeepAwake = values.Cef.DownloadKeepAwake;
         config.Cef.DownloadQueueSort = values.Cef.DownloadQueueSort;
         config.MuteWhileDisplayOff = values.MuteWhileDisplayOff;
+        config.ResuspendUnexplainedWakes = values.ResuspendUnexplainedWakes;
         config.LogVerbosity = values.LogVerbosity;
         config.Hotkey = values.Hotkey;
         config.GamepadChord = values.GamepadChord;

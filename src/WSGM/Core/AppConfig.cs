@@ -690,6 +690,11 @@ public sealed class AppConfig
     /// audible; download completion restores after a short grace period, and display
     /// wake restores immediately. Only a mute WSGM applied itself is undone.</summary>
     public bool MuteWhileDisplayOff { get; set; }
+    /// <summary>Send the handheld back to sleep after a standby wake nothing accounts for (see
+    /// Shell\ModernStandbyGuard). Off by default: it decides on its own to suspend the machine, so
+    /// it is the user's to switch on. WSGM changes no Windows power settings and arms no wake
+    /// sources for it, so switching it off leaves nothing behind to restore.</summary>
+    public bool ResuspendUnexplainedWakes { get; set; }
     /// <summary>Fullscreen "Please wait" cover at logon that hides startup-app
     /// window flashes until Steam Big Picture is on screen (see Shell\BootSplash).</summary>
     public bool BootSplashEnabled { get; set; } = true;

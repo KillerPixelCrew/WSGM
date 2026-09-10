@@ -37,6 +37,33 @@ power-mode overlays. GUIDs identify schemes; localized friendly names are displa
 empty name falls back to the GUID. Enumeration failures are surfaced rather than returning a partial
 list. The existing idle-timeout controls share its active-scheme reader.
 
+### Sleeping again after an unexplained wake
+
+`Core\ModernStandbyPolicy` decides, and `Shell\ModernStandbyGuard` owns the subscriptions, the timer
+and the attempt count. Off by default and switched on from Settings > System > Power: it decides on
+its own to suspend the machine, so it is the user's to enable.
+
+WSGM changes no power settings and arms no wake sources for it. The machine wakes normally and the
+guard only decides whether to put it back, so there is nothing global left altered and nothing to
+restore if the process dies mid-session. That shape comes from the #27 investigation: Winhanced's
+`SleepCoordinator` imports `IsSystemResumeAutomatic`, `SetSuspendState` and the power-notification
+registrations and writes no scheme values at all, unlike Handheld Companion's Enhanced Sleep, which
+writes eight settings into the active scheme and only restores them when its own toggle is turned
+back off.
+
+`ModernStandby.WasLastResumeUnattended` is the whole basis: Windows says whether a person woke the
+machine. A wake it attributes to the user is never undone. Beyond that the guard refuses on a lit
+display, on any input since the wake, inside a settle period, and after three attempts on one wake.
+
+The display gate is the one that does not depend on Windows counting a device as input. A gamepad
+does not advance the last-input time, which is the same fact behind the idle-timeout bug in #69, so
+a player holding a controller reads as idle by that measure alone. Suspending a machine under
+someone's hands is the one failure this feature must never produce, and a dark screen is the
+evidence that nobody is looking. Anything the guard cannot read leaves the machine awake: staying on
+is recoverable by the user, suspending on an unestablished state is not. The bounded attempt count
+exists for the same reason — a machine waking for a cause WSGM cannot see must not be suspended in a
+loop the user cannot escape.
+
 ### Processor core preference
 
 `Core\HybridCores` offers the same class of control for a hybrid CPU, on the Device Power page

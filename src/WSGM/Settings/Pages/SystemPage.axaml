@@ -64,6 +64,18 @@
                         </Grid>
                     </Border>
 
+                    <!-- Not gated on CEF: this reads Windows' own account of the wake and never
+                         asks Steam anything. -->
+                    <Border Classes="setting-row">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <StackPanel VerticalAlignment="Center" Spacing="1">
+                                <TextBlock Text="Sleep again after an unexplained wake" Classes="setting-title" />
+                                <TextBlock Text="If standby ends and Windows says nobody woke the handheld, put it back to sleep instead of leaving it draining in your bag. Never runs when you woke it yourself, while the screen is on, or after any input. Gives up after three tries so it can never trap the device asleep, and changes no Windows power settings." Classes="caption" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding ResuspendUnexplainedWakes}" VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+
                     <Border Classes="section-header">
                         <TextBlock Text="DIAGNOSTICS" />
                     </Border>
