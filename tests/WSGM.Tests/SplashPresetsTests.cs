@@ -34,12 +34,54 @@ public class SplashPresetsTests
     [Fact]
     public void PresetListCoversEveryPresetOnceWithDistinctDisplayNames()
     {
-        Assert.Equal(5, SplashPresets.All.Count);
+        Assert.Equal(Enum.GetValues<SplashPreset>().Length, SplashPresets.All.Count);
         Assert.Equal(SplashPresets.All.Count, SplashPresets.All.Distinct().Count());
 
         var names = SplashPresets.All.Select(SplashPresets.DisplayName).ToList();
         Assert.Equal(names.Count, names.Distinct().Count());
         Assert.All(names, n => Assert.False(string.IsNullOrWhiteSpace(n)));
+    }
+
+    [Fact]
+    public void AFreshInstallStartsOnTheShippedTwoPointZeroPresetRatherThanClassic()
+    {
+        // The seed for a NEW configuration. An existing one carries its own splash section and
+        // keeps whatever it says, so nobody's chosen look changes on upgrade.
+        Assert.Equal(
+            JsonSerializer.Serialize(
+                SplashPresets.Create(SplashPreset.Wsgm20), ConfigJsonContext.Default.SplashConfig),
+            JsonSerializer.Serialize(
+                new AppConfig().Splash, ConfigJsonContext.Default.SplashConfig));
+    }
+
+    [Fact]
+    public void RepairingOneFieldNeverSplicesTheShippedPresetIntoAnotherLook()
+    {
+        // Seeding a new configuration and repairing one unreadable field of an existing one are
+        // different questions. A Classic splash with a null title must come back Classic, not
+        // wearing WSGM 2.0's wordmark.
+        var classic = SplashPresets.Create(SplashPreset.Classic);
+        classic.Text = null!;
+        classic.SpinnerStyle = (SplashSpinnerStyle)999;
+
+        var repaired = ConfigStore.NormalizeSplash(classic);
+
+        Assert.Equal("Please wait", repaired.Text);
+        Assert.Equal(SplashSpinnerStyle.Ring, repaired.SpinnerStyle);
+    }
+
+    [Fact]
+    public void TheShippedPresetKeepsItsStatusLineReadable()
+    {
+        // The caption is what carries a startup failure at arm's length on a 7-inch panel. The
+        // older presets set it at #5F5F5F, roughly 3:1 on black; this one uses the application's
+        // muted text token instead.
+        var shipped = SplashPresets.Create(SplashPreset.Wsgm20);
+
+        Assert.Equal("#B8B8B8", shipped.CaptionColor);
+        Assert.NotEqual("#000000", shipped.BackgroundColor);
+        Assert.Equal("", shipped.BackgroundImagePath);
+        Assert.Equal("", shipped.LogoImagePath);
     }
 
     [Fact]

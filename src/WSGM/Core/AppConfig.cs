@@ -701,7 +701,10 @@ public sealed class AppConfig
 
     /// <summary>Boot-splash appearance customization (see <see cref="SplashConfig"/>);
     /// <see cref="BootSplashEnabled"/> controls whether the splash runs at all.</summary>
-    public SplashConfig Splash { get; set; } = new();
+    /// <summary>Boot-splash appearance. A fresh install starts on the shipped 2.0 preset; a
+    /// configuration that already carries a splash section keeps whatever it says, so an existing
+    /// user's chosen look survives the upgrade.</summary>
+    public SplashConfig Splash { get; set; } = SplashPresets.Wsgm20();
 
     /// <summary>UI accent color as an <c>#AARRGGBB</c>/<c>#RRGGBB</c> string, applied
     /// to the Fluent theme and the Hc accent tokens at startup and on save.</summary>

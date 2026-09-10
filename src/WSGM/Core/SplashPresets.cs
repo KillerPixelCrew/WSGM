@@ -6,6 +6,9 @@ namespace WSGM.Core;
 /// <summary>The built-in boot-splash presets offered by the Appearance page.</summary>
 internal enum SplashPreset
 {
+    /// <summary>What WSGM 2.0 ships with: wordmark on near-black, accent sweep along the bottom.</summary>
+    Wsgm20,
+
     /// <summary>The classic default look (black, white "Please wait", ring spinner).</summary>
     Classic,
 
@@ -30,6 +33,7 @@ internal static class SplashPresets
     /// <summary>All presets in picker display order.</summary>
     internal static readonly IReadOnlyList<SplashPreset> All =
     [
+        SplashPreset.Wsgm20,
         SplashPreset.Classic,
         SplashPreset.Wordmark,
         SplashPreset.MonogramRing,
@@ -40,6 +44,7 @@ internal static class SplashPresets
     /// <summary>Human-readable name for the preset combo box.</summary>
     internal static string DisplayName(SplashPreset preset) => preset switch
     {
+        SplashPreset.Wsgm20 => "WSGM 2.0",
         SplashPreset.Classic => "Classic",
         SplashPreset.Wordmark => "Wordmark",
         SplashPreset.MonogramRing => "Monogram ring",
@@ -52,12 +57,54 @@ internal static class SplashPresets
     /// default values.</summary>
     internal static SplashConfig Create(SplashPreset preset) => preset switch
     {
+        SplashPreset.Wsgm20 => Wsgm20(),
         SplashPreset.Classic => Classic(),
         SplashPreset.Wordmark => Wordmark(),
         SplashPreset.MonogramRing => MonogramRing(),
         SplashPreset.QuietConsole => QuietConsole(),
         SplashPreset.SweepLine => SweepLine(),
         _ => throw new ArgumentOutOfRangeException(nameof(preset), preset, null),
+    };
+
+    /// <summary>What a fresh WSGM 2.0 install boots with.</summary>
+    /// <remarks>
+    /// Built from the application's own tokens rather than a separate splash palette: the near-black
+    /// ground and the accent are the ones every other surface uses, so the first thing the machine
+    /// shows already looks like the rest of WSGM.
+    /// <para>
+    /// A sweep along the bottom edge rather than a ring beside the wordmark. Startup is not a
+    /// progress bar with steps to report, and a line travelling an edge reads as "working" without
+    /// competing with the only thing on the screen worth reading.
+    /// </para>
+    /// <para>
+    /// The caption is the one deliberate departure from the older presets, which set it at #5F5F5F.
+    /// That is roughly 3:1 on black — fine for decoration, not for the line that has to carry a
+    /// startup failure at arm's length on a 7-inch panel. #B8B8B8 is the application's own muted
+    /// text token and lands above 11:1.
+    /// </para>
+    /// No image assets: a preset never fabricates one, and a default that depended on a file could
+    /// not survive that file being missing.
+    /// </remarks>
+    internal static SplashConfig Wsgm20() => new()
+    {
+        Text = "WSGM",
+        TitleFontSize = 44,
+        TextColor = "#FFFFFF",
+        Caption = "STARTING STEAM",
+        CaptionColor = "#B8B8B8",
+        CaptionFontSize = 13,
+        SpinnerStyle = SplashSpinnerStyle.SweepLine,
+        SpinnerColor = "#FF9D3D",
+        SweepEdge = SweepEdge.Bottom,
+        // Not pure black: an OLED handheld shows panel-uniformity mottling on #000000 that a hair
+        // above it hides, and the vignette needs somewhere to fall off to.
+        BackgroundColor = "#0B0B0D",
+        VignetteEnabled = true,
+        TextPlacement = new SplashElementPlacement
+        {
+            Mode = SplashPlacementMode.Anchor,
+            Anchor = SplashPlacementAnchor.Center,
+        },
     };
 
     /// <summary>The classic default look — exactly the <see cref="SplashConfig"/> defaults.</summary>

@@ -90,8 +90,8 @@ public static class ConfigStore
             RepairEnum(root, "DisplayManagement", Defaults.DisplayManagement);
             if (root["Splash"] is JsonObject splash)
             {
-                RepairEnum(splash, "SpinnerStyle", Defaults.Splash.SpinnerStyle);
-                RepairEnum(splash, "SweepEdge", Defaults.Splash.SweepEdge);
+                RepairEnum(splash, "SpinnerStyle", SplashFieldDefaults.SpinnerStyle);
+                RepairEnum(splash, "SweepEdge", SplashFieldDefaults.SweepEdge);
                 RepairPlacement(splash["TextPlacement"] as JsonObject);
                 RepairPlacement(splash["SpinnerPlacement"] as JsonObject);
                 RepairPlacement(splash["LogoPlacement"] as JsonObject);
@@ -277,6 +277,17 @@ public static class ConfigStore
     // string) alike, so the two passes cannot drift apart. Never mutate them and
     // never hand them to a caller.
     private static readonly AppConfig Defaults = new();
+
+    /// <summary>What one missing or unreadable splash FIELD is repaired to.</summary>
+    /// <remarks>
+    /// Deliberately the <see cref="SplashConfig"/> field defaults rather than
+    /// <c>Defaults.Splash</c>, which carries the preset a fresh install is seeded with. Repairing a
+    /// single null field to the shipped preset would splice one preset's value into another's
+    /// splash — a user on Classic with one unreadable field would get part of WSGM 2.0's look.
+    /// Seeding a whole new configuration and repairing one field of an existing one are different
+    /// questions, and only the first is about what WSGM ships with.
+    /// </remarks>
+    private static readonly SplashConfig SplashFieldDefaults = new();
     private static readonly SplashElementPlacement PlacementDefaults = new();
     // Spelled out rather than left to the property initializers: a repaired filter falls back to
     // the neutral filter a user would recognise ("installed", ANDed, inserted cards), which is not
@@ -752,12 +763,12 @@ public static class ConfigStore
     /// archives.</summary>
     internal static SplashConfig NormalizeSplash(SplashConfig splash)
     {
-        splash.Text ??= Defaults.Splash.Text;
-        splash.TextColor ??= Defaults.Splash.TextColor;
-        splash.Caption ??= Defaults.Splash.Caption;
-        splash.CaptionColor ??= Defaults.Splash.CaptionColor;
-        splash.SpinnerColor ??= Defaults.Splash.SpinnerColor;
-        splash.BackgroundColor ??= Defaults.Splash.BackgroundColor;
+        splash.Text ??= SplashFieldDefaults.Text;
+        splash.TextColor ??= SplashFieldDefaults.TextColor;
+        splash.Caption ??= SplashFieldDefaults.Caption;
+        splash.CaptionColor ??= SplashFieldDefaults.CaptionColor;
+        splash.SpinnerColor ??= SplashFieldDefaults.SpinnerColor;
+        splash.BackgroundColor ??= SplashFieldDefaults.BackgroundColor;
         // Truncate rather than reject: a theme whose title is too long is still a
         // usable theme, and dropping the whole import over one field would lose the
         // images and every other setting with it.
@@ -781,8 +792,8 @@ public static class ConfigStore
         splash.CaptionFontSize = Math.Clamp(splash.CaptionFontSize, MinFontSize, MaxCaptionFontSize);
         splash.SpinnerSize = Math.Clamp(splash.SpinnerSize, MinSpinnerSize, MaxSpinnerSize);
         splash.LogoMaxSize = Math.Clamp(splash.LogoMaxSize, MinLogoMaxSize, MaxLogoMaxSize);
-        splash.SpinnerStyle = Definite(splash.SpinnerStyle, Defaults.Splash.SpinnerStyle);
-        splash.SweepEdge = Definite(splash.SweepEdge, Defaults.Splash.SweepEdge);
+        splash.SpinnerStyle = Definite(splash.SpinnerStyle, SplashFieldDefaults.SpinnerStyle);
+        splash.SweepEdge = Definite(splash.SweepEdge, SplashFieldDefaults.SweepEdge);
         NormalizePlacement(splash.TextPlacement);
         NormalizePlacement(splash.SpinnerPlacement);
         NormalizePlacement(splash.LogoPlacement);
