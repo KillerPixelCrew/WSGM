@@ -2181,6 +2181,7 @@
         patchId: "steam-ui.power-limit",
         primaryCommand: "setPrimaryLimit",
         boostCommand: "setBoostLimit",
+        modeCommand: "setUnifiedMode",
       }),
     });
     const notify = () => {
@@ -3245,6 +3246,8 @@
         ? {
             sustained: normalizePowerLimitRange(value.sustained),
             boost: normalizePowerLimitRange(value.boost),
+            unified: value.unified === true,
+            canSelectMode: value.canSelectMode === true,
           }
         : null;
     const createPowerLimitControl = (controlRuntime) =>
@@ -3259,10 +3262,45 @@
         if (!state) return note("powerLimit", "no state");
         const busy = sending || isBusy(state.sustained?.progress) || isBusy(state.boost?.progress);
         const rows = [];
+        if (state.canSelectMode && controlRuntime.toggle) {
+          rows.push(
+            controlRuntime.react.createElement(controlRuntime.toggle, {
+              key: "mode",
+              label: "Unified TDP",
+              checked: state.unified,
+              controlled: true,
+              disabled: busy,
+              description: error || "Coordinate sustained and boost limits with one target.",
+              onChange: (unified) => {
+                if (
+                  pending.current ||
+                  busy ||
+                  typeof unified !== "boolean" ||
+                  unified === state.unified
+                )
+                  return;
+                pending.current = true;
+                setSending(true);
+                setError("");
+                void request(
+                  definition.patchId,
+                  definition.modeCommand,
+                  { unified },
+                  nextActionGeneration(definition.patchId),
+                )
+                  .catch((reason) => setError(normalizeText(String(reason))))
+                  .finally(() => {
+                    pending.current = false;
+                    setSending(false);
+                  });
+              },
+            }),
+          );
+        }
         for (const [key, label, iconName, range, echo, command] of [
           [
             "pl1",
-            "Sustained power (PL1)",
+            state.unified ? "TDP" : "Sustained power (PL1)",
             "bolt",
             state.sustained,
             sustainedEcho,
@@ -3270,7 +3308,7 @@
           ],
           ["pl2", "Boost power (PL2)", "boost", state.boost, boostEcho, definition.boostCommand],
         ]) {
-          if (!range) continue;
+          if (!range || (state.unified && key === "pl2")) continue;
           const commit = (watts) => {
             if (
               pending.current ||
@@ -3314,7 +3352,12 @@
                 showValue: true,
                 showBookendLabels: true,
                 disabled: busy || !range.available,
-                description: error || range.statusText || undefined,
+                description:
+                  error ||
+                  (state.unified
+                    ? `Sustained ${state.sustained?.observed ?? "?"} W · Boost ${state.boost?.observed ?? "?"} W`
+                    : range.statusText) ||
+                  undefined,
                 onChange: echo.onChange,
                 onChangeComplete: (next) => echo.onChangeComplete(next, commit),
               }),
