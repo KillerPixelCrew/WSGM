@@ -1,6 +1,6 @@
 using System.Runtime.Loader;
-using WSGM.Device.Tests;
 using WSGM.Core;
+using WSGM.Device.Tests;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 

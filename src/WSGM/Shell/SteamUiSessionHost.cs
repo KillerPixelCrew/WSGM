@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit.Surfaces;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
-using SteamUiToolkit.Surfaces;
 
 namespace WSGM.Shell;
 

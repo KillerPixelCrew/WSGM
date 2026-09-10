@@ -1,5 +1,5 @@
-using WSGM.Core;
 using WindowsDeviceControl;
+using WSGM.Core;
 namespace WSGM.Tests;
 
 public sealed class PowerRequestListTests

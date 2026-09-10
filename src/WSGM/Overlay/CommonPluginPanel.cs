@@ -8,8 +8,8 @@ using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
-using WSGM.Core;
 using WSGM.Controls;
+using WSGM.Core;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 

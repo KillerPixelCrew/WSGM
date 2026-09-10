@@ -3,14 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit.Surfaces;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
+using WSGM.Input;
 using WSGM.Interop;
 using WSGM.Overlay;
-using SteamUiToolkit.Surfaces;
-using WSGM.Input;
 
 namespace WSGM.Shell;
 
