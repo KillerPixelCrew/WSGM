@@ -84,6 +84,31 @@ is recoverable by the user, suspending on an unestablished state is not. The bou
 exists for the same reason — a machine waking for a cause WSGM cannot see must not be suspended in a
 loop the user cannot escape.
 
+#### What the settings page reports
+
+`Core\ModernStandbyDiagnostics` reads Windows' own account for the row under the toggle. It reports
+three things and refuses a fourth:
+
+- whether the machine does S0 low-power idle at all, so a machine that cannot use the feature is
+  told plainly instead of being offered it;
+- how long the last standby lasted and how long the machine has been awake since;
+- which devices are currently **allowed** to wake it, named as Windows names them.
+
+It never names what woke the machine, because Windows exposes no documented call that says. The
+attribution is reported exactly as far as it goes: whether the resume was put down to a person.
+Anything more would be a guess printed as a diagnosis.
+
+The armed-device list is the actionable half. Measured on the reference handheld on 2026-09-10: two
+of three wake-capable devices were armed, the Intel Wi-Fi 7 BE201 and the USB4 root router, after a
+22.7-hour standby that Windows attributed to a person. On a handheld that list is usually the
+answer to "why did it come back on in my bag", and `ModernStandby.TrySetWakeArmed` can act on it —
+though WSGM deliberately does not, because disarming a wake source is a global change that outlives
+the process, which is exactly what this feature's design avoids.
+
+**Not measured:** no battery-drain comparison has been run. The re-suspend behaviour and the
+diagnostics are implemented and testable; whether they add up to less drain over a night in a bag is
+an attended measurement nobody has done yet.
+
 ### Processor core preference
 
 `Core\HybridCores` offers the same class of control for a hybrid CPU, on the Device Power page

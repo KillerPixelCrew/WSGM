@@ -207,6 +207,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         CefDownloadQueueSort = _config.Cef.DownloadQueueSort;
         MuteWhileDisplayOff = _config.MuteWhileDisplayOff;
         ResuspendUnexplainedWakes = _config.ResuspendUnexplainedWakes;
+        ModernStandbyReport standby = ModernStandbyDiagnostics.Read();
+        ModernStandbyStatusText = standby.ArmedWakeSources.Count == 0
+            ? standby.Summary
+            : $"{standby.Summary} Allowed to wake it: {string.Join(", ", standby.ArmedWakeSources)}.";
         VerboseLogging = _config.LogVerbosity == LogVerbosity.Verbose;
         _hotkey = _config.Hotkey;
         _chord = _config.GamepadChord;
@@ -1067,6 +1071,20 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Gets or sets suspending again after a standby wake nothing accounts for.</summary>
     public bool ResuspendUnexplainedWakes { get => _resuspendUnexplainedWakes; set { _resuspendUnexplainedWakes = value; Raise(nameof(ResuspendUnexplainedWakes)); } }
+
+    private string _modernStandbyStatusText = "";
+
+    /// <summary>Gets Windows' own account of the last standby, for the settings surface.</summary>
+    /// <remarks>
+    /// Read once when the page loads rather than polled: it describes the last resume, and nothing
+    /// about it changes while the settings window is open. Windows exposes no documented call for
+    /// what woke the machine, so this never names a cause.
+    /// </remarks>
+    public string ModernStandbyStatusText
+    {
+        get => _modernStandbyStatusText;
+        private set { _modernStandbyStatusText = value; Raise(nameof(ModernStandbyStatusText)); }
+    }
 
     /// <summary>Gets or sets whether the log records debug detail.</summary>
     public bool VerboseLogging { get => _verboseLogging; set { _verboseLogging = value; Raise(nameof(VerboseLogging)); } }

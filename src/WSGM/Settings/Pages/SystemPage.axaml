@@ -75,6 +75,12 @@
                             <ToggleSwitch Grid.Column="1" IsChecked="{Binding ResuspendUnexplainedWakes}" VerticalAlignment="Center" />
                         </Grid>
                     </Border>
+                    <Border Classes="setting-row">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Last standby" Classes="setting-title" />
+                            <TextBlock Text="{Binding ModernStandbyStatusText}" Classes="caption" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
 
                     <Border Classes="section-header">
                         <TextBlock Text="DIAGNOSTICS" />
