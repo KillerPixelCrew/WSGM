@@ -236,17 +236,34 @@ public partial class OverlayWindow : Window
     /// is what let the two disagree.</summary>
     private SubView[] SubViews => _subViews ??=
     [
-        new(OverlayPage.SteamStorageFormat, PanelFormat, PanelSteam, OverlayDestination.Steam,
+        // The category pages: each destination root is a menu, and its groups of controls are
+        // pages one level down. Nesting is what the stack is for, so a page opened from inside a
+        // category names that category as its parent rather than the destination root.
+        new(OverlayPage.SteamLibrary, PanelSteamLibrary, PanelSteam, OverlayDestination.Steam),
+        new(OverlayPage.SteamLaunchFixes, PanelSteamLaunch, PanelSteam, OverlayDestination.Steam),
+        new(OverlayPage.SystemTools, PanelSystemTools, PanelSystem, OverlayDestination.System),
+        new(OverlayPage.SystemPerformance, PanelSystemPerformance, PanelSystem,
+            OverlayDestination.System),
+        new(OverlayPage.SystemStorage, PanelSystemStorage, PanelSystem, OverlayDestination.System),
+        new(OverlayPage.SystemDisplay, PanelSystemDisplay, PanelSystem, OverlayDestination.System),
+        new(OverlayPage.SystemPlugins, PanelSystemPlugins, PanelSystem, OverlayDestination.System),
+        new(OverlayPage.SystemController, PanelSystemController, PanelSystem,
+            OverlayDestination.System),
+        new(OverlayPage.PowerWake, PanelPowerWake, PanelPower, OverlayDestination.Power),
+        new(OverlayPage.PowerTimeouts, PanelPowerTimeouts, PanelPower, OverlayDestination.Power),
+        new(OverlayPage.PowerActions, PanelPowerActions, PanelPower, OverlayDestination.Power),
+
+        new(OverlayPage.SteamStorageFormat, PanelFormat, PanelSteamLibrary, OverlayDestination.Steam,
             () =>
             {
                 _pendingTarget = null;
                 _formatReturnsToCards = false;
             }),
-        new(OverlayPage.SteamLibraryTabs, LibraryTabsHost, PanelSteam, OverlayDestination.Steam),
-        new(OverlayPage.SteamCardManager, CardManagerHost, PanelSteam, OverlayDestination.Steam),
-        new(OverlayPage.SteamArtwork, ArtworkHost, PanelSteam, OverlayDestination.Steam,
+        new(OverlayPage.SteamLibraryTabs, LibraryTabsHost, PanelSteamLibrary, OverlayDestination.Steam),
+        new(OverlayPage.SteamCardManager, CardManagerHost, PanelSteamLibrary, OverlayDestination.Steam),
+        new(OverlayPage.SteamArtwork, ArtworkHost, PanelSteamLibrary, OverlayDestination.Steam,
             () => ArtworkHost.Close()),
-        new(OverlayPage.SteamLaunchConfiguration, LaunchWrapperHost, PanelSteam,
+        new(OverlayPage.SteamLaunchConfiguration, LaunchWrapperHost, PanelSteamLaunch,
             OverlayDestination.Steam,
             () =>
             {
@@ -258,7 +275,7 @@ public partial class OverlayWindow : Window
                     InitializeLaunchFixLabels(viewModel);
                 }
             }),
-        new(OverlayPage.PowerWakeLocks, WakeLockHost, PanelPower, OverlayDestination.Power),
+        new(OverlayPage.PowerWakeLocks, WakeLockHost, PanelPowerWake, OverlayDestination.Power),
         new(OverlayPage.DeviceColor, DeviceColorHost, PanelDevice, OverlayDestination.Device,
             RefreshDevicePanel),
     ];
@@ -331,6 +348,7 @@ public partial class OverlayWindow : Window
         DeviceWidgetPinsHost.Children.Clear();
         DisplayRouteEditorHost.Children.Clear();
         PinnedPluginWidgetsHost.Children.Clear();
+        SystemPluginsTile.IsVisible = source is not null;
         if (source is not null)
         {
             DisplayRouteEditorHost.Children.Add(new DisplayRouteEditor(DisplayRouteEditorSource.Create(source)));
@@ -340,7 +358,10 @@ public partial class OverlayWindow : Window
             { DeviceWidgetPinsHost.Children.Add(new CommonPluginPanel(device, pinsOnly: true)); }
             PinnedPluginWidgetsHost.Children.Add(new PinnedPluginWidgets(source, (pin, category) =>
             {
+                // The rows moved a level down when Tools became a menu, so the jump has to open the
+                // Plugins category too: selecting the destination alone now lands on the tiles.
                 SelectDestination(OverlayDestination.System);
+                EnterSubView(OverlayPage.SystemPlugins);
                 Avalonia.Threading.Dispatcher.UIThread.Post(() => panel.FocusCategory(pin, category));
             }));
         }
@@ -1656,6 +1677,10 @@ public partial class OverlayWindow : Window
         PerformanceOverlaySnapshot? snapshot = _performanceSource?.Snapshot();
         PerformanceSection.IsVisible = snapshot?.Visible is true && PerformanceBelongsOnCurrentPage();
         DevicePerformanceCard.IsVisible = PerformanceSection.IsVisible && _navigation.IsVisible(OverlayDestination.Device);
+        // The Tools root offers Performance only while the rows live there: with Device visible they
+        // belong to its Power page instead, and a tile leading to an empty page is a dead end.
+        SystemPerformanceTile.IsVisible = snapshot?.Visible is true
+            && !_navigation.IsVisible(OverlayDestination.Device);
         if (snapshot is not { Visible: true })
         {
             PerformanceRows.Children.Clear();
@@ -1879,13 +1904,12 @@ public partial class OverlayWindow : Window
     /// </remarks>
     private void PlacePerformanceSection(bool deviceVisible)
     {
-        StackPanel target = deviceVisible ? DevicePerformanceColumn : SystemPrimaryColumn;
-        int targetIndex = deviceVisible ? 0 : 3;
+        StackPanel target = deviceVisible ? DevicePerformanceColumn : PanelSystemPerformance;
         if (!target.Children.Contains(PerformanceSection))
         {
             DevicePerformanceColumn.Children.Remove(PerformanceSection);
-            SystemPrimaryColumn.Children.Remove(PerformanceSection);
-            target.Children.Insert(Math.Min(targetIndex, target.Children.Count), PerformanceSection);
+            PanelSystemPerformance.Children.Remove(PerformanceSection);
+            target.Children.Add(PerformanceSection);
         }
     }
 
@@ -2342,15 +2366,23 @@ public partial class OverlayWindow : Window
                 return true;
             case OverlayBackAction.LeaveNestedPage:
                 // A self-drawing sub-view handles its own deeper levels; at its root it raises
-                // CloseRequested, which pops this window's page entry. The format panel is XAML
-                // rather than a sub-view, so this window walks it back itself.
+                // CloseRequested, which pops this window's page entry.
                 if (ActiveSubView is { Host: OverlaySubView nested })
                 {
                     return nested.Back();
                 }
-                if (AnySubView)
+
+                // The format panel is XAML rather than a sub-view and returns to whichever surface
+                // opened it, so it is named rather than left through the ordinary path. Every other
+                // XAML page — the category pages included — is just popped.
+                if (_navigation.Page is OverlayPage.SteamStorageFormat)
                 {
                     LeaveFormatSubViewToOrigin();
+                    return true;
+                }
+                if (AnySubView)
+                {
+                    LeaveActiveSubView();
                     return true;
                 }
                 if (DeviceOverlaySectionPages.SectionFor(_navigation.Page) is { } leaving)
@@ -2547,13 +2579,13 @@ public partial class OverlayWindow : Window
 
     private void LeaveAllNestedPages()
     {
-        LeaveFormatSubView();
-        LeaveLibraryTabsSubView();
-        LeaveCardManagerSubView();
-        LeaveArtworkSubView();
-        LeaveLaunchWrapperSubView();
-        LeaveWakeLockSubView();
-        LeaveDeviceColorSubView();
+        // Unwound rather than named one by one: a category page can have another page open above
+        // it, and the list of every sub-view that had to be closed here went stale the moment a
+        // page was added. Each pop runs that page's own OnLeave, innermost first.
+        for (int depth = 0; depth < OverlayNavigation.MaximumDepth && AnySubView; depth++)
+        {
+            LeaveActiveSubView();
+        }
 
         // The Device sections are not sub-views with hosts of their own, so leaving them is only
         // this: dropping the one thing a section page holds beyond its rendered controls.
@@ -3540,6 +3572,43 @@ public partial class OverlayWindow : Window
     }
 
     private void EnterWakeLockSubView() => EnterSubView(OverlayPage.PowerWakeLocks);
+
+    // The category menus. Each destination root offers its groups as large tiles and the controls
+    // themselves live one level down, so a handheld's few visible rows are a choice rather than the
+    // top of a list the controller has to scroll through. Back and B leave a category the same way
+    // they leave any other page, through the sub-view stack.
+    private void OnEnterSteamLibrary(object? sender, RoutedEventArgs e)
+        => EnterSubView(OverlayPage.SteamLibrary);
+
+    private void OnEnterSteamLaunchFixes(object? sender, RoutedEventArgs e)
+        => EnterSubView(OverlayPage.SteamLaunchFixes);
+
+    private void OnEnterSystemTools(object? sender, RoutedEventArgs e)
+        => EnterSubView(OverlayPage.SystemTools);
+
+    private void OnEnterSystemPerformance(object? sender, RoutedEventArgs e)
+        => EnterSubView(OverlayPage.SystemPerformance);
+
+    private void OnEnterSystemStorage(object? sender, RoutedEventArgs e)
+        => EnterSubView(OverlayPage.SystemStorage);
+
+    private void OnEnterSystemDisplay(object? sender, RoutedEventArgs e)
+        => EnterSubView(OverlayPage.SystemDisplay);
+
+    private void OnEnterSystemPlugins(object? sender, RoutedEventArgs e)
+        => EnterSubView(OverlayPage.SystemPlugins);
+
+    private void OnEnterSystemController(object? sender, RoutedEventArgs e)
+        => EnterSubView(OverlayPage.SystemController);
+
+    private void OnEnterPowerWake(object? sender, RoutedEventArgs e)
+        => EnterSubView(OverlayPage.PowerWake);
+
+    private void OnEnterPowerTimeouts(object? sender, RoutedEventArgs e)
+        => EnterSubView(OverlayPage.PowerTimeouts);
+
+    private void OnEnterPowerActions(object? sender, RoutedEventArgs e)
+        => EnterSubView(OverlayPage.PowerActions);
 
     private void LeaveWakeLockSubView() => LeaveSubView(OverlayPage.PowerWakeLocks);
 

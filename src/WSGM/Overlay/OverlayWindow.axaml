@@ -234,77 +234,90 @@
                                       Description="Quit Steam completely" />
                     </UniformGrid>
 
-                    <!-- Steam: library tools left, per-game launch fixes right. -->
-                    <Grid x:Name="PanelSteam" ColumnDefinitions="*,*" ColumnSpacing="20" IsVisible="False">
-                        <StackPanel Grid.Column="0" Spacing="4">
-                            <TextBlock Text="STEAM LIBRARY" Classes="eyebrow" Margin="2,0,2,2" />
-                            <TextBlock Text="Steam integration is turned off in Settings."
-                                       Classes="caption"
-                                       IsVisible="{Binding !ShowSteamLibrarySection}" />
-                            <c:CardButton Click="OnLibraryTabs"
-                                          Tag="steam.library-tabs"
-                                          IsVisible="{Binding ShowLibraryTabs}"
-                                          IconGeometry="{x:Static c:Icons.SteamLike}"
-                                          Title="Library Tabs"
-                                          Description="Custom filter tabs and genres" />
-                            <c:CardButton Click="OnCardManager"
-                                          Tag="steam.card-manager"
-                                          IsVisible="{Binding ShowCardManager}"
-                                          IconGeometry="{x:Static c:Icons.SdCard}"
-                                          Title="Card Manager"
-                                          Description="Rename, hide, and view SD-card libraries" />
-                            <c:CardButton Click="OnChangeArtwork"
-                                          Tag="steam.artwork"
-                                          IsVisible="{Binding ShowArtwork}"
-                                          IconGeometry="{x:Static c:Icons.Palette}"
-                                          Title="Change Artwork"
-                                          Description="Swap game art from SteamGridDB" />
-                            <c:CardButton Click="OnAddLibrary"
-                                          Tag="steam.add-library"
-                                          IsVisible="{Binding ShowSdCard}"
-                                          IconGeometry="{x:Static c:Icons.FolderPlus}"
-                                          Title="Add Steam Library"
-                                          Description="Register a folder, drive, or network share" />
-                            <!-- Formatting normally lives inside the Card Manager; this
-                                 entry only returns when that manager is switched off, so
-                                 the SD-format toggle can never be on with no way in. -->
-                            <c:CardButton Click="OnFormatSdCard"
-                                          Tag="steam.format-card"
-                                          IsVisible="{Binding ShowFormatInTools}"
-                                          IconGeometry="{x:Static c:Icons.SdCard}"
-                                          Title="Format SD Card"
-                                          Description="Erase a card as a Steam game library" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Spacing="4">
-                            <TextBlock Text="PER-GAME LAUNCH FIXES" Classes="eyebrow" Margin="2,0,2,2" />
-                            <!-- The x:Name lives on the button: the handlers rewrite its
-                                 Title with the result. Titles and descriptions are set
-                                 once in the constructor (they differ for the CEF and
-                                 clipboard paths) and must NOT be bound, or a binding
-                                 re-evaluation would wipe the result text. -->
-                            <c:CardButton x:Name="DeelevateFixButton" Click="OnApplyDeelevation"
-                                          Tag="steam.launch.deelevate"
-                                          IconGeometry="{x:Static c:Icons.ArrowDown}" />
-                            <c:CardButton x:Name="InputLeaseFixButton" Click="OnApplySteamInputBlock"
-                                          Tag="steam.launch.input-lease"
-                                          IconGeometry="{x:Static c:Icons.BlockedCircle}" />
-                            <c:CardButton x:Name="BothFixesButton" Click="OnApplyBothWrappers"
-                                          Tag="steam.launch.both"
-                                          IconGeometry="{x:Static c:Icons.Rocket}" />
-                            <c:CardButton x:Name="CustomLaunchButton" Click="OnPickCustomLaunchAction"
-                                          Tag="steam.launch.custom"
-                                          IsVisible="{Binding ConfigureLaunchOptionsLive}"
-                                          IconGeometry="{x:Static c:Icons.FolderPlus}"
-                                          Title="Replace launch action"
-                                          Description="Run an EXE, CMD, BAT, or PowerShell script" />
-                            <c:CardButton x:Name="RemoveFixesButton" Click="OnRemoveLaunchWrappers"
-                                          Tag="steam.launch.restore"
-                                          IsVisible="{Binding ShowRemoveLaunchWrapper}"
-                                          IconGeometry="{x:Static c:Icons.Close}"
-                                          Title="Restore original launch action"
-                                          Description="Remove WSGM changes and restore the original" />
-                        </StackPanel>
-                    </Grid>
+                    <!-- Steam: a menu of categories, like the Device root. The controls
+                         themselves live on the category pages below. -->
+                    <UniformGrid x:Name="PanelSteam" Columns="2" IsVisible="False">
+                        <c:CardButton Classes="tile" Click="OnEnterSteamLibrary"
+                                      Margin="0,0,10,10"
+                                      IconGeometry="{x:Static c:Icons.SteamLike}"
+                                      Title="Steam library"
+                                      Description="Tabs, artwork, card manager and library folders" />
+                        <c:CardButton Classes="tile" Click="OnEnterSteamLaunchFixes"
+                                      Margin="0,0,10,10"
+                                      IconGeometry="{x:Static c:Icons.Rocket}"
+                                      Title="Per-game launch fixes"
+                                      Description="De-elevation, the Steam Input lease and custom launch actions" />
+                    </UniformGrid>
+
+                    <StackPanel x:Name="PanelSteamLibrary" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                        <TextBlock Text="STEAM LIBRARY" Classes="eyebrow" Margin="2,0,2,2" />
+                        <TextBlock Text="Steam integration is turned off in Settings."
+                                   Classes="caption"
+                                   IsVisible="{Binding !ShowSteamLibrarySection}" />
+                        <c:CardButton Click="OnLibraryTabs"
+                                      Tag="steam.library-tabs"
+                                      IsVisible="{Binding ShowLibraryTabs}"
+                                      IconGeometry="{x:Static c:Icons.SteamLike}"
+                                      Title="Library Tabs"
+                                      Description="Custom filter tabs and genres" />
+                        <c:CardButton Click="OnCardManager"
+                                      Tag="steam.card-manager"
+                                      IsVisible="{Binding ShowCardManager}"
+                                      IconGeometry="{x:Static c:Icons.SdCard}"
+                                      Title="Card Manager"
+                                      Description="Rename, hide, and view SD-card libraries" />
+                        <c:CardButton Click="OnChangeArtwork"
+                                      Tag="steam.artwork"
+                                      IsVisible="{Binding ShowArtwork}"
+                                      IconGeometry="{x:Static c:Icons.Palette}"
+                                      Title="Change Artwork"
+                                      Description="Swap game art from SteamGridDB" />
+                        <c:CardButton Click="OnAddLibrary"
+                                      Tag="steam.add-library"
+                                      IsVisible="{Binding ShowSdCard}"
+                                      IconGeometry="{x:Static c:Icons.FolderPlus}"
+                                      Title="Add Steam Library"
+                                      Description="Register a folder, drive, or network share" />
+                        <!-- Formatting normally lives inside the Card Manager; this
+                             entry only returns when that manager is switched off, so
+                             the SD-format toggle can never be on with no way in. -->
+                        <c:CardButton Click="OnFormatSdCard"
+                                      Tag="steam.format-card"
+                                      IsVisible="{Binding ShowFormatInTools}"
+                                      IconGeometry="{x:Static c:Icons.SdCard}"
+                                      Title="Format SD Card"
+                                      Description="Erase a card as a Steam game library" />
+                    </StackPanel>
+
+                    <StackPanel x:Name="PanelSteamLaunch" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                        <TextBlock Text="PER-GAME LAUNCH FIXES" Classes="eyebrow" Margin="2,0,2,2" />
+                        <!-- The x:Name lives on the button: the handlers rewrite its
+                             Title with the result. Titles and descriptions are set
+                             once in the constructor (they differ for the CEF and
+                             clipboard paths) and must NOT be bound, or a binding
+                             re-evaluation would wipe the result text. -->
+                        <c:CardButton x:Name="DeelevateFixButton" Click="OnApplyDeelevation"
+                                      Tag="steam.launch.deelevate"
+                                      IconGeometry="{x:Static c:Icons.ArrowDown}" />
+                        <c:CardButton x:Name="InputLeaseFixButton" Click="OnApplySteamInputBlock"
+                                      Tag="steam.launch.input-lease"
+                                      IconGeometry="{x:Static c:Icons.BlockedCircle}" />
+                        <c:CardButton x:Name="BothFixesButton" Click="OnApplyBothWrappers"
+                                      Tag="steam.launch.both"
+                                      IconGeometry="{x:Static c:Icons.Rocket}" />
+                        <c:CardButton x:Name="CustomLaunchButton" Click="OnPickCustomLaunchAction"
+                                      Tag="steam.launch.custom"
+                                      IsVisible="{Binding ConfigureLaunchOptionsLive}"
+                                      IconGeometry="{x:Static c:Icons.FolderPlus}"
+                                      Title="Replace launch action"
+                                      Description="Run an EXE, CMD, BAT, or PowerShell script" />
+                        <c:CardButton x:Name="RemoveFixesButton" Click="OnRemoveLaunchWrappers"
+                                      Tag="steam.launch.restore"
+                                      IsVisible="{Binding ShowRemoveLaunchWrapper}"
+                                      IconGeometry="{x:Static c:Icons.Close}"
+                                      Title="Restore original launch action"
+                                      Description="Remove WSGM changes and restore the original" />
+                    </StackPanel>
 
                     <!-- Format flow lives in-place (a Popup/Flyout would be
                          unreachable by the controller — GamepadNavigation is
@@ -440,130 +453,195 @@
                     </StackPanel>
 
                     <!-- Tools (the System destination): what is left once Steam, Device
-                         and Power have their own destinations, as two columns. The LEFT
-                         column's children are indexed by PlacePerformanceSection — keep
-                         the order. -->
-                    <Grid x:Name="PanelSystem" ColumnDefinitions="*,*" ColumnSpacing="20" IsVisible="False">
-                        <StackPanel x:Name="SystemPrimaryColumn" Spacing="4">
-                            <TextBlock Text="SYSTEM" Classes="eyebrow" Margin="2,0,2,2" />
-                            <c:CardButton Click="OnSettings"
-                                          Tag="system.settings"
-                                          IconGeometry="{x:Static c:Icons.Gear}"
-                                          Title="Settings"
-                                          Description="Shell, startup, and quick access configuration" />
-                            <c:CardButton Click="OnTaskManager"
-                                          Tag="system.task-manager"
-                                          IconGeometry="{x:Static c:Icons.Grid4}"
-                                          Title="Task Manager"
-                                          Description="Processes and performance" />
+                         and Power have their own destinations, as a menu of categories.
+                         Performance and Plugins appear only when they have something in
+                         them, which is resolved in code alongside their content. -->
+                    <UniformGrid x:Name="PanelSystem" Columns="2" IsVisible="False">
+                        <c:CardButton Classes="tile" Click="OnEnterSystemTools"
+                                      Margin="0,0,10,10"
+                                      IconGeometry="{x:Static c:Icons.Gear}"
+                                      Title="System"
+                                      Description="WSGM Settings and the Windows Task Manager" />
+                        <c:CardButton x:Name="SystemPerformanceTile" Classes="tile" Click="OnEnterSystemPerformance"
+                                      Margin="0,0,10,10"
+                                      IsVisible="False"
+                                      IconGeometry="{x:Static c:Icons.Grid4}"
+                                      Title="Performance"
+                                      Description="Frame limit, overlay and per-application profiles" />
+                        <c:CardButton Classes="tile" Click="OnEnterSystemStorage"
+                                      Margin="0,0,10,10"
+                                      IconGeometry="{x:Static c:Icons.SdCard}"
+                                      Title="Storage"
+                                      Description="Eject an SD card or USB drive" />
+                        <c:CardButton Classes="tile" Click="OnEnterSystemDisplay"
+                                      Margin="0,0,10,10"
+                                      IconGeometry="{x:Static c:Icons.Monitor}"
+                                      Title="Display"
+                                      Description="Panel brightness and display routes" />
+                        <c:CardButton x:Name="SystemPluginsTile" Classes="tile" Click="OnEnterSystemPlugins"
+                                      Margin="0,0,10,10"
+                                      IsVisible="False"
+                                      IconGeometry="{x:Static c:Icons.Wrench}"
+                                      Title="Plugins"
+                                      Description="Controls published by the enabled common plugins" />
+                        <c:CardButton Classes="tile" Click="OnEnterSystemController"
+                                      Margin="0,0,10,10"
+                                      IconGeometry="{x:Static c:Icons.BlockedCircle}"
+                                      Title="Controller ownership"
+                                      Description="The on-screen keyboard and the Steam Input handoff" />
+                    </UniformGrid>
 
-                            <!-- One shared performance projection is reparented into Device while
-                                 integration is visible and remains here otherwise. Its source owns
-                                 RTSS lifetime and state; this window only observes and invokes rows. -->
-                            <StackPanel x:Name="PerformanceSection" Spacing="4" IsVisible="False">
-                                <TextBlock Text="PERFORMANCE" Classes="eyebrow" Margin="2,6,2,2" />
-                                <TextBlock x:Name="PerformanceStatus"
-                                           Classes="caption"
-                                           TextWrapping="Wrap"
-                                           Margin="2,0,2,2" />
-                                <StackPanel x:Name="PerformanceRows" Spacing="4" />
-                            </StackPanel>
+                    <StackPanel x:Name="PanelSystemTools" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                        <TextBlock Text="SYSTEM" Classes="eyebrow" Margin="2,0,2,2" />
+                        <c:CardButton Click="OnSettings"
+                                      Tag="system.settings"
+                                      IconGeometry="{x:Static c:Icons.Gear}"
+                                      Title="Settings"
+                                      Description="Shell, startup, and quick access configuration" />
+                        <c:CardButton Click="OnTaskManager"
+                                      Tag="system.task-manager"
+                                      IconGeometry="{x:Static c:Icons.Grid4}"
+                                      Title="Task Manager"
+                                      Description="Processes and performance" />
+                    </StackPanel>
+
+                    <!-- One shared performance projection is reparented into Device while
+                         integration is visible and lives on this page otherwise. Its source owns
+                         RTSS lifetime and state; this window only observes and invokes rows. -->
+                    <StackPanel x:Name="PanelSystemPerformance" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                        <StackPanel x:Name="PerformanceSection" Spacing="4" IsVisible="False">
+                            <TextBlock Text="PERFORMANCE" Classes="eyebrow" Margin="2,0,2,2" />
+                            <TextBlock x:Name="PerformanceStatus"
+                                       Classes="caption"
+                                       TextWrapping="Wrap"
+                                       Margin="2,0,2,2" />
+                            <StackPanel x:Name="PerformanceRows" Spacing="4" />
                         </StackPanel>
-                        <StackPanel Grid.Column="1" Spacing="4">
-                            <TextBlock Text="STORAGE" Classes="eyebrow" Margin="2,0,2,2" />
-                            <c:CardButton Click="OnEjectTileClicked"
-                                          Tag="system.eject"
-                                          IconGeometry="{x:Static c:Icons.Eject}"
-                                          Title="Safely remove hardware"
-                                          Description="Eject an SD card or USB drive" />
-                            <StackPanel x:Name="CommonPluginRows" Spacing="8" Margin="0,12,0,0" />
-                            <StackPanel x:Name="DisplayBrightnessHost" />
-                            <Expander Header="Display routes" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                                <StackPanel x:Name="DisplayRouteEditorHost" />
-                            </Expander>
-                            <TextBlock Text="CONTROLLER OWNERSHIP" Classes="eyebrow" Margin="2,12,2,2" />
-                            <c:CardButton Title="On-Screen Keyboard" Click="OnScreenKeyboard"
-                                          Tag="system.keyboard" Description="Open the keyboard for the current mode" />
-                            <TextBlock x:Name="SteamOwnershipStatus" Text="Unavailable" Classes="caption" />
-                            <c:CardButton x:Name="ReleaseSteamOwnership" Title="Release to Steam"
-                                          Tag="system.release-steam" IsEnabled="False" />
-                            <c:CardButton x:Name="ReacquireSteamOwnership" Title="Reacquire for WSGM"
-                                          Tag="system.reacquire-steam" IsEnabled="False" />
-                        </StackPanel>
-                    </Grid>
+                    </StackPanel>
+
+                    <StackPanel x:Name="PanelSystemStorage" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                        <TextBlock Text="STORAGE" Classes="eyebrow" Margin="2,0,2,2" />
+                        <c:CardButton Click="OnEjectTileClicked"
+                                      Tag="system.eject"
+                                      IconGeometry="{x:Static c:Icons.Eject}"
+                                      Title="Safely remove hardware"
+                                      Description="Eject an SD card or USB drive" />
+                    </StackPanel>
+
+                    <StackPanel x:Name="PanelSystemDisplay" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                        <TextBlock Text="DISPLAY" Classes="eyebrow" Margin="2,0,2,2" />
+                        <StackPanel x:Name="DisplayBrightnessHost" />
+                        <Expander Header="Display routes" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                            <StackPanel x:Name="DisplayRouteEditorHost" />
+                        </Expander>
+                    </StackPanel>
+
+                    <StackPanel x:Name="PanelSystemPlugins" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                        <TextBlock Text="PLUGINS" Classes="eyebrow" Margin="2,0,2,2" />
+                        <StackPanel x:Name="CommonPluginRows" Spacing="8" />
+                    </StackPanel>
+
+                    <StackPanel x:Name="PanelSystemController" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                        <TextBlock Text="CONTROLLER OWNERSHIP" Classes="eyebrow" Margin="2,0,2,2" />
+                        <c:CardButton Title="On-Screen Keyboard" Click="OnScreenKeyboard"
+                                      Tag="system.keyboard" Description="Open the keyboard for the current mode" />
+                        <TextBlock x:Name="SteamOwnershipStatus" Text="Unavailable" Classes="caption" />
+                        <c:CardButton x:Name="ReleaseSteamOwnership" Title="Release to Steam"
+                                      Tag="system.release-steam" IsEnabled="False" />
+                        <c:CardButton x:Name="ReacquireSteamOwnership" Title="Reacquire for WSGM"
+                                      Tag="system.reacquire-steam" IsEnabled="False" />
+                    </StackPanel>
 
                     <!-- Power: wake, idle timeouts, and the session-ending actions as
-                         three columns. Each timeout row cycles its preset; the trailing
+                         three categories. Each timeout row cycles its preset; the trailing
                          badge is the current value read live from the active power
                          scheme. The two-step confirms rewrite Title ("Really?") from
                          code-behind, same auto-revert as before. -->
-                    <Grid x:Name="PanelPower" ColumnDefinitions="*,*,*" ColumnSpacing="20" IsVisible="False">
-                        <StackPanel Grid.Column="0" Spacing="4">
-                            <TextBlock Text="WAKE" Classes="eyebrow" Margin="2,0,2,2" />
-                            <c:CardButton x:Name="KeepAwakeButton" Click="OnKeepAwakeToggle"
-                                          Tag="system.keep-awake"
-                                          IsVisible="{Binding ShowKeepAwake}"
-                                          IconGeometry="{x:Static c:Icons.Mug}"
-                                          Title="Keep Awake"
-                                          Description="{Binding KeepAwakeDescription}"
-                                          TrailingText="{Binding KeepAwakeTrailing}" />
-                            <c:CardButton Click="OnShowWakeLockHolders"
-                                          Tag="system.wake-locks"
-                                          IconGeometry="{x:Static c:Icons.ListLines}"
-                                          Title="What's keeping this awake"
-                                          Description="List the programs holding a wake lock" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Spacing="4">
-                            <TextBlock Text="IDLE TIMEOUTS" Classes="eyebrow" Margin="2,0,2,2" />
-                            <c:CardButton Click="OnCycleDisplayDc"
-                                          Tag="system.timeout.display-dc"
-                                          IconGeometry="{x:Static c:Icons.Monitor}"
-                                          Title="Screen off — battery"
-                                          Description="Idle time before the display turns off"
-                                          TrailingText="{Binding DisplayDcTimeout}" />
-                            <c:CardButton Click="OnCycleDisplayAc"
-                                          Tag="system.timeout.display-ac"
-                                          IconGeometry="{x:Static c:Icons.Monitor}"
-                                          Title="Screen off — plugged in"
-                                          Description="Idle time before the display turns off"
-                                          TrailingText="{Binding DisplayAcTimeout}" />
-                            <c:CardButton Click="OnCycleSleepDc"
-                                          Tag="system.timeout.sleep-dc"
-                                          IconGeometry="{x:Static c:Icons.Moon}"
-                                          Title="Standby — battery"
-                                          Description="Idle time before the device sleeps"
-                                          TrailingText="{Binding SleepDcTimeout}" />
-                            <c:CardButton Click="OnCycleSleepAc"
-                                          Tag="system.timeout.sleep-ac"
-                                          IconGeometry="{x:Static c:Icons.Moon}"
-                                          Title="Standby — plugged in"
-                                          Description="Idle time before the device sleeps"
-                                          TrailingText="{Binding SleepAcTimeout}" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="2" Spacing="4">
-                            <TextBlock Text="POWER" Classes="eyebrow" Margin="2,0,2,2" />
-                            <c:CardButton Click="OnStandby"
-                                          Tag="system.standby"
-                                          IconGeometry="{x:Static c:Icons.Moon}"
-                                          Title="Standby"
-                                          Description="Suspend to RAM and resume where you left off" />
-                            <c:CardButton Click="OnHibernate"
-                                          Tag="system.hibernate"
-                                          IconGeometry="{x:Static c:Icons.Snowflake}"
-                                          Title="Hibernate"
-                                          Description="Save the session to disk and power off" />
-                            <c:CardButton x:Name="RestartButton" Click="OnRestart"
-                                          Tag="system.restart"
-                                          IconGeometry="{x:Static c:Icons.Restart}"
-                                          Title="Restart"
-                                          Description="Restart Windows" />
-                            <c:CardButton x:Name="ShutdownButton" Classes="danger" Click="OnShutdown"
-                                          Tag="system.shutdown"
-                                          IconGeometry="{x:Static c:Icons.Power}"
-                                          Title="Shut down"
-                                          Description="Turn off this handheld" />
-                        </StackPanel>
-                    </Grid>
+                    <UniformGrid x:Name="PanelPower" Columns="2" IsVisible="False">
+                        <c:CardButton Classes="tile" Click="OnEnterPowerWake"
+                                      Margin="0,0,10,10"
+                                      IconGeometry="{x:Static c:Icons.Mug}"
+                                      Title="Wake"
+                                      Description="Keep Awake and what is holding a wake lock" />
+                        <c:CardButton Classes="tile" Click="OnEnterPowerTimeouts"
+                                      Margin="0,0,10,10"
+                                      IconGeometry="{x:Static c:Icons.Moon}"
+                                      Title="Idle timeouts"
+                                      Description="Screen off and standby, on battery and plugged in" />
+                        <c:CardButton Classes="tile" Click="OnEnterPowerActions"
+                                      Margin="0,0,10,10"
+                                      IconGeometry="{x:Static c:Icons.Power}"
+                                      Title="Power"
+                                      Description="Standby, hibernate, restart and shut down" />
+                    </UniformGrid>
+
+                    <StackPanel x:Name="PanelPowerWake" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                        <TextBlock Text="WAKE" Classes="eyebrow" Margin="2,0,2,2" />
+                        <c:CardButton x:Name="KeepAwakeButton" Click="OnKeepAwakeToggle"
+                                      Tag="system.keep-awake"
+                                      IsVisible="{Binding ShowKeepAwake}"
+                                      IconGeometry="{x:Static c:Icons.Mug}"
+                                      Title="Keep Awake"
+                                      Description="{Binding KeepAwakeDescription}"
+                                      TrailingText="{Binding KeepAwakeTrailing}" />
+                        <c:CardButton Click="OnShowWakeLockHolders"
+                                      Tag="system.wake-locks"
+                                      IconGeometry="{x:Static c:Icons.ListLines}"
+                                      Title="What's keeping this awake"
+                                      Description="List the programs holding a wake lock" />
+                    </StackPanel>
+
+                    <StackPanel x:Name="PanelPowerTimeouts" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                        <TextBlock Text="IDLE TIMEOUTS" Classes="eyebrow" Margin="2,0,2,2" />
+                        <c:CardButton Click="OnCycleDisplayDc"
+                                      Tag="system.timeout.display-dc"
+                                      IconGeometry="{x:Static c:Icons.Monitor}"
+                                      Title="Screen off — battery"
+                                      Description="Idle time before the display turns off"
+                                      TrailingText="{Binding DisplayDcTimeout}" />
+                        <c:CardButton Click="OnCycleDisplayAc"
+                                      Tag="system.timeout.display-ac"
+                                      IconGeometry="{x:Static c:Icons.Monitor}"
+                                      Title="Screen off — plugged in"
+                                      Description="Idle time before the display turns off"
+                                      TrailingText="{Binding DisplayAcTimeout}" />
+                        <c:CardButton Click="OnCycleSleepDc"
+                                      Tag="system.timeout.sleep-dc"
+                                      IconGeometry="{x:Static c:Icons.Moon}"
+                                      Title="Standby — battery"
+                                      Description="Idle time before the device sleeps"
+                                      TrailingText="{Binding SleepDcTimeout}" />
+                        <c:CardButton Click="OnCycleSleepAc"
+                                      Tag="system.timeout.sleep-ac"
+                                      IconGeometry="{x:Static c:Icons.Moon}"
+                                      Title="Standby — plugged in"
+                                      Description="Idle time before the device sleeps"
+                                      TrailingText="{Binding SleepAcTimeout}" />
+                    </StackPanel>
+
+                    <StackPanel x:Name="PanelPowerActions" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                        <TextBlock Text="POWER" Classes="eyebrow" Margin="2,0,2,2" />
+                        <c:CardButton Click="OnStandby"
+                                      Tag="system.standby"
+                                      IconGeometry="{x:Static c:Icons.Moon}"
+                                      Title="Standby"
+                                      Description="Suspend to RAM and resume where you left off" />
+                        <c:CardButton Click="OnHibernate"
+                                      Tag="system.hibernate"
+                                      IconGeometry="{x:Static c:Icons.Snowflake}"
+                                      Title="Hibernate"
+                                      Description="Save the session to disk and power off" />
+                        <c:CardButton x:Name="RestartButton" Click="OnRestart"
+                                      Tag="system.restart"
+                                      IconGeometry="{x:Static c:Icons.Restart}"
+                                      Title="Restart"
+                                      Description="Restart Windows" />
+                        <c:CardButton x:Name="ShutdownButton" Classes="danger" Click="OnShutdown"
+                                      Tag="system.shutdown"
+                                      IconGeometry="{x:Static c:Icons.Power}"
+                                      Title="Shut down"
+                                      Description="Turn off this handheld" />
+                    </StackPanel>
                 </StackPanel>
             </ScrollViewer>
 

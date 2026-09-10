@@ -1,11 +1,12 @@
 # Overlay surfaces and the input stack
 
-Tools includes controller ownership status, Release to Steam and Reacquire for WSGM. The session's
-Steam handoff coordinator owns both actions. Manual release remains active across native surface
-closure until explicit reacquisition; touch remains available while WSGM controller readers pause.
+Tools → Controller ownership includes controller ownership status, Release to Steam and Reacquire
+for WSGM. The session's Steam handoff coordinator owns both actions. Manual release remains active
+across native surface closure until explicit reacquisition; touch remains available while WSGM
+controller readers pause.
 
-On-Screen Keyboard in Tools dismisses the sheet before invoking the current mode's keyboard: Steam
-in Game Mode, the existing Windows touch-keyboard integration in Desktop mode. Failed requests
+On-Screen Keyboard, beside them, dismisses the sheet before invoking the current mode's keyboard:
+Steam in Game Mode, the existing Windows touch-keyboard integration in Desktop mode. Failed requests
 reopen the sheet with a warning. Steam invocation lives in SteamUiToolkit and uses the session's
 ownership handoff; native keyboard visibility prevents early reacquisition. Manual release takes
 precedence.
@@ -25,11 +26,15 @@ sheet with no extra code; a fullscreen window would have needed a second dismiss
 The header carries the wordmark, the active-destination eyebrow and the status pills, bound to a
 per-open `SystemStatus`. The radio, audio and eject panels hang from the header's measured bottom
 edge (`HeaderBottomScreenY` → `StatusPanel.DockBelowHeader`). A `TabStrip` sits over the
-always-alive destination roots: Quick access, Session, Steam, Device, Tools and Power. Device
-includes shared Power, RGB, Controller and Info pages. Power contains the Core Windows power-profile
-picker even without a device plugin, plus device presets and AC/battery assignments when available.
-LB/RB cycle with wrap; the sheet reopens on its last destination; focus lands on the first row after
-a switch; the warning `InfoBar` stays above the tabs.
+always-alive destination roots: Quick access, Session, Steam, Device, Tools and Power. Every root
+that groups controls is a menu of large category tiles rather than the controls themselves: Steam
+offers Library and Per-game launch fixes; Tools offers System, Performance, Storage, Display,
+Plugins and Controller ownership; Power offers Wake, Idle timeouts and Power. Quick access and
+Session have no groups and stay as they are. Device includes shared Power, RGB, Controller and Info
+pages. Device's Power page contains the Core Windows power-profile picker even without a device
+plugin, plus device presets and AC/battery assignments when available. LB/RB cycle with wrap; the
+sheet reopens on its last destination; focus lands on the first row after a switch; the warning
+`InfoBar` stays above the tabs.
 
 Quick access is the home root and the Back target of every other root. `AppConfig.QuickAccessPins`
 holds row ids (X, touch-hold or right-click toggles one through `PinToggleRequested`). The root
@@ -51,11 +56,20 @@ compete with the 16 ms gamepad poll and pointer delivery.
 ## Sub-views and navigation
 
 Destinations host nested pages in place: six self-drawing sub-views over `OverlaySubView`, the XAML
-`PanelFormat`, and the Device sections. The open page is `OverlayNavigation.Page`, not a flag per
-page; the two used to be tracked separately and could disagree. Adding a page means adding a row to
-`OverlayWindow`'s `SubViews` table (page, host, parent panel, destination, state released on the way
-out); the enter/leave sequence, `DefaultFocusTarget`, the `Activated` teardown and B-cancel all read
-that table. A page is never a Popup or Flyout, which `GamepadNavigation` cannot reach.
+`PanelFormat`, the eleven XAML category pages, and the Device sections. The open page is
+`OverlayNavigation.Page`, not a flag per page; the two used to be tracked separately and could
+disagree. Adding a page means adding a row to `OverlayWindow`'s `SubViews` table (page, host, parent
+panel, destination, state released on the way out); the enter/leave sequence, `DefaultFocusTarget`,
+the `Activated` teardown and B-cancel all read that table. A page is never a Popup or Flyout, which
+`GamepadNavigation` cannot reach.
+
+A category page names its destination root as its parent, and a page opened from inside a category
+names that category. That is what makes one Back press move one level: the Wake-lock list returns to
+Wake, and the Card Manager to Steam library, rather than dropping two levels to the root. Leaving a
+page is one path for all of them — `LeaveActiveSubView` pops the stack and reveals the parent — with
+`PanelFormat` the single exception, because it returns to whichever surface opened it. Switching
+destination unwinds whatever is open rather than naming each page, which is what kept going stale as
+pages were added.
 
 The way back out is `BackButton` in the fixed header, shown while `OverlayNavigation.Depth > 1` and
 pressing exactly what B presses (`TryCancelSubView`). It is header chrome rather than a row in the
@@ -214,16 +228,17 @@ and a stale target would call back a window the user has since left. The fields 
 `OverlayController`; this is why they are reset in the cancelled-close path and not only in
 `Closed`.
 
-Panel brightness is available in Tools through the resident session's shared brightness service.
-Steam QAM and Overlay use the same serialized writes and confirmed readback. The slider remains in
-place during updates, disables when readback is unavailable, and works with CEF disabled.
+Panel brightness is available in Tools → Display through the resident session's shared brightness
+service. Steam QAM and Overlay use the same serialized writes and confirmed readback. The slider
+remains in place during updates, disables when readback is unavailable, and works with CEF disabled.
 
-Tools also shows resolution and refresh for the first active display in Windows path-priority order.
-Pickers contain driver-validated modes; changing resolution updates the offered refresh rates. Only
-Apply changes the display. Fresh observations every five seconds while open replace stale choices
-after reconnect, resume or profile changes. Windows Device Control rechecks target identity and
-driver validation before applying, confirms readback and attempts rollback on an unconfirmed write.
-Ambiguous clone sources are unavailable. This does not establish physical visibility.
+The same page shows resolution and refresh for the first active display in Windows path-priority
+order. Pickers contain driver-validated modes; changing resolution updates the offered refresh
+rates. Only Apply changes the display. Fresh observations every five seconds while open replace
+stale choices after reconnect, resume or profile changes. Windows Device Control rechecks target
+identity and driver validation before applying, confirms readback and attempts rollback on an
+unconfirmed write. Ambiguous clone sources are unavailable. This does not establish physical
+visibility.
 
 Device provides a manual TDP mode selector when a paired capability is available. Selecting Unified
 saves the active global/per-game preference without writing hardware. Subsequent sustained-slider

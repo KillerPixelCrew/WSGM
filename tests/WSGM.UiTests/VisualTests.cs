@@ -17,6 +17,9 @@ public sealed class VisualTests
     [InlineData("overlay-device-core-1920", "core", 1920, 1080)]
     [InlineData("overlay-device-plugin-1280", "plugin", 1280, 800)]
     [InlineData("overlay-device-plugin-1920", "plugin", 1920, 1080)]
+    [InlineData("overlay-steam-1280", "steam", 1280, 800)]
+    [InlineData("overlay-tools-1280", "tools", 1280, 800)]
+    [InlineData("overlay-power-1280", "power", 1280, 800)]
     public async Task Overlay(string name, string page, int width, int height)
     {
         using FakeDevice device = new();
@@ -24,7 +27,18 @@ public sealed class VisualTests
         using PowerSchemeSelection schemes = new(new PowerSchemes(new OverlayInteractionTests.FakePower()), _ => throw new InvalidOperationException("Unexpected power write"));
         await schemes.RefreshAsync();
         OverlayWindow window = fixture.Overlay(width, height);
-        if (page != "quick-access")
+        // The category menus each destination root now shows. No power schemes and no device
+        // bridge, so the Device tab stays hidden and these are the tab indexes without it.
+        if (page is "steam" or "tools" or "power")
+        {
+            UiFixture.Click(window, UiFixture.Tab(window, page switch
+            {
+                "steam" => 2,
+                "tools" => 3,
+                _ => 4,
+            }));
+        }
+        else if (page != "quick-access")
         {
             window.AttachPowerSchemes(schemes);
             if (page == "plugin") { window.AttachDeviceBridge(device); }

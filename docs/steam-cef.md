@@ -303,7 +303,7 @@ never clears `document.head`, and never disables the debug flag or port.
 
 ### Launch options are written through Steam's own API, verbatim
 
-The Tools tab's per-game launch fixes (`Core\SteamLaunchConfig.cs`) configure the running client
+The Steam tab's Per-game launch fixes (`Core\SteamLaunchConfig.cs`) configure the running client
 over `SharedJSContext` instead of handing the user a command to paste; with `Cef.Enabled` off they
 fall back to the clipboard. A real title takes `SteamClient.Apps.SetAppLaunchOptions(appid, str)`; a
 non-Steam shortcut takes `SetShortcutExe` plus `SetShortcutLaunchOptions`, because a shortcut
@@ -343,7 +343,7 @@ The string handed to `SetAppLaunchOptions` is byte-identical either way.
 
 ### The custom launch action uses Steam-native syntax
 
-The Tools tab's custom launch action uses no WSGM wrapper and replaces the active launch fields. A
+That category's custom launch action uses no WSGM wrapper and replaces the active launch fields. A
 real title gets `"selected.exe" [arguments] %command%`; CMD/BAT and PS1 selections prefix the
 placeholder with an explicit `cmd.exe` or Windows PowerShell invocation. A non-Steam shortcut gets
 the selected EXE (or script host) in `Exe` and only the script plus custom arguments in Launch

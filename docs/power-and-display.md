@@ -285,8 +285,9 @@ A "What's keeping this awake" row opens `Overlay\WakeLockHoldersView.cs`, a Powe
 listing every requester, deduplicated on (label, detail, reason) so thirty identical Steam requests
 read as `steam.exe ×30`, sorted by count then name, with caller kind, pid, path and reason on the
 second line. Unlike the summary it does not hide WSGM's own request: the list must not omit an
-answer. An unelevated read shows "couldn't read", never an empty all-clear. It is the first sub-view
-belonging to the Power tab rather than Tools, so leaving it restores `PanelPower`.
+answer. An unelevated read shows "couldn't read", never an empty all-clear. It belongs to the Power
+tab rather than Tools, and it is opened from inside the Wake category, so leaving it restores
+`PanelPowerWake` and a second Back returns to the Power root.
 
 Windows Device Control's `PowerRequestList` calls the undocumented
 `NtPowerInformation(GetPowerRequestList = 45)` on ntdll directly, because the documented wrapper

@@ -188,6 +188,9 @@ public sealed class OverlayInteractionTests
         using UiFixture fixture = new();
         OverlayWindow window = fixture.Overlay();
         UiFixture.Click(window, UiFixture.Tab(window, 2));
+        // The Steam root is a menu now; the launch fixes are one level down.
+        UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
+            .Single(card => card.IsEffectivelyVisible && card.Title == "Per-game launch fixes"));
         CardButton last = UiFixture.Named<CardButton>(window, "RemoveFixesButton");
         UiFixture.Named<CardButton>(window, "DeelevateFixButton").Focus();
         for (int step = 0; step < 12 && !last.IsFocused; step++)
@@ -251,6 +254,80 @@ public sealed class OverlayInteractionTests
         UiFixture.Key(window, Key.Escape);
         Assert.Equal(1, dismissed);
     }
+
+    [AvaloniaTheory]
+    [InlineData(2, "PanelSteam", "Steam library", "PanelSteamLibrary")]
+    [InlineData(3, "PanelSystem", "Display", "PanelSystemDisplay")]
+    [InlineData(4, "PanelPower", "Idle timeouts", "PanelPowerTimeouts")]
+    public void AGroupedTabOffersItsControlsBehindACategory(
+        int tab, string root, string category, string page)
+    {
+        using UiFixture fixture = new();
+        OverlayWindow window = fixture.Overlay();
+        UiFixture.Click(window, UiFixture.Tab(window, tab));
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(UiFixture.Named<Control>(window, root).IsVisible);
+        Assert.False(UiFixture.Named<Control>(window, page).IsVisible);
+        Assert.False(UiFixture.Named<Control>(window, "BackButton").IsVisible);
+
+        UiFixture.Click(window, VisibleCard(window, category));
+        Assert.False(UiFixture.Named<Control>(window, root).IsVisible);
+        Assert.True(UiFixture.Named<Control>(window, page).IsVisible);
+        Assert.True(UiFixture.Named<Control>(window, "BackButton").IsVisible);
+
+        UiFixture.Key(window, Key.Escape);
+        Assert.True(UiFixture.Named<Control>(window, root).IsVisible);
+        Assert.False(UiFixture.Named<Control>(window, page).IsVisible);
+        Assert.False(UiFixture.Named<Control>(window, "BackButton").IsVisible);
+    }
+
+    [AvaloniaFact]
+    public void LeavingAPageOpenedInsideACategoryLandsBackOnThatCategory()
+    {
+        // The category is a level of its own, so backing out of a page reached from inside one has
+        // to return to that category. Returning to the destination root instead would drop the user
+        // two levels for one press and lose the group they were working in.
+        using UiFixture fixture = new();
+        OverlayWindow window = fixture.Overlay();
+        UiFixture.Click(window, UiFixture.Tab(window, 4));
+        UiFixture.Click(window, VisibleCard(window, "Wake"));
+        UiFixture.Click(window, VisibleCard(window, "What's keeping this awake"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(UiFixture.Named<Control>(window, "WakeLockHost").IsVisible);
+
+        UiFixture.Key(window, Key.Escape);
+        Assert.False(UiFixture.Named<Control>(window, "WakeLockHost").IsVisible);
+        Assert.True(UiFixture.Named<Control>(window, "PanelPowerWake").IsVisible);
+        Assert.False(UiFixture.Named<Control>(window, "PanelPower").IsVisible);
+        Assert.True(UiFixture.Named<Control>(window, "BackButton").IsVisible);
+
+        UiFixture.Key(window, Key.Escape);
+        Assert.True(UiFixture.Named<Control>(window, "PanelPower").IsVisible);
+        Assert.False(UiFixture.Named<Control>(window, "BackButton").IsVisible);
+    }
+
+    [AvaloniaFact]
+    public void SwitchingDestinationClosesAnOpenCategoryAndItsNestedPage()
+    {
+        using UiFixture fixture = new();
+        OverlayWindow window = fixture.Overlay();
+        UiFixture.Click(window, UiFixture.Tab(window, 4));
+        UiFixture.Click(window, VisibleCard(window, "Wake"));
+        UiFixture.Click(window, VisibleCard(window, "What's keeping this awake"));
+        Dispatcher.UIThread.RunJobs();
+
+        UiFixture.Click(window, UiFixture.Tab(window, 2));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(UiFixture.Named<Control>(window, "WakeLockHost").IsVisible);
+        Assert.False(UiFixture.Named<Control>(window, "PanelPowerWake").IsVisible);
+        Assert.False(UiFixture.Named<Control>(window, "PanelPower").IsVisible);
+        Assert.True(UiFixture.Named<Control>(window, "PanelSteam").IsVisible);
+        Assert.False(UiFixture.Named<Control>(window, "BackButton").IsVisible);
+    }
+
+    private static CardButton VisibleCard(OverlayWindow window, string title) =>
+        window.GetVisualDescendants().OfType<CardButton>()
+            .Single(card => card.IsEffectivelyVisible && card.Title == title);
 
     [AvaloniaFact]
     public void ClosingAndReopeningKeepsSessionFocusAndReleasesDeviceSubscriptions()

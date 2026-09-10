@@ -28,6 +28,12 @@ internal enum OverlayPage
     QuickAccess,
     Home,
     Steam,
+
+    /// <summary>The Steam library category page.</summary>
+    SteamLibrary,
+
+    /// <summary>The per-game launch fixes category page.</summary>
+    SteamLaunchFixes,
     SteamLibraryTabs,
     SteamCardManager,
     SteamArtwork,
@@ -46,7 +52,34 @@ internal enum OverlayPage
     /// <summary>One plugin-declared Device section; the route carries which one.</summary>
     DevicePluginSection,
     System,
+
+    /// <summary>WSGM Settings and the Windows Task Manager.</summary>
+    SystemTools,
+
+    /// <summary>The frame limit, overlay and per-application profile rows, when Device is off.</summary>
+    SystemPerformance,
+
+    /// <summary>Removable storage actions.</summary>
+    SystemStorage,
+
+    /// <summary>Panel brightness and the display routes.</summary>
+    SystemDisplay,
+
+    /// <summary>Rows published by the enabled common plugins.</summary>
+    SystemPlugins,
+
+    /// <summary>The on-screen keyboard and the Steam Input handoff.</summary>
+    SystemController,
     Power,
+
+    /// <summary>Keep Awake and the wake-lock list.</summary>
+    PowerWake,
+
+    /// <summary>The display and standby idle timeouts.</summary>
+    PowerTimeouts,
+
+    /// <summary>Standby, hibernate, restart and shut down.</summary>
+    PowerActions,
     PowerWakeLocks,
 }
 
@@ -209,7 +242,8 @@ internal sealed class OverlayNavigation
     {
         OverlayPage.QuickAccess => OverlayDestination.QuickAccess,
         OverlayPage.Home => OverlayDestination.Home,
-        OverlayPage.Steam or OverlayPage.SteamLibraryTabs or OverlayPage.SteamCardManager
+        OverlayPage.Steam or OverlayPage.SteamLibrary or OverlayPage.SteamLaunchFixes
+            or OverlayPage.SteamLibraryTabs or OverlayPage.SteamCardManager
             or OverlayPage.SteamArtwork or OverlayPage.SteamLaunchConfiguration
             or OverlayPage.SteamStorageFormat => OverlayDestination.Steam,
         OverlayPage.Device or OverlayPage.DeviceOverview or OverlayPage.DeviceProfiles
@@ -218,8 +252,12 @@ internal sealed class OverlayNavigation
             or OverlayPage.DeviceColor or OverlayPage.DeviceDiagnostics
             or OverlayPage.DevicePluginSection
             => OverlayDestination.Device,
-        OverlayPage.System => OverlayDestination.System,
-        OverlayPage.Power or OverlayPage.PowerWakeLocks => OverlayDestination.Power,
+        OverlayPage.System or OverlayPage.SystemTools or OverlayPage.SystemPerformance
+            or OverlayPage.SystemStorage or OverlayPage.SystemDisplay
+            or OverlayPage.SystemPlugins or OverlayPage.SystemController
+            => OverlayDestination.System,
+        OverlayPage.Power or OverlayPage.PowerWake or OverlayPage.PowerTimeouts
+            or OverlayPage.PowerActions or OverlayPage.PowerWakeLocks => OverlayDestination.Power,
         _ => throw new ArgumentOutOfRangeException(nameof(page)),
     };
 }
