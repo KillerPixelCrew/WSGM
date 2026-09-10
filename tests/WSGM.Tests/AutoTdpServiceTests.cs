@@ -305,14 +305,25 @@ public sealed class AutoTdpServiceTests
         Harness harness = new(capabilities: []);
         using ManualResetEventSlim capabilitiesEntered = new();
         using ManualResetEventSlim continueCapabilities = new();
-        harness.BeforeCapabilitiesRead = () =>
-        {
-            capabilitiesEntered.Set();
-            Assert.True(continueCapabilities.Wait(TimeSpan.FromSeconds(2)));
-        };
         harness.Service.Apply(enabled: true);
         harness.Service.ApplyRunningApplication(Running(GameExecutable));
 
+        // Availability reads capabilities too, so the gate is installed after enabling: holding the
+        // caller's own thread inside Apply would deadlock the test rather than the tick it targets.
+        // The tick's own prerequisite check reads them once more before it captures the application,
+        // and that read is let through: the read this test must hold open is the one after capture,
+        // which is what makes the publish belong to the application that has since been replaced.
+        int reads = 0;
+        harness.BeforeCapabilitiesRead = () =>
+        {
+            if (Interlocked.Increment(ref reads) == 1 || continueCapabilities.IsSet)
+            {
+                return;
+            }
+
+            capabilitiesEntered.Set();
+            Assert.True(continueCapabilities.Wait(TimeSpan.FromSeconds(2)));
+        };
         Task previousTick = Task.Run(() => harness.Service.TickAsync(CancellationToken.None));
         Assert.True(capabilitiesEntered.Wait(TimeSpan.FromSeconds(2)));
         harness.Service.ApplyRunningApplication(Running(
