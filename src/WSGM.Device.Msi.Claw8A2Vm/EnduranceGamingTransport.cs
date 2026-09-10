@@ -84,6 +84,15 @@ internal sealed unsafe class EnduranceGamingTransport : IDisposable
     private delegate* unmanaged[Cdecl]<nint, uint*, nint*, int> _enumerateDevices;
     private delegate* unmanaged[Cdecl]<nint, Ctl3dFeatureGetSet*, int> _getSet3dFeature;
 
+    /// <summary>The managed mirrors' sizes, so a drifted layout fails a test rather than the driver.</summary>
+    /// <remarks>
+    /// Every IGCL call passes the caller's own sizeof in a Size field and the driver refuses a
+    /// mismatch. That refusal is indistinguishable from "this machine has no Endurance Gaming", so
+    /// drift here removes the feature silently rather than loudly.
+    /// </remarks>
+    internal static (int GetSet, int EnduranceGaming) NativeStructureSizes =>
+        (sizeof(Ctl3dFeatureGetSet), sizeof(EnduranceGaming));
+
     /// <summary>Opens the library and selects the adapter Endurance Gaming answers for.</summary>
     /// <returns><see langword="true"/> when the feature can be read on this machine.</returns>
     public bool TryOpen()

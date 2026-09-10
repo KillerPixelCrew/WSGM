@@ -43,6 +43,18 @@ Claw 8 AI+ A2VM, not from vendor documentation. Two consequences:
   it already ships in `System32` with the Intel driver. No Intel code is redistributed here; the
   blittable structures mirror the published `igcl_api.h` layouts so the driver's own size checks
   pass, and a layout regression test pins them.
+- `EnduranceGamingTransport` reaches the same library for Intel Endurance Gaming, through
+  `ctlGetSet3DFeature` with `CTL_3D_FEATURE_ENDURANCE_GAMING` (feature 1) and
+  `CTL_PROPERTY_VALUE_TYPE_CUSTOM` (5) carrying a `ctl_endurance_gaming_t`. Confirmed on the
+  reference unit on 2026-09-10, unelevated: `ctlInit` reported supported version `0x10001` (IGCL
+  1.1), one adapter enumerated, and the feature read back `EGControl = OFF`, `EGMode = PERFORMANCE`.
+  The managed `ctl_3d_feature_getset_t` mirror measured 56 bytes and `ctl_endurance_gaming_t` 8,
+  both pinned by a layout test. A second concurrent IGCL session alongside the Arc Sync one was
+  confirmed to succeed rather than assumed, which is why the two transports each own their own
+  handle. Support is decided by a successful read rather than by walking
+  `ctlGetSupported3DCapabilities`; that capability array is not marshalled at all. **Only the read
+  is device-verified.** A write and its read-back have not been exercised on the unit, so the
+  applied path remains a source-and-layout claim awaiting an attended Device Lab run.
 - Intel's IO/sensor driver exposes the STMicroelectronics LSM6DSO `Physical Accelerometer` and
   `Physical Gyrometer` through the legacy Sensor API as custom sensor type
   `e83af229-8640-4d18-a213-e22675ebb2c3` on the `VID_8087&PID_0AC2` HID collection. Their live
