@@ -1334,6 +1334,12 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
     // beside variable refresh for the reason the service exists at all: neither has a firmware
     // identity to verify, and both have to be restorable when every WMI and MCU path failed.
     private readonly Intel3dFeatureTransport _endurance = new();
+
+    // The driver's shared-memory split, which is a driver setting rather than a library call and so
+    // needs no handle and no open. It belongs to this service anyway: it is the same GPU driver, it
+    // has no firmware identity to verify, and grouping it anywhere else would put a graphics
+    // setting behind an MSI WMI or MCU gate that has nothing to do with it.
+    private readonly IntelGraphicsMemoryTransport _sharedMemory = new();
     private EnduranceGamingState? _enduranceOnAcquire;
     private bool? _shaderOnAcquire;
     private bool _disposed;
@@ -1363,6 +1369,8 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
             _shaderOnAcquire = _endurance.ReadShaderDownload();
             available |= _enduranceOnAcquire is not null || _shaderOnAcquire is not null;
         }
+
+        available |= _sharedMemory.IsAvailable;
 
         // Passive rather than Faulted when no capable panel answered: nothing went wrong, the
         // device simply does not have the feature, and Faulted would report a defect that is not one.
@@ -1396,6 +1404,19 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
     /// <returns><see langword="true"/> when the driver reports the value back.</returns>
     public bool TryWriteShaderDownload(bool enabled) => _endurance.TryWriteShaderDownload(enabled);
 
+    /// <summary>Whether this machine's graphics driver stores a shared-memory split.</summary>
+    public bool IsSharedGpuMemoryAvailable => _sharedMemory.IsAvailable;
+
+    /// <summary>Reads the share of system memory the integrated GPU may use.</summary>
+    /// <returns>The stored percentage and the size the driver reports, or null when unreadable.</returns>
+    public IntelGraphicsMemoryState? ReadSharedGpuMemory() => _sharedMemory.Read();
+
+    /// <summary>Sets the share of system memory the integrated GPU may use.</summary>
+    /// <param name="percent">The requested percentage, within the offered range.</param>
+    /// <returns><see langword="true"/> when the driver stores the requested value.</returns>
+    /// <remarks>The split itself changes at the next restart; only the setting is verified here.</remarks>
+    public bool TryWriteSharedGpuMemory(int percent) => _sharedMemory.TryWrite(percent);
+
     /// <summary>Reads the current state, or null when it cannot be read.</summary>
     /// <returns>The panel's variable-refresh state.</returns>
     public ArcSyncState? Read() => _arcSync.Read();
@@ -1407,6 +1428,11 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
 
     /// <summary>Restores the profile captured when the cycle started.</summary>
     /// <returns><see langword="true"/> when nothing was left changed.</returns>
+    /// <remarks>
+    /// The shared-memory split is deliberately not restored. It is a persistent user choice like the
+    /// charge limit rather than a resource this service borrowed, it only takes effect at the next
+    /// restart, and putting it back on a normal stop would silently undo what the user asked for.
+    /// </remarks>
     public bool Restore()
     {
         bool restored = _arcSync.TryRestore();

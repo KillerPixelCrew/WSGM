@@ -7,16 +7,15 @@ submodule changes, without feature branches or pull requests.
 ## Current issue workoff
 
 After delivery of #38/#39, #51/#53, #58/#59, #61, #65–#68 and #20/#22/#26/#28/#35/#36,
-22 issues remain open. Issues #41–#45, #47 and #48 remain deferred; the other 15 are the 2.0 scope.
+21 issues remain open. Issues #41–#45, #47 and #48 remain deferred; the other 14 are the 2.0 scope.
 #52 hardware capture and #69 investigation remain open.
 
 Every remaining 2.0 issue is waiting on something outside the repository, which is why the count
 stops here rather than at zero:
 
-- #32, #33, #37 and #64 need one maintainer decision — where Intel-specific code lives. It is not
-  Windows Device Control's charter and not the Claw package alone. The mechanism is settled: Intel's
-  `ControlLib.dll` ships with the graphics driver and exports `ctlInit`, `ctlEnumerateDevices`,
-  `ctlGetSupported3DCapabilities` and `ctlGetSet3DFeature`, so no native wrapper is needed.
+- #64 still needs a decision on what "driver-level VSync" maps to: Intel's header has no
+  `CTL_3D_FEATURE_VSYNC`. `CTL_3D_FEATURE_GAMING_FLIP_MODES` and `CTL_3D_FEATURE_LOW_LATENCY` both
+  answer on the reference unit but neither is a VSync toggle.
 - #23, #24, #30 and #31 begin with discovering Steam's own routes, components or stores. #24 rules
   out DOM replacement explicitly, and #30 opens with "discover the relevant routes". That is a live
   Steam session, and sweeping the module registry is not an unattended action.
@@ -24,6 +23,16 @@ stops here rather than at zero:
 - #69 needs one attended measurement; the runnable probe is on the issue.
 - #34 needs a fork created in the KillerPixelCrew organization; #46 needs Screenscraper credentials.
 - #27 and #40 are implemented as far as they can be without a device session and the brand mark.
+
+- #32 is implemented. The Claw package publishes the Intel GPU memory share as a 13-87 percent
+  device-persistent row on the Power page. It is a driver setting rather than an IGCL call:
+  `GpuSystemMemoryPinninglimit` under the adapter's `GMM` key, which the driver reads when it
+  initialises its memory manager. Confirmed both directions on the reference unit by driving Intel
+  Graphics Software — 44% wrote 44, reset wrote 57 back rather than deleting the value, and nothing
+  else in the registry or on disk moved. The default is the literal 57, so an absent value reads as
+  the default rather than as a missing feature. The write is verified; the split needs a restart and
+  the row's label says so. Not journalled and not restored on stop, like the charge limit. Eighteen
+  focused tests pass against a disposable HKCU subtree. **The effect after a restart is not measured.**
 
 - #35 is implemented. Windows Device Control exposes hybrid processor core placement: efficiency
   classes from CPU set information, whether a scheme actually exposes HETEROPOLICY, SCHEDPOLICY and

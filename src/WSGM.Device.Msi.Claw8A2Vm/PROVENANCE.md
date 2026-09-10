@@ -63,6 +63,23 @@ Claw 8 AI+ A2VM, not from vendor documentation. Two consequences:
   only as observed-present; neither is implemented, and neither is a driver-level VSync toggle. As
   with Endurance Gaming, **only the read is device-verified** for shader download; no value was
   applied to the unit.
+- `IntelGraphicsMemoryTransport` drives Intel's Shared GPU Memory Override, which is not in IGCL at
+  all: `ControlLib.dll` has four memory entry points and every one is a get. The driver reads
+  `GpuSystemMemoryPinninglimit`, a percentage under the display adapter's `GMM` key, when it sets up
+  its memory manager, which is why the change needs a restart. Confirmed on the reference unit on
+  2026-09-10 by driving Intel Graphics Software and watching what moved. At rest the value read 57,
+  Intel documents 57% as the default, `ullTotalPhys` was 33,866,657,792 bytes, and the adapter
+  reported 19,327,352,832 — 57.07% of it, tying the value to the feature. Setting the panel to 44%
+  wrote 44 into exactly that value; pressing reset wrote 57 back rather than deleting it, so the
+  default is the literal 57 and there is no "changed" flag to look for. Neither change touched
+  anything else: no other value under the adapter, nothing under `HKLM\SOFTWARE\Intel` or
+  `HKCU\SOFTWARE\Intel`, and nothing in ProgramData. The one other artifact was Intel Graphics
+  Software's own DPAPI-encrypted per-user settings blob, which the driver never reads. `qwMemorySize`
+  stayed at the old percentage across the change, which is the reboot requirement showing itself.
+  **The write is device-verified, the effect is not**: nothing here observed the split actually
+  change after a restart. The offered range is 13-87 percent, taken from what Intel Graphics Software
+  shows on this machine rather than derived; Intel publishes the default and a 10 GB system-memory
+  requirement but no formula for the bounds.
 - Intel's IO/sensor driver exposes the STMicroelectronics LSM6DSO `Physical Accelerometer` and
   `Physical Gyrometer` through the legacy Sensor API as custom sensor type
   `e83af229-8640-4d18-a213-e22675ebb2c3` on the `VID_8087&PID_0AC2` HID collection. Their live

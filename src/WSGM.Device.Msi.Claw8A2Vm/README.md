@@ -56,6 +56,7 @@ This one is a worked example of the parts that are easy to get wrong:
 | `WindowsMotionSource.cs`         | physical legacy-Sensor-API IMU polling, freshness, and zero-rate offset correction |
 | `LegacyPhysicalMotionSensors.cs` | exact Intel ISS/LSM6DSO COM identity, fields, interval ownership, and cleanup      |
 | `ArcSyncTransport.cs`            | variable refresh through Intel's Graphics Control Library                          |
+| `IntelGraphicsMemoryTransport.cs`| a driver setting that is a registry value rather than an API call                  |
 | `ClawRecoveryJournal.cs`         | leaving the device safe when a cycle ends badly                                    |
 
 Motion writes no per-report file. Nothing here may log at the 100 Hz sensor cadence: a CSV of every

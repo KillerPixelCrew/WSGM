@@ -1193,6 +1193,30 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                     },
                 ]
                 : (IReadOnlyList<CapabilityDescriptor>)[],
+            .. _arcSync?.IsSharedGpuMemoryAvailable == true
+                ? [
+                    // The restart requirement is in the label because there is nowhere else for it
+                    // to go: the SDK has no "takes effect later" field, and a row that appears to do
+                    // nothing until the next boot is exactly the silent control the guidance forbids.
+                    IntegerDescriptor(
+                        CapabilityIds.SharedGpuMemory,
+                        CapabilityRole.GenericRange,
+                        DisplayKey.Custom,
+                        IntelGraphicsMemoryTransport.MinimumPercent,
+                        IntelGraphicsMemoryTransport.MaximumPercent,
+                        CapabilityUnit.Percent,
+                        writable: true,
+                        persistence: CapabilityPersistence.DevicePersistent,
+                        section: SectionIds.Power) with
+                    {
+                        Display = new CapabilityDisplay
+                        {
+                            Key = DisplayKey.Custom,
+                            CustomLabel = "GPU memory share (restart)",
+                        },
+                    },
+                ]
+                : (IReadOnlyList<CapabilityDescriptor>)[],
         ];
 
         EnsureUniqueCapabilityKeys(descriptors);
@@ -1377,6 +1401,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             CapabilityIds.EnduranceGaming or CapabilityIds.EnduranceGamingMode =>
                 ApplyEnduranceGamingCommand(command),
             CapabilityIds.ShaderDownload => ApplyShaderDownloadCommand(command),
+            CapabilityIds.SharedGpuMemory => ApplySharedGpuMemoryCommand(command),
             _ => ReadOnlyHandler(command, cancellationToken),
         };
     }
@@ -1507,6 +1532,55 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         });
     }
 
+    /// <remarks>
+    /// Not journalled, and deliberately not restored either. The journal is for firmware values that
+    /// have to be put back after an abnormal exit; this one is a persistent user choice the driver
+    /// keeps, in the same class as the charge limit.
+    /// <para>
+    /// The write is verified, the split is not: the driver reads this when it initializes, so the
+    /// memory the adapter reports only follows at the next restart. Reporting
+    /// <see cref="CommandOutcome.AppliedVerified"/> is still honest because the capability's value
+    /// is the requested percentage, and that is exactly what was read back.
+    /// </para>
+    /// </remarks>
+    private ValueTask<CapabilityCommandResult> ApplySharedGpuMemoryCommand(CapabilityCommand command)
+    {
+        if (_arcSync is not { IsSharedGpuMemoryAvailable: true } display)
+        {
+            return ValueTask.FromResult(Rejected(
+                command,
+                CapabilityReasonCode.Unsupported,
+                "The graphics driver does not offer a shared memory split on this device."));
+        }
+
+        int requested = command.RequestedValue!.IntegerValue!.Value;
+        if (requested < IntelGraphicsMemoryTransport.MinimumPercent
+            || requested > IntelGraphicsMemoryTransport.MaximumPercent)
+        {
+            return ValueTask.FromResult(Rejected(
+                command,
+                CapabilityReasonCode.ValueOutOfRange,
+                $"The GPU memory share must be {IntelGraphicsMemoryTransport.MinimumPercent}-"
+                    + $"{IntelGraphicsMemoryTransport.MaximumPercent} percent."));
+        }
+
+        if (!display.TryWriteSharedGpuMemory(requested))
+        {
+            return ValueTask.FromResult(Rejected(
+                command,
+                CapabilityReasonCode.TransportFaulted,
+                $"The graphics driver did not store a GPU memory share of {requested} percent."));
+        }
+
+        return ValueTask.FromResult(new CapabilityCommandResult
+        {
+            CommandId = command.CommandId,
+            Outcome = CommandOutcome.AppliedVerified,
+            ReadbackValue = Integer(requested),
+            CompletedAt = DateTimeOffset.UtcNow,
+        });
+    }
+
     private ValueTask<CapabilityCommandResult> ApplyFanCurveCommandAsync(
         CapabilityCommand command,
         ClawA2VmFanCapability fans,
@@ -1537,7 +1611,8 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         CapabilityIds.VariableRefreshRate
             or CapabilityIds.EnduranceGaming
             or CapabilityIds.EnduranceGamingMode
-            or CapabilityIds.ShaderDownload => _arcSync,
+            or CapabilityIds.ShaderDownload
+            or CapabilityIds.SharedGpuMemory => _arcSync,
         _ => null,
     };
 
@@ -1551,7 +1626,8 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             or CapabilityIds.VariableRefreshRate
             or CapabilityIds.EnduranceGaming
             or CapabilityIds.EnduranceGamingMode
-            or CapabilityIds.ShaderDownload => FirmwareKind.None,
+            or CapabilityIds.ShaderDownload
+            or CapabilityIds.SharedGpuMemory => FirmwareKind.None,
         _ => FirmwareKind.Wmi,
     };
 
@@ -2057,6 +2133,13 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         if (descriptor.CapabilityId == CapabilityIds.ShaderDownload)
         {
             return _arcSync?.ReadShaderDownload() is { } shader ? Boolean(shader) : null;
+        }
+
+        if (descriptor.CapabilityId == CapabilityIds.SharedGpuMemory)
+        {
+            // The stored percentage, not the size the driver currently reports. Those two disagree
+            // between a write and the next restart, and the row has to show what was asked for.
+            return _arcSync?.ReadSharedGpuMemory() is { } memory ? Integer(memory.Percent) : null;
         }
 
         if (descriptor.CapabilityId == CapabilityIds.EnduranceGamingMode)

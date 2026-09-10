@@ -440,3 +440,37 @@ Four facts that cost real time to establish:
 Turning the profile `OFF` collapses the reported range to 120/120, a second confirmation independent
 of the profile enum. That is why this capability reports a verified read-back rather than an
 applied-unverified one.
+
+## The GPU memory share is a driver setting, not an IGCL call
+
+Intel's Shared GPU Memory Override decides how much system memory the integrated GPU may use. It is
+not in IGCL: `ControlLib.dll` has four memory entry points and every one of them is a get. The
+driver reads a percentage from `GpuSystemMemoryPinninglimit` under the display adapter's `GMM` key
+when it initialises its memory manager, which is the whole reason the change only takes effect after
+a restart.
+
+Established on the reference unit on 2026-09-10 by driving Intel Graphics Software and watching what
+moved, rather than by reading its exports:
+
+- At rest the value read 57, which is Intel's documented default. Total physical memory was
+  33,866,657,792 bytes and the adapter reported 19,327,352,832 — 57.07% of it. That agreement is
+  what ties the registry value to the feature.
+- Setting the panel to 44% wrote 44 into exactly that value and nothing else. Not another value
+  under the adapter, nothing under `HKLM\SOFTWARE\Intel` or `HKCU\SOFTWARE\Intel`, nothing in
+  ProgramData. The only other artifact was Intel Graphics Software's own DPAPI-encrypted per-user
+  settings blob, which the driver never reads.
+- Pressing reset wrote 57 back rather than deleting the value. There is therefore no separate "has
+  been changed" flag, and none is needed: the default is the literal 57. WSGM reports an absent
+  value as 57 too, so an untouched machine still shows the control instead of hiding it.
+- `qwMemorySize` did not move across either change. That is the restart requirement showing itself,
+  and it is why a fresh write and the size the adapter reports legitimately disagree until reboot.
+
+The adapter is matched rather than hard-coded: its index is `0001` on the reference unit and the
+class also holds an unreadable `0000` beside it, so the search skips what it cannot read and refuses
+when more than one candidate remains. The offered range is 13-87 percent, which is what Intel
+Graphics Software shows on this machine. Intel publishes the default and a 10 GB system-memory
+requirement but no formula for the bounds, so they are taken from the shipping control.
+
+The setting is a persistent user choice like the charge limit, not a resource the plugin borrows. It
+is not journalled and not restored on stop: putting it back would silently undo what the user asked
+for. Only the write is verified. The split itself is not, which is why the row says so in its label.

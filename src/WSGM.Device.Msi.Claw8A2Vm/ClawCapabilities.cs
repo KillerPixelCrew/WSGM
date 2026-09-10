@@ -1082,6 +1082,9 @@ internal static class CapabilityIds
 
     /// <summary>Whether the graphics driver downloads prebuilt shaders for games.</summary>
     public const string ShaderDownload = "display.shader-download";
+
+    /// <summary>The share of system memory the integrated GPU may use, as a percentage.</summary>
+    public const string SharedGpuMemory = "display.shared-gpu-memory";
 }
 
 internal static class CapabilityInstances
