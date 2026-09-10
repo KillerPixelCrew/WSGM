@@ -1193,6 +1193,30 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                     },
                 ]
                 : (IReadOnlyList<CapabilityDescriptor>)[],
+            .. FlipModeChoices() is { Count: > 1 } flipChoices
+                ? [
+                    // A choice, not a toggle. Intel has no VSync boolean: it has a presentation
+                    // mode whose members include forcing sync on, Smooth Sync and a capped-FPS
+                    // mode, and the offered set is whatever this driver reports it supports — so a
+                    // future driver that adds one gets it without a contract change, which is the
+                    // forward-compatibility this capability was asked for.
+                    ChoiceDescriptor(
+                        CapabilityIds.DriverVsync,
+                        CapabilityRole.GenericChoice,
+                        DisplayKey.Custom,
+                        flipChoices,
+                        writable: true,
+                        section: SectionIds.Power) with
+                    {
+                        Display = new CapabilityDisplay
+                        {
+                            Key = DisplayKey.Custom,
+                            CustomLabel = "Frame presentation (restart)",
+                        },
+                        Persistence = CapabilityPersistence.DevicePersistent,
+                    },
+                ]
+                : (IReadOnlyList<CapabilityDescriptor>)[],
             .. _arcSync?.IsSharedGpuMemoryAvailable == true
                 ? [
                     // The restart requirement is in the label because there is nowhere else for it
@@ -1402,6 +1426,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                 ApplyEnduranceGamingCommand(command),
             CapabilityIds.ShaderDownload => ApplyShaderDownloadCommand(command),
             CapabilityIds.SharedGpuMemory => ApplySharedGpuMemoryCommand(command),
+            CapabilityIds.DriverVsync => ApplyDriverVsyncCommand(command),
             _ => ReadOnlyHandler(command, cancellationToken),
         };
     }
@@ -1581,6 +1606,54 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         });
     }
 
+    /// <remarks>
+    /// Written to the driver's own 3D settings store rather than through IGCL. Measured on the
+    /// reference unit: <c>ctlGetSet3DFeature</c> reports success for a feature-9 write and changes
+    /// nothing observable — not its own getter, not the stored value — whether the caller is
+    /// elevated or not and with Intel Graphics Software running. The stored value does move, and it
+    /// carries Intel's own flag values, so that is where this reads and writes.
+    /// <para>
+    /// Not journalled and not restored: like the shared-memory split, this is a persistent user
+    /// choice the driver keeps, not a resource the plugin borrowed.
+    /// </para>
+    /// </remarks>
+    private ValueTask<CapabilityCommandResult> ApplyDriverVsyncCommand(CapabilityCommand command)
+    {
+        if (_arcSync is not { } display || FlipModeChoices() is not { Count: > 1 } choices)
+        {
+            return ValueTask.FromResult(Rejected(
+                command,
+                CapabilityReasonCode.Unsupported,
+                "The graphics driver does not offer frame presentation modes on this device."));
+        }
+
+        string requested = command.RequestedValue!.ChoiceValue ?? "";
+        if (!choices.Contains(requested))
+        {
+            return ValueTask.FromResult(Rejected(
+                command,
+                CapabilityReasonCode.ValueOutOfRange,
+                $"The driver does not offer the '{requested}' frame presentation mode."));
+        }
+
+        uint bit = Array.Find(FlipModes, mode => mode.Value == requested).Bit;
+        if (!display.TryWriteFlipMode(bit))
+        {
+            return ValueTask.FromResult(Rejected(
+                command,
+                CapabilityReasonCode.TransportFaulted,
+                $"The graphics driver did not store the '{requested}' frame presentation mode."));
+        }
+
+        return ValueTask.FromResult(new CapabilityCommandResult
+        {
+            CommandId = command.CommandId,
+            Outcome = CommandOutcome.AppliedVerified,
+            ReadbackValue = Choice(requested),
+            CompletedAt = DateTimeOffset.UtcNow,
+        });
+    }
+
     private ValueTask<CapabilityCommandResult> ApplyFanCurveCommandAsync(
         CapabilityCommand command,
         ClawA2VmFanCapability fans,
@@ -1612,7 +1685,8 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             or CapabilityIds.EnduranceGaming
             or CapabilityIds.EnduranceGamingMode
             or CapabilityIds.ShaderDownload
-            or CapabilityIds.SharedGpuMemory => _arcSync,
+            or CapabilityIds.SharedGpuMemory
+            or CapabilityIds.DriverVsync => _arcSync,
         _ => null,
     };
 
@@ -1627,7 +1701,8 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             or CapabilityIds.EnduranceGaming
             or CapabilityIds.EnduranceGamingMode
             or CapabilityIds.ShaderDownload
-            or CapabilityIds.SharedGpuMemory => FirmwareKind.None,
+            or CapabilityIds.SharedGpuMemory
+            or CapabilityIds.DriverVsync => FirmwareKind.None,
         _ => FirmwareKind.Wmi,
     };
 
@@ -2133,6 +2208,14 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         if (descriptor.CapabilityId == CapabilityIds.ShaderDownload)
         {
             return _arcSync?.ReadShaderDownload() is { } shader ? Boolean(shader) : null;
+        }
+
+        if (descriptor.CapabilityId == CapabilityIds.DriverVsync)
+        {
+            // An adapter that stores nothing is at Intel's default, which is application default.
+            uint stored = _arcSync?.ReadFlipMode() ?? 0;
+            (uint Bit, string Value) match = Array.Find(FlipModes, mode => mode.Bit == stored);
+            return Choice(match.Value ?? "application-default");
         }
 
         if (descriptor.CapabilityId == CapabilityIds.SharedGpuMemory)
@@ -2690,6 +2773,39 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             Unit = unit,
             Persistence = persistence,
         };
+
+    /// <summary>Intel's gaming-flip flags, in the order a user would read them.</summary>
+    /// <remarks>
+    /// Keyed by the flag bit, so the stable choice value never depends on Intel's ordering. Only the
+    /// bits this driver reports supported are offered — measured as <c>0x2d</c> on the reference
+    /// unit, which is application default, VSync on, Smooth Sync and capped FPS. Notably absent is
+    /// "VSync off": leaving it off is what the application default already means, so the driver
+    /// offers forcing it on rather than forcing it off.
+    /// </remarks>
+    private static readonly (uint Bit, string Value)[] FlipModes =
+    [
+        (1u << 0, "application-default"),
+        (1u << 2, "vsync-on"),
+        (1u << 3, "smooth-sync"),
+        (1u << 5, "capped-fps"),
+        (1u << 1, "vsync-off"),
+        (1u << 4, "speed-frame"),
+    ];
+
+    /// <summary>The flip-mode choices this driver actually offers.</summary>
+    /// <returns>The stable choice values, or an empty list when the driver reports none.</returns>
+    /// <remarks>
+    /// Fewer than two is not a control: a row offering one option can only ever refuse, which is why
+    /// the descriptor is not published at all in that case.
+    /// </remarks>
+    private IReadOnlyList<string> FlipModeChoices()
+    {
+        if (_arcSync?.ReadSupportedFlipModes() is not { } mask)
+        {
+            return [];
+        }
+        return FlipModes.Where(mode => (mask & mode.Bit) != 0).Select(mode => mode.Value).ToArray();
+    }
 
     private static CapabilityDescriptor ChoiceDescriptor(
         string id,

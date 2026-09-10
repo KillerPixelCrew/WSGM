@@ -214,6 +214,54 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
         Assert.Equal(44, transport.Read()!.Value.Percent);
     }
 
+    [Theory]
+    [InlineData(1u)]
+    [InlineData(4u)]
+    [InlineData(8u)]
+    [InlineData(32u)]
+    public void AFramePresentationModeIsStoredAndReadBack(uint mode)
+    {
+        // Intel's own gaming-flip flag values: 1 application default, 4 VSync on, 8 Smooth Sync,
+        // 32 capped FPS. Confirmed on the reference unit, where each wrote and read back exactly.
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 0);
+        IntelGraphicsMemoryTransport transport = Open();
+
+        Assert.True(transport.TryWriteFlipMode(mode));
+        Assert.Equal(mode, transport.ReadFlipMode());
+    }
+
+    [Fact]
+    public void AnAdapterThatStoresNoModeReadsAsNothingRatherThanZero()
+    {
+        // Zero is not a flag Intel defines, so it must not be invented as a value. The caller reads
+        // an absent mode as the application default, which is what an untouched driver does.
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 0);
+
+        Assert.Null(Open().ReadFlipMode());
+    }
+
+    [Fact]
+    public void AFramePresentationWriteCreatesTheSettingsKeyWhenItIsAbsent()
+    {
+        // The 3D settings key exists on a configured driver but need not on a fresh one, and a
+        // capability that only works after Intel's software has run once is not a capability.
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 0);
+        IntelGraphicsMemoryTransport transport = Open();
+
+        Assert.True(transport.TryWriteFlipMode(4));
+        Assert.Equal(4u, transport.ReadFlipMode());
+    }
+
+    [Fact]
+    public void NoAdapterMeansNoFramePresentationModeEither()
+    {
+        Registry.CurrentUser.CreateSubKey(_scope).Dispose();
+        IntelGraphicsMemoryTransport transport = Open();
+
+        Assert.Null(transport.ReadFlipMode());
+        Assert.False(transport.TryWriteFlipMode(4));
+    }
+
     [Fact]
     public void NoAdapterAtAllIsSimplyUnavailable()
     {

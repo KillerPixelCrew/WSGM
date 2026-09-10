@@ -466,6 +466,30 @@ Turning the profile `OFF` collapses the reported range to 120/120, a second conf
 of the profile enum. That is why this capability reports a verified read-back rather than an
 applied-unverified one.
 
+## Driver-level VSync is a presentation mode, not a toggle
+
+Intel has no `CTL_3D_FEATURE_VSYNC`. What it has is `CTL_3D_FEATURE_GAMING_FLIP_MODES`, a flag set
+whose members are presentation modes, and the reference driver offers four of them: application
+default, VSync on, Smooth Sync and capped FPS. VSync **off** is not among them, because leaving it
+off is what the application default already means — the driver offers forcing sync on, not forcing
+it off. That is why the capability is a choice rather than a boolean, and why the offered set comes
+from the driver's own supported mask rather than a fixed list: a driver that adds a mode gets it
+without a contract change.
+
+IGCL answers which modes exist and nothing else. Measured on the reference unit on 2026-09-10,
+`ctlGetSet3DFeature` reports feature 9 with an enable byte and a value of zero no matter what is
+set, and a write returns `CTL_RESULT_SUCCESS` while changing nothing observable — tested unelevated
+and elevated, with Intel Graphics Software and its service running. The mode actually lives in
+`<adapter>\3DKeys\Global_AsyncFlipMode`, beside `Global_EnduranceGaming` and `Global_LowLatency`,
+holding Intel's own flag values; an untouched machine reads 1, which is application default.
+
+So the capability asks IGCL what is offered and reads and writes the driver's own store, exactly as
+the shared-memory split below does. Confirmed elevated on the reference unit: 1, 4, 8 and 32 each
+wrote and read back, and the original restored. **The write requires elevation**, which WSGM has as
+a shell replacement; unelevated it fails cleanly and is reported as failed rather than assumed.
+Whether the driver acts on the value without a restart is not established, which is why the row says
+so in its label.
+
 ## The GPU memory share is a driver setting, not an IGCL call
 
 Intel's Shared GPU Memory Override decides how much system memory the integrated GPU may use. It is

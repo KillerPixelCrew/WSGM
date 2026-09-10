@@ -80,6 +80,26 @@ Claw 8 AI+ A2VM, not from vendor documentation. Two consequences:
   change after a restart. The offered range is 13-87 percent, taken from what Intel Graphics Software
   shows on this machine rather than derived; Intel publishes the default and a 10 GB system-memory
   requirement but no formula for the bounds.
+- Driver-level VSync is `CTL_3D_FEATURE_GAMING_FLIP_MODES` (feature 9), not a VSync toggle: Intel's
+  `igcl_api.h` has no `CTL_3D_FEATURE_VSYNC` at all. Reading `ctlGetSupported3DCapabilities` on the
+  reference unit on 2026-09-10 returned twelve supported features, with feature 9 enum-typed and a
+  supported mask of `0x2d` — application default, VSync on, Smooth Sync and capped FPS. VSync **off**
+  is deliberately not offered, because leaving it off is what the application default already means.
+  The capability element layout is not asserted: the stride is derived from the data by finding the
+  only one that yields that many distinct in-range feature ids, measured as 72 bytes here.
+  **IGCL cannot read or write the current mode.** `ctlGetSet3DFeature` answers feature 9 with an
+  enable byte and a value of zero regardless of what is set, and a write returns
+  `CTL_RESULT_SUCCESS` and changes nothing observable — not its own getter, not the stored value,
+  not the per-application entries — tested both unelevated and elevated, with Intel Graphics
+  Software and `IntelGraphicsSoftwareService` running. What does hold the mode is
+  `<adapter>\3DKeys\Global_AsyncFlipMode`, carrying Intel's own `ctl_gaming_flip_mode_flag_t` bits;
+  an untouched machine reads 1, which is `APPLICATION_DEFAULT`. So the capability asks IGCL which
+  modes exist and reads and writes the value in the driver's own store. Confirmed elevated on the
+  reference unit: 1, 4, 8 and 32 each wrote and read back exactly, and the original restored.
+  **The write requires elevation** — the key is under `HKLM\SYSTEM` — which WSGM has as a shell
+  replacement; unelevated every write fails cleanly and is reported as failed. The same elevation
+  requirement applies to the shared-memory split above, whose write was never exercised on the unit.
+  **Whether the driver acts on either value without a restart is not established.**
 - Intel's IO/sensor driver exposes the STMicroelectronics LSM6DSO `Physical Accelerometer` and
   `Physical Gyrometer` through the legacy Sensor API as custom sensor type
   `e83af229-8640-4d18-a213-e22675ebb2c3` on the `VID_8087&PID_0AC2` HID collection. Their live

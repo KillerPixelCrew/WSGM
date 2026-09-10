@@ -1085,6 +1085,9 @@ internal static class CapabilityIds
 
     /// <summary>The share of system memory the integrated GPU may use, as a percentage.</summary>
     public const string SharedGpuMemory = "display.shared-gpu-memory";
+
+    /// <summary>Driver-level frame presentation: what "driver VSync" is on an Intel part.</summary>
+    public const string DriverVsync = "display.driver-vsync";
 }
 
 internal static class CapabilityInstances

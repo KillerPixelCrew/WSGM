@@ -59,6 +59,12 @@ internal sealed partial class IntelGraphicsMemoryTransport
     /// <summary>The graphics memory manager subkey that carries the pinning limit.</summary>
     private const string MemoryManagerSubkey = "GMM";
 
+    /// <summary>The driver's 3D settings store, where Intel Graphics Software persists them.</summary>
+    private const string ThreeDSubkey = "3DKeys";
+
+    /// <summary>The global frame-presentation mode, in Intel's own gaming-flip flag values.</summary>
+    private const string FlipModeValue = "Global_AsyncFlipMode";
+
     /// <summary>Intel's own name for the setting.</summary>
     private const string PinningLimitValue = "GpuSystemMemoryPinninglimit";
 
@@ -196,6 +202,80 @@ internal sealed partial class IntelGraphicsMemoryTransport
         {
             PluginTrace.Warn("intel-memory", $"Writing the shared-memory split failed: {error.Message}");
             return false;
+        }
+    }
+
+    /// <summary>Reads the driver's stored frame-presentation mode.</summary>
+    /// <returns>Intel's gaming-flip flag value, or null when the adapter stores none.</returns>
+    /// <remarks>
+    /// This, not IGCL, is where the mode actually lives. Measured on the reference unit on
+    /// 2026-09-10: <c>ctlGetSet3DFeature</c> answers feature 9 with an enable byte and a value of
+    /// zero no matter what has been set, and a write returns <c>CTL_RESULT_SUCCESS</c> and changes
+    /// nothing — the getter, this value, and the per-application entries all stay put, elevated or
+    /// not, with Intel Graphics Software and its service running. What does move is this value, and
+    /// it holds Intel's own <c>ctl_gaming_flip_mode_flag_t</c> bits: the untouched machine reads 1,
+    /// which is <c>APPLICATION_DEFAULT</c>. So the capability reads and writes here, exactly as the
+    /// shared-memory split does, and IGCL is used only to ask which modes the driver offers.
+    /// </remarks>
+    public uint? ReadFlipMode() => ReadThreeDValue(FlipModeValue);
+
+    /// <summary>Stores a frame-presentation mode and reads it back.</summary>
+    /// <param name="mode">Intel's gaming-flip flag value.</param>
+    /// <returns><see langword="true"/> when the stored value is the requested one.</returns>
+    /// <remarks>
+    /// Only the setting is verified. Whether the driver picks it up without a restart is not
+    /// established, which is why the capability says so rather than implying an immediate effect.
+    /// </remarks>
+    public bool TryWriteFlipMode(uint mode)
+    {
+        if (_adapterPath is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            using RegistryKey? adapter = _root.OpenSubKey(_adapterPath, writable: true);
+            using RegistryKey? settings = adapter?.CreateSubKey(ThreeDSubkey, writable: true);
+            if (settings is null)
+            {
+                PluginTrace.Warn("intel-3d", "The driver's 3D settings key is not writable.");
+                return false;
+            }
+
+            settings.SetValue(FlipModeValue, unchecked((int)mode), RegistryValueKind.DWord);
+            bool applied = ReadThreeDValue(FlipModeValue) == mode;
+            PluginTrace.Info(
+                "intel-3d",
+                applied
+                    ? $"Frame presentation mode set to 0x{mode:x}."
+                    : $"Frame presentation mode did not read back as 0x{mode:x}.");
+            return applied;
+        }
+        catch (Exception error) when (IsRegistryFailure(error))
+        {
+            PluginTrace.Warn("intel-3d", $"Writing the frame presentation mode failed: {error.Message}");
+            return false;
+        }
+    }
+
+    private uint? ReadThreeDValue(string name)
+    {
+        if (_adapterPath is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using RegistryKey? adapter = _root.OpenSubKey(_adapterPath);
+            using RegistryKey? settings = adapter?.OpenSubKey(ThreeDSubkey);
+            return settings?.GetValue(name) is int stored ? unchecked((uint)stored) : null;
+        }
+        catch (Exception error) when (IsRegistryFailure(error))
+        {
+            PluginTrace.Warn("intel-3d", $"Reading {name} failed: {error.Message}");
+            return null;
         }
     }
 

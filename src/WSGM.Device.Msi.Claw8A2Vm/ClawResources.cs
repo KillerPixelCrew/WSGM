@@ -1411,6 +1411,22 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
     /// <returns>The stored percentage and the size the driver reports, or null when unreadable.</returns>
     public IntelGraphicsMemoryState? ReadSharedGpuMemory() => _sharedMemory.Read();
 
+    /// <summary>The frame-presentation modes this driver offers, or null when it says nothing.</summary>
+    /// <remarks>
+    /// Asked of IGCL, which answers this honestly even though it will not report or change the
+    /// current one. The value itself lives in the driver's own settings store.
+    /// </remarks>
+    public uint? ReadSupportedFlipModes() => _endurance.ReadSupportedFlipModes();
+
+    /// <summary>Reads the driver's stored frame-presentation mode.</summary>
+    /// <returns>Intel's gaming-flip flag value, or null when none is stored.</returns>
+    public uint? ReadFlipMode() => _sharedMemory.ReadFlipMode();
+
+    /// <summary>Stores a frame-presentation mode, verifying the stored value.</summary>
+    /// <param name="mode">Intel's gaming-flip flag value.</param>
+    /// <returns><see langword="true"/> when the driver stores the requested value.</returns>
+    public bool TryWriteFlipMode(uint mode) => _sharedMemory.TryWriteFlipMode(mode);
+
     /// <summary>Sets the share of system memory the integrated GPU may use.</summary>
     /// <param name="percent">The requested percentage, within the offered range.</param>
     /// <returns><see langword="true"/> when the driver stores the requested value.</returns>
