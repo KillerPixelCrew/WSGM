@@ -1137,6 +1137,44 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                     },
                 ]
                 : (IReadOnlyList<CapabilityDescriptor>)[],
+            .. _arcSync?.IsEnduranceGamingAvailable == true
+                ? [
+                    // Published only when the driver answered for the feature, for the same reason
+                    // variable refresh is: a row that always refuses is worse than no row. Also
+                    // device-persistent — the driver keeps this across a WSGM restart, and the
+                    // Restore path only puts back what it captured at acquire.
+                    ChoiceDescriptor(
+                        CapabilityIds.EnduranceGaming,
+                        CapabilityRole.GenericChoice,
+                        DisplayKey.Custom,
+                        ["off", "on", "auto"],
+                        writable: true,
+                        section: SectionIds.Power) with
+                    {
+                        Display = new CapabilityDisplay
+                        {
+                            Key = DisplayKey.Custom,
+                            CustomLabel = "Endurance Gaming",
+                        },
+                        Persistence = CapabilityPersistence.DevicePersistent,
+                    },
+                    ChoiceDescriptor(
+                        CapabilityIds.EnduranceGamingMode,
+                        CapabilityRole.GenericChoice,
+                        DisplayKey.Custom,
+                        ["performance", "balanced", "battery"],
+                        writable: true,
+                        section: SectionIds.Power) with
+                    {
+                        Display = new CapabilityDisplay
+                        {
+                            Key = DisplayKey.Custom,
+                            CustomLabel = "Endurance Gaming target",
+                        },
+                        Persistence = CapabilityPersistence.DevicePersistent,
+                    },
+                ]
+                : (IReadOnlyList<CapabilityDescriptor>)[],
         ];
 
         EnsureUniqueCapabilityKeys(descriptors);
@@ -1318,6 +1356,8 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                 },
                 cancellationToken),
             CapabilityIds.VariableRefreshRate => ApplyVariableRefreshCommand(command),
+            CapabilityIds.EnduranceGaming or CapabilityIds.EnduranceGamingMode =>
+                ApplyEnduranceGamingCommand(command),
             _ => ReadOnlyHandler(command, cancellationToken),
         };
     }
@@ -1358,6 +1398,64 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         });
     }
 
+    /// <remarks>
+    /// The driver holds control and target together, so either row's write has to carry the other's
+    /// current value rather than a remembered one. Not journalled, for the same reason variable
+    /// refresh is not: nothing was written into firmware, and Restore puts back what was captured
+    /// when the cycle started.
+    /// </remarks>
+    private ValueTask<CapabilityCommandResult> ApplyEnduranceGamingCommand(CapabilityCommand command)
+    {
+        if (_arcSync is not { IsEnduranceGamingAvailable: true } display
+            || display.ReadEnduranceGaming() is not { } current)
+        {
+            return ValueTask.FromResult(Rejected(
+                command,
+                CapabilityReasonCode.Unsupported,
+                "The graphics driver does not offer Endurance Gaming on this device."));
+        }
+
+        string requested = command.RequestedValue!.ChoiceValue!;
+        EnduranceGamingControl control = current.Control;
+        EnduranceGamingMode mode = current.Mode;
+        if (command.CapabilityId == CapabilityIds.EnduranceGaming)
+        {
+            control = requested switch
+            {
+                "on" => EnduranceGamingControl.On,
+                "auto" => EnduranceGamingControl.Auto,
+                _ => EnduranceGamingControl.Off,
+            };
+        }
+        else
+        {
+            mode = requested switch
+            {
+                "balanced" => EnduranceGamingMode.Balanced,
+                "battery" => EnduranceGamingMode.Battery,
+                _ => EnduranceGamingMode.Performance,
+            };
+        }
+
+        if (!display.TryWriteEnduranceGaming(control, mode))
+        {
+            return ValueTask.FromResult(Rejected(
+                command,
+                CapabilityReasonCode.TransportFaulted,
+                $"The graphics driver did not apply Endurance Gaming {control}/{mode}."));
+        }
+
+        // Verified rather than unverified: the transport reports success only after reading both
+        // fields back and finding them equal to what was asked for.
+        return ValueTask.FromResult(new CapabilityCommandResult
+        {
+            CommandId = command.CommandId,
+            Outcome = CommandOutcome.AppliedVerified,
+            ReadbackValue = Choice(requested),
+            CompletedAt = DateTimeOffset.UtcNow,
+        });
+    }
+
     private ValueTask<CapabilityCommandResult> ApplyFanCurveCommandAsync(
         CapabilityCommand command,
         ClawA2VmFanCapability fans,
@@ -1385,7 +1483,9 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         CapabilityIds.LightingBrightness or CapabilityIds.LightingColor => _lighting,
         CapabilityIds.Controller or CapabilityIds.Rumble => _controller,
         CapabilityIds.Motion => _motion,
-        CapabilityIds.VariableRefreshRate => _arcSync,
+        CapabilityIds.VariableRefreshRate
+            or CapabilityIds.EnduranceGaming
+            or CapabilityIds.EnduranceGamingMode => _arcSync,
         _ => null,
     };
 
@@ -1395,7 +1495,10 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             or CapabilityIds.Controller or CapabilityIds.Rumble => FirmwareKind.Mcu,
         // Driven by the GPU driver, not by MSI firmware, so there is no firmware revision to gate
         // it on and gating it on the WMI one would refuse it whenever that path is degraded.
-        CapabilityIds.Motion or CapabilityIds.VariableRefreshRate => FirmwareKind.None,
+        CapabilityIds.Motion
+            or CapabilityIds.VariableRefreshRate
+            or CapabilityIds.EnduranceGaming
+            or CapabilityIds.EnduranceGamingMode => FirmwareKind.None,
         _ => FirmwareKind.Wmi,
     };
 
@@ -1884,6 +1987,30 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             // said all of this; it took a missing row to make anyone read it.
             ArcSyncState? state = _arcSync?.Read();
             return state is { Supported: true } observed ? Boolean(observed.Enabled) : null;
+        }
+
+        if (descriptor.CapabilityId == CapabilityIds.EnduranceGaming)
+        {
+            return _arcSync?.ReadEnduranceGaming() is { } endurance
+                ? Choice(endurance.Control switch
+                {
+                    EnduranceGamingControl.On => "on",
+                    EnduranceGamingControl.Auto => "auto",
+                    _ => "off",
+                })
+                : null;
+        }
+
+        if (descriptor.CapabilityId == CapabilityIds.EnduranceGamingMode)
+        {
+            return _arcSync?.ReadEnduranceGaming() is { } target
+                ? Choice(target.Mode switch
+                {
+                    EnduranceGamingMode.Balanced => "balanced",
+                    EnduranceGamingMode.Battery => "battery",
+                    _ => "performance",
+                })
+                : null;
         }
 
         return Choice(OwnershipOf(

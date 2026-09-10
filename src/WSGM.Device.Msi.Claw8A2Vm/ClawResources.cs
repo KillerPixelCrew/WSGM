@@ -1329,6 +1329,12 @@ internal sealed class ChordSuppressorService(
 internal sealed class DisplayService : ClawServiceStatus, IDisposable
 {
     private readonly ArcSyncTransport _arcSync = new();
+
+    // The second thing this device's GPU driver owns, reached through the same library. It lives
+    // beside variable refresh for the reason the service exists at all: neither has a firmware
+    // identity to verify, and both have to be restorable when every WMI and MCU path failed.
+    private readonly EnduranceGamingTransport _endurance = new();
+    private EnduranceGamingState? _enduranceOnAcquire;
     private bool _disposed;
 
     /// <summary>Creates the service without touching the driver.</summary>
@@ -1346,11 +1352,33 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
     {
         bool available = _arcSync.TryOpen();
 
+        // Independent of variable refresh: a driver can answer for one and not the other, and a
+        // panel without variable refresh must not cost the device its Endurance Gaming row.
+        if (_endurance.TryOpen())
+        {
+            _enduranceOnAcquire = _endurance.Read();
+            available = true;
+        }
+
         // Passive rather than Faulted when no capable panel answered: nothing went wrong, the
         // device simply does not have the feature, and Faulted would report a defect that is not one.
         State = available ? ClawServiceState.Owned : ClawServiceState.Passive;
         return available;
     }
+
+    /// <summary>Whether the driver answers for Endurance Gaming on this machine.</summary>
+    public bool IsEnduranceGamingAvailable => _enduranceOnAcquire is not null;
+
+    /// <summary>Reads the current Endurance Gaming state, or null when it cannot be read.</summary>
+    /// <returns>The driver's current control and mode.</returns>
+    public EnduranceGamingState? ReadEnduranceGaming() => _endurance.Read();
+
+    /// <summary>Applies an Endurance Gaming control and mode, verifying the result.</summary>
+    /// <param name="control">Whether it should be off, on, or left to the driver.</param>
+    /// <param name="mode">The frame target it should hold to.</param>
+    /// <returns><see langword="true"/> when the driver reports both back.</returns>
+    public bool TryWriteEnduranceGaming(EnduranceGamingControl control, EnduranceGamingMode mode)
+        => _endurance.TryWrite(control, mode);
 
     /// <summary>Reads the current state, or null when it cannot be read.</summary>
     /// <returns>The panel's variable-refresh state.</returns>
@@ -1363,7 +1391,22 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
 
     /// <summary>Restores the profile captured when the cycle started.</summary>
     /// <returns><see langword="true"/> when nothing was left changed.</returns>
-    public bool Restore() => _arcSync.TryRestore();
+    public bool Restore()
+    {
+        bool restored = _arcSync.TryRestore();
+
+        // Only what was captured at acquire, and only when it actually moved. Writing the driver's
+        // state back over itself on every make-safe would be a device write nobody asked for.
+        if (_enduranceOnAcquire is { } captured
+            && ReadEnduranceGaming() is { } current
+            && current != captured
+            && !TryWriteEnduranceGaming(captured.Control, captured.Mode))
+        {
+            restored = false;
+        }
+
+        return restored;
+    }
 
     /// <inheritdoc />
     public void Dispose()
@@ -1375,6 +1418,7 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
 
         _disposed = true;
         _arcSync.Dispose();
+        _endurance.Dispose();
         State = ClawServiceState.Idle;
     }
 }

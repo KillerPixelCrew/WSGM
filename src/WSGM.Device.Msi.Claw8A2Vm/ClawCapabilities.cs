@@ -1073,6 +1073,12 @@ internal static class CapabilityIds
     public const string Motion = "motion.source";
     public const string Rumble = "haptic.rumble";
     public const string VariableRefreshRate = "display.variable-refresh";
+
+    /// <summary>Whether Intel Endurance Gaming engages: off, on, or left to the driver.</summary>
+    public const string EnduranceGaming = "display.endurance-gaming";
+
+    /// <summary>The frame target Endurance Gaming holds to while engaged.</summary>
+    public const string EnduranceGamingMode = "display.endurance-gaming-mode";
 }
 
 internal static class CapabilityInstances
