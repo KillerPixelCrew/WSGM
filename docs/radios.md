@@ -25,14 +25,14 @@ non-empty container GUID into the logical collection shared by Overlay and Steam
 identity falls back to endpoint identity; friendly names never establish identity. A logical row
 retains its member endpoint IDs, a paired operation endpoint and a pairable endpoint. Pair/unpair
 use those Windows IDs, while UI actions identify the logical row. Removing one transport cannot
-disconnect a sibling transport; rescans retire unseen unpaired endpoints and retain paired ones
-as offline. Watcher generations reject queued callbacks from a retired discovery session.
+disconnect a sibling transport; rescans retire unseen unpaired endpoints and retain paired ones as
+offline. Watcher generations reject queued callbacks from a retired discovery session.
 
 Steam Pair opens the shared radio panel before starting Windows pairing, so PIN and confirmation
 questions have a visible owner. Busy state is published to Steam's operation spinner. Cancel rejects
-the active ceremony; it does not stop discovery or claim that Windows has already finished.
-Steam and panel discovery requests are independent, and active pairing retains discovery.
-Audio Connect/Disconnect dispatch once and poll endpoint readback for confirmation. Timeout and
+the active ceremony; it does not stop discovery or claim that Windows has already finished. Steam
+and panel discovery requests are independent, and active pairing retains discovery. Audio
+Connect/Disconnect dispatch once and poll endpoint readback for confirmation. Timeout and
 unsupported non-audio connection actions report a visible panel error; no optimistic connected state
 or automatic write retry is used. Steam transport replies preserve backend failures.
 

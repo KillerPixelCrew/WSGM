@@ -67,8 +67,8 @@ device contract/host use `wsgm-device-sdk`; for hardware discovery use `wsgm-dev
   snapshots only to the still-current owner, and reconcile bound collections in place when focus or
   item identity matters.
 - Treat Device Integration off as a real architecture mode: the session coordinator/owner marker
-  still exist, but there is no Device plugin lifecycle, controller target, Device hardware write, or AutoTDP;
-  independent WSGM, explicitly enabled common plugins and RTSS behavior remains usable.
+  still exist, but there is no Device plugin lifecycle, controller target, Device hardware write, or
+  AutoTDP; independent WSGM, explicitly enabled common plugins and RTSS behavior remains usable.
 - Serialize capability or other persistent writes. Surface uncertainty and reconcile/read back;
   never blindly retry an operation that might already have succeeded.
 - Avoid allocation and logging at controller, sensor, frametime, or telemetry cadence. Log decisions

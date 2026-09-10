@@ -22,19 +22,20 @@ than copied GPL source.
 ## Windows power schemes
 
 Windows Device Control owns power actions, source/battery queries, scheme/mode APIs, wake requests,
-request-list decoding, wake sign-in policy and native notification registration. WSGM owns user intent,
-policy serialization, logging, window message dispatch and persisted recovery snapshots. Lifecycle
-requests do not block the UI; successful shutdown dispatch is not a claim that shutdown completed.
-Wake-policy capture must succeed before any mutation. Restoration failures retain the saved snapshot.
+request-list decoding, wake sign-in policy and native notification registration. WSGM owns user
+intent, policy serialization, logging, window message dispatch and persisted recovery snapshots.
+Lifecycle requests do not block the UI; successful shutdown dispatch is not a claim that shutdown
+completed. Wake-policy capture must succeed before any mutation. Restoration failures retain the
+saved snapshot.
 
 Disabling Device Integration releases plugin-only pages. Shared Power stays open, keeping the
 Windows power-profile picker reachable.
 
 The Core policy in `PowerSchemes` consumes Windows Device Control's `WindowsPower` API for installed
-schemes and the active GUID. The library owns `powrprof`, native buffers, policy values and power-mode
-overlays. GUIDs identify schemes; localized friendly names are display text only. An empty name
-falls back to the GUID. Enumeration failures are surfaced rather than returning a partial list. The
-existing idle-timeout controls share its active-scheme reader.
+schemes and the active GUID. The library owns `powrprof`, native buffers, policy values and
+power-mode overlays. GUIDs identify schemes; localized friendly names are display text only. An
+empty name falls back to the GUID. Enumeration failures are surfaced rather than returning a partial
+list. The existing idle-timeout controls share its active-scheme reader.
 
 A manual selection calls `PowerSetActiveScheme` once, then verifies the GUID with
 `PowerGetActiveScheme`. A failed write, failed readback or different active GUID is not success and
@@ -241,14 +242,14 @@ These are the remote test surface; keep their shape.
 ## Keep-awake wake lock
 
 `Core\WakeLock.cs` adapts Windows Device Control's `WindowsPowerRequest`, which owns the native
-handle and reason buffer. A system request blocks standby while held. The display still times out, but Wi-Fi
-and Steam keep running, which is what lets downloads survive "screen off" on a Modern Standby
-handheld. Downloads during real Modern Standby sleep are impossible for a Win32 application (DAM
-suspends every desktop process, no opt-out), so keep-awake is the whole feature — the same model as
-SteamOS "Display-Off Downloads". Windows limits it: indefinite on AC; on battery the request is
-force-terminated about 5 min after the sleep timeout expires; the power button always wins. Verified
-on the Claw, 2026-08-12, including the download hold across screen-off, the manual cycle, the
-indicator and the idle-timeout rows.
+handle and reason buffer. A system request blocks standby while held. The display still times out,
+but Wi-Fi and Steam keep running, which is what lets downloads survive "screen off" on a Modern
+Standby handheld. Downloads during real Modern Standby sleep are impossible for a Win32 application
+(DAM suspends every desktop process, no opt-out), so keep-awake is the whole feature — the same
+model as SteamOS "Display-Off Downloads". Windows limits it: indefinite on AC; on battery the
+request is force-terminated about 5 min after the sleep timeout expires; the power button always
+wins. Verified on the Claw, 2026-08-12, including the download hold across screen-off, the manual
+cycle, the indicator and the idle-timeout rows.
 
 There are two independent holds, each its own request so `powercfg /requests` attributes them.
 
@@ -287,18 +288,20 @@ second line. Unlike the summary it does not hide WSGM's own request: the list mu
 answer. An unelevated read shows "couldn't read", never an empty all-clear. It is the first sub-view
 belonging to the Power tab rather than Tools, so leaving it restores `PanelPower`.
 
-Windows Device Control's `PowerRequestList` calls the undocumented `NtPowerInformation(GetPowerRequestList = 45)`
-on ntdll directly, because the documented wrapper rejects the class; it needs elevation, and denied
-yields grey. The version-dependent layout is decoded by bounds-checked readers ported from
-WakeWatch's `power.rs` (MIT, same author). Any structural surprise yields grey, never a false
-all-clear. The list is polled at 1.5 s only while the panel is open.
+Windows Device Control's `PowerRequestList` calls the undocumented
+`NtPowerInformation(GetPowerRequestList = 45)` on ntdll directly, because the documented wrapper
+rejects the class; it needs elevation, and denied yields grey. The version-dependent layout is
+decoded by bounds-checked readers ported from WakeWatch's `power.rs` (MIT, same author). Any
+structural surprise yields grey, never a false all-clear. The list is polled at 1.5 s only while the
+panel is open.
 
 ### Idle-timeout rows
 
 Four rows (screen-off and standby, each for battery and plugged-in) cycle presets of 1, 3, 5, 10,
-15, 30, 60 min and never through `Core\PowerTimeouts.cs`, using Windows Device Control's policy-value API.
-Parsing `powercfg /q` was rejected: its output is localized, the same trap as netstat. The rows are
-a convenience over the active scheme, deliberately not snapshotted or restored.
+15, 30, 60 min and never through `Core\PowerTimeouts.cs`, using Windows Device Control's
+policy-value API. Parsing `powercfg /q` was rejected: its output is localized, the same trap as
+netstat. The rows are a convenience over the active scheme, deliberately not snapshotted or
+restored.
 
 ### Log lines
 

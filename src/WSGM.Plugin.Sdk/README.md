@@ -1,44 +1,47 @@
 # WSGM Plugin SDK
 
-The MIT-licensed common contracts for independent WSGM integrations: identity, open category strings,
-host-owned slot policy, strict manifests, resident lifecycle, configuration and state publications.
-It has no Device SDK, UI or Windows Device Control dependency.
+The MIT-licensed common contracts for independent WSGM integrations: identity, open category
+strings, host-owned slot policy, strict manifests, resident lifecycle, configuration and state
+publications. It has no Device SDK, UI or Windows Device Control dependency.
 
-The existing Device SDK and device runtime remain operational. A compatibility adapter in WSGM
-maps the common lifecycle onto that runtime through the resident Shell host. Configuration and state
+The existing Device SDK and device runtime remain operational. A compatibility adapter in WSGM maps
+the common lifecycle onto that runtime through the resident Shell host. Configuration and state
 events use separate revision/origin contracts. Named actions and declarative UI links are validated
-by the host. A collectible non-device fixture validates common loading and the complete contract path.
-Installed discovery and explicit per-instance activation are hosted independently of Device Integration.
-Settings exposes activation, and Overlay Tools renders declared status/action/toggle/slider controls.
-`eng/new-plugin.ps1` creates a common project; `eng/package-plugin.ps1` builds a create-new archive.
-See `docs/plugin-system.md` for installation, explicit update/reload and provider fixture guidance.
+by the host. A collectible non-device fixture validates common loading and the complete contract
+path. Installed discovery and explicit per-instance activation are hosted independently of Device
+Integration. Settings exposes activation, and Overlay Tools renders declared
+status/action/toggle/slider controls. `eng/new-plugin.ps1` creates a common project;
+`eng/package-plugin.ps1` builds a create-new archive. See `docs/plugin-system.md` for installation,
+explicit update/reload and provider fixture guidance.
 
 Device is the selected `wsgm.device` category with zero or one active instance. Other categories are
 open strings, and the host decides multiplicity. A desktop with no Device Plugin remains valid.
 Manifest permissions declare requirements; they do not grant privileges or sandbox in-process code.
 
-`IPlugin` starts with a host-owned instance/generation context, receives Desktop/Game and suspend/resume transitions,
-then stops and disposes. Timeout is not proof that work stopped. A failed stop must not be reported
-as released, and publications from retired generations must be discarded by the host.
+`IPlugin` starts with a host-owned instance/generation context, receives Desktop/Game and
+suspend/resume transitions, then stops and disposes. Timeout is not proof that work stopped. A
+failed stop must not be reported as released, and publications from retired generations must be
+discarded by the host.
 
 `PluginManifestReader` accepts bounded camel-case JSON, rejects unknown members, checks common API
 compatibility and numeric dependency ranges, and admits only a DLL filename at the package root.
 Actual dependency resolution, trust, filesystem containment and code loading belong to the host.
 
 `IConfigurablePlugin` declares preferences and confirms host-owned requested revisions. WSGM saves
-only explicit edits before dispatch; initialization defaults and failed delivery cannot replace them.
-`IPluginHost.PublishState` publishes effective observations with generation, sequence and origin.
-It never changes saved preferences. Boolean, finite numeric and bounded text primitives are shared
-through `PluginValue`; schema validation is available in `PluginConfigurationRules`.
+only explicit edits before dispatch; initialization defaults and failed delivery cannot replace
+them. `IPluginHost.PublishState` publishes effective observations with generation, sequence and
+origin. It never changes saved preferences. Boolean, finite numeric and bounded text primitives are
+shared through `PluginValue`; schema validation is available in `PluginConfigurationRules`.
 
-`IPluginActions` declares named operations for UI and Core automation. Results distinguish dispatched
-commands, independently verified effects, rejection and uncertain outcomes. `IPluginUi` links bounded
-action forms to those declarations; text/numeric arguments can be edited through the host's controller
-keyboard before explicit dispatch. Defaults initialize the draft and are not automatic commands.
-Other host-rendered controls link actions and effective state keys. No plugin UI code is
-injected, and action results cannot mutate saved preferences.
+`IPluginActions` declares named operations for UI and Core automation. Results distinguish
+dispatched commands, independently verified effects, rejection and uncertain outcomes. `IPluginUi`
+links bounded action forms to those declarations; text/numeric arguments can be edited through the
+host's controller keyboard before explicit dispatch. Defaults initialize the draft and are not
+automatic commands. Other host-rendered controls link actions and effective state keys. No plugin UI
+code is injected, and action results cannot mutate saved preferences.
 
 IPluginUi.Widgets optionally declares up to 32 compact PluginWidget groups. Each stable widget ID
-references one to eight existing contribution IDs. Optional icon, secondary state, boolean visibility
-and enabled keys, and an owning navigation category remain data; no plugin UI code is loaded.
-The host combines widget IDs with plugin instance identity and captures immutable declarations.
+references one to eight existing contribution IDs. Optional icon, secondary state, boolean
+visibility and enabled keys, and an owning navigation category remain data; no plugin UI code is
+loaded. The host combines widget IDs with plugin instance identity and captures immutable
+declarations.

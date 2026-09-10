@@ -207,33 +207,33 @@ surface opens are suppressed until released, and forwarding resumes only on the 
 which every control the UI used is up, so the press that opened or closed a surface never arrives in
 the game as a fresh input.
 
-The controller manager also provides a temporary Steam capture and ownership pause for #65.
-Capture neutralizes the existing target and suppresses both game forwarding and WSGM UI delivery.
-An ownership pause retains that target across physical identity publications; restoration requires
-a newer source generation and verified HidHide activation. Full make-safe clears the pause so a
-later controller start can proceed. OEM Steam Quick Access and Overlay actions invoke this path
-while managed ownership is active. Replay targets one exact game overlay, or the visible main
-window when no game overlay is registered; multiple game overlays are refused.
-`SteamControllerHandoff` supplies the session-lifetime policy:
-one admitted replay, observation across surface switches and CEF reloads, and one restoration after
-verified closure or Steam exit. Unknown state cannot expire into assumed closure. Unverified writes
-require recovery instead of retry; session shutdown leaves hardware release to full make-safe.
-`DeviceCoordinator` serializes physical release and restoration with its existing lifecycle gate;
-restoration consumes the saved runtime once and waits for its fresh physical publication. Stale
-publications cannot replace the newer controller generation. The native adapter grants pass-through
-after visibility cleanup, then holds a temporary block while physical ownership and HidHide return.
-If suspend, disable or runtime replacement retires the saved owner, the interaction stops and drops
-its native claims without reacquiring hardware. Owner changes during restoration are distinguished
-from unverified writes, so they cannot strand a temporary block. The same ownership check runs
-before semantic replay to reject a request overtaken by teardown.
-After surface closure, disconnected physical interfaces delay restoration while Steam access remains
-enabled and the virtual target stays neutral. The host checks the exact instance IDs from verified
-release in the currently configured device tree, without phantom lookup. This is a read-only wait;
-hardware acquisition runs once after presence returns. Owner retirement and shutdown cancel the wait.
-The plugin still revalidates topology and firmware before its write, and uncertain writes are not retried.
-Lease-only OEM handoffs use the same native claims without device writes and suspend WSGM SDL readers.
-End-to-end hardware verification remains deferred to field review. Main-window semantic replay
-has live CEF evidence; game-overlay dispatch has deterministic identity/refusal tests only.
+The controller manager also provides a temporary Steam capture and ownership pause for #65. Capture
+neutralizes the existing target and suppresses both game forwarding and WSGM UI delivery. An
+ownership pause retains that target across physical identity publications; restoration requires a
+newer source generation and verified HidHide activation. Full make-safe clears the pause so a later
+controller start can proceed. OEM Steam Quick Access and Overlay actions invoke this path while
+managed ownership is active. Replay targets one exact game overlay, or the visible main window when
+no game overlay is registered; multiple game overlays are refused. `SteamControllerHandoff` supplies
+the session-lifetime policy: one admitted replay, observation across surface switches and CEF
+reloads, and one restoration after verified closure or Steam exit. Unknown state cannot expire into
+assumed closure. Unverified writes require recovery instead of retry; session shutdown leaves
+hardware release to full make-safe. `DeviceCoordinator` serializes physical release and restoration
+with its existing lifecycle gate; restoration consumes the saved runtime once and waits for its
+fresh physical publication. Stale publications cannot replace the newer controller generation. The
+native adapter grants pass-through after visibility cleanup, then holds a temporary block while
+physical ownership and HidHide return. If suspend, disable or runtime replacement retires the saved
+owner, the interaction stops and drops its native claims without reacquiring hardware. Owner changes
+during restoration are distinguished from unverified writes, so they cannot strand a temporary
+block. The same ownership check runs before semantic replay to reject a request overtaken by
+teardown. After surface closure, disconnected physical interfaces delay restoration while Steam
+access remains enabled and the virtual target stays neutral. The host checks the exact instance IDs
+from verified release in the currently configured device tree, without phantom lookup. This is a
+read-only wait; hardware acquisition runs once after presence returns. Owner retirement and shutdown
+cancel the wait. The plugin still revalidates topology and firmware before its write, and uncertain
+writes are not retried. Lease-only OEM handoffs use the same native claims without device writes and
+suspend WSGM SDL readers. End-to-end hardware verification remains deferred to field review.
+Main-window semantic replay has live CEF evidence; game-overlay dispatch has deterministic
+identity/refusal tests only.
 
 ### Make-safe removes the target after the physical release and HidHide entries after the target
 

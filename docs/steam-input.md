@@ -25,15 +25,15 @@ after the last one closes. It is an open named-pipe connection, so Windows drops
 crash. A normal release asks Steam to rediscover its controllers.
 
 Per-game wrappers must also remove Steam's inherited `SDL_GAMECONTROLLER_IGNORE_DEVICES` from the
-controlled child's environment. On 2026-09-08, Eden launched through the wrapper inherited an exclusion
-containing VIIPER's `28de:1205` identity. With the lease active, Controlify's bundled SDL 3.2.18
-enumerated zero gamepads with that exclusion and one Steam Deck without it. The game loaded the real
-System32 XInput library; the gate remained inside Steam. The native wrapper and WSGM's de-elevated
-payload strip the exclusion, including de-elevation without a lease and lease-failure fallback.
-Other SDL hints and Steam app/overlay
-variables are preserved. See `elevation.md` for launch and fail-open behavior. After redeploying
-only the lease client DLL and WSGM.Launch payload, the maintainer confirmed that Eden launched
-through the existing wrapper detected the controller again on 2026-09-08.
+controlled child's environment. On 2026-09-08, Eden launched through the wrapper inherited an
+exclusion containing VIIPER's `28de:1205` identity. With the lease active, Controlify's bundled SDL
+3.2.18 enumerated zero gamepads with that exclusion and one Steam Deck without it. The game loaded
+the real System32 XInput library; the gate remained inside Steam. The native wrapper and WSGM's
+de-elevated payload strip the exclusion, including de-elevation without a lease and lease-failure
+fallback. Other SDL hints and Steam app/overlay variables are preserved. See `elevation.md` for
+launch and fail-open behavior. After redeploying only the lease client DLL and WSGM.Launch payload,
+the maintainer confirmed that Eden launched through the existing wrapper detected the controller
+again on 2026-09-08.
 
 ## How it is delivered
 
@@ -123,41 +123,41 @@ which descriptor was used.
 ## Temporary Steam controller ownership
 
 The resident session's managed-controller OEM Quick Access and Overlay paths use a native
-pass-through claim. The claim preserves existing game and UI block leases. WSGM first
-neutralizes its virtual target, verifies physical release and removes its own HidHide deltas, then
-grants Steam access and invokes Steam's native semantic button handler on the exact observed window
-and CEF generation. One registered game overlay takes precedence over the main window; ambiguous
-game targets are refused. Surface observations govern restoration.
+pass-through claim. The claim preserves existing game and UI block leases. WSGM first neutralizes
+its virtual target, verifies physical release and removes its own HidHide deltas, then grants Steam
+access and invokes Steam's native semantic button handler on the exact observed window and CEF
+generation. One registered game overlay takes precedence over the main window; ambiguous game
+targets are refused. Surface observations govern restoration.
 
 Restoration takes a temporary block claim before ending pass-through, reacquires physical ownership
 and restores HidHide, then drops that temporary claim. A separate pass-through owner or unverified
 write prevents physical reacquisition; shutdown disposes the native claims and runs full device
 make-safe. A confirmed Steam exit permits physical restoration without an acknowledgement from its
 dead pipe. The native adapter retains an open handle to the original Steam process, so a quick
-restart missed by the five-second monitor cannot extend the old interaction. Restoration blocks
-the replacement Steam client before discarding the dead claim and reacquiring physical ownership.
-Device owner retirement also ends the interaction. Suspend, disable and runtime replacement discard
-the old native claims without acquiring a replacement controller; unverified physical restoration
-still requires recovery rather than an automatic retry.
-When released controller interfaces disconnect, restoration waits for their exact instance IDs to
-return before taking a native block or reacquiring hardware. Device retirement or shutdown ends the
-read-only wait. Lease-only OEM handoffs use the same native claims without physical device writes.
-WSGM closes its SDL readers during Steam ownership and waits for neutral input after reopening them.
-End-to-end hardware verification remains deferred to field review.
+restart missed by the five-second monitor cannot extend the old interaction. Restoration blocks the
+replacement Steam client before discarding the dead claim and reacquiring physical ownership. Device
+owner retirement also ends the interaction. Suspend, disable and runtime replacement discard the old
+native claims without acquiring a replacement controller; unverified physical restoration still
+requires recovery rather than an automatic retry. When released controller interfaces disconnect,
+restoration waits for their exact instance IDs to return before taking a native block or reacquiring
+hardware. Device retirement or shutdown ends the read-only wait. Lease-only OEM handoffs use the
+same native claims without physical device writes. WSGM closes its SDL readers during Steam
+ownership and waits for neutral input after reopening them. End-to-end hardware verification remains
+deferred to field review.
 
 ## Owner claims and the Settings handoff
 
-The Overlay keyboard action and OEM keyboard assignment route by session mode. Game Mode invokes
-the toolkit's native Keyboard action through the same temporary ownership coordinator. The sheet
-closes before invocation, restoring application focus and releasing its own claim. Keyboard visibility
+The Overlay keyboard action and OEM keyboard assignment route by session mode. Game Mode invokes the
+toolkit's native Keyboard action through the same temporary ownership coordinator. The sheet closes
+before invocation, restoring application focus and releasing its own claim. Keyboard visibility
 joins menu and overlay state in the closure check; unavailable state never proves closure. Desktop
 uses the existing Windows touch-keyboard operation.
 
 Overlay > Tools exposes Release to Steam and Reacquire for WSGM with the current ownership state.
 Manual release adopts an active temporary handoff or starts the same release path. It suppresses
 surface-close and Steam-exit reacquisition until an explicit reacquire request. Native surface
-requests can still replay while manually released, without another physical release. Shutdown
-uses session make-safe; it does not reacquire hardware. Failed transitions allow an explicit recovery
+requests can still replay while manually released, without another physical release. Shutdown uses
+session make-safe; it does not reacquire hardware. Failed transitions allow an explicit recovery
 request through the same adapter, without automatic retries. These controls do not alter unrelated
 HidHide entries or create a separate device ownership path.
 

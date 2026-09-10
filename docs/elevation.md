@@ -80,12 +80,12 @@ The elevated wrapper stays alive for the target's lifetime, preserves Steam's ar
 directory, and stops the target tree if Steam terminates the wrapper. Do not replace it with a
 fire-and-forget scheduled task or an Explorer-token shortcut.
 
-Every controlled child environment omits `SDL_GAMECONTROLLER_IGNORE_DEVICES`. Steam
-sets this variable to exclude direct controllers from SDL while Steam Input supplies input. That
-exclusion can also suppress WSGM's VIIPER virtual pad independently of lease success. Both the native
-wrapped launch and the de-elevated payload remove the variable case-insensitively, preserving the
-caller's environment, Steam app/overlay variables and other SDL hints. De-elevation without a lease
-and fallback after failed lease acquisition use the same sanitized child payload.
+Every controlled child environment omits `SDL_GAMECONTROLLER_IGNORE_DEVICES`. Steam sets this
+variable to exclude direct controllers from SDL while Steam Input supplies input. That exclusion can
+also suppress WSGM's VIIPER virtual pad independently of lease success. Both the native wrapped
+launch and the de-elevated payload remove the variable case-insensitively, preserving the caller's
+environment, Steam app/overlay variables and other SDL hints. De-elevation without a lease and
+fallback after failed lease acquisition use the same sanitized child payload.
 
 `launch.log` records whether `SDL_GAMECONTROLLER_IGNORE_DEVICES` was present, its child-environment
 disposition, and the target filename under the wrapper PID. It never records the variable value or

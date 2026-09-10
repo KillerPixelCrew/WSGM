@@ -620,17 +620,17 @@ notation; the findings behind that and the pre-start allowlist are in `device-in
 `DeviceOemActionRouter` maps a published control's press to one WSGM action from the closed
 `OemAction` vocabulary stored under `DeviceIntegration.Profiles[].OemAssignments`:
 
-| Action                                                    | Effect                                                                |
-| --------------------------------------------------------- | --------------------------------------------------------------------- |
-| `ToggleWsgmOverlay`                                       | Toggle the overlay.                                                   |
+| Action                                                    | Effect                                                                    |
+| --------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `ToggleWsgmOverlay`                                       | Toggle the overlay.                                                       |
 | `ToggleSteamQuickAccess`                                  | Replay Steam's native Quick Access button through the controller handoff. |
-| `ToggleSteamOverlay`                                      | Replay Steam's native Home/Overlay button through the same handoff. |
-| `ShowWsgmDevicePage`                                      | Open the overlay's Device page.                                       |
-| `ToggleWsgmTaskbar`                                       | Toggle the Open apps strip.                                           |
-| `ToggleDesktopGameMode`                                   | Enter Game Mode if Explorer runs, else Desktop Mode.                  |
-| `ToggleOnScreenKeyboard`                                  | Toggle the touch keyboard.                                            |
-| `CyclePerformanceProfile`, `CyclePerformanceOverlayLevel` | RTSS cycles.                                                          |
-| `VirtualTargetRearButton1`, `VirtualTargetRearButton2`    | Pulse a rear paddle on the target.                                    |
+| `ToggleSteamOverlay`                                      | Replay Steam's native Home/Overlay button through the same handoff.       |
+| `ShowWsgmDevicePage`                                      | Open the overlay's Device page.                                           |
+| `ToggleWsgmTaskbar`                                       | Toggle the Open apps strip.                                               |
+| `ToggleDesktopGameMode`                                   | Enter Game Mode if Explorer runs, else Desktop Mode.                      |
+| `ToggleOnScreenKeyboard`                                  | Toggle the touch keyboard.                                                |
+| `CyclePerformanceProfile`, `CyclePerformanceOverlayLevel` | RTSS cycles.                                                              |
+| `VirtualTargetRearButton1`, `VirtualTargetRearButton2`    | Pulse a rear paddle on the target.                                        |
 
 An unassigned control resolves to `Disabled`: WSGM claims no physical button by default, and the
 plugin exposes the front buttons to Steam as the target's own Guide and Quick Access buttons.
@@ -718,25 +718,28 @@ relinquish runtime control and clear the enabled setting; see `rtss.md` for the 
 
 `PairedPowerLimitId` opts a sustained descriptor into plugin-owned paired commands. AutoTDP sends
 `ApplyPowerPair` with captured cycle/descriptor generations and requires verified results. Both
-original limits are retained for release; readback after an uncertain result must be newer than
-that result before automatic control can continue. The Claw maps the target to equal PL1/PL2 values
-through its existing ordered-write and rollback implementation.
-Other plugins may publish different companion bounds and steps. The sustained descriptor's range
-defines coordinated targets; the plugin owns the mapping and confirms both limits. Host validation
-does not impose the Claw's equal-limit policy on other hardware.
+original limits are retained for release; readback after an uncertain result must be newer than that
+result before automatic control can continue. The Claw maps the target to equal PL1/PL2 values
+through its existing ordered-write and rollback implementation. Other plugins may publish different
+companion bounds and steps. The sustained descriptor's range defines coordinated targets; the plugin
+owns the mapping and confirms both limits. Host validation does not impose the Claw's equal-limit
+policy on other hardware.
 
 The manual TDP profile model retains unified target and advanced sustained/boost preferences
-separately in global and per-game performance configuration. A missing per-game record inherits
-the global record. These values are preferences rather than readback; RTSS profile edits preserve
-them. Saved unified targets restore through the paired command with captured generations and verified
-readback; profile-owned pair release also uses the coordinated path. Both surfaces expose the shared mode and retain readback. Split restoration validates the saved boost against
-its descriptor, applies the plugin's coordinated target and then restores the independent boost
-under one power-mutation gate. Both results must be verified; there is no retry after uncertainty.
-Manual sustained edits from Overlay and QAM now consult the same active profile in the coordinator
-to select paired dispatch. Verified independent boost edits save the advanced boost value and select
-split mode while retaining unified history. Manual sustained edits use the active mode
-to select paired dispatch. Saving a unified target preserves the stored advanced values, and saving
-an advanced sustained value preserves the unified target. Overlay Device now exposes an Advanced/split versus Unified selector. Selection persists only policy; a subsequent sustained-slider edit applies the coordinated target. QAM exposes the same mode toggle and one TDP slider in unified mode.
+separately in global and per-game performance configuration. A missing per-game record inherits the
+global record. These values are preferences rather than readback; RTSS profile edits preserve them.
+Saved unified targets restore through the paired command with captured generations and verified
+readback; profile-owned pair release also uses the coordinated path. Both surfaces expose the shared
+mode and retain readback. Split restoration validates the saved boost against its descriptor,
+applies the plugin's coordinated target and then restores the independent boost under one
+power-mutation gate. Both results must be verified; there is no retry after uncertainty. Manual
+sustained edits from Overlay and QAM now consult the same active profile in the coordinator to
+select paired dispatch. Verified independent boost edits save the advanced boost value and select
+split mode while retaining unified history. Manual sustained edits use the active mode to select
+paired dispatch. Saving a unified target preserves the stored advanced values, and saving an
+advanced sustained value preserves the unified target. Overlay Device now exposes an Advanced/split
+versus Unified selector. Selection persists only policy; a subsequent sustained-slider edit applies
+the coordinated target. QAM exposes the same mode toggle and one TDP slider in unified mode.
 
 ## 15. Glyphs
 
@@ -744,8 +747,8 @@ At cycle start the coordinator imports `glyphs\` through the SDK importer, logs
 `Device glyph catalog: package=…, profiles=…, rejected=…`, and stores the profiles in
 `PhysicalGlyphCatalog`. Selection follows the `GlyphSelection` setting: `Automatic` picks the
 ordinal-first profile whose `ExactDeviceIds` contain the matched definition; `NativeSteam` disables
-artwork overrides while Steam control hiding still uses the active package's automatic profile;
-a manual id that does not match falls back to automatic and reports it. Any fallback leaves Valve's
+artwork overrides while Steam control hiding still uses the active package's automatic profile; a
+manual id that does not match falls back to automatic and reports it. Any fallback leaves Valve's
 glyphs untouched and the overlay draws letters.
 
 On the Avalonia side `PhysicalGlyphService` resolves a control to a render plan (vector paths

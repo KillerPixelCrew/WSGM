@@ -12,18 +12,18 @@ Program package-cardinality preflight
   -> capability/settings/OEM/controller/glyph consumers
 ```
 
-Exactly zero or one immediate Device package root is allowed. Zero leaves device-independent WSGM usable;
-more than one refuses startup before normal UI/plugin execution. Full validation and loading happen
-only when Device Integration is enabled.
+Exactly zero or one immediate Device package root is allowed. Zero leaves device-independent WSGM
+usable; more than one refuses startup before normal UI/plugin execution. Full validation and loading
+happen only when Device Integration is enabled.
 
 The Shell owns the common PluginHost. DeviceCoordinator preserves controller-release ordering and
 uses its registration for lifecycle calls. An uncertain stop or disposal retains category capacity;
 a timed-out call retains its lifecycle lane until the actual task ends. See `docs/plugin-system.md`
-for common health generation checks and resident mode revisions. `CommonPluginPackage` now shares the
-collectible load context for non-device packages; its temporary fixture covers the full contract path.
-`CommonPluginManager` discovers protected installed metadata and starts only explicitly enabled
-instances. It owns their config refresh, power transitions and shutdown independently of Device
-Integration. Enable/disable UI and authoring tools remain subsequent #49 work.
+for common health generation checks and resident mode revisions. `CommonPluginPackage` now shares
+the collectible load context for non-device packages; its temporary fixture covers the full contract
+path. `CommonPluginManager` discovers protected installed metadata and starts only explicitly
+enabled instances. It owns their config refresh, power transitions and shutdown independently of
+Device Integration. Enable/disable UI and authoring tools remain subsequent #49 work.
 
 Important owners:
 

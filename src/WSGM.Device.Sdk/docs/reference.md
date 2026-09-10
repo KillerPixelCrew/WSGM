@@ -862,15 +862,15 @@ It writes `Short`/`Long` and preserves numeric reads and the existing enum ordin
 
 `CapabilityDescriptor.PairedPowerLimitId` and `CapabilityCommand.ApplyPowerPair` are optional API 3
 additions, defaulting to null and false. A sustained watt descriptor may name one single-instance
-readable/writable `PowerSlowLimit` descriptor. Its range and step may differ from the primary.
-The primary range defines valid coordinated targets; the plugin maps those targets to companion
-values within the companion range and step. Validate the complete
-set with `DevicePowerPair.TryValidate`. A paired command asks the plugin to apply its coordinated
-target, verify both limits and roll back both after failure. Verified result readback contains the
-sustained value. Ordinary commands retain independent-limit behavior. Hosts must not assume equal
-watt limits. Restoration applies the sustained pair followed by the separately captured original
-boost limit. Existing equal-limit plugins remain valid without changes. This contract covers a two-limit envelope; additional
-platform and Windows-policy dimensions remain separate work.
+readable/writable `PowerSlowLimit` descriptor. Its range and step may differ from the primary. The
+primary range defines valid coordinated targets; the plugin maps those targets to companion values
+within the companion range and step. Validate the complete set with `DevicePowerPair.TryValidate`. A
+paired command asks the plugin to apply its coordinated target, verify both limits and roll back
+both after failure. Verified result readback contains the sustained value. Ordinary commands retain
+independent-limit behavior. Hosts must not assume equal watt limits. Restoration applies the
+sustained pair followed by the separately captured original boost limit. Existing equal-limit
+plugins remain valid without changes. This contract covers a two-limit envelope; additional platform
+and Windows-policy dimensions remain separate work.
 
 | API | Change                                                                                                                                                                                                                                                                                                             |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

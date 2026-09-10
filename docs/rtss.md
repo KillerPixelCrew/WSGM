@@ -293,8 +293,8 @@ replaying its trace. The policy:
   oscillates for as long as the game runs.
 - A capped window that is not missing is treated as headroom, so a menu at the frame cap descends
   rather than driving power to maximum.
-- A successful probe updates the remembered starting limit but permits another lower probe. Only
-  a failed probe establishes a lower boundary. At that boundary or the device minimum, the controller
+- A successful probe updates the remembered starting limit but permits another lower probe. Only a
+  failed probe establishes a lower boundary. At that boundary or the device minimum, the controller
   stays Holding; sustained misses at maximum stay `Can't Reach` until delivery recovers.
 - Every write is followed by two settling windows. Missing telemetry resets the streaks rather than
   being read as comfort. A context change discards the evidence gathered for the previous one.
@@ -316,16 +316,16 @@ permits one power write at a time, and restores the limit it took over from on s
 disposal. Every prerequisite is optional and rechecked each second; no RTSS, no plugin, no power
 capability or no rendering application means AutoTDP holds.
 
-When the descriptor declares `PairedPowerLimitId`, AutoTDP requires current readback for both
-limits and dispatches `ApplyPowerPair` through the same coordinator. The plugin owns the hardware
+When the descriptor declares `PairedPowerLimitId`, AutoTDP requires current readback for both limits
+and dispatches `ApplyPowerPair` through the same coordinator. The plugin owns the hardware
 relationship, ordering and rollback. Only verified paired results advance control. Both original
 values are captured before the first write; release restores the sustained pair and then the
-original boost value, including unequal manual limits. Restoration across a device-cycle change
-is refused. No automatic target is persisted into profile configuration.
+original boost value, including unequal manual limits. Restoration across a device-cycle change is
+refused. No automatic target is persisted into profile configuration.
 
 The service also supplies runtime ownership to the shared power-preset projection. Both QAM and
-Overlay show Custom while AutoTDP owns power, even if a momentary readback matches a named preset.
-A manual or assigned power change cancels pending automatic dispatch and updates the restoration
+Overlay show Custom while AutoTDP owns power, even if a momentary readback matches a named preset. A
+manual or assigned power change cancels pending automatic dispatch and updates the restoration
 target; disabling AutoTDP cannot restore an older value over that newer intent. Editing the boost
 companion pauses the pair without saving observed sustained wattage as a new primary preference.
 

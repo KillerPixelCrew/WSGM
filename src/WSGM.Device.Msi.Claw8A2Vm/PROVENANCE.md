@@ -3,8 +3,8 @@
 Source revision: `HW-2026-09-03`
 
 On 2026-09-08, the existing ordered power-pair transport was connected to the SDK's optional
-coordinated command. AutoTDP uses equal PL1/PL2 targets within the existing 8-37 W bounds.
-New fake-transport tests cover raising, lowering and failed-readback rollback. This is software
+coordinated command. AutoTDP uses equal PL1/PL2 targets within the existing 8-37 W bounds. New
+fake-transport tests cover raising, lowering and failed-readback rollback. This is software
 validation of the existing transport, not a new attended hardware pass.
 
 The 2026-09-05 keyboard comparison against HandheldCompanion revision

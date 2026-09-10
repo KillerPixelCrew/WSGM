@@ -6,12 +6,12 @@ transport is exposed by this firmware. Every request carries integer `v: 1`, a n
 of at most 64 characters and `op`. Replies echo `v` and `id`, with `status` and optional `data`.
 Only matching request identities may complete host work. The host never retries an uncertain write.
 
-| Operation | Request fields | Successful reply |
-| --- | --- | --- |
-| `identify` / `health` | none | `ok`; identity, model, firmware, protocol, maxTimings, learning, uptimeMs |
-| `learn` | `timeoutMs`: 1000–30000 | `learned`; data contains a self-contained payload |
-| `cancel` | none | `ok`; outstanding learn also receives `cancelled` |
-| `send` | payload, repeats: 0–4, gapMs: 0–200 | `transmitted`, confirming emission only |
+| Operation             | Request fields                      | Successful reply                                                          |
+| --------------------- | ----------------------------------- | ------------------------------------------------------------------------- |
+| `identify` / `health` | none                                | `ok`; identity, model, firmware, protocol, maxTimings, learning, uptimeMs |
+| `learn`               | `timeoutMs`: 1000–30000             | `learned`; data contains a self-contained payload                         |
+| `cancel`              | none                                | `ok`; outstanding learn also receives `cancelled`                         |
+| `send`                | payload, repeats: 0–4, gapMs: 0–200 | `transmitted`, confirming emission only                                   |
 
 `learn` is asynchronous on the endpoint so cancellation and health remain available. Another learn
 or send while learning receives `busy`. Learning also ends on its firmware deadline without a host.
@@ -32,5 +32,5 @@ Payload fields:
 Payloads with gaps beyond representable limits or capture overflow are refused, never silently
 truncated. Oversized input is discarded through the next newline, then parsing recovers. Malformed,
 unsupported and incompatible requests receive explicit error status. Boot diagnostics lack a valid
-matching identity and cannot complete a host operation. Libraries and named scenes exist only on
-the host; the endpoint has no slot API or filesystem command storage.
+matching identity and cannot complete a host operation. Libraries and named scenes exist only on the
+host; the endpoint has no slot API or filesystem command storage.

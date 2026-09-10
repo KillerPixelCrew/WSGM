@@ -14,7 +14,8 @@ moving machine policy into the SDK.
 
 For the explicitly authorized #49 migration, read `docs/plugin-system.md`. Common identity and
 lifecycle contracts live in `src/WSGM.Plugin.Sdk`; Device hardware contracts remain in this SDK.
-Implement and validate the documented slices sequentially while preserving the current Device runtime.
+Implement and validate the documented slices sequentially while preserving the current Device
+runtime.
 
 Common plugin preferences use `IConfigurablePlugin` and host-owned revisions; `PublishState` is
 effective readback only. Never persist an observation or initialization fallback as a user edit.

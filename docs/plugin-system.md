@@ -7,29 +7,30 @@ management are available through host-rendered action forms. Hardware acceptance
 See its README for the implemented boundary and current limitations.
 
 `src/WSGM.Plugin.Sdk` is the MIT, dependency-free common contract assembly. `WSGM.Device.Sdk`
-continues to define hardware detection, controllers, capabilities and Device Lab integration.
-The resident Shell session owns the common host. Its Device coordinator admits the existing
-Device runtime through an adapter, preserving the Device SDK hardware contracts.
+continues to define hardware detection, controllers, capabilities and Device Lab integration. The
+resident Shell session owns the common host. Its Device coordinator admits the existing Device
+runtime through an adapter, preserving the Device SDK hardware contracts.
 
 Categories are stable strings. The host owns category policy: Device permits zero or one selected
 active instance, while independent categories can permit multiple instances. No Device Plugin is
 required on a desktop. Plugin manifests cannot grant themselves multiplicity or privileges.
 
 The common manifest names the assembly, entry type, numeric package version, accepted API range,
-dependencies and declared access requirements. Parsing is bounded and rejects unknown members.
-The host must copy admitted metadata before asynchronous use, validate paths and dependencies,
-and keep plugin instances tied to their admitted identity and generation.
+dependencies and declared access requirements. Parsing is bounded and rejects unknown members. The
+host must copy admitted metadata before asynchronous use, validate paths and dependencies, and keep
+plugin instances tied to their admitted identity and generation.
 
-The lifecycle is Start, resident Desktop/Game transitions, Suspend/Resume, Stop, Dispose. Publications carry instance
-and generation; the host rejects stale publications. Timeout only cancels waiting and requests
-cooperative unwind. It does not establish that plugin code stopped or a hardware write was undone.
+The lifecycle is Start, resident Desktop/Game transitions, Suspend/Resume, Stop, Dispose.
+Publications carry instance and generation; the host rejects stale publications. Timeout only
+cancels waiting and requests cooperative unwind. It does not establish that plugin code stopped or a
+hardware write was undone.
 
 `DevicePluginCompatibilityAdapter` wraps the existing device runtime for this lifecycle. It retains
-device command and hardware ownership, maps device health, advances the runtime generation on
-resume and preserves an unconfirmed stop result across repeated requests. The common host serializes
-each instance's lifecycle separately. The Device coordinator keeps controller neutralization and
-release before plugin stop. The runtime retains its admitted private state directory; the adapter does
-not relocate device state. A collectible fixture exercises the full host/adapter/runtime lifecycle.
+device command and hardware ownership, maps device health, advances the runtime generation on resume
+and preserves an unconfirmed stop result across repeated requests. The common host serializes each
+instance's lifecycle separately. The Device coordinator keeps controller neutralization and release
+before plugin stop. The runtime retains its admitted private state directory; the adapter does not
+relocate device state. A collectible fixture exercises the full host/adapter/runtime lifecycle.
 
 Admission reserves both instance identity and category capacity until confirmed stop and successful
 disposal. Failed or uncertain release keeps the slot reserved. A timed-out in-process call retains
@@ -38,22 +39,24 @@ overtake it. No failed stop or disposal is automatically retried. Trusted code t
 cancellation can therefore require process exit to recover its slot.
 
 Health callbacks are checked against their owning registration and generation, then dispatched to
-the UI with another generation check. Desktop/Game intent uses increasing revisions, cancels obsolete
-cooperative mode work and leaves the Device integration resident. Independent fake instances validate
-coexistence without a Device Plugin. Installed packages use the catalog and instance manager described below.
+the UI with another generation check. Desktop/Game intent uses increasing revisions, cancels
+obsolete cooperative mode work and leaves the Device integration resident. Independent fake
+instances validate coexistence without a Device Plugin. Installed packages use the catalog and
+instance manager described below.
 
 ## Configuration and state
 
-`IConfigurablePlugin` declares bounded boolean, numeric or text preferences for plugin behavior.
-The host snapshots and validates the schema before startup. It restores saved preferences with
-unsaved declaration fallbacks, then delivers a complete immutable `PluginConfiguration` snapshot.
+`IConfigurablePlugin` declares bounded boolean, numeric or text preferences for plugin behavior. The
+host snapshots and validates the schema before startup. It restores saved preferences with unsaved
+declaration fallbacks, then delivers a complete immutable `PluginConfiguration` snapshot.
 External-state controls belong to action/capability surfaces, not this preferences contract.
 
 An explicit edit includes the revision the UI read. `CommonPluginSettings` validates the change,
-persists only those changed keys through `ConfigStore.Mutate`, then dispatches the complete requested
-configuration. A stale revision or failed save prevents dispatch. Defaults are not saved implicitly.
-Application failure does not erase desired preferences; a mismatched confirmation remains unconfirmed.
-There is no automatic configuration retry. Existing Device settings retain their current adapter path.
+persists only those changed keys through `ConfigStore.Mutate`, then dispatches the complete
+requested configuration. A stale revision or failed save prevents dispatch. Defaults are not saved
+implicitly. Application failure does not erase desired preferences; a mismatched confirmation
+remains unconfirmed. There is no automatic configuration retry. Existing Device settings retain
+their current adapter path.
 
 `PluginStatePublication` carries instance, lifecycle generation, increasing sequence, origin and
 optional configuration/action correlation. It describes effective state only and cannot reach the
@@ -65,23 +68,25 @@ These are ordinary UI/status events; high-rate controller samples retain their s
 
 `IPluginActions` declares stable operation names and primitive argument schemas. The host snapshots
 them before startup and gives each invocation a fresh operation identity, current generation, origin
-and deadline. Stale generations and invalid arguments cannot dispatch. A missing, failed or mismatched
-reply remains unconfirmed; there is no automatic retry. `Dispatched` means a command was sent,
-whereas `AppliedVerified` requires independent evidence of the declared effect. Route orchestration
-must not treat an IR endpoint acknowledgment as proof that a television changed input.
+and deadline. Stale generations and invalid arguments cannot dispatch. A missing, failed or
+mismatched reply remains unconfirmed; there is no automatic retry. `Dispatched` means a command was
+sent, whereas `AppliedVerified` requires independent evidence of the declared effect. Route
+orchestration must not treat an IR endpoint acknowledgment as proof that a television changed input.
 
 `IPluginUi` supplies bounded status, button, toggle and slider descriptions. Admission checks every
-action/argument link and requires numeric bounds for sliders. WSGM owns actual controls and placement;
-plugins cannot inject UI code. The overlay Tools page renders common contributions, grouped by
-instance and contribution category. Status readback is separate from an editable draft; toggles and
-sliders require an explicit Apply press. Refresh never invokes an action. Declared widgets can be pinned to Quick Access.
-Action contributions expose their declared arguments in collapsible forms. Text and numeric fields
-use press-to-edit buttons and the Overlay keyboard, so controller navigation never depends on focusing
-a bare TextBox. Drafts remain separate from readback and are sent only on explicit invocation.
+action/argument link and requires numeric bounds for sliders. WSGM owns actual controls and
+placement; plugins cannot inject UI code. The overlay Tools page renders common contributions,
+grouped by instance and contribution category. Status readback is separate from an editable draft;
+toggles and sliders require an explicit Apply press. Refresh never invokes an action. Declared
+widgets can be pinned to Quick Access. Action contributions expose their declared arguments in
+collapsible forms. Text and numeric fields use press-to-edit buttons and the Overlay keyboard, so
+controller navigation never depends on focusing a bare TextBox. Drafts remain separate from readback
+and are sent only on explicit invocation.
 
 Stop closes action admission immediately and cooperatively cancels the active lifecycle/action call.
 The stop and disposal operations still wait behind that call's actual completion, so cancellation
-cannot unload code that is still using external resources. Stop tolerates partially completed startup.
+cannot unload code that is still using external resources. Stop tolerates partially completed
+startup.
 
 ## Package loading and dependencies
 
@@ -102,31 +107,31 @@ Dotted numeric versions compare with omitted build/revision components treated a
 A temporary non-device package fixture exercises actual collectible loading, configuration, a named
 action with file readback, declarative contributions, resident mode changes and cleanup.
 
-`CommonPluginCatalog` reads `%ProgramFiles%\WSGM\Plugins\<plugin-id>` without executing code.
-The directory name must match the manifest ID and the entry assembly must exist. Discovery is
-independent of Device Integration and does not enable a package. `AppConfig.PluginInstances` contains
-explicit `PluginId`, `InstanceId` and `Enabled` choices; its default is empty.
+`CommonPluginCatalog` reads `%ProgramFiles%\WSGM\Plugins\<plugin-id>` without executing code. The
+directory name must match the manifest ID and the entry assembly must exist. Discovery is
+independent of Device Integration and does not enable a package. `AppConfig.PluginInstances`
+contains explicit `PluginId`, `InstanceId` and `Enabled` choices; its default is empty.
 
 `CommonPluginManager` starts selected instances in dependency order and retains them across resident
 mode changes. Config reload applies only a newly saved preference revision; an unconfirmed revision
-is not automatically retried. Disable and shutdown cancel startup, await actual completion and dispose
-in reverse admission order. Failed cleanup retains ownership and prevents replacement. Suspend/resume
-is deduplicated per instance independently from the Device coordinator. Instance state directories
-use a hash of the instance ID to avoid path aliases.
+is not automatically retried. Disable and shutdown cancel startup, await actual completion and
+dispose in reverse admission order. Failed cleanup retains ownership and prevents replacement.
+Suspend/resume is deduplicated per instance independently from the Device coordinator. Instance
+state directories use a hash of the instance ID to avoid path aliases.
 
 Activation requests carry increasing host revisions. Disabling an instance cancels its pending load
-immediately; an obsolete enable cannot start it later. A rapid explicit re-enable waits for confirmed
-cleanup before creating the replacement.
+immediately; an obsolete enable cannot start it later. A rapid explicit re-enable waits for
+confirmed cleanup before creating the replacement.
 
 Install or replace trusted packages only while their instances are stopped. Settings' Plugin tab
-discovers metadata without loading code and exposes activation for installed and configured instances.
-Save merges only edited instance choices into a fresh configuration. A package with no configured
-instances offers a disabled `default` instance. Additional stable instance IDs can be configured in
-`PluginInstances`; every configured instance appears separately. Missing packages remain visible so
-their activation can be disabled without discarding preferences.
+discovers metadata without loading code and exposes activation for installed and configured
+instances. Save merges only edited instance choices into a fresh configuration. A package with no
+configured instances offers a disabled `default` instance. Additional stable instance IDs can be
+configured in `PluginInstances`; every configured instance appears separately. Missing packages
+remain visible so their activation can be disabled without discarding preferences.
 
-Loading inherits the application's current
-authority; this host neither elevates itself nor grants access based on manifest declarations.
+Loading inherits the application's current authority; this host neither elevates itself nor grants
+access based on manifest declarations.
 
 The initial execution model remains trusted in-process code. Collectible load contexts isolate
 dependencies, not security or crashes. A process boundary would require separately designed and
@@ -144,26 +149,27 @@ From a source checkout, create a new output directory with a harmless common plu
 
 The template references this checkout's MIT common SDK and demonstrates lifecycle, effective state,
 a named action and declarative status/button contributions. `-Category wsgm.infrared` or another
-stable category changes metadata without introducing a Core specialization. Device packages keep
-the existing Device Lab scaffold, validation and hardware harness.
+stable category changes metadata without introducing a Core specialization. Device packages keep the
+existing Device Lab scaffold, validation and hardware harness.
 
 Packaging runs the project's build, checks essential manifest/output fields and creates a new ZIP.
-It does not execute the plugin entry type, install, enable or replace a package. Full common manifest,
-dependency and UI/action validation remains authoritative in the host. Trust build inputs before
-publishing; MSBuild is executable code. Extract an approved archive into the protected
-`%ProgramFiles%\WSGM\Plugins\<plugin-id>` directory while the instance is stopped, then enable it
-in Settings. Updating follows explicit disable, confirmed cleanup, replacement and re-enable.
+It does not execute the plugin entry type, install, enable or replace a package. Full common
+manifest, dependency and UI/action validation remains authoritative in the host. Trust build inputs
+before publishing; MSBuild is executable code. Extract an approved archive into the protected
+`%ProgramFiles%\WSGM\Plugins\<plugin-id>` directory while the instance is stopped, then enable it in
+Settings. Updating follows explicit disable, confirmed cleanup, replacement and re-enable.
 
-The existing `CommonPluginPackageTests` fixture is an offline example harness covering configuration,
-actions, state and lifecycle without external hardware. Use the same contract pattern for provider
-fakes. Runtime health and action outcomes appear on Tools; a failed or unconfirmed operation is never
-an automatic retry request. Common preferences use `PluginConfigurations` with explicit increasing
-revisions; provider schema validation occurs before delivery. Their generic Settings editor is not
-part of this initial surface; the Device settings editor remains available.
+The existing `CommonPluginPackageTests` fixture is an offline example harness covering
+configuration, actions, state and lifecycle without external hardware. Use the same contract pattern
+for provider fakes. Runtime health and action outcomes appear on Tools; a failed or unconfirmed
+operation is never an automatic retry request. Common preferences use `PluginConfigurations` with
+explicit increasing revisions; provider schema validation occurs before delivery. Their generic
+Settings editor is not part of this initial surface; the Device settings editor remains available.
 
-The migration follows common contracts, Device compatibility adapter, lifecycle/configuration/events,
-action/UI contributions, then an independent non-device consumer. Delivery status lives only in
-`_plan/implementation-todo.md`; existing device behavior stays the baseline throughout.
+The migration follows common contracts, Device compatibility adapter,
+lifecycle/configuration/events, action/UI contributions, then an independent non-device consumer.
+Delivery status lives only in `_plan/implementation-todo.md`; existing device behavior stays the
+baseline throughout.
 
 ### Widget declarations
 
@@ -173,18 +179,21 @@ lists. Navigation categories must exist. State predicates reference normal effec
 missing predicate state means unavailable.
 
 Widget pin persistence stores plugin ID, configured instance ID and widget ID separately in
-AppConfig.PluginWidgetPins. Order follows the list. Normalization removes malformed/duplicate entries,
-bounds the list to 64 and retains unavailable providers. Reset order sorts by plugin, instance and
-widget identity without removing pins. UI-facing mutations use the normal atomic ConfigStore path.
+AppConfig.PluginWidgetPins. Order follows the list. Normalization removes malformed/duplicate
+entries, bounds the list to 64 and retains unavailable providers. Reset order sorts by plugin,
+instance and widget identity without removing pins. UI-facing mutations use the normal atomic
+ConfigStore path.
 
 The plugin source panel now exposes Pin widget and Unpin widget actions for each validated widget
-declaration. These edit preferences only on an explicit click and report persistence failures.
-The Device page exposes the same pin controls in its Quick Access widgets expander, without duplicating capability editors.
+declaration. These edit preferences only on an explicit click and report persistence failures. The
+Device page exposes the same pin controls in its Quick Access widgets expander, without duplicating
+capability editors.
 
 Pinned common widgets now render below the front-page quick-access cards. The existing contribution
 renderer supplies live state and named actions; widget predicates disable unavailable controls.
 Missing plugin instances retain identity-labelled placeholders. Each card offers move up/down and
-unpin, with a reset-order action below the list. The IR package declares a selected-command/send widget.
+unpin, with a reset-order action below the list. The IR package declares a selected-command/send
+widget.
 
 Pinned widgets with NavigationCategory now offer Open plugin controls. The Overlay selects Tools,
 then scrolls and focuses the owning plugin-instance/category anchor using stable identities.
@@ -193,19 +202,20 @@ Widget rendering consumes ICommonPluginOverlaySource for observations and explic
 owning package lifecycle. The missing-provider headless test verifies a retained visible placeholder
 and no action dispatch.
 
-The rendering source returns detached PluginOverlayInstance and PluginOverlayControls records.
-Views no longer retain PluginRegistration or acquire lifecycle ownership. Current source observations
+The rendering source returns detached PluginOverlayInstance and PluginOverlayControls records. Views
+no longer retain PluginRegistration or acquire lifecycle ownership. Current source observations
 control action availability; generation-bound action routing remains with the source adapter.
 
 DeviceWidgetSource now projects readable Device capabilities through the common widget vocabulary.
-Numeric and boolean edits use the Device coordinator with captured cycle/descriptor generations;
-no second Device lifecycle is created. Stable widget keys encode capability and instance identity.
-The combined source includes Device widgets even without common packages. Choice widgets show readback and an explicit action with the currently declared options. Selection
-alone does not dispatch. Device-page pin controls use this same source and persistence path.
+Numeric and boolean edits use the Device coordinator with captured cycle/descriptor generations; no
+second Device lifecycle is created. Stable widget keys encode capability and instance identity. The
+combined source includes Device widgets even without common packages. Choice widgets show readback
+and an explicit action with the currently declared options. Selection alone does not dispatch.
+Device-page pin controls use this same source and persistence path.
 
-Widget action clicks re-read provider availability, generation and widget predicates before dispatch,
-including changes between timer refreshes. Reloaded providers rebuild the retained pin using the
-new generation. Focused headless tests cover unload/recovery and stale-click refusal.
+Widget action clicks re-read provider availability, generation and widget predicates before
+dispatch, including changes between timer refreshes. Reloaded providers rebuild the retained pin
+using the new generation. Focused headless tests cover unload/recovery and stale-click refusal.
 
 Pinned widgets use a vertical list in the Quick Access scroll surface. Reordering restores focus to
 the same widget action by stable identity. Unpinning focuses the neighboring widget, or the list
@@ -228,22 +238,24 @@ The editor renders its primitive arguments, including controller-accessible text
 Unavailable saved providers retain their identities and arguments. Reload refreshes the action list.
 
 Capture current display profile records the active WDC topology without changing it. Capture the TV
-layout for entry and the Desktop layout for leave/startup/wake as needed. Entry can additionally wait
-for a captured display identity. Configure the layouts through Windows or Overlay display controls
-before capture. Save each event separately; changing the event replaces the unsaved draft. Clear event
-binding removes only that event. Saving does not invoke a plugin action or change the current display.
+layout for entry and the Desktop layout for leave/startup/wake as needed. Entry can additionally
+wait for a captured display identity. Configure the layouts through Windows or Overlay display
+controls before capture. Save each event separately; changing the event replaces the unsaved draft.
+Clear event binding removes only that event. Saving does not invoke a plugin action or change the
+current display.
 
 Enable route automation is an explicit opt-in. AppConfig.DisplayRoutes stores that switch, four
 independent bindings, primitive arguments, optional WDC targets/profiles and 1–120 second deadlines.
-Saving updates only the chosen binding and switch against fresh configuration, then projects the boot
-manifest. With Game Mode boot disabled, an enabled route configuration starts the resident Desktop
-runtime at sign-in through --shell --desktop-resident. The installed logon service is required.
+Saving updates only the chosen binding and switch against fresh configuration, then projects the
+boot manifest. With Game Mode boot disabled, an enabled route configuration starts the resident
+Desktop runtime at sign-in through --shell --desktop-resident. The installed logon service is
+required.
 
 SessionModes owns Desktop/Game Mode transitions. Entry invokes the configured action, waits for its
 display to become available (including a connected but disabled monitor), and applies the saved
 profile before requesting Big Picture or removing Explorer. The transition splash stays visible
-through route preparation and Steam placement. Steam's process-owned Big Picture window is placed
-on the selected monitor using its freshly rematched GDI route, with window-bounds readback. Failed
+through route preparation and Steam placement. Steam's process-owned Big Picture window is placed on
+the selected monitor using its freshly rematched GDI route, with window-bounds readback. Failed
 preparation or placement preserves Desktop. If a later takeover fails after applying the profile,
 the pre-entry Desktop topology is restored once; an uncertain write is never automatically retried.
 
@@ -258,8 +270,8 @@ instance generation. Core contains no IR protocol or HDMI-device logic. Dispatch
 step without claiming external hardware readback; Unconfirmed and Rejected stop the sequence.
 Display waits and profile calls run off the UI thread. Deadline/cancellation failures name the stage
 and preserve a handle to still-running work, refusing subsequent routes until it settles. Errors and
-lifecycle reasons are logged; transition and Desktop route failures use the existing warning surface.
-The Desktop splash button cancels entry, including the wait for Steam's target window.
+lifecycle reasons are logged; transition and Desktop route failures use the existing warning
+surface. The Desktop splash button cancels entry, including the wait for Steam's target window.
 
 Validation uses fake providers, source-generated config round trips, ordered route tests, admission
 checks and headless editor interactions. It does not represent a physical HDMI-switch, live logon,

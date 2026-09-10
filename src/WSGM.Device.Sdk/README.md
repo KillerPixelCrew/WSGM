@@ -122,4 +122,5 @@ whatever licence its author chooses, including a closed-source vendor or OEM plu
 
 Coordinated power targets use PairedPowerLimitId and ApplyPowerPair. Plugins define the companion
 limit relationship and may use different ranges and steps; the primary range defines valid targets.
-The host does not assume equal sustained and boost values. See the reference guide's version history.
+The host does not assume equal sustained and boost values. See the reference guide's version
+history.

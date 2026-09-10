@@ -4,10 +4,11 @@ Tools includes controller ownership status, Release to Steam and Reacquire for W
 Steam handoff coordinator owns both actions. Manual release remains active across native surface
 closure until explicit reacquisition; touch remains available while WSGM controller readers pause.
 
-On-Screen Keyboard in Tools dismisses the sheet before invoking the current mode's keyboard:
-Steam in Game Mode, the existing Windows touch-keyboard integration in Desktop mode. Failed requests
+On-Screen Keyboard in Tools dismisses the sheet before invoking the current mode's keyboard: Steam
+in Game Mode, the existing Windows touch-keyboard integration in Desktop mode. Failed requests
 reopen the sheet with a warning. Steam invocation lives in SteamUiToolkit and uses the session's
-ownership handoff; native keyboard visibility prevents early reacquisition. Manual release takes precedence.
+ownership handoff; native keyboard visibility prevents early reacquisition. Manual release takes
+precedence.
 
 How WSGM's quick access sheet is shaped, how gamepad, touch and raw input reach it, and the Avalonia
 and Windows findings its dismissal and focus handling depend on. Theme and control styling is in
@@ -114,12 +115,12 @@ activate, mirrors arrow keys with a 250 ms dedupe and skips TextBoxes.
 `Overlay\TouchSwipeMonitor` observes the raw HID digitizer (`RIDEV_INPUTSINK`) for four configurable
 edge swipes and for tap-outside dismissal. Settings exposes each binding:
 
-| Edge   | Action                                                     |
-| ------ | ---------------------------------------------------------- |
-| top    | opens the sheet                                            |
+| Edge   | Action                                                       |
+| ------ | ------------------------------------------------------------ |
+| top    | opens the sheet                                              |
 | bottom | disabled by default; optionally opens Open apps in Game Mode |
-| left   | sends Steam's installed-client mapping Ctrl+1 (Steam menu) |
-| right  | sends Ctrl+2 (Quick Access Menu)                           |
+| left   | sends Steam's installed-client mapping Ctrl+1 (Steam menu)   |
+| right  | sends Ctrl+2 (Quick Access Menu)                             |
 
 Live device and performance publications may request a redraw while a finger or mouse button is
 down. The sheet coalesces those redraws and defers them until the routed pointer release has
@@ -214,15 +215,15 @@ and a stale target would call back a window the user has since left. The fields 
 `Closed`.
 
 Panel brightness is available in Tools through the resident session's shared brightness service.
-Steam QAM and Overlay use the same serialized writes and confirmed readback. The slider remains
-in place during updates, disables when readback is unavailable, and works with CEF disabled.
+Steam QAM and Overlay use the same serialized writes and confirmed readback. The slider remains in
+place during updates, disables when readback is unavailable, and works with CEF disabled.
 
 Tools also shows resolution and refresh for the first active display in Windows path-priority order.
-Pickers contain driver-validated modes; changing resolution updates the offered refresh rates.
-Only Apply changes the display. Fresh observations every five seconds while open replace stale
-choices after reconnect, resume or profile changes. Windows Device Control rechecks target identity
-and driver validation before applying, confirms readback and attempts rollback on an unconfirmed
-write. Ambiguous clone sources are unavailable. This does not establish physical visibility.
+Pickers contain driver-validated modes; changing resolution updates the offered refresh rates. Only
+Apply changes the display. Fresh observations every five seconds while open replace stale choices
+after reconnect, resume or profile changes. Windows Device Control rechecks target identity and
+driver validation before applying, confirms readback and attempts rollback on an unconfirmed write.
+Ambiguous clone sources are unavailable. This does not establish physical visibility.
 
 Device provides a manual TDP mode selector when a paired capability is available. Selecting Unified
 saves the active global/per-game preference without writing hardware. Subsequent sustained-slider

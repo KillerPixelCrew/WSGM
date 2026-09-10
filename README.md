@@ -172,4 +172,5 @@ session. Setup also offers an optional Desktop shortcut.
 
 Overlay > Tools > Display routes can bind plugin actions and captured display profiles to Game Mode
 entry/exit and Desktop startup/wake. This supports external HDMI/input routing without putting
-device protocols in Core. See [configuration and behavior](docs/plugin-system.md#display-route-automation).
+device protocols in Core. See
+[configuration and behavior](docs/plugin-system.md#display-route-automation).

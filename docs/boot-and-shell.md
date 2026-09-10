@@ -14,9 +14,9 @@ Related:
 ## Process modes
 
 The Start Menu shortcut runs `WSGM.exe --shell --activate`; the installer optionally creates the
-same shortcut on the Desktop. With Explorer running, this starts the resident Desktop session.
-A repeat launch signals the existing mutex owner to open the Overlay, including requests queued
-during startup. No arguments still open Settings. Shortcuts are updated and removed by Inno Setup.
+same shortcut on the Desktop. With Explorer running, this starts the resident Desktop session. A
+repeat launch signals the existing mutex owner to open the Overlay, including requests queued during
+startup. No arguments still open Settings. Shortcuts are updated and removed by Inno Setup.
 
 Desktop Mode shows a WSGM notification icon with Open WSGM, Enter Game Mode, Settings and Exit WSGM.
 Primary activation opens the Overlay; Settings focuses its existing window. The icon is hidden in
@@ -28,18 +28,18 @@ change the configured next-logon preference. This icon is separate from Game Mod
 `Program.DecideMode` picks one mode from the command line. WSGM never registers as the Windows
 shell, so no arguments means Settings.
 
-| Flag                           | Mode                                            |
-| ------------------------------ | ----------------------------------------------- |
-| `--boot`                       | service-launched takeover at logon              |
-| `--shell`                      | resident shell session                         |
-| `--settings` (or no arguments) | Settings window                                 |
-| `--overlay-test`               | overlay without a shell session                 |
+| Flag                           | Mode                               |
+| ------------------------------ | ---------------------------------- |
+| `--boot`                       | service-launched takeover at logon |
+| `--shell`                      | resident shell session             |
+| `--settings` (or no arguments) | Settings window                    |
+| `--overlay-test`               | overlay without a shell session    |
 
 Only shell mode holds the single-instance mutex `Local\WSGM.Shell`; the installer keys its restart
 decision off it. A crash-loop breaker counts shell starts: three inside two minutes disarms the
-service boot (`GameModeBoot=false` and `DesktopResident=false` in boot.json, the config flag off, shell snapshot restored,
-Explorer started if none runs). A clean exit resets the counter, otherwise two update restarts plus
-a sign-in inside two minutes read as a loop.
+service boot (`GameModeBoot=false` and `DesktopResident=false` in boot.json, the config flag off,
+shell snapshot restored, Explorer started if none runs). A clean exit resets the counter, otherwise
+two update restarts plus a sign-in inside two minutes read as a loop.
 
 `Panic()` is the in-process, best-effort recovery: restore the shell snapshot, destroy the tray
 host, hand recovery to the verified shell anchor when one exists, otherwise start Explorer if none
@@ -369,23 +369,24 @@ otherwise reboot automatically.
 
 ## Display-route automation
 
-With GameModeBoot disabled, boot.json can opt into DesktopResident for enabled route automation.
-The service launches --shell --desktop-resident with its usual user-token/elevation policy. This
-mode remains on Desktop even before Explorer appears and does not run takeover, startup apps or
-Game Mode display posture. GameModeBoot takes precedence when both flags are true. Old manifests
-omit DesktopResident and retain their previous behavior. Crash-loop manifest disabling clears both
+With GameModeBoot disabled, boot.json can opt into DesktopResident for enabled route automation. The
+service launches --shell --desktop-resident with its usual user-token/elevation policy. This mode
+remains on Desktop even before Explorer appears and does not run takeover, startup apps or Game Mode
+display posture. GameModeBoot takes precedence when both flags are true. Old manifests omit
+DesktopResident and retain their previous behavior. Crash-loop manifest disabling clears both
 automatic launch choices.
 
 Desktop-to-Game Mode transitions prepare the configured external route and display profile before
 requesting Big Picture or removing Explorer. A splash hold prevents premature dismissal when Steam
 already has a window. Steam is placed on the configured target before takeover. Cancellation, an
-unavailable target or a failed preparation leaves Desktop available and reports the failed stage.
-A later failed takeover restores the captured pre-entry topology once. Calls that outlive cancellation
+unavailable target or a failed preparation leaves Desktop available and reports the failed stage. A
+later failed takeover restores the captured pre-entry topology once. Calls that outlive cancellation
 remain tracked, and new route work is refused until they settle.
 
 Successful Desktop recovery precedes the leave binding, which applies the Desktop profile before
 sending its external action. Startup/resume bindings are coalesced and serialized with mode changes,
 and are suppressed while in or entering Game Mode. Overlay-test installs no lifecycle route hooks.
-Configuration and operating instructions are in [plugin-system.md](plugin-system.md#display-route-automation).
-Offline decision, persistence, sequencing and UI tests cover this implementation. No live service
-installation, logon, HDMI switching or Steam-window placement was performed for this change.
+Configuration and operating instructions are in
+[plugin-system.md](plugin-system.md#display-route-automation). Offline decision, persistence,
+sequencing and UI tests cover this implementation. No live service installation, logon, HDMI
+switching or Steam-window placement was performed for this change.
