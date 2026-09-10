@@ -271,6 +271,20 @@ shifts from one signal to the other is visible in a pasted `wsgm.log`. Bump `Bad
 whenever the resident script text changes, and re-probe both branches against a live Steam
 (`tools\WsgmLibTest`) before shipping.
 
+The badge states which library holds the game and whether that library is attached. It anchors under
+the hero art's bottom-left rather than to the viewport corner, so it sits in the metadata block that
+describes the game and travels with it instead of covering Steam's search bar; a page with no hero
+art falls back to the corner, which is worse placement but still an answer. Disconnected is carried
+by a hollow ring and the word, never by colour alone.
+
+The pushed map holds only games on a tracked removable library, as `{n,k,c}` per app id. A game with
+no entry is on the internal library by definition, and the badge names it from that absence rather
+than from pushing every internal app id into the page. That is why `c` is always emitted: the script
+tells "no entry" from "entry, disconnected", and a key omitted when false would collapse the two.
+Hidden cards are still pushed — hiding governs the tab, not where the game is, and dropping them
+would make those games read as internal. A library name comes from a marker file on the card, so it
+is untrusted text and goes through `SteamCef.JsString` before it is spliced into the script.
+
 ### Artwork: data on SharedJSContext, DOM on the visible window
 
 Artwork apply uses `SteamClient.Apps.ClearCustomArtworkForApp` then

@@ -8,6 +8,30 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
+/// <summary>Which kind of tracked library holds a game.</summary>
+/// <remarks>
+/// The internal library is deliberately not a member. It is what a game with no entry in the
+/// pushed map is on, so it is named from that absence rather than by pushing every internal
+/// app id into the page.
+/// </remarks>
+public enum SteamLibraryKind
+{
+    /// <summary>A removable card WSGM tracks.</summary>
+    Card,
+
+    /// <summary>A tracked library that is not a card — a second disk, USB, or a network share.</summary>
+    External,
+}
+
+/// <summary>The library a game lives on, as the in-page badge states it.</summary>
+/// <param name="Name">
+///     The library's remembered name. It comes from the card's own marker, so it still names the
+///     library while that library is disconnected and nothing can be read from it.
+/// </param>
+/// <param name="Kind">Which kind of library it is.</param>
+/// <param name="Connected">Whether it is attached to the machine right now.</param>
+public sealed record SteamLibraryBadge(string Name, SteamLibraryKind Kind, bool Connected);
+
 /// <summary>Reaches into Steam's own library UI over the CEF leg (<see cref="SteamCef"/>):
 /// <list type="bullet">
 /// <item><b>Current-game detection</b> — which game page the user is viewing, read from
@@ -148,15 +172,21 @@ public static class SteamPageBridge
             Budget, cancellationToken);
 
     /// <summary>Installs (idempotently) the resident badge observer and pushes the
-    /// current app-id → card-name map. Call whenever the card set changes or after a
+    /// current app-id → library map. Call whenever the card set changes or after a
     /// reconnect; the sentinel makes re-calls cheap no-ops for the observer while still
     /// refreshing the data. Best-effort — a closed/absent Steam simply does nothing.</summary>
-    /// <param name="appIdToCard">Map of app id to the card name to show for it.</param>
+    /// <remarks>
+    /// Only games on a tracked removable library are listed. Everything else is on the internal
+    /// library by definition, so the badge says so from the absence of an entry rather than from
+    /// thousands of pushed app ids.
+    /// </remarks>
+    /// <param name="appIdToLibrary">Map of app id to the library that holds it.</param>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     public static async Task<bool> UpdateCardBadgesAsync(
-        IReadOnlyDictionary<long, string> appIdToCard, CancellationToken cancellationToken = default)
+        IReadOnlyDictionary<long, SteamLibraryBadge> appIdToLibrary,
+        CancellationToken cancellationToken = default)
     {
-        var map = BuildMapLiteral(appIdToCard);
+        var map = BuildMapLiteral(appIdToLibrary);
         var expression =
             "(()=>{try{" +
             "window.__wsgm=window.__wsgm||{};" +
@@ -197,11 +227,11 @@ public static class SteamPageBridge
         return false;
     }
 
-    private static string BuildMapLiteral(IReadOnlyDictionary<long, string> appIdToCard)
+    internal static string BuildMapLiteral(IReadOnlyDictionary<long, SteamLibraryBadge> appIdToLibrary)
     {
         var sb = new StringBuilder("{");
         var first = true;
-        foreach (var (appId, name) in appIdToCard)
+        foreach (var (appId, library) in appIdToLibrary)
         {
             if (!first)
             {
@@ -209,7 +239,15 @@ public static class SteamPageBridge
             }
             first = false;
             sb.Append('"').Append(appId.ToString(CultureInfo.InvariantCulture)).Append('"')
-                .Append(':').Append(SteamCef.JsString(name));
+                .Append(":{n:").Append(SteamCef.JsString(library.Name))
+                .Append(",k:").Append(SteamCef.JsString(library.Kind switch
+                {
+                    SteamLibraryKind.Card => "card",
+                    _ => "external",
+                }))
+                // Emitted as 0/1 rather than omitted when false: the script distinguishes
+                // "disconnected" from "no entry", and a missing key would read as the latter.
+                .Append(",c:").Append(library.Connected ? '1' : '0').Append('}');
         }
         return sb.Append('}').ToString();
     }
@@ -219,7 +257,9 @@ public static class SteamPageBridge
     // upgraded WSGM would keep talking to the OLD detection logic until Steam
     // restarts. On mismatch the old observer is disconnected and replaced.
     // 4: CurrentAppIdJs resolves to {id,src}; the resident script's curId() unwraps .id.
-    private const int BadgeScriptVersion = 4;
+    // 5: the map carries {n,k,c} instead of a bare name; the badge anchors to the hero art
+    //    instead of the viewport corner, names the internal library, and states connection.
+    private const int BadgeScriptVersion = 5;
 
     // The resident badge script, installed into the VISIBLE library window. Idempotent
     // per version (sentinel-guarded), namespaced under window.__wsgm, and non-destructive
@@ -246,16 +286,40 @@ public static class SteamPageBridge
         // window that both branches return the same id through this accessor.
         "const curId=()=>(" + CurrentAppIdJs + ").id;" +
         "const remove=()=>{const b=document.getElementById(BID);if(b)b.remove();};" +
-        "const render=()=>{try{const id=curId();const map=window.__wsgm.cardMap||{};" +
-        "const name=id&&map[id];if(!name){remove();return;}" +
+        // The hero art is the game's own metadata block, and the same element the app-id
+        // detection already proves it can find on device. Anchoring under its bottom-left puts
+        // the badge in the layout it describes instead of over Steam's search bar, and it
+        // travels with the art on every page. No hero (an imageless shortcut) falls back to the
+        // old corner, which is worse placement but still an answer.
+        "const heroRect=()=>{try{const cx=window.innerWidth/2,ch=window.innerHeight;" +
+        "let best=null,bestW=0;for(const i of document.querySelectorAll('img')){" +
+        "const r=i.getBoundingClientRect();" +
+        "if(r.width<600||r.width<=r.height)continue;" +
+        "if(r.bottom<=0||r.top>=ch||cx<r.left||cx>r.right)continue;" +
+        "if(i.checkVisibility&&!i.checkVisibility({checkOpacity:true,checkVisibilityCSS:true}))continue;" +
+        "if(r.width>bestW){bestW=r.width;best=r;}}return best;}catch(e){return null;}};" +
+        "const render=()=>{try{const id=curId();if(!id){remove();return;}" +
+        "const map=window.__wsgm.cardMap||{};const e=map[id];" +
+        // No entry means the game is not on any tracked removable library, which is what the
+        // internal library is. Naming it from the absence keeps the pushed map to the cards.
+        "const connected=e?e.c===1:true;" +
+        "const label=e?((e.k==='card'?'SD Card: ':'External: ')+e.n):'Internal library';" +
         "let b=document.getElementById(BID);" +
         "if(!b){b=document.createElement('div');b.id=BID;b.className='wsgm-badge';" +
-        "b.style.cssText='position:fixed;top:16px;left:16px;z-index:99999;display:inline-flex;"
-            + "align-items:center;gap:6px;padding:5px 12px;border-radius:5px;"
-            + "background:rgba(20,25,32,.9);color:#e6edf3;font-size:14px;font-weight:600;"
-            + "box-shadow:0 2px 10px rgba(0,0,0,.5);pointer-events:none;';"
-            + "document.body.appendChild(b);}" +
-        "const text='\\u25C9 On: '+name;if(b.textContent!==text)b.textContent=text;}catch(e){}};" +
+        "document.body.appendChild(b);}" +
+        "const r=heroRect();" +
+        "const place=r?('top:'+Math.round(Math.min(r.bottom+12,window.innerHeight-64))"
+            + "+'px;left:'+Math.round(r.left)+'px;'):'top:16px;left:16px;';" +
+        // Disconnected is carried by the glyph and the word, never by colour alone: a filled
+        // ring reads as present and a hollow one as absent even to someone who cannot tell the
+        // two greens apart, and the trailing word says it outright.
+        "b.style.cssText='position:fixed;z-index:99999;'+place+'display:inline-flex;"
+            + "align-items:center;gap:8px;padding:9px 16px;border-radius:8px;"
+            + "background:rgba(20,25,32,.92);font-size:19px;font-weight:600;line-height:1;"
+            + "box-shadow:0 2px 14px rgba(0,0,0,.55);pointer-events:none;color:'"
+            + "+(connected?'#e6edf3':'#ffc66d')+';';" +
+        "const text=(connected?'\\u25C9 ':'\\u25CB ')+label+(connected?'':' \\u2014 Disconnected');" +
+        "if(b.textContent!==text)b.textContent=text;}catch(e){}};" +
         "window.__wsgm.renderBadge=render;" +
         "try{let queued=false;const obs=new MutationObserver(ms=>{if(ms.every(m=>m.target.closest&&m.target.closest('#'+BID)))return;" +
         "if(!queued){queued=true;requestAnimationFrame(()=>{queued=false;render();});}});" +

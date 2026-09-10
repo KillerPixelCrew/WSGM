@@ -319,12 +319,19 @@ public sealed class LibraryTabManager
         }
         try
         {
-            var map = new Dictionary<long, string>();
-            foreach (var card in config.CardLibraries.Where(c => c is { Enabled: true, Hidden: false }))
+            // Hidden cards are excluded from tabs but still hold games, and a game whose library
+            // is missing from the map reads as "internal library" — which would be a lie about
+            // where it is. Only the enabled/hidden tab decision is skipped here, not the card.
+            var present = ScanLibraries().Select(static card => card.ContentId)
+                .ToHashSet(StringComparer.Ordinal);
+            var map = new Dictionary<long, SteamLibraryBadge>();
+            foreach (var card in config.CardLibraries)
             {
+                SteamLibraryBadge badge = new(
+                    card.Name, SteamLibraryKind.Card, present.Contains(card.ContentId));
                 foreach (var id in card.AppIds)
                 {
-                    map[id] = card.Name;
+                    map[id] = badge;
                 }
             }
             var pushed = await SteamPageBridge.UpdateCardBadgesAsync(map, cancellationToken)
