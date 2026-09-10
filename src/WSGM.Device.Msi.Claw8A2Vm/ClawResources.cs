@@ -1333,8 +1333,9 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
     // The second thing this device's GPU driver owns, reached through the same library. It lives
     // beside variable refresh for the reason the service exists at all: neither has a firmware
     // identity to verify, and both have to be restorable when every WMI and MCU path failed.
-    private readonly EnduranceGamingTransport _endurance = new();
+    private readonly Intel3dFeatureTransport _endurance = new();
     private EnduranceGamingState? _enduranceOnAcquire;
+    private bool? _shaderOnAcquire;
     private bool _disposed;
 
     /// <summary>Creates the service without touching the driver.</summary>
@@ -1356,8 +1357,11 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
         // panel without variable refresh must not cost the device its Endurance Gaming row.
         if (_endurance.TryOpen())
         {
+            // Each feature is probed on its own: a driver can answer for one and not the other, and
+            // one missing feature must not cost the device the rows for the rest.
             _enduranceOnAcquire = _endurance.Read();
-            available = true;
+            _shaderOnAcquire = _endurance.ReadShaderDownload();
+            available |= _enduranceOnAcquire is not null || _shaderOnAcquire is not null;
         }
 
         // Passive rather than Faulted when no capable panel answered: nothing went wrong, the
@@ -1380,6 +1384,18 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
     public bool TryWriteEnduranceGaming(EnduranceGamingControl control, EnduranceGamingMode mode)
         => _endurance.TryWrite(control, mode);
 
+    /// <summary>Whether the driver answers for prebuilt shader download on this machine.</summary>
+    public bool IsShaderDownloadAvailable => _shaderOnAcquire is not null;
+
+    /// <summary>Reads whether the driver downloads prebuilt shaders.</summary>
+    /// <returns>The setting, or null when the driver does not offer it.</returns>
+    public bool? ReadShaderDownload() => _endurance.ReadShaderDownload();
+
+    /// <summary>Turns prebuilt shader download on or off, verifying the result.</summary>
+    /// <param name="enabled">Whether the driver should download prebuilt shaders.</param>
+    /// <returns><see langword="true"/> when the driver reports the value back.</returns>
+    public bool TryWriteShaderDownload(bool enabled) => _endurance.TryWriteShaderDownload(enabled);
+
     /// <summary>Reads the current state, or null when it cannot be read.</summary>
     /// <returns>The panel's variable-refresh state.</returns>
     public ArcSyncState? Read() => _arcSync.Read();
@@ -1401,6 +1417,14 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
             && ReadEnduranceGaming() is { } current
             && current != captured
             && !TryWriteEnduranceGaming(captured.Control, captured.Mode))
+        {
+            restored = false;
+        }
+
+        if (_shaderOnAcquire is { } shader
+            && ReadShaderDownload() is { } currentShader
+            && currentShader != shader
+            && !TryWriteShaderDownload(shader))
         {
             restored = false;
         }

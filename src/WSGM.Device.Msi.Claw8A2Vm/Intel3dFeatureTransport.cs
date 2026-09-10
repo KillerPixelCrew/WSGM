@@ -40,7 +40,7 @@ internal readonly record struct EnduranceGamingState(
 );
 
 /// <summary>
-/// Intel Endurance Gaming for this device's adapter, over the Graphics Control Library.
+/// The Intel 3D features this device's adapter exposes, over the Graphics Control Library.
 /// </summary>
 /// <remarks>
 /// The same library <see cref="ArcSyncTransport"/> already drives, reached the same way: the driver
@@ -49,10 +49,11 @@ internal readonly record struct EnduranceGamingState(
 /// these through its own compiled <c>IGCL_Wrapper.dll</c>, which is a convenience over the same C
 /// API rather than a requirement.
 /// <para>
-/// Support is decided by a read rather than by walking <c>ctlGetSupported3DCapabilities</c>. A
-/// successful get for the feature is the only claim worth making, it is the state the capability
-/// wants to publish anyway, and it avoids marshalling a capability array whose union sizing is one
-/// more layout to get wrong for no extra certainty.
+/// Each feature's support is decided by a read of that feature rather than by walking
+/// <c>ctlGetSupported3DCapabilities</c>. A successful get is the only claim worth making, it is the
+/// state the capability wants to publish anyway, and it avoids marshalling a capability array whose
+/// union sizing is one more layout to get wrong for no extra certainty. Probing each separately
+/// also means a driver that answers for one and not another still offers the one it has.
 /// </para>
 /// <para>
 /// Layouts come from Intel's published <c>igcl_api.h</c>, not from inference. The one trap is that
@@ -60,12 +61,18 @@ internal readonly record struct EnduranceGamingState(
 /// every field after it, which is the same hazard <see cref="ArcSyncTransport"/> documents.
 /// </para>
 /// </remarks>
-internal sealed unsafe class EnduranceGamingTransport : IDisposable
+internal sealed unsafe class Intel3dFeatureTransport : IDisposable
 {
     private const int ResultSuccess = 0;
 
     /// <summary>CTL_3D_FEATURE_ENDURANCE_GAMING.</summary>
     private const int FeatureEnduranceGaming = 1;
+
+    /// <summary>CTL_3D_FEATURE_PREBUILT_SHADER_DOWNLOAD.</summary>
+    private const int FeaturePrebuiltShaderDownload = 18;
+
+    /// <summary>CTL_PROPERTY_VALUE_TYPE_BOOL: the value travels in the union.</summary>
+    private const int ValueTypeBool = 0;
 
     /// <summary>CTL_PROPERTY_VALUE_TYPE_CUSTOM: the value travels through the custom pointer.</summary>
     private const int ValueTypeCustom = 5;
@@ -99,13 +106,13 @@ internal sealed unsafe class EnduranceGamingTransport : IDisposable
     {
         if (!NativeLibrary.TryLoad("ControlLib.dll", out _library))
         {
-            PluginTrace.Info("endurance", "ControlLib.dll not present; Endurance Gaming unavailable.");
+            PluginTrace.Info("intel3d", "ControlLib.dll not present; Endurance Gaming unavailable.");
             return false;
         }
 
         if (!TryBind())
         {
-            PluginTrace.Warn("endurance", "ControlLib.dll is missing an expected entry point.");
+            PluginTrace.Warn("intel3d", "ControlLib.dll is missing an expected entry point.");
             return false;
         }
 
@@ -116,7 +123,7 @@ internal sealed unsafe class EnduranceGamingTransport : IDisposable
         int result = _init(&args, &api);
         if (result != ResultSuccess)
         {
-            PluginTrace.Warn("endurance", $"ctlInit refused with 0x{result:x}.");
+            PluginTrace.Warn("intel3d", $"ctlInit refused with 0x{result:x}.");
             return false;
         }
 
@@ -144,7 +151,7 @@ internal sealed unsafe class EnduranceGamingTransport : IDisposable
         int result = _getSet3dFeature(_adapter, &request);
         if (result != ResultSuccess)
         {
-            PluginTrace.Info("endurance", $"Endurance Gaming read returned 0x{result:x}; unsupported here.");
+            PluginTrace.Info("intel3d", $"Endurance Gaming read returned 0x{result:x}; unsupported here.");
             return null;
         }
 
@@ -178,7 +185,7 @@ internal sealed unsafe class EnduranceGamingTransport : IDisposable
         int result = _getSet3dFeature(_adapter, &request);
         if (result != ResultSuccess)
         {
-            PluginTrace.Warn("endurance", $"Endurance Gaming write failed with 0x{result:x}.");
+            PluginTrace.Warn("intel3d", $"Endurance Gaming write failed with 0x{result:x}.");
             return false;
         }
 
@@ -189,8 +196,70 @@ internal sealed unsafe class EnduranceGamingTransport : IDisposable
         }
 
         PluginTrace.Warn(
-            "endurance",
+            "intel3d",
             $"Endurance Gaming write was not confirmed; asked {control}/{mode}, read {applied?.ToString() ?? "nothing"}.");
+        return false;
+    }
+
+    /// <summary>Reads whether the driver downloads prebuilt shaders for games.</summary>
+    /// <returns>The current setting, or null when the driver does not offer it.</returns>
+    /// <remarks>
+    /// A bool-typed feature, so the value rides in the property union rather than through the custom
+    /// pointer. Intel documents the feature that way and the driver answers it that way.
+    /// </remarks>
+    public bool? ReadShaderDownload()
+    {
+        if (_adapter == 0)
+        {
+            return null;
+        }
+
+        Ctl3dFeatureGetSet request = default;
+        request.Size = (uint)sizeof(Ctl3dFeatureGetSet);
+        request.FeatureType = FeaturePrebuiltShaderDownload;
+        request.ValueType = ValueTypeBool;
+
+        int result = _getSet3dFeature(_adapter, &request);
+        if (result != ResultSuccess)
+        {
+            PluginTrace.Info("intel3d", $"Shader download read returned 0x{result:x}; unsupported here.");
+            return null;
+        }
+
+        // ctl_property_boolean_t is a single C bool, so only the union's first byte carries it.
+        return (request.Value.First & 0xFF) != 0;
+    }
+
+    /// <summary>Turns prebuilt shader download on or off, then confirms the read-back.</summary>
+    /// <param name="enabled">Whether the driver should download prebuilt shaders.</param>
+    /// <returns><see langword="true"/> only when the driver reports the requested value afterwards.</returns>
+    public bool TryWriteShaderDownload(bool enabled)
+    {
+        if (_adapter == 0)
+        {
+            return false;
+        }
+
+        Ctl3dFeatureGetSet request = default;
+        request.Size = (uint)sizeof(Ctl3dFeatureGetSet);
+        request.FeatureType = FeaturePrebuiltShaderDownload;
+        request.ValueType = ValueTypeBool;
+        request.Set = 1;
+        request.Value.First = enabled ? 1u : 0u;
+
+        int result = _getSet3dFeature(_adapter, &request);
+        if (result != ResultSuccess)
+        {
+            PluginTrace.Warn("intel3d", $"Shader download write failed with 0x{result:x}.");
+            return false;
+        }
+
+        if (ReadShaderDownload() == enabled)
+        {
+            return true;
+        }
+
+        PluginTrace.Warn("intel3d", $"Shader download write to {enabled} was not confirmed.");
         return false;
     }
 
@@ -235,7 +304,7 @@ internal sealed unsafe class EnduranceGamingTransport : IDisposable
                 return true;
             }
 
-            PluginTrace.Warn("endurance", $"Entry point {name} is missing.");
+            PluginTrace.Warn("intel3d", $"Entry point {name} is missing.");
             return false;
         }
     }
@@ -251,7 +320,7 @@ internal sealed unsafe class EnduranceGamingTransport : IDisposable
         uint count = 0;
         if (_enumerateDevices(_api, &count, null) != ResultSuccess || count == 0)
         {
-            PluginTrace.Warn("endurance", "No graphics adapters enumerated.");
+            PluginTrace.Warn("intel3d", "No graphics adapters enumerated.");
             return false;
         }
 
@@ -259,7 +328,7 @@ internal sealed unsafe class EnduranceGamingTransport : IDisposable
         nint* devices = stackalloc nint[MaxDevices];
         if (_enumerateDevices(_api, &count, devices) != ResultSuccess)
         {
-            PluginTrace.Warn("endurance", "Adapter handles could not be fetched.");
+            PluginTrace.Warn("intel3d", "Adapter handles could not be fetched.");
             return false;
         }
 
@@ -273,7 +342,7 @@ internal sealed unsafe class EnduranceGamingTransport : IDisposable
         }
 
         _adapter = 0;
-        PluginTrace.Info("endurance", $"No adapter of {count} answered for Endurance Gaming.");
+        PluginTrace.Info("intel3d", $"No adapter of {count} answered for Endurance Gaming.");
         return false;
     }
 

@@ -55,6 +55,14 @@ Claw 8 AI+ A2VM, not from vendor documentation. Two consequences:
   `ctlGetSupported3DCapabilities`; that capability array is not marshalled at all. **Only the read
   is device-verified.** A write and its read-back have not been exercised on the unit, so the
   applied path remains a source-and-layout claim awaiting an attended Device Lab run.
+- The same transport reads `CTL_3D_FEATURE_PREBUILT_SHADER_DOWNLOAD` (feature 18), which Intel
+  documents as carrying generic bool fields, so its value rides in the property union with
+  `CTL_PROPERTY_VALUE_TYPE_BOOL` (0) rather than through `pCustomValue`. Confirmed on the reference
+  unit on 2026-09-10: the feature answered and read back enabled. `CTL_3D_FEATURE_GAMING_FLIP_MODES`
+  (9) and `CTL_3D_FEATURE_LOW_LATENCY` (16) also answered on the same probe and are recorded here
+  only as observed-present; neither is implemented, and neither is a driver-level VSync toggle. As
+  with Endurance Gaming, **only the read is device-verified** for shader download; no value was
+  applied to the unit.
 - Intel's IO/sensor driver exposes the STMicroelectronics LSM6DSO `Physical Accelerometer` and
   `Physical Gyrometer` through the legacy Sensor API as custom sensor type
   `e83af229-8640-4d18-a213-e22675ebb2c3` on the `VID_8087&PID_0AC2` HID collection. Their live

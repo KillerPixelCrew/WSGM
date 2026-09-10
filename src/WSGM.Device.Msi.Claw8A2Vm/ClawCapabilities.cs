@@ -1079,6 +1079,9 @@ internal static class CapabilityIds
 
     /// <summary>The frame target Endurance Gaming holds to while engaged.</summary>
     public const string EnduranceGamingMode = "display.endurance-gaming-mode";
+
+    /// <summary>Whether the graphics driver downloads prebuilt shaders for games.</summary>
+    public const string ShaderDownload = "display.shader-download";
 }
 
 internal static class CapabilityInstances

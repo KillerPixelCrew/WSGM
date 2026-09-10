@@ -1175,6 +1175,24 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                     },
                 ]
                 : (IReadOnlyList<CapabilityDescriptor>)[],
+            .. _arcSync?.IsShaderDownloadAvailable == true
+                ? [
+                    BooleanDescriptor(
+                        CapabilityIds.ShaderDownload,
+                        CapabilityRole.GenericToggle,
+                        DisplayKey.Custom,
+                        writable: true,
+                        section: SectionIds.Power) with
+                    {
+                        Display = new CapabilityDisplay
+                        {
+                            Key = DisplayKey.Custom,
+                            CustomLabel = "Download prebuilt shaders",
+                        },
+                        Persistence = CapabilityPersistence.DevicePersistent,
+                    },
+                ]
+                : (IReadOnlyList<CapabilityDescriptor>)[],
         ];
 
         EnsureUniqueCapabilityKeys(descriptors);
@@ -1358,6 +1376,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             CapabilityIds.VariableRefreshRate => ApplyVariableRefreshCommand(command),
             CapabilityIds.EnduranceGaming or CapabilityIds.EnduranceGamingMode =>
                 ApplyEnduranceGamingCommand(command),
+            CapabilityIds.ShaderDownload => ApplyShaderDownloadCommand(command),
             _ => ReadOnlyHandler(command, cancellationToken),
         };
     }
@@ -1456,6 +1475,38 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         });
     }
 
+    /// <remarks>
+    /// Not journalled, for the same reason the other driver-held rows are not: nothing is written
+    /// into firmware, and Restore puts back what was captured when the cycle started.
+    /// </remarks>
+    private ValueTask<CapabilityCommandResult> ApplyShaderDownloadCommand(CapabilityCommand command)
+    {
+        if (_arcSync is not { IsShaderDownloadAvailable: true } display)
+        {
+            return ValueTask.FromResult(Rejected(
+                command,
+                CapabilityReasonCode.Unsupported,
+                "The graphics driver does not offer prebuilt shader download on this device."));
+        }
+
+        bool requested = command.RequestedValue!.BooleanValue!.Value;
+        if (!display.TryWriteShaderDownload(requested))
+        {
+            return ValueTask.FromResult(Rejected(
+                command,
+                CapabilityReasonCode.TransportFaulted,
+                $"The graphics driver did not apply shader download {(requested ? "on" : "off")}."));
+        }
+
+        return ValueTask.FromResult(new CapabilityCommandResult
+        {
+            CommandId = command.CommandId,
+            Outcome = CommandOutcome.AppliedVerified,
+            ReadbackValue = Boolean(requested),
+            CompletedAt = DateTimeOffset.UtcNow,
+        });
+    }
+
     private ValueTask<CapabilityCommandResult> ApplyFanCurveCommandAsync(
         CapabilityCommand command,
         ClawA2VmFanCapability fans,
@@ -1485,7 +1536,8 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         CapabilityIds.Motion => _motion,
         CapabilityIds.VariableRefreshRate
             or CapabilityIds.EnduranceGaming
-            or CapabilityIds.EnduranceGamingMode => _arcSync,
+            or CapabilityIds.EnduranceGamingMode
+            or CapabilityIds.ShaderDownload => _arcSync,
         _ => null,
     };
 
@@ -1498,7 +1550,8 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         CapabilityIds.Motion
             or CapabilityIds.VariableRefreshRate
             or CapabilityIds.EnduranceGaming
-            or CapabilityIds.EnduranceGamingMode => FirmwareKind.None,
+            or CapabilityIds.EnduranceGamingMode
+            or CapabilityIds.ShaderDownload => FirmwareKind.None,
         _ => FirmwareKind.Wmi,
     };
 
@@ -1999,6 +2052,11 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                     _ => "off",
                 })
                 : null;
+        }
+
+        if (descriptor.CapabilityId == CapabilityIds.ShaderDownload)
+        {
+            return _arcSync?.ReadShaderDownload() is { } shader ? Boolean(shader) : null;
         }
 
         if (descriptor.CapabilityId == CapabilityIds.EnduranceGamingMode)
