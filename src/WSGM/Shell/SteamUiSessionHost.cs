@@ -36,6 +36,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly NativeQamPowerPresetService _powerPresets;
     private readonly NativeQamPowerProfileService _powerProfiles = new(PowerSchemes.Windows,
         id => ConfigStore.Mutate(config => config.LastSelectedPowerSchemeId = id));
+    private readonly NativeQamHybridCoreService _hybridCores = new(HybridCores.Windows);
 
     /// <summary>
     /// Null when no audio manager exists for this session, which is the overlay-test case.
@@ -435,6 +436,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             // the Q12 retirement does not apply: a free 30-120 range made Valve's unusable.
             SteamFrameLimitRow.Module(Enabled, () => new(_performance.FrameLimit), _performance),
             SteamPowerProfileRow.Module(Enabled, _powerProfiles.ReadAsync, _powerProfiles),
+            SteamHybridCoreRow.Module(Enabled, _hybridCores.ReadAsync, _hybridCores),
             SteamPowerPresetRow.Module(Enabled, _powerPresets.ReadAsync, _powerPresets),
 
             SteamControllerTargetRow.Module(

@@ -843,6 +843,12 @@ public sealed class OverlayController : IDisposable
         _overlay.AttachPowerSchemes(powerSchemes);
         _overlay.Opened += async (_, _) => await powerSchemes.RefreshAsync();
         _overlay.Closed += (_, _) => powerSchemes.Dispose();
+        // Read on every open rather than cached for the session: activating a power scheme can
+        // carry a different core preference with it, so a value read once would go stale silently.
+        var hybridCores = new HybridCoreSelection(HybridCores.Windows, _previewOnly);
+        _overlay.AttachHybridCores(hybridCores);
+        _overlay.Opened += async (_, _) => await hybridCores.RefreshAsync();
+        _overlay.Closed += (_, _) => hybridCores.Dispose();
         if (_powerPresets is not null)
         {
             var presets = new DevicePowerPresetSelection(_powerPresets, _previewOnly, _powerAssignments);

@@ -450,6 +450,13 @@
                         <Expander x:Name="DeviceWindowsPower" Header="Windows energy plan" IsVisible="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Margin="0,12,0,0">
                             <ov:PowerSchemeView x:Name="DevicePowerSchemeHost" />
                         </Expander>
+
+                        <!-- Windows power policy like the energy plan above, so it belongs here
+                             rather than in WSGM Settings, and it stays available with device
+                             integration off. Hidden on a CPU with one kind of core. -->
+                        <Expander x:Name="DeviceHybridCores" Header="Processor cores" IsVisible="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Margin="0,12,0,0">
+                            <ov:HybridCoreView x:Name="DeviceHybridCoreHost" />
+                        </Expander>
                     </StackPanel>
 
                     <!-- Tools (the System destination): what is left once Steam, Device

@@ -37,6 +37,26 @@ power-mode overlays. GUIDs identify schemes; localized friendly names are displa
 empty name falls back to the GUID. Enumeration failures are surfaced rather than returning a partial
 list. The existing idle-timeout controls share its active-scheme reader.
 
+### Processor core preference
+
+`Core\HybridCores` offers the same class of control for a hybrid CPU, on the Device Power page
+beside the energy plan and as a second dropdown on Steam's Performance tab. Both surfaces drive the
+one policy, so a change from either is the same write and the next read on the other reports it.
+Neither caches: activating a power scheme can carry a different preference with it.
+
+WSGM writes only Windows' thread scheduling policy for ordinary and short-running threads, which
+Windows itself names — performant processors, prefer performant, efficient, prefer efficient,
+automatic. It reads and restores the heterogeneous-policy value beside them but never chooses one,
+because `powercfg /qh` enumerates that setting as "use heterogeneous policy 0..4" with no published
+meaning, and an undocumented write cannot be verified against what it claims to do. Handheld
+Companion assigns meanings to those values; that is an assumption, not a Windows contract.
+
+A mode is one value applied to both thread settings and to both power sources. A stored pair that
+disagrees with itself, or carries a value WSGM does not offer, reads back as no mode at all rather
+than the nearest one: something else set it, and naming a WSGM mode there would claim WSGM did.
+Processor policy takes effect on scheme activation, so the write, the activation and the confirming
+readback happen together under one gate. The control is hidden on a CPU with one efficiency class.
+
 A manual selection calls `PowerSetActiveScheme` once, then verifies the GUID with
 `PowerGetActiveScheme`. A failed write, failed readback or different active GUID is not success and
 does not trigger another write or rollback. Windows remains authoritative, including subsequent

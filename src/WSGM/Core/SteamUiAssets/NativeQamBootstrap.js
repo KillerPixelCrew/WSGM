@@ -634,6 +634,33 @@
       ],
       ["rect", { x: 10.8, y: 2.6, width: 2.4, height: 8.6, rx: 1.2 }],
     ],
+    // A processor die with its pins, for the core-preference row. Drawn rather than reusing the power
+    // glyph because every control places exactly one glyph of its own, and this one chooses which
+    // kind of core runs work rather than which power state the machine is in.
+    cores: [
+      [
+        "rect",
+        {
+          x: 6.4,
+          y: 6.4,
+          width: 11.2,
+          height: 11.2,
+          rx: 1.8,
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 2,
+        },
+      ],
+      ["rect", { x: 10.4, y: 10.4, width: 3.2, height: 3.2, rx: 0.8 }],
+      ["rect", { x: 9, y: 2.4, width: 1.8, height: 3.2, rx: 0.9 }],
+      ["rect", { x: 13.2, y: 2.4, width: 1.8, height: 3.2, rx: 0.9 }],
+      ["rect", { x: 9, y: 18.4, width: 1.8, height: 3.2, rx: 0.9 }],
+      ["rect", { x: 13.2, y: 18.4, width: 1.8, height: 3.2, rx: 0.9 }],
+      ["rect", { x: 2.4, y: 9, width: 3.2, height: 1.8, rx: 0.9 }],
+      ["rect", { x: 2.4, y: 13.2, width: 3.2, height: 1.8, rx: 0.9 }],
+      ["rect", { x: 18.4, y: 9, width: 3.2, height: 1.8, rx: 0.9 }],
+      ["rect", { x: 18.4, y: 13.2, width: 3.2, height: 1.8, rx: 0.9 }],
+    ],
     plug: [
       ["path", { d: "M8.5 2h2v5h-2V2Zm5 0h2v5h-2V2Z" }],
       ["path", { d: "M6 8h12v4a6 6 0 0 1-5 5.92V22h-2v-4.08A6 6 0 0 1 6 12V8Z" }],
@@ -2060,6 +2087,7 @@
     let frameLimitControl;
     let controllerControl;
     let powerProfileControl;
+    let hybridCoreControl;
     let powerPresetControl;
     let resolutionControl;
     let vrrControl;
@@ -2129,6 +2157,10 @@
       powerProfile: Object.freeze({
         patchId: "steam-ui.power-profile",
         command: "setPowerProfile",
+      }),
+      hybridCores: Object.freeze({
+        patchId: "steam-ui.hybrid-cores",
+        command: "setHybridCores",
       }),
       powerPreset: Object.freeze({
         patchId: "steam-ui.power-preset",
@@ -2814,6 +2846,50 @@
         return controlRuntime.react.createElement(controlRuntime.dropdown, {
           label: "Windows power profile",
           icon: controlRuntime.icon("power"),
+          rgOptions: options,
+          selectedOption: options.some((option) => option.data === state.current)
+            ? state.current
+            : undefined,
+          disabled: pending || !state.available || options.length < 2,
+          description: state.statusText || undefined,
+          layout: "below",
+          onChange: (option) => {
+            if (
+              pending ||
+              !state.available ||
+              !option ||
+              option.data === state.current ||
+              !options.some((candidate) => candidate.data === option.data)
+            )
+              return;
+            setPending(true);
+            void request(
+              definition.patchId,
+              definition.command,
+              { target: option.data },
+              nextActionGeneration(definition.patchId),
+            )
+              .catch(() => {})
+              .finally(() => setPending(false));
+          },
+        });
+      };
+    // The same dropdown as the row above, published from the same state shape. It is written out
+    // rather than shared with it because each control's glyph is read from the literal at its own
+    // icon() call: a factory taking the name as an argument makes both rows invisible to the
+    // ownership check that proves every glyph is placed exactly once.
+    const createHybridCoreControl = (controlRuntime) =>
+      function SteamUiHybridCoreControl() {
+        const kind = "hybridCores";
+        const state = useSemanticState(controlRuntime, kind, normalizePowerProfileState);
+        const [pending, setPending] = controlRuntime.react.useState(false);
+        if (!state) return note(kind, "no state");
+        const options = state.options.map((option) => ({ data: option.id, label: option.label }));
+        const definition = definitions[kind];
+        renderOutcomes[kind] = "rendered";
+        return controlRuntime.react.createElement(controlRuntime.dropdown, {
+          label: "Processor cores",
+          icon: controlRuntime.icon("cores"),
           rgOptions: options,
           selectedOption: options.some((option) => option.data === state.current)
             ? state.current
@@ -3772,6 +3848,7 @@
           valveProfileHeader: "Profile scope",
           powerPreset: "Power profiles",
           powerProfile: "Power profiles",
+          hybridCores: "Power profiles",
           valveOverlayLevel: "Display and frame rate",
           frameLimit: "Display and frame rate",
           vrr: "Display and frame rate",
@@ -3788,6 +3865,7 @@
         ["valveOverlayLevel", "steam-ui-valve-overlay-level", valveOverlayLevelControl, "perf"],
         ["frameLimit", "steam-ui-frame-limit", frameLimitControl, "perf"],
         ["powerProfile", "steam-ui-power-profile", powerProfileControl, "perf"],
+        ["hybridCores", "steam-ui-hybrid-cores", hybridCoreControl, "perf"],
         ["powerPreset", "steam-ui-power-preset", powerPresetControl, "perf"],
         ["vrr", "steam-ui-vrr", vrrControl, "perf"],
         ["powerLimit", "steam-ui-power-limits", powerLimitControl, "perf"],
@@ -3948,6 +4026,7 @@
       frameLimitControl = createFrameLimitControl(controlRuntime);
       controllerControl = createControllerControl(controlRuntime);
       powerProfileControl = createPowerProfileControl(controlRuntime);
+      hybridCoreControl = createHybridCoreControl(controlRuntime);
       powerPresetControl = createPowerPresetControl(controlRuntime);
       resolutionControl = createResolutionControl(controlRuntime);
       vrrControl = createVrrControl(controlRuntime);

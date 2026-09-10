@@ -51,6 +51,7 @@ public partial class OverlayWindow : Window
     private const int DeviceLiveRefresh = 1;
     private const int PerformanceLiveRefresh = 2;
     private PowerSchemeSelection? _powerSchemeSelection;
+    private HybridCoreSelection? _hybridCoreSelection;
     private bool _performanceDetailsExpanded;
 
     internal void AttachPowerPresets(DevicePowerPresetSelection selection) => DevicePowerPresetHost.Attach(selection);
@@ -97,6 +98,15 @@ public partial class OverlayWindow : Window
     {
         _powerSchemeSelection = selection;
         DevicePowerSchemeHost.Attach(selection);
+        RefreshDevicePanel();
+    }
+
+    /// <summary>Attaches the hybrid core-placement workflow shown beside the Windows energy plan.</summary>
+    /// <param name="selection">The controller-owned workflow; its lifetime is not this window's.</param>
+    internal void AttachHybridCores(HybridCoreSelection selection)
+    {
+        _hybridCoreSelection = selection;
+        DeviceHybridCoreHost.Attach(selection);
         RefreshDevicePanel();
     }
 
@@ -606,6 +616,9 @@ public partial class OverlayWindow : Window
             && (!DeviceWindowsPower.IsVisible || _previousDeviceIntegrationVisible is true))
         { DeviceWindowsPower.IsExpanded = true; }
         DeviceWindowsPower.IsVisible = powerPage;
+        // Only on a hybrid CPU whose active scheme exposes the policy. Everywhere else the section
+        // would open on a control that has nothing to offer.
+        DeviceHybridCores.IsVisible = powerPage && _hybridCoreSelection?.Status.Supported is true;
         _previousDeviceIntegrationVisible = snapshot.Visible;
         DeviceStatusTitle.IsVisible = DeviceStatusDetail.IsVisible = _navigation.Page == OverlayPage.Device;
         DeviceStatusTitle.Text = snapshot.Status;
@@ -2270,6 +2283,7 @@ public partial class OverlayWindow : Window
         _pinToastTimer?.Stop();
         _pinToastTimer = null;
         DevicePowerSchemeHost.Attach(null);
+        DeviceHybridCoreHost.Attach(null);
         DevicePowerPresetHost.Attach(null);
         _deviceLifetime.Cancel();
         if (_deviceBridge is not null)
