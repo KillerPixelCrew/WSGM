@@ -53,7 +53,7 @@ internal static class VisualBaseline
         byte[] pixels = new byte[left.Length * 4];
         for (int i = 0; i < left.Length; i++)
         {
-            bool changed = left[i] != right[i];
+            bool changed = Differs(left[i], right[i]);
             if (changed) { differences++; }
             pixels[i * 4] = changed ? (byte)255 : (byte)0;
             pixels[i * 4 + 2] = changed ? (byte)255 : (byte)0;
@@ -67,6 +67,21 @@ internal static class VisualBaseline
         diff = encoded.ToArray();
         return $"{differences} pixels differ";
     }
+
+    /// <summary>The per-channel distance two renders of the same surface may differ by.</summary>
+    /// <remarks>
+    /// Skia's antialiasing of a rounded card corner lands one or two levels apart between runs of
+    /// the identical window, which made an exact comparison fail at random on four pixels. Two
+    /// levels of one channel cannot carry a UI change: text, layout, state and colour all move a
+    /// pixel much further than that, and every one of them moves many pixels at once.
+    /// </remarks>
+    private const int ChannelTolerance = 2;
+
+    private static bool Differs(SKColor left, SKColor right)
+        => left.Alpha != right.Alpha
+            || Math.Abs(left.Red - right.Red) > ChannelTolerance
+            || Math.Abs(left.Green - right.Green) > ChannelTolerance
+            || Math.Abs(left.Blue - right.Blue) > ChannelTolerance;
 
     internal static string RepositoryRoot()
     {
