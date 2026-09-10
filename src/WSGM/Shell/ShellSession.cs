@@ -88,6 +88,7 @@ public sealed class ShellSession : IAsyncDisposable
     // registration and the "did WSGM mute this?" flag.
     private DisplayOffMuteService? _displayMute;
     private ModernStandbyGuard? _standbyGuard;
+    private readonly GameplayDisplayHold _gameplayDisplay = new();
     // Field-rooted deliberately: an unreferenced enabled FileSystemWatcher is
     // GC-collectible (it holds only a WeakReference to itself in its pending
     // ReadDirectoryChangesW state) and silently stops raising events.
@@ -2509,6 +2510,9 @@ public sealed class ShellSession : IAsyncDisposable
         _deviceOverlay = null;
         _standbyGuard?.Dispose();
         _standbyGuard = null;
+        // Released here as well as on the next running-application change: a session torn down
+        // while a game is up must not leave Windows holding the display for a process that is gone.
+        _gameplayDisplay.Dispose();
         _displayMute?.Dispose();
         _displayMute = null;
         _volumeButtons?.Dispose();
@@ -2653,6 +2657,11 @@ public sealed class ShellSession : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         _autoTdp?.ApplyRunningApplication(snapshot);
+
+        // Windows does not count a gamepad as user input, so a controller-only session looks idle
+        // and the display timeout expires on top of the game. Nothing else holds the display for
+        // one: measured on the reference unit, neither Steam nor the title registers a request.
+        _gameplayDisplay.Apply(snapshot.State == RunningApplicationTargetState.Active);
         if (_deviceCoordinator is { } coordinator)
         {
             await coordinator.ApplyRunningApplicationAsync(snapshot, cancellationToken)
