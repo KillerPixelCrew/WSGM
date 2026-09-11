@@ -237,20 +237,37 @@ public sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
 
     /// <summary>Whether a mounted path carries a Steam library.</summary>
     /// <param name="path">The mount path, for example <c>D:\</c>.</param>
-    /// <returns>True when Steam's library directory is present on it.</returns>
+    /// <returns>True when any registered Steam library sits on that volume.</returns>
     /// <remarks>
-    /// Read off the volume rather than out of Steam's library file. Steam asks this per volume, and
-    /// a library is a <c>steamapps</c> directory on it; going through the library file would mean
-    /// resolving each registered path back to a volume to answer a question the volume already
-    /// answers. Reported false when the volume cannot be read, which is the safe direction: Steam
-    /// then offers to adopt a drive that is already a library rather than hiding a drive that is
-    /// not one.
+    /// Asked of Steam's own <c>libraryfolders.vdf</c> rather than by looking for a directory. The
+    /// first attempt tested for <c>steamapps</c> at the volume root, which is only true when the
+    /// library is the whole drive; a library at <c>D:\SteamLibrary</c> — the ordinary case, and the
+    /// one on this machine — reported false. Steam then saw a drive carrying no library, which is
+    /// what it renders as unadopted, and offered to format a card full of games.
+    /// <para>
+    /// Registered paths are compared by volume root, because that is the question Steam is asking:
+    /// not "is this the library" but "does this volume hold one". Reported false when the file
+    /// cannot be read, which is the safe direction: Steam then offers to adopt a drive that is
+    /// already a library, rather than silently treating an unknown drive as in use.
+    /// </para>
     /// </remarks>
     private static bool HasSteamLibrary(string path)
     {
+        if (path.Length == 0)
+        {
+            return false;
+        }
+
         try
         {
-            return path.Length > 0 && Directory.Exists(Path.Combine(path, "steamapps"));
+            if (!Steam.TryReadLibraryFolders(out _, out string? vdf) || vdf is null)
+            {
+                return false;
+            }
+
+            string root = Path.GetPathRoot(path) ?? "";
+            return root.Length > 0 && SteamLibraryVdf.ValuesOf(vdf, "path").Any(library =>
+                string.Equals(Path.GetPathRoot(library), root, StringComparison.OrdinalIgnoreCase));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
             or ArgumentException)

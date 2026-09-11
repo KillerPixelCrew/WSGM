@@ -2939,7 +2939,11 @@
             size_bytes: String(drive?.sizeBytes ?? 0),
             media_type: 0,
             is_unformatted: drive?.unformatted === true,
-            adopt_stage: 0,
+            // 1, not 0. Steam's adopt stage is a seven-value enum whose first member is Invalid and
+            // whose second is the idle one the drive icon is gated on: `adopt_stage != 1` renders a
+            // spinner. Publishing 0 spun the row forever, which looked exactly like omitting the
+            // field and was diagnosed twice as that before the enum was read off the client.
+            adopt_stage: 1,
             is_formattable: drive?.formattable === true,
             is_media_available: drive?.mediaAvailable !== false,
           })),
