@@ -140,8 +140,10 @@ parsed an unchunked full-length USB payload and refused malformed codes, unknown
 invalid A/C states without emitting. It then sent the Hisense POWER ON through `sendCode` (NEC
 `20DF8E71`), and `sendAc` with protocol `MIDEA` (Cool, 24 °C, fan auto) turned a Koenic KAC 12020
 portable air conditioner on. Its power off only registered after the endpoint was raised above the
-unit's opening air flap, which blocks line of sight once it runs. Other Midea settings on that unit
-remain unverified.
+unit's opening air flap, which blocks line of sight once it runs. Cool, Auto, Fan and Dry modes, set
+points of 20 and 24 °C, all three fan speeds and the swing toggle also worked. Swing is a toggle in
+this protocol: each send that requests swing flips the louver. Frames the flap blocked needed a
+second send. Heat, sleep and the other toggles remain unverified.
 
 The ESP32-C3 ROM loader remains the recovery path; Seeed also links a factory firmware flasher from
 the wiki. Reflashing does not touch the host command library or pairing file, but it does not clear

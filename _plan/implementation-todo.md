@@ -657,7 +657,8 @@ architecture smaller.
       Progress 2026-09-11: Hisense's published discrete NEC power on/off codes work on the
       maintainer's TV. Firmware 0.3.0 adds `sendCode`, `sendAc` and `protocols` and fixes long USB
       frames. The Koenic KAC 12020 (no Wi-Fi module) answers the library's `MIDEA` A/C protocol for
-      power on and off. Remaining: host commands authored from codes and A/C states, and a switch
+      power, Cool/Auto/Fan/Dry, set point, fan speed and swing. Midea swing is a toggle, so a host
+      A/C action must model it as an explicit toggle rather than stored state. Remaining: host commands authored from codes and A/C states, and a switch
       power-cycle scene whose delay is long enough for the second press to register.
 
 - [x] **Fix two SD cards showing under one card's name.** Steam's `libraryfolders.vdf` `label`
