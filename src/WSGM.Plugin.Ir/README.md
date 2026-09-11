@@ -86,15 +86,19 @@ evidence. The supplied software specifies transmitter GPIO3, active-low receiver
 with pull-down, motor GPIO6 and one WS2812 GRB LED on GPIO7. The firmware uses the IR library's
 standard active-low demodulating receiver handling and a NeoPixel driver, not a plain GPIO LED.
 
-Firmware 0.2.0 implements protocol 1 over USB CDC at 115200 and, once paired, over TCP port 7521
-with mDNS advertisement as `_wsgm-ir._tcp`. Credentials and the token live in the ESP32 NVS `wsgmir`
-namespace; there is no persistent command database, cloud dependency or web interface. The RGB LED
-and motor provide brief feedback; touch gives feedback without transmitting a user command. The
-current envelope-capture implementation does not measure carrier frequency. Payloads distinguish
-`assumed`, `protocol`, `measured` and `manual` provenance; this firmware returns an explicitly
-assumed 38 kHz. Actual carrier-measurement capability of the receiver hardware remains unverified. A
-separate per-command override preserves the original captured value and provenance. The initial
-Tools UI includes the last learned command's carrier status, override slider and reset action.
+Firmware 0.3.0 implements protocol 1 over USB CDC at 115200 and, once paired, over TCP port 7521
+with mDNS advertisement as `_wsgm-ir._tcp`. It adds `sendCode`, `sendAc` and `protocols`, so
+appliances whose remote is lost can be driven from published codes or the library's A/C encoders. It
+also enlarges the USB receive queue to the frame limit: firmware 0.2.0 kept the core's 256-byte
+default and answered `malformed` when a full raw payload arrived over USB in one write. Credentials
+and the token live in the ESP32 NVS `wsgmir` namespace; there is no persistent command database,
+cloud dependency or web interface. The RGB LED and motor provide brief feedback; touch gives
+feedback without transmitting a user command. The current envelope-capture implementation does not
+measure carrier frequency. Payloads distinguish `assumed`, `protocol`, `measured` and `manual`
+provenance; this firmware returns an explicitly assumed 38 kHz. Actual carrier-measurement
+capability of the receiver hardware remains unverified. A separate per-command override preserves
+the original captured value and provenance. The initial Tools UI includes the last learned command's
+carrier status, override slider and reset action.
 
 Do not infer measurement from a Pronto frequency field: ESPHome's
 [Pronto decoder](https://github.com/esphome/esphome/blob/dev/esphome/components/remote_base/pronto_protocol.cpp)
@@ -124,11 +128,22 @@ identify answered while health, send, learn and cancel returned `unauthorized` a
 `usb-only`; a learn over Wi-Fi with no remote reported the timeout as an instruction. The HDMI
 switch capture and replay described above then established real appliance behavior for one command;
 the assumed 38 kHz carrier was sufficient for that switch. Other appliances and carriers remain
-unverified. The ESP32-C3 ROM loader remains the recovery path; Seeed also links a factory firmware
-flasher from the wiki. Reflashing does not touch the host command library or pairing file, but it
-does not clear NVS either: Forget Wi-Fi over USB, or an esptool `erase-flash`, removes stored
-credentials. Hardware acceptance must distinguish a firmware build from successful capture and
-verified appliance behavior.
+unverified.
+
+On the maintainer's desktop PC the endpoint enumerates as COM5. There, on 2026-09-11, Hisense's
+published discrete NEC codes (address 4, command 0x71 POWER ON and 0x72 POWER OFF, from Hisense's
+discrete IR command table) turned the maintainer's Hisense TV on and off, sent as raw timings
+through firmware 0.2.0. The same session captured the HDMI switch remote's input 1, input 2 and
+power buttons (NEC address 128, commands 1, 2 and 3). PlatformIO's bundled esptool 4.5.1 then
+flashed firmware 0.3.0 over COM5 without stalling; the endpoint kept its pairing, rejoined Wi-Fi,
+parsed an unchunked full-length USB payload and refused malformed codes, unknown protocols and
+invalid A/C states without emitting.
+
+The ESP32-C3 ROM loader remains the recovery path; Seeed also links a factory firmware flasher from
+the wiki. Reflashing does not touch the host command library or pairing file, but it does not clear
+NVS either: Forget Wi-Fi over USB, or an esptool `erase-flash`, removes stored credentials. Hardware
+acceptance must distinguish a firmware build from successful capture and verified appliance
+behavior.
 
 See [protocol.md](protocol.md) for the shared wire contract. Main repository GPL licensing applies
 to this plugin and its authored firmware. The common SDK retains its MIT boundary. PlatformIO

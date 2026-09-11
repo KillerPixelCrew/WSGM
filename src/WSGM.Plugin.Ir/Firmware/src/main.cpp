@@ -1,7 +1,9 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <cerrno>
 #include <Adafruit_NeoPixel.h>
 #include <ESPmDNS.h>
+#include <IRac.h>
 #include <IRrecv.h>
 #include <IRsend.h>
 #include <IRutils.h>
@@ -10,10 +12,10 @@
 
 // Seeed XIAO IR Mate: D1/D2/D3/D4/D5 map to GPIO 3/4/5/6/7.
 constexpr uint8_t TxPin = 3, RxPin = 4, TouchPin = 5, MotorPin = 6, LedPin = 7;
-constexpr size_t MaxFrame = 32768, MaxTimings = 1024;
+constexpr size_t MaxFrame = 32768, MaxTimings = 1024, MaxStateBytes = 64;
 constexpr uint16_t NetworkPort = 7521;
 constexpr uint32_t ClientIdleMs = 120000;
-constexpr const char *Firmware = "0.2.0";
+constexpr const char *Firmware = "0.3.0";
 
 // One line-oriented request source. USB is trusted by physical access; the network needs the token.
 struct Channel {
@@ -26,6 +28,7 @@ struct Channel {
 
 IRrecv receiver(RxPin, MaxTimings + 1, 50, true);
 IRsend transmitter(TxPin);
+IRac airConditioner(TxPin);
 Adafruit_NeoPixel led(1, LedPin, NEO_GRB + NEO_KHZ800);
 Preferences settings;
 WiFiServer server(NetworkPort);
@@ -54,6 +57,37 @@ void reply(Print &out, const String &id, const char *status, JsonDocument *paylo
   if (payload) message["data"] = payload->as<JsonVariant>();
   serializeJson(message, out);
   out.println();
+}
+
+// Capture pauses during emission so the receiver never decodes the endpoint's own frame.
+template <typename Send> bool emit(Send send) {
+  receiver.disableIRIn();
+  bool sent = send();
+  receiver.enableIRIn();
+  feedback(sent ? 70 : 300);
+  return sent;
+}
+
+// The library maps an unknown name to the default it is given, so parse with two defaults to detect one.
+template <typename T> bool parseName(JsonVariantConst value, T fallback, T other, T (*parse)(const char *, T), T &result) {
+  if (value.isNull()) { result = fallback; return true; }
+  if (!value.is<const char *>()) return false;
+  result = parse(value.as<const char *>(), fallback);
+  return result == parse(value.as<const char *>(), other);
+}
+
+bool parseState(const char *hex, uint8_t *state, size_t &length) {
+  size_t digits = strlen(hex);
+  if (!digits || digits % 2 || digits / 2 > MaxStateBytes) return false;
+  for (size_t i = 0; i < digits; i += 2) {
+    char pair[3] = {hex[i], hex[i + 1], 0};
+    char *end = nullptr;
+    unsigned long value = strtoul(pair, &end, 16);
+    if (!isxdigit(pair[0]) || !isxdigit(pair[1]) || *end) return false;
+    state[i / 2] = uint8_t(value);
+  }
+  length = digits / 2;
+  return true;
 }
 
 void cancelLearn(const char *reason) {
@@ -155,15 +189,78 @@ void dispatch(Channel &channel, const String &line) {
     if (duration > 2000000 || duration * (repeats + 1) + uint64_t(gap) * 1000 * repeats > 5000000) {
       reply(out, id, "duration-limit"); return;
     }
-    receiver.disableIRIn();
-    for (int i = 0; i <= repeats; ++i) {
-      if (i) delay(gap);
-      transmitter.sendRaw(raw, timings.size(), carrier);
-      yield();
-    }
-    receiver.enableIRIn();
-    feedback(70);
+    emit([&] {
+      for (int i = 0; i <= repeats; ++i) {
+        if (i) delay(gap);
+        transmitter.sendRaw(raw, timings.size(), carrier);
+        yield();
+      }
+      return true;
+    });
     reply(out, id, "transmitted"); // Confirms emission only, never the appliance's resulting state.
+  } else if (operation == "sendCode") {
+    decode_type_t protocol = strToDecodeType(request["protocol"] | "");
+    if (protocol <= decode_type_t::UNUSED) { reply(out, id, "unknown-protocol"); return; }
+    bool sent;
+    if (hasACState(protocol)) {
+      uint8_t state[MaxStateBytes];
+      size_t length = 0;
+      if (!parseState(request["state"] | "", state, length)) { reply(out, id, "invalid-code"); return; }
+      sent = emit([&] { return transmitter.send(protocol, state, length); });
+    } else {
+      const char *value = request["value"] | "";
+      char *end = nullptr;
+      errno = 0;
+      uint64_t code = strtoull(value, &end, 16);
+      int bits = request["bits"] | int(IRsend::defaultBits(protocol));
+      int repeats = request["repeats"] | int(IRsend::minRepeats(protocol));
+      if (!*value || *end || errno || bits < 1 || bits > 64 || repeats < 0 || repeats > 4) {
+        reply(out, id, "invalid-code");
+        return;
+      }
+      sent = emit([&] { return transmitter.send(protocol, code, bits, repeats); });
+    }
+    reply(out, id, sent ? "transmitted" : "unsupported-protocol");
+  } else if (operation == "sendAc") {
+    stdAc::state_t state;
+    state.protocol = strToDecodeType(request["protocol"] | "");
+    if (state.protocol <= decode_type_t::UNUSED || !IRac::isProtocolSupported(state.protocol)) {
+      reply(out, id, "unsupported-protocol");
+      return;
+    }
+    JsonVariantConst model = request["model"];
+    bool valid = model.is<int>() ? (state.model = model.as<int16_t>(), true)
+                                 : parseName<int16_t>(model, -1, -2, IRac::strToModel, state.model);
+    valid = valid && parseName(request["mode"], stdAc::opmode_t::kAuto, stdAc::opmode_t::kCool, IRac::strToOpmode, state.mode);
+    valid = valid && parseName(request["fan"], stdAc::fanspeed_t::kAuto, stdAc::fanspeed_t::kLow, IRac::strToFanspeed, state.fanspeed);
+    valid = valid && parseName(request["swingV"], stdAc::swingv_t::kOff, stdAc::swingv_t::kAuto, IRac::strToSwingV, state.swingv);
+    valid = valid && parseName(request["swingH"], stdAc::swingh_t::kOff, stdAc::swingh_t::kAuto, IRac::strToSwingH, state.swingh);
+    state.power = request["power"] | true;
+    state.celsius = request["celsius"] | true;
+    state.degrees = request["degrees"] | 24.0f;
+    state.quiet = request["quiet"] | false;
+    state.turbo = request["turbo"] | false;
+    state.econo = request["econo"] | false;
+    state.light = request["light"] | false;
+    state.filter = request["filter"] | false;
+    state.clean = request["clean"] | false;
+    state.beep = request["beep"] | false;
+    state.sleep = request["sleep"] | int16_t(-1);
+    if (!valid || state.degrees < 10 || state.degrees > 90) { reply(out, id, "invalid-ac-state"); return; }
+    bool sent = emit([&] { return airConditioner.sendAc(state, nullptr); });
+    reply(out, id, sent ? "transmitted" : "unsupported-protocol");
+  } else if (operation == "protocols") {
+    JsonDocument data;
+    JsonArray list = data["protocols"].to<JsonArray>();
+    for (int type = 1; type <= kLastDecodeType; ++type) {
+      decode_type_t protocol = decode_type_t(type);
+      JsonObject entry = list.add<JsonObject>();
+      entry["name"] = typeToString(protocol);
+      entry["bits"] = IRsend::defaultBits(protocol);
+      entry["state"] = hasACState(protocol);
+      entry["ac"] = IRac::isProtocolSupported(protocol);
+    }
+    reply(out, id, "ok", &data);
   } else if (operation == "wifi") {
     // Pairing happens over USB only: whoever holds the cable sets the network and the token.
     if (!channel.trusted) { reply(out, id, "usb-only"); return; }
@@ -242,6 +339,8 @@ void setup() {
   led.clear();
   led.show();
   digitalWrite(MotorPin, LOW);
+  // The default 256-byte CDC queue drops the tail of a full raw payload written in one burst.
+  Serial.setRxBufferSize(MaxFrame);
   Serial.begin(115200);
   usb.input.reserve(MaxFrame);
   network.input.reserve(MaxFrame);

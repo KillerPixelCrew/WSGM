@@ -16,6 +16,26 @@ work. The host never retries an uncertain write.
 | `send`                | payload, repeats: 0–4, gapMs: 0–200         | `transmitted`, confirming emission only                                                                                      |
 | `wifi`                | `ssid` ≤ 32, `password` ≤ 63, `token` 16–64 | `ok`; identity as above. Empty `ssid` clears all three                                                                       |
 
+Firmware 0.3.0 adds three operations within protocol 1. Older firmware answers them with
+`unsupported-operation`.
+
+- `sendCode` transmits a known code through the pinned IRremoteESP8266 encoder. `protocol` is the
+  library's protocol name, such as `NEC`. A protocol that carries a byte state takes `state` as
+  2–128 hex digits. Every other protocol takes `value` as a hex string of at most 64 bits, optional
+  `bits` (1–64, default the protocol's) and optional `repeats` (0–4, default the protocol's
+  minimum). Replies are `transmitted`, `unknown-protocol`, `invalid-code` or `unsupported-protocol`.
+- `sendAc` builds and transmits a complete air-conditioner state through the library's common A/C
+  interface. It takes `protocol` and optional `model` (number or library name), `power`, `mode`,
+  `degrees` (10–90), `celsius`, `fan`, `swingV`, `swingH`, `quiet`, `turbo`, `econo`, `light`,
+  `filter`, `clean`, `beep` and `sleep`. Names follow the library's parsers. An unrecognized name is
+  refused with `invalid-ac-state` rather than replaced by a default, and a protocol without A/C
+  support answers `unsupported-protocol`.
+- `protocols` answers `ok` with every library protocol's `name`, default `bits`, whether it carries
+  a byte `state` and whether `ac` is supported.
+
+Both send operations confirm emission only. A recognized protocol is not proof that an appliance
+accepts the frame.
+
 `learn` is asynchronous on the endpoint so cancellation and health remain available. Another learn
 or send while learning receives `busy`. Learning also ends on its firmware deadline without a host,
 answering `timeout`. Send is bounded to five seconds including repeats and gaps. Cancellation of a

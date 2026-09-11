@@ -654,6 +654,11 @@ architecture smaller.
       Encoded commands report their carrier as protocol-derived, not measured.
       Most TV power codes toggle, and an endpoint acknowledgement proves emission only; where the
       HDMI chain allows it, display arrival confirms power-on.
+      Progress 2026-09-11: Hisense's published discrete NEC power on/off codes work on the
+      maintainer's TV. Firmware 0.3.0 adds `sendCode`, `sendAc` and `protocols` and fixes long USB
+      frames. Remaining: host commands authored from codes, A/C trials once the Koenic model is
+      known, and a switch power-cycle scene whose delay is long enough for the second press to
+      register.
 
 - [x] **Fix two SD cards showing under one card's name.** Steam's `libraryfolders.vdf` `label`
       belongs to a path registration, not a card, so re-registering a reader path left the previous
