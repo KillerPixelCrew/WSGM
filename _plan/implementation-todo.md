@@ -7,11 +7,11 @@ submodule changes, without feature branches or pull requests.
 ## Current issue workoff
 
 After delivery of #38/#39, #51/#53, #58/#59, #61, #65–#68, #22/#26/#35/#36 and, on 2026-09-11,
-#30/#31/#34, 14 issues remain open. Issues #41, #42, #44, #45, #47 and #48 remain deferred; the
-other eight are the 2.0 scope. #20 and #28 were closed on 2026-09-10 and reopened on 2026-09-11:
-#20 because the category migration was judged incomplete, #28 because the September 9 Steam
-Client Beta reworked the library UI and added Big Art Mode. #52 hardware capture remains open.
-#70–#72 were filed on 2026-09-11 for the same beta.
+#20/#30/#31/#34, 13 issues remain open. Issues #41, #42, #44, #45, #47 and #48 remain deferred; the
+other seven are the 2.0 scope. #20 and #28 were closed on 2026-09-10 and reopened on 2026-09-11:
+#20 because the Session tab had not followed the category migration (delivered the same day), #28
+because the September 9 Steam Client Beta reworked the library UI and added Big Art Mode. #52
+hardware capture remains open. #70–#72 were filed on 2026-09-11 for the same beta.
 
 Every remaining 2.0 issue is waiting on something outside the repository, which is why the count
 stops here rather than at zero:
@@ -20,9 +20,12 @@ stops here rather than at zero:
   `CTL_3D_FEATURE_VSYNC`. `CTL_3D_FEATURE_GAMING_FLIP_MODES` and `CTL_3D_FEATURE_LOW_LATENCY` both
   answer on the reference unit but neither is a VSync toggle.
 - #21 and #52 need the hardware: power-button capture over ACPI/HID/EC, and live IR learn/transmit.
-- #20 needs the maintainer to name which overlay tabs the reopen refers to: only Quick access and
-  Session are not category menus, and both read as the intentional-direct-layout case the issue
-  allows.
+- #20 is delivered (2026-09-11, `804df0d`). The reopen named Session: four buttons on a root tab
+  of their own. It is a Power category now, beside Wake, Idle timeouts and Power, with rows, tags
+  and handlers unchanged so pins survive. The tab-by-tab audit the issue asked for is in
+  `docs\overlay-and-input.md`, Quick access recorded as the one intentional direct layout. Nine
+  overlay baselines re-promoted for the shorter strip; the UI tests that click tabs by index are
+  renumbered.
 - #28 needs live badge work against the beta. The Big Art Mode detection primitive is settled
   offline: it is Steam's own `library_home_big_art` setting (field 7010), read by the Home component
   through a settings hook, so the toolkit can observe state rather than measure pixels.
@@ -81,8 +84,8 @@ stops here rather than at zero:
   disarmed device then restoring from the snapshot returned the machine to its exact prior arming.
   Writes need elevation; unelevated Windows fails them with `ERROR_WMI_SET_FAILURE`.
 
-- #20 was implemented as below and reopened on 2026-09-11 as incomplete; see the open-issue note
-  above. Steam, Tools and Power present large category tiles and their controls live
+- #20's first pass, 2026-09-10, reopened and completed the next day (see above). Steam, Tools and
+  Power present large category tiles and their controls live
   one level down as ordinary sub-views, so Back and B leave a category like any other page. A page
   opened from inside a category names that category as its parent, so one press moves one level.
   Two latent defects surfaced: leaving any non-`OverlaySubView` page called the format panel's
