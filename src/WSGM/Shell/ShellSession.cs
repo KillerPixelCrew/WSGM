@@ -407,7 +407,7 @@ public sealed class ShellSession : IAsyncDisposable
         _steamUi?.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
         _steamUi?.ApplySurfaceObservation(_config.Cef.Enabled);
         _steamUi?.ApplyNetworkIndicator(_wifiIndicatorEnabled);
-        _steamUi?.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
+        _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
         _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
         _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
         _steamUi?.ApplyScreensaverTimeouts(_screensaverTimeoutsEnabled);
@@ -891,7 +891,7 @@ public sealed class ShellSession : IAsyncDisposable
                 _overlay.SteamOwnership = () => _steamControllerHandoff;
             }
             _steamUi.ApplyNetworkIndicator(_wifiIndicatorEnabled);
-            _steamUi.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
+            _steamUi.ApplyDownloadSort(_downloadSortEnabled);
             _steamUi.ApplyLibraryBadge(_libraryBadgeEnabled);
             _steamUi.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
             _steamUi.ApplyScreensaverTimeouts(_screensaverTimeoutsEnabled);
@@ -918,9 +918,8 @@ public sealed class ShellSession : IAsyncDisposable
             // Tabs and the badge are game-mode surfaces; the ACF watcher only exists
             // to keep them fresh, so it stands down with them.
             ApplyCardServices(gameModeActive: false);
-            // The Wi-Fi indicator stays: Big Picture on the desktop draws the same header, and
-            // without the connected network it stays empty until something scans (Claw, 2026-09-11).
-            _steamUi?.ApplyDownloadSort(false);
+            // The Wi-Fi indicator and download sort stay: Big Picture on the desktop draws the same
+            // header and the same download queue (Claw, 2026-09-11).
             _ = SteamLibraryTabs.DisableAsync();
             _volumeButtons?.SetGameModeActive(false);
             _overlay?.AttachTrayHost(null);
@@ -1037,7 +1036,6 @@ public sealed class ShellSession : IAsyncDisposable
             // Steam's list, with Steam's storage page showing a drive that was not there (Claw,
             // 2026-09-11). The policy decides what runs on the desktop; this only asks it.
             ApplyCardServices(gameModeActive: false);
-            _steamUi?.ApplyDownloadSort(false);
             RequestSteamUiTransportGateCheck();
             _monitor.Paused = true;
             WatchStartupAppsAndConfig();
@@ -1505,7 +1503,8 @@ public sealed class ShellSession : IAsyncDisposable
             return;
         }
         _downloadSortEnabled = enabled;
-        _steamUi?.ApplyDownloadSort(_inGameMode && enabled);
+        // Either mode: Big Picture on the desktop draws the same download queue.
+        _steamUi?.ApplyDownloadSort(enabled);
         Log.Info($"Download queue sorting {(enabled ? "enabled" : "disabled")}.");
     }
 
@@ -1620,7 +1619,7 @@ public sealed class ShellSession : IAsyncDisposable
                 {
                     ApplyCardServices(_inGameMode);
                     KickTabBootSync();
-                    _steamUi?.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
+                    _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
                     _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
                     _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
                     _steamUi?.ApplyScreensaverTimeouts(_screensaverTimeoutsEnabled);

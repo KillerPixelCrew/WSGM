@@ -130,9 +130,6 @@ notification and scanning still start immediately so a present card and removals
 live library add/remove, tab and manifest sync, and download-state polling wait for the window.
 Desktop download polling and overlay-driven operations stay immediate because they do not act on a
 half-built game-mode session; their shared transport still waits for a MainWindow on cold starts.
-Resuming `--shell` next to Explorer disables the download sorter before opening the desktop
-transport gate, just as a normal desktop transition does.
-
 The remote-debugging flag uses the configured `Cef.Enabled` value, not the temporary transport hold.
 A first cold start must write the flag while attachment is still prohibited.
 
@@ -147,13 +144,14 @@ library tabs, and closes the transport, under a 5 s budget; on timeout it logs
 When the transition settles, the hold is released, the gate is re-checked and the surfaces are
 re-applied. The transition sequence itself is in `docs\boot-and-shell.md`.
 
-Mode events: `DesktopModeStarting` clears game mode, cancels the tab boot sync, turns download sort
-off and retracts the tabs; `GameModeEntered` sets game mode, re-checks the gate, turns it on and
-starts the tab boot sync. The header Wi-Fi indicator, the library badge, the Home carousel and the
+Mode events: `DesktopModeStarting` clears game mode, cancels the tab boot sync and retracts the
+tabs; `GameModeEntered` sets game mode, re-checks the gate and starts the tab boot sync. The header
+Wi-Fi indicator, download sort, the library badge and game-page stat, the Home carousel and the
 Screensaver settings rows are not mode-bound: they follow their own switches in either mode, because
-Big Picture on the desktop draws the same surfaces. A desktop-mode indicator used to leave the
-header empty until Steam's network page started a scan (Claw, 2026-09-11). With native Quick Access
-off, any of these keeps the bootstrap up on its own.
+Big Picture on the desktop draws the same surfaces. Game-mode-only, the indicator left the header
+empty until Steam's network page started a scan, and the download queue had no sort buttons, after
+every restart next to Explorer (Claw, 2026-09-11). With native Quick Access off, any of these keeps
+the bootstrap up on its own.
 
 Steam's screensaver timeouts bound the display timeouts only while the Screensaver settings patch is
 enabled and applying, applied or verified. After every synchronization pass and on every
@@ -526,7 +524,7 @@ The findings behind each of these are in `docs\steam-cef.md`.
 | Home carousel        | `Shell\HomeCarousel.cs`, toolkit `SteamHomeCarouselSurface`               | patch lifecycle; claims Home's memo, replaces the carousel's `games` array with the attached libraries' games and clears its whole-list overscan; excludes games on disconnected cards; reports its counts as `steam.home.carousel`                            | `Cef.ConnectedLibraryCarousel`, `Cef.CarouselShowUninstalled` |
 | Current game         | `Core\SteamPageBridge.cs`                                                 | one-shot read in the visible window: signal `focus`, else `hero image`, else the library route                                                                                                                                                                 | —                                                             |
 | Collections          | `Core\SteamCollections.cs`                                                | read-only: lists collections, batches filter predicates into one evaluation, counts store tags; one-time cleanup of ids older builds created                                                                                                                   | —                                                             |
-| Downloads            | `Core\SteamDownloads.cs`, `Core\SteamDownloadSort.cs`                     | overview is a one-shot `RegisterForDownloadOverview` with immediate unregister (keep-awake, screen-off mute); the sort patch wraps the JSX runtime's `jsx`/`jsxs`, builds buttons from Valve's `Focusable`, renumbers through `SetQueueIndex` every 120 ms     | `Cef.DownloadQueueSort`                                       |
+| Downloads            | `Core\SteamDownloads.cs`, `Core\SteamDownloadSort.cs`                     | overview is a one-shot `RegisterForDownloadOverview` with immediate unregister (keep-awake, screen-off mute); the sort patch transforms the header on the JSX claim, builds buttons from Valve's `Focusable`, renumbers through `SetQueueIndex` every 120 ms   | `Cef.DownloadQueueSort`                                       |
 | Launch configuration | `Core\SteamLaunchConfig.cs`, `Core\SteamCustomLaunchCommand.cs`           | reads through `RegisterForAppDetails` (3 s timeout, unregister); writes `SetAppLaunchOptions` for titles, `SetShortcutExe` + `SetShortcutLaunchOptions` for shortcuts, verbatim, 400 ms settle; clipboard fallback with CEF off                                | —                                                             |
 | Artwork              | `Core\SteamArtwork.cs`, `Core\ArtworkProviders.cs`, `Core\SteamGridDb.cs` | providers searched in parallel behind `ArtworkSearch`; SteamGridDB and Screenscraper.fr over HTTPS, 20 s timeout, bounded downloads; clear, 500 ms, `SetCustomArtworkForApp`; icons refused                                                                    | `Cef.Artwork`                                                 |
 | Libraries            | `Core\SteamCdp.cs`, `Shell\SteamLibraryVdf.cs`                            | `AddInstallFolder` on the running client after purging same-path registrations; removal iterates one snapshot; `libraryfolders.vdf` splice with Steam closed                                                                                                   | `Cef.SdFormat`                                                |

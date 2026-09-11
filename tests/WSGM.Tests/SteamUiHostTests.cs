@@ -483,8 +483,10 @@ public sealed class SteamUiSessionHostTests
     }
 
     [Fact]
-    public async Task NativeDisableCoversWholeRegistryButLeavesIndependentDownloadPatchEnabled()
+    public async Task NativeDisableCoversWholeRegistryButLeavesDownloadSortAndItsBridgeEnabled()
     {
+        // Download sort registers its transform on the toolkit's shared JSX-runtime claim, which the
+        // bridge serves, so the bridge outlives native Quick Access with it.
         await using var transport = new SessionHostTransport();
         await using var performance = new PerformanceService(
             new SimulatedRtssAdapter(),
@@ -501,8 +503,10 @@ public sealed class SteamUiSessionHostTests
 
         IReadOnlyList<SteamUiPatchSnapshot> snapshots = host.GetPatchSnapshots();
         Assert.True(snapshots.Single(snapshot => snapshot.Id == "wsgm.download-sort").Enabled);
+        Assert.True(snapshots.Single(snapshot => snapshot.Id == SteamUiBridgePatch.PatchId).Enabled);
         Assert.All(
             snapshots.Where(snapshot => snapshot.Id != "wsgm.download-sort"
+                && snapshot.Id != SteamUiBridgePatch.PatchId
                 && snapshot.Id != SteamInputGlyphStylePatch.PatchId),
             snapshot => Assert.False(snapshot.Enabled));
     }
