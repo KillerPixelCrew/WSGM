@@ -11,15 +11,9 @@ namespace WSGM.Shell;
 
 /// <summary>Structured outcome for tab synchronization and retry policy.</summary>
 /// <param name="Summary">User-facing summary.</param>
-/// <param name="Success">Whether definitions and badges synchronized.</param>
+/// <param name="Success">Whether the tab definitions synchronized.</param>
 /// <param name="Reachable">Whether Steam's CEF target was reachable.</param>
-/// <param name="BadgesPushed">Whether the in-page badge observer + map reached the
-/// VISIBLE window. Distinct from Success because tabs live in SharedJSContext while
-/// the badge lives in the visible page; direct runtime callers can reach one without
-/// the other. The automatic boot path deliberately waits for Big Picture before
-/// touching either context.</param>
-public readonly record struct LibraryTabSyncResult(
-    string Summary, bool Success, bool Reachable, bool BadgesPushed = false);
+public readonly record struct LibraryTabSyncResult(string Summary, bool Success, bool Reachable);
 
 /// <summary>Builds Steam library tabs as injected in-memory definitions over CEF:
 /// <list type="bullet">
@@ -114,16 +108,17 @@ public sealed class LibraryTabManager
                 return fresh;
             }, cancellationToken).ConfigureAwait(false);
 
-            var badgePush = await PushCardBadgesAsync(config, cancellationToken)
-                .ConfigureAwait(false);
-            var badgesPushed = badgePush == BadgePush.Pushed;
+            // The badge is a toolkit surface fed from the same card model: the reading is replaced
+            // here and the session host publishes it. Whether Steam shows it is the host's switch,
+            // so this never talks to Steam and cannot fail the sync.
+            LibraryBadges.Update(config, discovered.Select(static card => card.ContentId)
+                .ToHashSet(StringComparer.Ordinal));
             if (!tabsEnabled)
             {
                 // The tab strip is switched off, so there is nothing left to push and
                 // nothing pending: report success, or every caller keeps re-running a
                 // full sync (the overlay only arms its auto-sync throttle on success).
-                return new LibraryTabSyncResult(
-                    "Library tabs are turned off.", true, reachedSteam, badgesPushed);
+                return new LibraryTabSyncResult("Library tabs are turned off.", true, reachedSteam);
             }
             if (!reachedSteam || !ok)
             {
@@ -131,18 +126,18 @@ public sealed class LibraryTabManager
                 {
                     return new LibraryTabSyncResult(
                         "Saved the tabs, but one filter failed in Steam; existing tabs were preserved.",
-                        false, true, badgesPushed);
+                        false, true);
                 }
                 return new LibraryTabSyncResult(
                     "Saved the tabs — Steam isn't reachable yet; they'll appear when it's open.",
-                    false, reachedSteam, badgesPushed);
+                    false, reachedSteam);
             }
 
             Log.Info($"Library tabs: {tabs.Count} injected.");
             var summary = tabs.Count == 0
                 ? "No library tabs yet — add a custom tab or insert a card library."
                 : $"Synced {tabs.Count} library tabs.";
-            return new LibraryTabSyncResult(summary, true, true, badgesPushed);
+            return new LibraryTabSyncResult(summary, true, true);
         }
         catch (OperationCanceledException)
         {
@@ -186,39 +181,11 @@ public sealed class LibraryTabManager
 
             LibraryTabSyncResult result = await SyncAllDetailedAsync(token).ConfigureAwait(false);
             Log.Info($"Library tabs (boot): {result.Summary}");
-            LibraryTabBootAction action = LibraryTabBootSyncPolicy.Decide(result);
-            if (action == LibraryTabBootAction.RetryFullSync)
-            {
-                // A half-initialized appStore can be reachable but reject a filter. The badge
-                // targets another context, so its success must never make us abandon the tabs.
-                return false;
-            }
-            if (action == LibraryTabBootAction.Complete)
-            {
-                return true;
-            }
-
-            // The tabs succeeded but the visible-window badge did not. Retry only the badge; the
-            // full filter evaluation must not run every five seconds.
-            for (int attempt = 0; attempt < 30 && !token.IsCancellationRequested; attempt++)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
-                AppConfig config = await Task.Run(ConfigStore.Load, token).ConfigureAwait(false);
-                BadgePush push = await PushCardBadgesAsync(config, token).ConfigureAwait(false);
-                if (push == BadgePush.Pushed)
-                {
-                    Log.Info("Library tabs (boot): card badge installed.");
-                    return true;
-                }
-                if (push == BadgePush.Disabled)
-                {
-                    Log.Info("Library tabs (boot): card badges are turned off.");
-                    return true;
-                }
-            }
-            Log.Info("Library tabs (boot): badge target not reachable in time; "
-                + "it will install on the next sync.");
-            return true;
+            // A half-initialized appStore can be reachable but reject a filter; only a sync that
+            // reached Steam and placed the tabs is done. The badge needs no retry of its own: its
+            // reading is published through the patch lifecycle, which reaches Steam when the
+            // bridge does.
+            return result.Success;
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -286,63 +253,6 @@ public sealed class LibraryTabManager
         // unknown rather than proven.
         bool? reachable = customTabs.Count > 0 ? true : null;
         return (tabs, reachable, false);
-    }
-
-    /// <summary>Outcome of a card-badge push: reached the visible window, missed it
-    /// (boot paths retry), or the feature is switched off (nothing to retry).</summary>
-    private enum BadgePush
-    {
-        NoTarget,
-        Pushed,
-        Disabled,
-    }
-
-    /// <summary>Pushes the per-game card badge map (app id → card name) into Steam's
-    /// library page and (re)installs the resident badge observer. Best-effort — a badge
-    /// failure never affects tab syncing.</summary>
-    // Reports whether the observer + map actually reached the visible window —
-    // callers on boot paths retry on NoTarget instead of assuming the badge exists.
-    private static async Task<BadgePush> PushCardBadgesAsync(
-        AppConfig config, CancellationToken cancellationToken)
-    {
-        // CEF SD-card-manager feature gate (master + sub-toggle): the "On: <card>"
-        // badges are part of that feature, so retract them when it is off. Merely
-        // skipping the push would leave the resident observer and the last map in
-        // place, so the toggle would look ignored for the rest of the session.
-        if (!(config.Cef.Enabled && config.Cef.CardManager))
-        {
-            if (config.Cef.Enabled)
-            {
-                await SteamPageBridge.DisableBadgeAsync(cancellationToken).ConfigureAwait(false);
-            }
-            return BadgePush.Disabled;
-        }
-        try
-        {
-            // Hidden cards are excluded from tabs but still hold games, and a game whose library
-            // is missing from the map reads as "internal library" — which would be a lie about
-            // where it is. Only the enabled/hidden tab decision is skipped here, not the card.
-            var present = ScanLibraries().Select(static card => card.ContentId)
-                .ToHashSet(StringComparer.Ordinal);
-            var map = new Dictionary<long, SteamLibraryBadge>();
-            foreach (var card in config.CardLibraries)
-            {
-                SteamLibraryBadge badge = new(
-                    card.Name, SteamLibraryKind.Card, present.Contains(card.ContentId));
-                foreach (var id in card.AppIds)
-                {
-                    map[id] = badge;
-                }
-            }
-            var pushed = await SteamPageBridge.UpdateCardBadgesAsync(map, cancellationToken)
-                .ConfigureAwait(false);
-            return pushed ? BadgePush.Pushed : BadgePush.NoTarget;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Card badge push failed: {ex.Message}");
-            return BadgePush.NoTarget;
-        }
     }
 
     /// <summary>Resolves <see cref="FilterKind.SdCard"/> membership from WSGM's card
@@ -827,6 +737,14 @@ public sealed class LibraryTabManager
     /// <summary>Loads the current custom tabs and cards for the builder UI (no scan;
     /// pair with <see cref="ListCardsAsync"/> for live inserted state).</summary>
     public static AppConfig LoadConfig() => ConfigStore.Load();
+
+    /// <summary>The content ids of the removable libraries attached right now.</summary>
+    /// <remarks>
+    /// What the library badge needs beside the card model, for a reading before the first sync:
+    /// a sync also refreshes the reading, but the badge must not wait for one.
+    /// </remarks>
+    internal static IReadOnlySet<string> PresentCardContentIds() =>
+        ScanLibraries().Select(static card => card.ContentId).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>One row of the tab-order UI: a tab key (a native Steam id or an
     /// injected <c>wsgm-…</c> id), its display title, and its visibility. Only native

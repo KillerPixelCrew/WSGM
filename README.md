@@ -32,7 +32,7 @@ Windows shell the whole time.
   size, title patterns, …), reorder the whole tab strip, and hide Steam's built-in tabs.
 - **SD card & external drive libraries** — every removable Steam library gets its own tab that
   remembers its games while ejected; rename, hide, or forget cards from a controller-driven manager,
-  and an "On: card" badge shows where the game you're viewing lives.
+  and a badge on every library tile names the library a game is on, green while it is installed.
 - **Drive formatting** — format a card or drive into a ready-to-use Steam library in one guided
   flow, keeping its exact drive letter; register any folder or network share with the running Steam
   client, no restart.

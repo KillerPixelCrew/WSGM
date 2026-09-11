@@ -537,6 +537,30 @@ public sealed class SteamUiSessionHostTests
             host.GetPatchSnapshots(), snapshot => snapshot.Id == SteamStorageSurface.PatchId);
     }
 
+    [Fact]
+    public async Task LibraryBadgeSurfaceIsDeclaredAndFollowsItsOwnSwitch()
+    {
+        await using var transport = new SessionHostTransport();
+        await using var performance = new PerformanceService(
+            new SimulatedRtssAdapter(), (_, _) => Task.CompletedTask);
+        await using var host = new SteamUiSessionHost(
+            transport, _ => Task.FromResult(true), null, performance);
+
+        // The badge belongs to the card manager, not to native Quick Access: it comes up on its
+        // own switch with Quick Access off, and its layout report is in the vocabulary.
+        host.ApplyLibraryBadge(true);
+        await transport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await WaitForAsync(() => transport.BridgeConfiguration is not null);
+
+        Assert.Contains(
+            "\"steam-ui.library-badge\":[\"homeLayout\"]",
+            transport.BridgeConfiguration,
+            StringComparison.Ordinal);
+        var badge = Assert.Single(
+            host.GetPatchSnapshots(), snapshot => snapshot.Id == SteamLibraryBadgeSurface.PatchId);
+        Assert.NotEqual(SteamUiPatchState.Disabled, badge.State);
+    }
+
     private static async Task WaitForAsync(Func<bool> condition)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));

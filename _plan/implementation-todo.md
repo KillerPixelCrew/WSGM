@@ -26,9 +26,14 @@ stops here rather than at zero:
   `docs\overlay-and-input.md`, Quick access recorded as the one intentional direct layout. Nine
   overlay baselines re-promoted for the shorter strip; the UI tests that click tabs by index are
   renumbered.
-- #28 needs live badge work against the beta. The Big Art Mode detection primitive is settled
-  offline: it is Steam's own `library_home_big_art` setting (field 7010), read by the Home component
-  through a settings hook, so the toolkit can observe state rather than measure pixels.
+- #28 is delivered (2026-09-11). The badge is a toolkit surface now, `SteamLibraryBadgeSurface`:
+  the library tile is one exported memo on the September beta, the toolkit claims its `type` and
+  places the badge immediately left of Valve's Steam Input badge by element identity, so Home's
+  carousel and the library grid are covered by one claim and no pixel or class is measured. Name
+  only, green installed and grey not, as the maintainer chose. Big Art Mode is Steam's own
+  `library_home_big_art` setting, read from the settings store and reported through `homeLayout`;
+  the badge is tile-relative and needs no separate placement per layout. The in-page resident
+  script and its boot retry are gone. Verified on the beta with the card present and pulled.
 - #27 and #40 are implemented as far as they can be without a device session and the brand mark.
 
 - #30 and #31 are delivered and verified live on the September 2026 beta (2026-09-11). The

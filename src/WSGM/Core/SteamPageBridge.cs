@@ -1,60 +1,25 @@
 using System;
-using System.Collections.Generic;
-using System.Globalization;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-/// <summary>Which kind of tracked library holds a game.</summary>
+/// <summary>Reads which game page the user is viewing from Steam's own library UI over the CEF
+/// leg (<see cref="SteamCef"/>): the focused element's React fiber first, then the largest
+/// visible wide library-asset image in the rendered DOM, then the library route.</summary>
 /// <remarks>
-/// The internal library is deliberately not a member. It is what a game with no entry in the
-/// pushed map is on, so it is named from that absence rather than by pushing every internal
-/// app id into the page.
+/// The library badge that used to live here is a toolkit surface now
+/// (<c>SteamLibraryBadgeSurface</c>, fed by <c>Shell\LibraryBadges</c>); nothing in this class
+/// writes to the page.
 /// </remarks>
-public enum SteamLibraryKind
-{
-    /// <summary>A removable card WSGM tracks.</summary>
-    Card,
-
-    /// <summary>A tracked library that is not a card — a second disk, USB, or a network share.</summary>
-    External,
-}
-
-/// <summary>The library a game lives on, as the in-page badge states it.</summary>
-/// <param name="Name">
-///     The library's remembered name. It comes from the card's own marker, so it still names the
-///     library while that library is disconnected and nothing can be read from it.
-/// </param>
-/// <param name="Kind">Which kind of library it is.</param>
-/// <param name="Connected">Whether it is attached to the machine right now.</param>
-public sealed record SteamLibraryBadge(string Name, SteamLibraryKind Kind, bool Connected);
-
-/// <summary>Reaches into Steam's own library UI over the CEF leg (<see cref="SteamCef"/>):
-/// <list type="bullet">
-/// <item><b>Current-game detection</b> — which game page the user is viewing, read from
-/// the focused element's React fiber and, failing that, from the largest visible wide
-/// library-asset image in the rendered DOM.</item>
-/// <item><b>In-page card badge</b> — a resident script installs a <c>MutationObserver</c>
-/// that renders an "On: &lt;card&gt;" badge on a game page when that game lives on a
-/// tracked card. The observer runs inside the visible Steam page and survives its SPA
-/// navigations; WSGM re-asserts it on reconnect (idempotent via a
-/// <c>window.__wsgm</c> sentinel).</item>
-/// </list>
-/// Coexists with CSSLoader-Desktop (device-verified concurrent CDP; source-verified no
-/// surface overlap): everything is namespaced under <c>window.__wsgm</c>, the badge wears
-/// a unique <c>wsgm-badge</c> class (never CSSLoader's <c>css-loader-style</c>), and nothing
-/// is appended to <c>document.head</c> or removed that WSGM did not create.</summary>
 public static class SteamPageBridge
 {
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(8);
 
     // Current-game detection, two signals in priority order — the focused element's React fiber,
     // then the largest wide visible library-asset image. Both live-verified; the rules and their
-    // evidence are in docs\steam-cef.md §10. ONE source string shared with the resident badge
-    // below, so the center/visibility rules cannot drift between the two consumers.
+    // evidence are in docs\steam-cef.md.
     private const string CurrentAppIdJs =
         "(()=>{try{" +
         "try{const el=document.activeElement;" +
@@ -162,172 +127,4 @@ public static class SteamPageBridge
         }
         return "in-page";
     }
-
-    /// <summary>Disconnects the resident badge observer and removes its node from the
-    /// visible Steam page. Best-effort shutdown for desktop mode and process exit.</summary>
-    internal static Task<CefEvalResult> DisableBadgeAsync(
-        CancellationToken cancellationToken = default)
-        => SteamUiTransportSession.EvaluateOnVisibleWindowAsync(
-            "(()=>{try{window.__wsgm&&window.__wsgm.disableBadge&&window.__wsgm.disableBadge();return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false,err:String(e)});}})()",
-            Budget, cancellationToken);
-
-    /// <summary>Installs (idempotently) the resident badge observer and pushes the
-    /// current app-id → library map. Call whenever the card set changes or after a
-    /// reconnect; the sentinel makes re-calls cheap no-ops for the observer while still
-    /// refreshing the data. Best-effort — a closed/absent Steam simply does nothing.</summary>
-    /// <remarks>
-    /// Only games on a tracked removable library are listed. Everything else is on the internal
-    /// library by definition, so the badge says so from the absence of an entry rather than from
-    /// thousands of pushed app ids.
-    /// </remarks>
-    /// <param name="appIdToLibrary">Map of app id to the library that holds it.</param>
-    /// <param name="cancellationToken">Cancels the exchange.</param>
-    public static async Task<bool> UpdateCardBadgesAsync(
-        IReadOnlyDictionary<long, SteamLibraryBadge> appIdToLibrary,
-        CancellationToken cancellationToken = default)
-    {
-        var map = BuildMapLiteral(appIdToLibrary);
-        var expression =
-            "(()=>{try{" +
-            "window.__wsgm=window.__wsgm||{};" +
-            "window.__wsgm.cardMap=" + map + ";" +
-            InstallBadgeScript +
-            "if(window.__wsgm.renderBadge)window.__wsgm.renderBadge();" +
-            "return JSON.stringify({ok:true,installed:!!window.__wsgm.badgeInstalled});}" +
-            "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
-
-        // The badge lives in the VISIBLE library window (the DOM the user sees), not the
-        // headless SharedJSContext where the stores are.
-        var result = await SteamUiTransportSession.EvaluateOnVisibleWindowAsync(expression, Budget, cancellationToken)
-            .ConfigureAwait(false);
-        if (!result.Reachable)
-        {
-            return false;
-        }
-        if (result.Value is not null)
-        {
-            try
-            {
-                using var document = JsonDocument.Parse(result.Value);
-                if (document.RootElement.TryGetProperty("ok", out var ok)
-                    && ok.ValueKind == JsonValueKind.True)
-                {
-                    return true;
-                }
-                var err = document.RootElement.TryGetProperty("err", out var e) ? e.GetString() : null;
-                Log.Warn($"Card badge install failed: {err}.");
-            }
-            catch (Exception ex)
-            {
-                // Non-fatal; the badge is a convenience — but the boot path retries on
-                // the false this returns, so the reason has to reach the device log.
-                Log.Warn($"Card badge install parse failed: {ex.Message}");
-            }
-        }
-        return false;
-    }
-
-    internal static string BuildMapLiteral(IReadOnlyDictionary<long, SteamLibraryBadge> appIdToLibrary)
-    {
-        var sb = new StringBuilder("{");
-        var first = true;
-        foreach (var (appId, library) in appIdToLibrary)
-        {
-            if (!first)
-            {
-                sb.Append(',');
-            }
-            first = false;
-            sb.Append('"').Append(appId.ToString(CultureInfo.InvariantCulture)).Append('"')
-                .Append(":{n:").Append(SteamCef.JsString(library.Name))
-                .Append(",k:").Append(SteamCef.JsString(library.Kind switch
-                {
-                    SteamLibraryKind.Card => "card",
-                    _ => "external",
-                }))
-                // Emitted as 0/1 rather than omitted when false: the script distinguishes
-                // "disconnected" from "no entry", and a missing key would read as the latter.
-                .Append(",c:").Append(library.Connected ? '1' : '0').Append('}');
-        }
-        return sb.Append('}').ToString();
-    }
-
-    // Bumped whenever the resident script's behavior changes: a live Steam session
-    // keeps whatever observer was installed into it, so without a version gate an
-    // upgraded WSGM would keep talking to the OLD detection logic until Steam
-    // restarts. On mismatch the old observer is disconnected and replaced.
-    // 4: CurrentAppIdJs resolves to {id,src}; the resident script's curId() unwraps .id.
-    // 5: the map carries {n,k,c} instead of a bare name; the badge anchors to the hero art
-    //    instead of the viewport corner, names the internal library, and states connection.
-    private const int BadgeScriptVersion = 5;
-
-    // The resident badge script, installed into the VISIBLE library window. Idempotent
-    // per version (sentinel-guarded), namespaced under window.__wsgm, and non-destructive
-    // to CSSLoader: the badge wears the unique class "wsgm-badge" (never "css-loader-style",
-    // which CSSLoader bulk-removes), lives on document.body (never document.head, where
-    // CSSLoader's styles + probe are), and the observer removes only its own node.
-    //
-    // Current game: read from the page's library-asset image URLs
-    // (assets/<appid>/library_hero|logo) — device-verified, locale/DOM-hash independent.
-    // A fixed-position pill (proven visible on device) shows "On: <card>" when the viewed
-    // game is on a tracked card. Re-render triggers: mutations (childList + src — page
-    // navigations swap the hero), plus a 2 s interval as the safety net, because a
-    // cover-flow focus change may only shuffle classes/transforms and fire NEITHER
-    // watched mutation — the live-reported stale-badge case on an imageless shortcut.
-    private static readonly string InstallBadgeScript =
-        "if(window.__wsgm.badgeVer!==" + BadgeScriptVersion + "){" +
-        "if(window.__wsgm.disableBadge){try{window.__wsgm.disableBadge();}catch(e){}}" +
-        "window.__wsgm.badgeVer=" + BadgeScriptVersion + ";window.__wsgm.badgeInstalled=true;" +
-        "const BID='wsgm-card-badge';" +
-        // Same detection as GetCurrentAppIdAsync — one source string, so the
-        // center/visibility rules can never drift between the two consumers.
-        // `.id`: the shared string resolves to {id,src} so the C# caller can log WHICH
-        // signal matched. The badge only wants the number. Live-verified on the visible
-        // window that both branches return the same id through this accessor.
-        "const curId=()=>(" + CurrentAppIdJs + ").id;" +
-        "const remove=()=>{const b=document.getElementById(BID);if(b)b.remove();};" +
-        // The hero art is the game's own metadata block, and the same element the app-id
-        // detection already proves it can find on device. Anchoring under its bottom-left puts
-        // the badge in the layout it describes instead of over Steam's search bar, and it
-        // travels with the art on every page. No hero (an imageless shortcut) falls back to the
-        // old corner, which is worse placement but still an answer.
-        "const heroRect=()=>{try{const cx=window.innerWidth/2,ch=window.innerHeight;" +
-        "let best=null,bestW=0;for(const i of document.querySelectorAll('img')){" +
-        "const r=i.getBoundingClientRect();" +
-        "if(r.width<600||r.width<=r.height)continue;" +
-        "if(r.bottom<=0||r.top>=ch||cx<r.left||cx>r.right)continue;" +
-        "if(i.checkVisibility&&!i.checkVisibility({checkOpacity:true,checkVisibilityCSS:true}))continue;" +
-        "if(r.width>bestW){bestW=r.width;best=r;}}return best;}catch(e){return null;}};" +
-        "const render=()=>{try{const id=curId();if(!id){remove();return;}" +
-        "const map=window.__wsgm.cardMap||{};const e=map[id];" +
-        // No entry means the game is not on any tracked removable library, which is what the
-        // internal library is. Naming it from the absence keeps the pushed map to the cards.
-        "const connected=e?e.c===1:true;" +
-        "const label=e?((e.k==='card'?'SD Card: ':'External: ')+e.n):'Internal library';" +
-        "let b=document.getElementById(BID);" +
-        "if(!b){b=document.createElement('div');b.id=BID;b.className='wsgm-badge';" +
-        "document.body.appendChild(b);}" +
-        "const r=heroRect();" +
-        "const place=r?('top:'+Math.round(Math.min(r.bottom+12,window.innerHeight-64))"
-            + "+'px;left:'+Math.round(r.left)+'px;'):'top:16px;left:16px;';" +
-        // Disconnected is carried by the glyph and the word, never by colour alone: a filled
-        // ring reads as present and a hollow one as absent even to someone who cannot tell the
-        // two greens apart, and the trailing word says it outright.
-        "b.style.cssText='position:fixed;z-index:99999;'+place+'display:inline-flex;"
-            + "align-items:center;gap:8px;padding:9px 16px;border-radius:8px;"
-            + "background:rgba(20,25,32,.92);font-size:19px;font-weight:600;line-height:1;"
-            + "box-shadow:0 2px 14px rgba(0,0,0,.55);pointer-events:none;color:'"
-            + "+(connected?'#e6edf3':'#ffc66d')+';';" +
-        "const text=(connected?'\\u25C9 ':'\\u25CB ')+label+(connected?'':' \\u2014 Disconnected');" +
-        "if(b.textContent!==text)b.textContent=text;}catch(e){}};" +
-        "window.__wsgm.renderBadge=render;" +
-        "try{let queued=false;const obs=new MutationObserver(ms=>{if(ms.every(m=>m.target.closest&&m.target.closest('#'+BID)))return;" +
-        "if(!queued){queued=true;requestAnimationFrame(()=>{queued=false;render();});}});" +
-        "obs.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['src']});" +
-        "const iv=setInterval(()=>{if(!document.hidden)render();},2000);" +
-        "window.__wsgm.badgeObserver=obs;" +
-        "window.__wsgm.disableBadge=()=>{obs.disconnect();clearInterval(iv);remove();" +
-        "window.__wsgm.badgeInstalled=false;window.__wsgm.badgeVer=0;};}" +
-        "catch(e){window.__wsgm.badgeInstalled=false;window.__wsgm.badgeVer=0;}" +
-        "render();}";
 }

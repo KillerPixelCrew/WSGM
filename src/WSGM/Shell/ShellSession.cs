@@ -95,6 +95,7 @@ public sealed class ShellSession : IAsyncDisposable
     // Same for the injected download-queue sort buttons. The session host owns
     // their target generation and retries through the common patch registry.
     private bool _downloadSortEnabled;
+    private bool _libraryBadgeEnabled;
     // Field-rooted for the session lifetime: it owns a native power-setting
     // registration and the "did WSGM mute this?" flag.
     private DisplayOffMuteService? _displayMute;
@@ -273,6 +274,7 @@ public sealed class ShellSession : IAsyncDisposable
         _cefMasterEnabled = config.Cef.Enabled;
         _wifiIndicatorEnabled = config.Cef.Enabled && config.Cef.WifiIndicator;
         _downloadSortEnabled = config.Cef.Enabled && config.Cef.DownloadQueueSort;
+        _libraryBadgeEnabled = config.Cef.Enabled && config.Cef.CardManager;
         // The real shell opens the transport only through the readiness gate, once it is
         // running and knows whether Steam is cold-starting under it. Overlay-test never
         // attaches a transport and keeps the plain master flag so its static callers
@@ -367,7 +369,6 @@ public sealed class ShellSession : IAsyncDisposable
                 }
                 try
                 {
-                    await SteamPageBridge.DisableBadgeAsync().ConfigureAwait(false);
                     await SteamLibraryTabs.DisableAsync().ConfigureAwait(false);
                 }
                 catch (Exception ex)
@@ -398,6 +399,7 @@ public sealed class ShellSession : IAsyncDisposable
         _steamUi?.ApplySurfaceObservation(_config.Cef.Enabled);
         _steamUi?.ApplyNetworkIndicator(_inGameMode && _wifiIndicatorEnabled);
         _steamUi?.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
+        _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
         KickTabBootSync();
     }
 
@@ -821,6 +823,17 @@ public sealed class ShellSession : IAsyncDisposable
         });
         if (!_overlayTestOnly)
         {
+            // The badge's first reading, before any library-tab sync: the host publishes whatever
+            // reading exists when the bridge comes up, and a null one publishes nothing, which
+            // named every card game internal until a sync happened to run (Claw, 2026-09-11).
+            try
+            {
+                LibraryBadges.Update(_config, LibraryTabManager.PresentCardContentIds());
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Library badge: initial reading failed: {ex.Message}");
+            }
             _steamUi = new SteamUiSessionHost(
                 _steamUiTransport
                     ?? throw new InvalidOperationException("Steam UI transport was not created."),
@@ -866,6 +879,7 @@ public sealed class ShellSession : IAsyncDisposable
             }
             _steamUi.ApplyNetworkIndicator(_inGameMode && _wifiIndicatorEnabled);
             _steamUi.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
+            _steamUi.ApplyLibraryBadge(_libraryBadgeEnabled);
             ApplyGlyphConfig(_config);
             if (_deviceCoordinator is not null)
             {
@@ -891,7 +905,6 @@ public sealed class ShellSession : IAsyncDisposable
             ApplyCardServices(gameModeActive: false);
             _steamUi?.ApplyNetworkIndicator(false);
             _steamUi?.ApplyDownloadSort(false);
-            _ = SteamPageBridge.DisableBadgeAsync();
             _ = SteamLibraryTabs.DisableAsync();
             _volumeButtons?.SetGameModeActive(false);
             _overlay?.AttachTrayHost(null);
@@ -910,6 +923,7 @@ public sealed class ShellSession : IAsyncDisposable
             EnterGameModeSurfaces();
             _steamUi?.ApplyNetworkIndicator(_wifiIndicatorEnabled);
             _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
+            _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
             // Returning from desktop mode disabled tabs/badge and cancelled the boot
             // sync; re-inject without requiring an overlay open.
             KickTabBootSync();
@@ -1478,6 +1492,21 @@ public sealed class ShellSession : IAsyncDisposable
         Log.Info($"Download queue sorting {(enabled ? "enabled" : "disabled")}.");
     }
 
+    /// <summary>Shows or retracts the library badge on Steam's tiles to match a reloaded
+    /// configuration, so the card manager toggle applies without a re-logon.</summary>
+    /// <param name="enabled">Whether the badge should be drawn.</param>
+    private void ApplyLibraryBadge(bool enabled)
+    {
+        if (_overlayTestOnly || enabled == _libraryBadgeEnabled)
+        {
+            _libraryBadgeEnabled = enabled;
+            return;
+        }
+        _libraryBadgeEnabled = enabled;
+        _steamUi?.ApplyLibraryBadge(enabled);
+        Log.Info($"Library badge {(enabled ? "enabled" : "disabled")}.");
+    }
+
     /// <summary>Applies a Steam Input Management change that arrived through a
     /// config reload.</summary>
     /// <remarks>
@@ -1543,6 +1572,7 @@ public sealed class ShellSession : IAsyncDisposable
                     ApplyCardServices(_inGameMode);
                     KickTabBootSync();
                     _steamUi?.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
+                    _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
                 });
             });
             return;
@@ -1574,7 +1604,6 @@ public sealed class ShellSession : IAsyncDisposable
 
                 try
                 {
-                    await SteamPageBridge.DisableBadgeAsync().ConfigureAwait(false);
                     await SteamLibraryTabs.DisableAsync().ConfigureAwait(false);
                 }
                 catch (Exception ex)
@@ -2126,6 +2155,7 @@ public sealed class ShellSession : IAsyncDisposable
                         ApplySteamInputManagement(config.SteamInputManagementEnabled);
                         ApplyNetworkIndicator(config.Cef.Enabled && config.Cef.WifiIndicator);
                         ApplyDownloadSort(config.Cef.Enabled && config.Cef.DownloadQueueSort);
+                        ApplyLibraryBadge(config.Cef.Enabled && config.Cef.CardManager);
                         _displayMute?.ApplyConfig(config.MuteWhileDisplayOff);
                         _overlay?.ApplyConfig(config);
                         _startupWatcher?.Apply(config.StartupApps);

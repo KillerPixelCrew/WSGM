@@ -244,9 +244,9 @@ and the tab reappears untouched when unhidden). `patchTabs` records `W.nativeTab
 Sync is reactive: `LibraryTabManager.SyncAllAsync` re-injects after every builder change, and
 reordering uses the cheap `PushOrderAsync` (order and hidden set only). The boot sync waits for Big
 Picture plus `webpackChunksteamui`, `collectionStore` and `appStore`. A reachable but failed filter
-evaluation retries the full tab sync even if the independent badge push succeeded; treating the
-badge success as completion was why custom tabs only appeared after opening WSGM's sidebar (Claw,
-2026-08-22).
+evaluation retries the full tab sync; only a sync that placed the tabs is done. The badge needs no
+retry of its own since it moved into the patch lifecycle: its reading is replaced by every sync and
+reaches Steam when the bridge does.
 
 The accepted fragility is the two things that move on a major Steam UI update: the dispatcher slot
 name and the `Library_FilteredByHeader` marker. Kill switch: `window.__wsgm.disableTabs()`; a Steam
@@ -257,39 +257,50 @@ shape in `probe-token-exists.js` or `probe-perf-components.js`; never instantiat
 
 ## The Steam-page bridge on the visible window
 
-### The card badge runs in the visible window
+### The library badge is a toolkit surface on the tile
 
-`SharedJSContext` is headless: empty DOM, no images, only stores and React.
-`Core\SteamPageBridge.cs` therefore injects the "On: <card>" badge into the visible Big Picture
-window through `EvaluateOnVisibleWindowAsync`. The window is selected by shape, not localized title:
-a `page` whose URL has `createflags` and lacks `openerid` and `browserviewpopup`.
+The badge lives on every library tile, immediately left of Valve's own Steam Input badge in the
+tile's icon row, and shows exactly when Valve shows that row: on the focused tile in Home's carousel
+and in the library grid. It is `SteamLibraryBadgeSurface` in steam-ui-toolkit; WSGM feeds it.
+`Shell\LibraryBadges.cs` builds the reading from the card model — every tracked card with games,
+hidden or absent, with its content id's presence as `connected` — and every library-tab sync
+replaces it, which already runs on every card change and on boot. `SteamUiSessionHost` publishes it
+on change and claims the surface on its own switch, the card manager toggle, independent of native
+Quick Access.
 
-The current game is the appid of the largest wide visible `assets/<appid>/...` image, the hero
-banner, matched by `width>=600 && width>height`. That skips the portrait grid capsules and clears
-the badge when leaving a game, and it holds across art naming: some games serve `library_hero`,
-others a hashed `assets/<id>/<hash>`, and both put the appid in the path. Matching the
-`library_hero` filename alone fails for many games.
+The September 2026 beta is what moved it here. The old in-page script anchored under the hero art of
+a game page by pixel measurement in the visible window; the beta's tile is one exported `React.memo`
+drawn by every view through the export, so the toolkit claims its `type` and finds Valve's badge in
+the rendered tree by element identity. Nothing measures pixels, nothing names a generated class, and
+one claim covers both layouts of Home. The mapping and the harness are in the toolkit's reference
+(§15, "The library badge").
 
-`CurrentAppIdJs` resolves to `{id,src}`, one source string shared by the C# reader and the resident
-badge so their rules cannot drift. `src` names the signal that matched: `focus` (the focused
-element's React fiber, tried first) or `hero image`. The log prints the signal, so a detection that
-shifts from one signal to the other is visible in a pasted `wsgm.log`. Bump `BadgeScriptVersion`
-whenever the resident script text changes, and re-probe both branches against a live Steam
-(`tools\WsgmLibTest`) before shipping.
+The text is the library's name alone; the colour is Steam's own installed flag on the app overview:
+green installed, grey not, which is what a disconnected card amounts to. A game no listed card holds
+is internal and labelled `Internal` while it is installed; one installed nowhere gets no badge. The
+maintainer chose the name-only, colour-carried design on 2026-09-11 against the beta.
 
-The badge states which library holds the game and whether that library is attached. It anchors under
-the hero art's bottom-left rather than to the viewport corner, so it sits in the metadata block that
-describes the game and travels with it instead of covering Steam's search bar; a page with no hero
-art falls back to the corner, which is worse placement but still an answer. Disconnected is carried
-by a hollow ring and the word, never by colour alone.
+Big Art Mode is Steam's `library_home_big_art` client setting (field 7010 of the client settings
+message), read by the Home component through a settings hook. The toolkit reads it from the same
+store and reports it through `homeLayout`; `LibraryBadgeBackend` logs each transition as
+`steam.home.layout`. The badge is tile-relative and draws the same in both layouts, so the report is
+a fact for the log rather than a placement input.
 
-The pushed map holds only games on a tracked removable library, as `{n,k,c}` per app id. A game with
-no entry is on the internal library by definition, and the badge names it from that absence rather
-than from pushing every internal app id into the page. That is why `c` is always emitted: the script
-tells "no entry" from "entry, disconnected", and a key omitted when false would collapse the two.
-Hidden cards are still pushed — hiding governs the tab, not where the game is, and dropping them
-would make those games read as internal. A library name comes from a marker file on the card, so it
-is untrusted text and goes through `SteamCef.JsString` before it is spliced into the script.
+### Current-game detection stays in the visible window
+
+`SharedJSContext` is headless: empty DOM, no images, only stores and React. The artwork and launch
+pages need the game the user is looking at, and `Core\SteamPageBridge.cs` reads it from the visible
+Big Picture window through `EvaluateOnVisibleWindowAsync`. The window is selected by shape, not
+localized title: a `page` whose URL has `createflags` and lacks `openerid` and `browserviewpopup`.
+
+The current game is the focused element's React fiber first, then the appid of the largest wide
+visible `assets/<appid>/...` image, the hero banner, matched by `width>=600 && width>height`. That
+skips the portrait grid capsules, and it holds across art naming: some games serve `library_hero`,
+others a hashed `assets/<id>/<hash>`, and both put the appid in the path. `CurrentAppIdJs` resolves
+to `{id,src}`; `src` names the signal that matched (`focus` or `hero image`) and the log prints it,
+so a detection that shifts from one signal to the other is visible in a pasted `wsgm.log`. A page
+with neither, a custom shortcut without images, falls back to the library route in
+`SharedJSContext`.
 
 ### Artwork: data on SharedJSContext, DOM on the visible window
 
@@ -434,12 +445,12 @@ before shipping a change.
 
 ## Retract, don't just stop
 
-Turning a CEF feature off must remove what it injected. Tabs, the badge, the synthetic access point
-and the sort buttons are resident in Steam's session and survive until Steam restarts. The master
-switch fails every evaluation closed, including WSGM's own removal calls, so `ShellSession` awaits
-removal before closing the choke point. Wi-Fi and download sorting live in the patch lifecycle and
-are retracted by it; the remaining legacy residents, tabs and the badge, keep explicit removal until
-their attended migrations land.
+Turning a CEF feature off must remove what it injected. Tabs, the synthetic access point and the
+sort buttons are resident in Steam's session and survive until Steam restarts. The master switch
+fails every evaluation closed, including WSGM's own removal calls, so `ShellSession` awaits removal
+before closing the choke point. Wi-Fi, download sorting and the library badge live in the patch
+lifecycle and are retracted by it; the remaining legacy resident, the tabs, keeps explicit removal
+until its attended migration lands.
 
 ## Persistent host and native Quick Access
 
@@ -511,10 +522,11 @@ repository split the harness once rendered a fixture the installed bridge would 
 managed test now inspects the emitted bridge configuration. The `screenshot` command captures the
 main window through `Page.captureScreenshot` and does not operate the client.
 
-The card badge and library tabs stay on their verified legacy resident scripts. A read-only probe
-can show their primitives exist but cannot prove resident installation, SPA survival, current-game
-clearing, CSSLoader coexistence, native-tab hiding or rollback; moving them without those attended
-checks trades device-verified behavior for a source cleanup.
+The library tabs stay on their verified legacy resident script. A read-only probe can show its
+primitives exist but cannot prove resident installation, SPA survival, native-tab hiding or
+rollback; moving them without those attended checks trades device-verified behavior for a source
+cleanup. The badge made that move on 2026-09-11 because the beta broke its anchor, and it was
+verified on the device as a toolkit surface before the resident script was deleted.
 
 ## Valve's surfaces are present on Windows; only their backends are absent
 

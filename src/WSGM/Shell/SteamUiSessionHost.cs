@@ -61,6 +61,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// </summary>
     private readonly SteamStorageBridge? _storage;
 
+    /// <summary>Hears the library badge's Home layout report.</summary>
+    private readonly LibraryBadgeBackend _libraryBadge = new();
+
     private readonly PerformanceService _performanceService;
     private readonly PerformanceServiceNativeQamAdapter _performance;
     private readonly Action<PerformanceState> _onPerformanceStateChanged;
@@ -84,6 +87,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private volatile bool _enabled;
     private volatile bool _networkIndicatorEnabled;
     private volatile bool _downloadSortEnabled;
+    private volatile bool _libraryBadgeEnabled;
     private volatile bool _glyphsEnabled;
     private volatile bool _glyphDeliveryEnabled;
     private volatile bool _disposed;
@@ -179,12 +183,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.SetGlobalEnabled(false);
         // Traffic in both directions is the runtime's; which patches are applied when stays here,
         // because that is this application's policy and not a general rule.
+        // The library badge can be the only thing on: it reports the Home layout back and needs
+        // its libraries published, so both directions stay open for it without native Quick Access.
         _runtime = new SteamUiModuleRuntime(
             _bridge,
             _modules,
-            commandsEnabled: () => _enabled,
-            publishEnabled: () => _enabled || _networkIndicatorEnabled);
+            commandsEnabled: () => _enabled || _libraryBadgeEnabled,
+            publishEnabled: () => _enabled || _networkIndicatorEnabled || _libraryBadgeEnabled);
         _transport.GenerationChanged += OnGenerationChanged;
+        LibraryBadges.Changed += OnSemanticStateChanged;
         _tdp.StateChanged += OnSemanticStateChanged;
         _deviceControls.StateChanged += OnSemanticStateChanged;
         _autoTdp.StateChanged += OnSemanticStateChanged;
@@ -232,7 +239,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             CancelAllInflightRequests();
             ReleasePerformanceObservation();
-            SetPatchStates(bootstrap: _networkIndicatorEnabled, components: false);
+            SetPatchStates(
+                bootstrap: _networkIndicatorEnabled || _libraryBadgeEnabled,
+                components: false);
         }
         QueueSynchronization();
     }
@@ -255,7 +264,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             network.PostStopScanning();
         }
-        SetPatchStates(bootstrap: _enabled || enabled, components: _enabled);
+        SetPatchStates(bootstrap: _enabled || enabled || _libraryBadgeEnabled, components: _enabled);
         QueueSynchronization();
         QueueStatePublication();
     }
@@ -274,8 +283,35 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _patches.SetGlobalEnabled(true);
         }
-        SetPatchStates(bootstrap: _enabled || _networkIndicatorEnabled, components: _enabled);
+        SetPatchStates(
+            bootstrap: _enabled || _networkIndicatorEnabled || _libraryBadgeEnabled,
+            components: _enabled);
         QueueSynchronization();
+    }
+
+    /// <summary>Shows or retracts the library badge on Steam's library tiles.</summary>
+    /// <param name="enabled">Whether the badge surface should be claimed and fed.</param>
+    /// <remarks>
+    /// Independent of native Quick Access, like download sorting: the badge belongs to the card
+    /// manager feature, and a session with Quick Access off still names the card a game is on.
+    /// </remarks>
+    internal void ApplyLibraryBadge(bool enabled)
+    {
+        if (_disposed || _libraryBadgeEnabled == enabled)
+        {
+            return;
+        }
+
+        _libraryBadgeEnabled = enabled;
+        if (enabled)
+        {
+            _patches.SetGlobalEnabled(true);
+        }
+        SetPatchStates(
+            bootstrap: _enabled || _networkIndicatorEnabled || enabled,
+            components: _enabled);
+        QueueSynchronization();
+        QueueStatePublication();
     }
 
     /// <summary>Returns the immutable patch-registry view used by diagnostics and isolated tests.</summary>
@@ -321,6 +357,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _enabled = false;
         _networkIndicatorEnabled = false;
         _downloadSortEnabled = false;
+        _libraryBadgeEnabled = false;
         _glyphsEnabled = false;
         _surfaceObservationEnabled = false;
         _patches.SetPatchEnabled(_overlayActivation.Id, false);
@@ -484,6 +521,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             new SteamUiModule(
                 "glyph-style",
                 patches: [new SteamInputGlyphStylePatch(_glyphDeliveryState)]),
+
+            // The library badge on every library tile, fed from the card model. Declared
+            // unconditionally: which cards exist is the reading's business, and a session with
+            // none publishes an empty list, which names every installed game as internal.
+            SteamLibraryBadgeSurface.Module(
+                () => _libraryBadgeEnabled,
+                () => new(LibraryBadges.Current),
+                _libraryBadge),
         ];
 
         if (_resolution is { } resolution)
@@ -562,11 +607,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 patch.Id,
                 patch.Id == SteamDownloadSortPatch.PatchId
                     ? _downloadSortEnabled
-                    : patch.Id == SteamUiBridgePatch.PatchId
-                        ? bootstrap
-                        : patch.Id == SteamNetworkSurface.PatchId
-                            ? components || _networkIndicatorEnabled
-                            : components);
+                    : patch.Id == SteamLibraryBadgeSurface.PatchId
+                        ? _libraryBadgeEnabled
+                        : patch.Id == SteamUiBridgePatch.PatchId
+                            ? bootstrap
+                            : patch.Id == SteamNetworkSurface.PatchId
+                                ? components || _networkIndicatorEnabled
+                                : components);
         }
     }
 
@@ -673,6 +720,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             await network.DisposeAsync().ConfigureAwait(false);
         }
         _transport.GenerationChanged -= OnGenerationChanged;
+        LibraryBadges.Changed -= OnSemanticStateChanged;
         _tdp.StateChanged -= OnSemanticStateChanged;
         _deviceControls.StateChanged -= OnSemanticStateChanged;
         _performanceService.StateChanged -= _onPerformanceStateChanged;
