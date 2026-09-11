@@ -195,7 +195,7 @@ internal sealed class CardVolumeMonitor : IDisposable
 
     private async Task RunPassAsync(CancellationToken lifetimeToken)
     {
-        if (lifetimeToken.IsCancellationRequested || !_enabled() || !Steam.IsRunning)
+        if (lifetimeToken.IsCancellationRequested)
         {
             return;
         }
@@ -207,9 +207,36 @@ internal sealed class CardVolumeMonitor : IDisposable
         }
         try
         {
+            // Look at the reader before asking whether Steam may be changed, and remember what is
+            // there regardless of the answer. This used to sit behind the Steam-running check, and
+            // a session that started while Steam was still coming up bailed out of its startup
+            // pass without ever recording the card already in the reader; when that card was
+            // pulled later, the removal pass had nothing it knew about to purge and did nothing,
+            // silently, with the library still in Steam's list (Claw, 2026-09-11). Remembering is
+            // local and touches nothing; only the reconcile needs Steam.
+            var present = ScanCardLibraryPaths();
+            foreach (var card in present)
+            {
+                _knownCardPaths[SteamLibraryVdf.NormalizePath(card.LibraryPath)] = card.LibraryPath;
+            }
+
+            if (!_enabled() || !Steam.IsRunning)
+            {
+                // Not silent: this is the branch that hid the fault above. Same one-shot discipline
+                // as the readiness wait, and the same retry, so the pass runs once Steam is up.
+                if (!_waitingForSteamUi)
+                {
+                    _waitingForSteamUi = true;
+                    Log.Info("Card volumes: card state captured; waiting for Steam before changing "
+                        + "its library list.");
+                }
+                Schedule();
+                return;
+            }
+
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetimeToken);
             timeout.CancelAfter(PassTimeout);
-            var changed = await ReconcileAsync(timeout.Token).ConfigureAwait(false);
+            var changed = await ReconcileAsync(present, timeout.Token).ConfigureAwait(false);
             if (changed)
             {
                 await _afterReconcile().ConfigureAwait(false);
@@ -236,21 +263,19 @@ internal sealed class CardVolumeMonitor : IDisposable
     /// <summary>Brings Steam's registrations in line with the cards that are actually
     /// in their readers — both the ones that arrived and the ones that left. Returns
     /// true when anything changed.</summary>
-    private async Task<bool> ReconcileAsync(CancellationToken cancellationToken)
+    /// <param name="present">
+    /// The reader's contents as scanned by the caller, which has already remembered them in
+    /// <see cref="_knownCardPaths"/>. Remembering the path while the card is here is the only way
+    /// the removal pass can know it was a card at all: once the media is out, the volume is gone
+    /// and nothing can be asked whether it was hot-pluggable. See <see cref="RemoveDepartedCardsAsync"/>.
+    /// </param>
+    /// <param name="cancellationToken">Bounds the pass.</param>
+    private async Task<bool> ReconcileAsync(
+        List<(string LibraryPath, string? ContentId, string Label)> present,
+        CancellationToken cancellationToken)
     {
         var registered = ReadRegisteredContentIdsByPath();
-        var present = ScanCardLibraryPaths();
         var changed = false;
-
-        foreach (var card in present)
-        {
-            var key = SteamLibraryVdf.NormalizePath(card.LibraryPath);
-            // Remembering the path while the card is HERE is the only way the
-            // removal pass below can know it was a card at all: once the media is
-            // out, the volume is gone and nothing can be asked whether it was
-            // hot-pluggable. See RemoveDepartedCardsAsync.
-            _knownCardPaths[key] = card.LibraryPath;
-        }
 
         if (!SteamUiReadiness.IsReady)
         {
