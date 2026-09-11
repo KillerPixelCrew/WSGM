@@ -408,6 +408,7 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
             }
             row.Name = device.Name;
             row.Letters = device.Letters;
+            row.SizeBytes = device.SizeBytes;
             row.SizeText = FormatSize(device.SizeBytes);
             row.DevInst = device.DevInst;
             row.VolumeLetter = device.VolumeLetter;

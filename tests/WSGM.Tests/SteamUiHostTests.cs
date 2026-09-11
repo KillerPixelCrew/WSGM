@@ -88,8 +88,15 @@ public sealed class SteamUiAssetTests
         Assert.DoesNotContain("eval(", source, StringComparison.Ordinal);
         Assert.DoesNotContain("fetch(", source, StringComparison.Ordinal);
         Assert.DoesNotContain("WebSocket", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("filesystem", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("performanceProfile", source, StringComparison.Ordinal);
+
+        // The filesystem check is about reaching a filesystem, not about the word. Steam's own
+        // block-device message declares a filesystem_type enum, and the storage gate publishes it
+        // because a field the client declares and this side omits is a field the client reads as
+        // undefined. That one token is removed before the check so every other use still fails.
+        var withoutDeclaredFields = source.Replace(
+            "filesystem_type", "", StringComparison.Ordinal);
+        Assert.DoesNotContain("filesystem", withoutDeclaredFields, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

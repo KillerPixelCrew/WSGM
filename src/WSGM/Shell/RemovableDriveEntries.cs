@@ -81,6 +81,14 @@ public sealed class RemovableDriveEntry : INotifyPropertyChanged
         }
     }
 
+    /// <summary>Gets the total capacity in bytes, or zero when the device did not report one.</summary>
+    /// <remarks>
+    /// Kept beside <see cref="SizeText"/> rather than parsed back out of it. The text is rounded
+    /// for display, and Steam's storage pages want the number: they render a capacity the user
+    /// compares against a game's size.
+    /// </remarks>
+    public long SizeBytes { get; internal set; }
+
     private string _sizeText = "";
     /// <summary>Gets the total capacity as display text, e.g. "512 GB".</summary>
     public string SizeText

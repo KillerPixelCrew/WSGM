@@ -2814,9 +2814,12 @@
         case "Format":
         case "TrimAll": {
           const command = method.toLowerCase();
+          // Steam's identifiers are uint32 on the wire, and Unmount names the volume while the
+          // drive-level actions name the drive. Zero means "not named": the client numbers these
+          // from one, so it is unambiguous and the host refuses rather than guessing.
           request0(command, {
-            driveId: typeof fields.drive_id === "string" ? fields.drive_id : "",
-            blockDeviceId: typeof fields.block_device_id === "string" ? fields.block_device_id : "",
+            driveId: typeof fields.drive_id === "number" ? fields.drive_id : 0,
+            blockDeviceId: typeof fields.block_device_id === "number" ? fields.block_device_id : 0,
           });
           return ok({ toObject: () => ({}) });
         }
@@ -2922,16 +2925,38 @@
         if (!published || typeof published !== "object") return;
         const drives = Array.isArray(published.drives) ? published.drives : [];
         const devices = Array.isArray(published.blockDevices) ? published.blockDevices : [];
+        // Every field Steam declares, not only the ones an action needs. The client formats what it
+        // is given without checking it got anything: a drive with no size_bytes renders "NaN B of
+        // NaN B", and one with no adopt_stage renders a spinner forever, because undefined compares
+        // unequal to the idle stage. Both were observed on the live page before this.
         state = {
           drives: drives.slice(0, MaximumDrives).map((drive) => ({
-            id: String(drive?.id ?? ""),
-            is_formattable: drive?.formattable === true,
+            id: Number(drive?.id ?? 0),
+            model: String(drive?.model ?? ""),
+            vendor: String(drive?.vendor ?? ""),
+            serial: "",
+            is_ejectable: drive?.ejectable === true,
+            size_bytes: String(drive?.sizeBytes ?? 0),
+            media_type: 0,
             is_unformatted: drive?.unformatted === true,
+            adopt_stage: 0,
+            is_formattable: drive?.formattable === true,
+            is_media_available: drive?.mediaAvailable !== false,
           })),
           block_devices: devices.slice(0, MaximumDrives).map((device) => ({
-            block_device_id: String(device?.id ?? ""),
-            drive_id: String(device?.driveId ?? ""),
+            id: Number(device?.id ?? 0),
+            drive_id: Number(device?.driveId ?? 0),
+            path: String(device?.friendlyPath ?? ""),
+            friendly_path: String(device?.friendlyPath ?? ""),
+            label: String(device?.label ?? ""),
+            size_bytes: String(device?.sizeBytes ?? 0),
+            is_formattable: false,
+            is_read_only: false,
+            is_root_device: false,
+            content_type: 0,
+            filesystem_type: 0,
             mount_paths: Array.isArray(device?.mountPaths) ? device.mountPaths.map(String) : [],
+            is_unmounting: false,
             has_steam_library: device?.hasSteamLibrary === true,
           })),
           is_adopt_supported: published.adoptSupported === true,
