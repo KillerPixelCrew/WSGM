@@ -34,6 +34,10 @@ stops here rather than at zero:
   `library_home_big_art` setting, read from the settings store and reported through `homeLayout`;
   the badge is tile-relative and needs no separate placement per layout. The in-page resident
   script and its boot retry are gone. Verified on the beta with the card present and pulled.
+  Follow-up the same evening: the library also shows on the game's own page, as a stat after Last
+  Played and Play Time (`steam-ui.library-details`), through a new shared JSX-runtime claim that
+  download sort moved onto. Offline checks pass on Stable and the beta; not yet seen on screen, and
+  download sort needs a live check after the move.
 - #72 is delivered (2026-09-11). Home's carousel is `SteamHomeCarouselSurface`: the toolkit
   claims Home's memo, replaces the one `games` array Home hands the carousel and its background, and
   orders it from Steam's own collections under WSGM's instruction (games on disconnected cards

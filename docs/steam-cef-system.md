@@ -224,7 +224,8 @@ while the header indicator is on.
 | `steam-ui.bluetooth`            | gate `bluetooth`                     | SharedJSContext | `steam-ui.bluetooth-manager-service` | QAM, radio manager present |
 | `steam-ui.network`              | gate `network`                       | SharedJSContext | `steam-ui.network-availability`      | QAM or network indicator   |
 | eleven `steam-ui.*` row patches | `SteamQuickAccessRowPatch` (toolkit) | SharedJSContext | `steam-ui.performance-root`          | QAM                        |
-| `wsgm.download-sort`            | `SteamDownloadSortPatch`             | SharedJSContext | `steam.downloads.jsx-runtime`        | download sort only         |
+| `wsgm.download-sort`            | `SteamDownloadSortPatch`             | SharedJSContext | `steam-ui.jsx-runtime`               | download sort only         |
+| `steam-ui.library-details`      | gate `libraryDetails`                | SharedJSContext | `steam-ui.jsx-runtime`               | card manager               |
 | `wsgm.steam-input.glyph-style`  | `SteamInputGlyphStylePatch`          | MainWindow      | `wsgm.steam-input.glyph-style`       | glyph delivery only        |
 | `steam-ui.screensaver`          | gate `screensaver`                   | SharedJSContext | `steam-ui.settings-pages`            | CEF master switch          |
 
@@ -529,6 +530,12 @@ The findings behind each of these are in `docs\steam-cef.md`.
 | Launch configuration | `Core\SteamLaunchConfig.cs`, `Core\SteamCustomLaunchCommand.cs`           | reads through `RegisterForAppDetails` (3 s timeout, unregister); writes `SetAppLaunchOptions` for titles, `SetShortcutExe` + `SetShortcutLaunchOptions` for shortcuts, verbatim, 400 ms settle; clipboard fallback with CEF off                                | —                                                             |
 | Artwork              | `Core\SteamArtwork.cs`, `Core\ArtworkProviders.cs`, `Core\SteamGridDb.cs` | providers searched in parallel behind `ArtworkSearch`; SteamGridDB and Screenscraper.fr over HTTPS, 20 s timeout, bounded downloads; clear, 500 ms, `SetCustomArtworkForApp`; icons refused                                                                    | `Cef.Artwork`                                                 |
 | Libraries            | `Core\SteamCdp.cs`, `Shell\SteamLibraryVdf.cs`                            | `AddInstallFolder` on the running client after purging same-path registrations; removal iterates one snapshot; `libraryfolders.vdf` splice with Steam closed                                                                                                   | `Cef.SdFormat`                                                |
+
+The library badge's surface also puts the library on a game's own page, as a stat after Last Played
+and Play Time, drawn from the same card reading. That row is built inside mobx observer classes that
+no claim can reach, so the stat is a transform on the toolkit's shared JSX-runtime claim. Download
+sort registers its queue-header transform on the same claim, through the bridge's `elements` gate,
+instead of wrapping `jsx` and `jsxs` itself, so it now needs the bridge and keeps it up on its own.
 
 The tab boot sync waits for the Big Picture window plus `webpackChunksteamui`, `collectionStore` and
 `appStore` and retries a failed sync in full. It also replaces the card reading the library badge

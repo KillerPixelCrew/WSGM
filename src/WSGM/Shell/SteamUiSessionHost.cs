@@ -392,8 +392,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     }
 
     /// <summary>Whether any surface that runs without native Quick Access is on.</summary>
+    /// <remarks>
+    /// Download sort counts: it registers its transform on the toolkit's shared JSX-runtime claim,
+    /// which the bridge serves.
+    /// </remarks>
     private bool IndependentSurfacesEnabled() =>
-        _networkIndicatorEnabled || _libraryBadgeEnabled || _homeCarouselEnabled || _screensaverEnabled;
+        _networkIndicatorEnabled
+        || _libraryBadgeEnabled
+        || _homeCarouselEnabled
+        || _screensaverEnabled
+        || _downloadSortEnabled;
 
     /// <summary>Returns the immutable patch-registry view used by diagnostics and isolated tests.</summary>
     internal IReadOnlyList<SteamUiPatchSnapshot> GetPatchSnapshots() => _patches.GetSnapshots();
@@ -759,6 +767,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 patch.Id == SteamDownloadSortPatch.PatchId
                     ? _downloadSortEnabled
                     : patch.Id == SteamLibraryBadgeSurface.PatchId
+                        || patch.Id == SteamLibraryBadgeSurface.DetailsPatchId
                         ? _libraryBadgeEnabled
                         : patch.Id == SteamHomeCarouselSurface.PatchId
                             ? _homeCarouselEnabled

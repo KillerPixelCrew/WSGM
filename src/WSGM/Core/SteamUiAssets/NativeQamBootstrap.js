@@ -621,6 +621,71 @@
   };
   const memoIntercepted = (react, name) =>
     !!react && memoTransforms.has(name) && !!memoWrapper && react.useMemo === memoWrapper;
+  const elementClaimKeys = {
+    marker: "__steamUiOwnedElements",
+    original: "__steamUiOriginalElements",
+  };
+  const elementMembers = ["jsx", "jsxs"];
+  const elementTransforms = new Map();
+  let elementWrappers = null;
+  const interceptElements = (runtime, name, transform) => {
+    if (!runtime || elementMembers.some((member) => typeof runtime[member] !== "function")) {
+      return { ok: false, error: "JSX runtime unavailable" };
+    }
+    elementTransforms.set(name, transform);
+    const current = elementWrappers;
+    if (current && elementMembers.every((member) => runtime[member] === current[member])) {
+      return { ok: true };
+    }
+    const wrappers = {};
+    for (const member of elementMembers) {
+      const claim = claimMember(runtime, member, elementClaimKeys, (original) => {
+        const create = original;
+        return function SteamUiElement(type, props, key) {
+          for (const apply of elementTransforms.values()) {
+            try {
+              const replaced = apply(create, type, props, key);
+              if (replaced !== undefined) return replaced;
+            } catch {
+              // A failing transform leaves the element to the runtime.
+            }
+          }
+          return create.apply(this, arguments);
+        };
+      });
+      if (!claim.ok || !memberClaimed(runtime, member, elementClaimKeys)) {
+        for (const done of Object.keys(wrappers)) releaseMember(runtime, done, elementClaimKeys);
+        elementTransforms.delete(name);
+        return {
+          ok: false,
+          error: claim.ok ? "JSX runtime wrapper could not be installed" : claim.error,
+        };
+      }
+      wrappers[member] = runtime[member];
+    }
+    elementWrappers = wrappers;
+    return { ok: true };
+  };
+  // Withdraws one element transform, and hands the runtime back once none is left.
+  const releaseElements = (runtime, name) => {
+    elementTransforms.delete(name);
+    if (elementTransforms.size || !runtime) return { ok: true };
+    for (const member of elementMembers) {
+      const released = releaseMember(runtime, member, elementClaimKeys);
+      if (!released.ok) return released;
+    }
+    elementWrappers = null;
+    return { ok: true };
+  };
+  const elementsIntercepted = (runtime, name) => {
+    const current = elementWrappers;
+    return (
+      !!runtime &&
+      elementTransforms.has(name) &&
+      !!current &&
+      elementMembers.every((member) => runtime[member] === current[member])
+    );
+  };
   // Answering what Steam asks.
   //
   // The client calls a service method and reads a transport reply, not a bare value. Two gates
@@ -1841,6 +1906,47 @@
     return { install, remove, status };
   }
   registerGate("brightness", createBrightnessGate());
+  // The JSX-runtime claim (interceptElements in ownership.ts), for scripts outside this bundle.
+  //
+  // A consumer's own resident script runs in a separate evaluation and cannot reach the claim's
+  // functions, so it registers its transform here, through the bridge's gate registry, instead of
+  // wrapping the runtime itself: two wrappers on `jsx` would each hand back the other on removal, and a
+  // wrapper under a claim is invisible to the claim's own verification. This gate installs nothing of
+  // its own; it is the claim's front door, and a registration lives exactly as long as this bridge.
+  function createElementsGate() {
+    const RuntimeTokens = ["react.transitional.element", ".jsx", ".jsxs"];
+    const MaximumNameLength = 64;
+    const runtime = () => getWebpackRuntime("elements").resolve([...RuntimeTokens]);
+    const validName = (name) =>
+      typeof name === "string" && name.length > 0 && name.length <= MaximumNameLength;
+    const register = (name, transform) => {
+      if (!validName(name) || typeof transform !== "function") {
+        return { ok: false, error: "invalid element transform" };
+      }
+      try {
+        return interceptElements(runtime(), name, transform);
+      } catch (error) {
+        return { ok: false, error: String(error) };
+      }
+    };
+    const unregister = (name) => {
+      if (!validName(name)) return { ok: false, error: "invalid element transform name" };
+      try {
+        return releaseElements(runtime(), name);
+      } catch (error) {
+        return { ok: false, error: String(error) };
+      }
+    };
+    const registered = (name) => {
+      try {
+        return validName(name) && elementsIntercepted(runtime(), name);
+      } catch {
+        return false;
+      }
+    };
+    return { register, unregister, registered };
+  }
+  registerGate("elements", createElementsGate());
   // Big Picture Home's carousel, fed from the libraries attached right now.
   //
   // Mapped from the September 2026 client beta's shipped bundle on 2026-09-11:
@@ -2443,6 +2549,50 @@
   // the Home component itself reads it from. The badge is tile-relative and does not care, but a
   // consumer may: the gate reports the mode to the host through `homeLayout` when it first resolves
   // and whenever a tile render sees it change, and carries it in `status` for verification.
+  // The host's published libraries, read once for every gate that names them: indexed by app id, with
+  // the label for a game no listed library holds. Bounded; a malformed entry is skipped rather than
+  // failing the whole reading.
+  const readLibraryBadgeState = (state) => {
+    const MaximumLibraries = 64;
+    const MaximumAppIds = 4096;
+    const MaximumNameLength = 64;
+    const libraries = new Map();
+    const published = Array.isArray(state?.libraries) ? state.libraries : [];
+    let ids = 0;
+    let count = 0;
+    for (const entry of published.slice(0, MaximumLibraries)) {
+      if (!entry || typeof entry.name !== "string" || !Array.isArray(entry.appIds)) continue;
+      count++;
+      const library = {
+        name: entry.name.slice(0, MaximumNameLength),
+        connected: entry.connected === true,
+      };
+      for (const appid of entry.appIds) {
+        if (typeof appid !== "number" || !Number.isInteger(appid) || appid <= 0) continue;
+        if (ids >= MaximumAppIds) break;
+        libraries.set(appid, library);
+        ids++;
+      }
+    }
+    const internalLabel =
+      typeof state?.internalLabel === "string" && state.internalLabel
+        ? state.internalLabel.slice(0, MaximumNameLength)
+        : "Internal";
+    return { libraries, internalLabel, count };
+  };
+  // The library to name for one app overview, or null when there is none. Steam's own installed flag is
+  // the authority on installed; a disconnected card's games are not installed by Steam's reckoning. The
+  // published connection stands in only where the overview cannot say. A game that no published library
+  // holds is on the internal library while it is installed, and one installed nowhere has no library.
+  const libraryForOverview = (overview, reading) => {
+    const appid = typeof overview?.appid === "number" ? overview.appid : null;
+    if (appid === null) return null;
+    const library = reading.libraries.get(appid);
+    const installed =
+      typeof overview.installed === "boolean" ? overview.installed : (library?.connected ?? false);
+    if (!library && !installed) return null;
+    return { name: library ? library.name : reading.internalLabel, installed };
+  };
   function createLibraryBadge() {
     const patchId = "steam-ui.library-badge";
     const claimKeys = {
@@ -2461,9 +2611,6 @@
     // the tile is focused or hovered — and the row wearing that class inherits them.
     const ClassMapTokens = ['ControllerSupportIcon:"', 'LibraryItemIcons:"', 'LibraryItemBox:"'];
     const BigArtSetting = "library_home_big_art";
-    const MaximumLibraries = 64;
-    const MaximumAppIds = 4096;
-    const MaximumNameLength = 64;
     const MaximumDescent = 12;
     const MaximumChildren = 64;
     let runtime;
@@ -2477,9 +2624,7 @@
     let unsubscribe = null;
     let reportedBigArt = null;
     // The host's published libraries, replaced whole on each publication and indexed by app id.
-    let internalLabel = "Internal";
-    let libraries = new Map();
-    let libraryCount = 0;
+    let reading = readLibraryBadgeState(null);
     // What the last tile render actually did, because a claimed tile can render exactly what Valve
     // shipped when the badge anchor is not in its tree.
     let lastOutcome = "never rendered";
@@ -2519,26 +2664,18 @@
     });
     // The badge for one tile, or null when there is no library to name.
     const renderBadge = (overview) => {
-      const appid = typeof overview?.appid === "number" ? overview.appid : null;
-      if (appid === null) return null;
-      const library = libraries.get(appid);
-      // Steam's own installed flag is the authority on installed; a disconnected card's games are
-      // not installed by Steam's reckoning, which is exactly the grey the badge should show. The
-      // published connection stands in only where the overview cannot say.
-      const installedNow =
-        typeof overview.installed === "boolean"
-          ? overview.installed
-          : (library?.connected ?? false);
-      if (!library && !installedNow) return null;
+      // Grey when not installed, which is exactly what a disconnected card amounts to.
+      const library = libraryForOverview(overview, reading);
+      if (!library) return null;
       return react.createElement(
         "span",
         {
           key: "steam-ui-library-badge",
           className: "steam-ui-library-badge",
-          style: badgeStyle(installedNow),
-          "aria-label": library ? library.name : internalLabel,
+          style: badgeStyle(library.installed),
+          "aria-label": library.name,
         },
-        library ? library.name : internalLabel,
+        library.name,
       );
     };
     // Replaces Valve's badge element with a right-aligned row of ours and Valve's. The icon row is
@@ -2612,7 +2749,7 @@
         const before = placed;
         const result = decorate(tree, 0);
         if (placed === before) unanchored++;
-        lastOutcome = `placed=${placed} unanchored=${unanchored} libraries=${libraryCount} apps=${libraries.size}`;
+        lastOutcome = `placed=${placed} unanchored=${unanchored} libraries=${reading.count} apps=${reading.libraries.size}`;
         return result;
       };
       tileCache.set(original, wrapped);
@@ -2709,31 +2846,9 @@
       reportedBigArt = null;
       reportBigArt();
       unsubscribe = subscribe(patchId, (state) => {
-        const next = new Map();
-        const published = Array.isArray(state?.libraries) ? state.libraries : [];
-        let ids = 0;
-        libraryCount = 0;
-        for (const entry of published.slice(0, MaximumLibraries)) {
-          if (!entry || typeof entry.name !== "string" || !Array.isArray(entry.appIds)) continue;
-          libraryCount++;
-          const library = {
-            name: entry.name.slice(0, MaximumNameLength),
-            connected: entry.connected === true,
-          };
-          for (const appid of entry.appIds) {
-            if (typeof appid !== "number" || !Number.isInteger(appid) || appid <= 0) continue;
-            if (ids >= MaximumAppIds) break;
-            next.set(appid, library);
-            ids++;
-          }
-        }
-        libraries = next;
-        internalLabel =
-          typeof state?.internalLabel === "string" && state.internalLabel
-            ? state.internalLabel.slice(0, MaximumNameLength)
-            : "Internal";
         // Nothing re-renders the tiles on its own: the claim is on the type, so the next render of
         // each tile — focus moving, the grid scrolling, Home rebuilding — draws the new map.
+        reading = readLibraryBadgeState(state);
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
@@ -2744,9 +2859,7 @@
         unsubscribe();
         unsubscribe = null;
       }
-      libraries = new Map();
-      libraryCount = 0;
-      internalLabel = "Internal";
+      reading = readLibraryBadgeState(null);
       tileCache.clear();
       const released = releaseMember(tile, "type", claimKeys);
       if (!released.ok) {
@@ -2764,14 +2877,219 @@
       settingsResolved: !!settings,
       classesResolved: !!classes,
       bigArt: readBigArt(),
-      libraries: libraryCount,
-      apps: libraries.size,
+      libraries: reading.count,
+      apps: reading.libraries.size,
       lastOutcome,
       lastError,
     });
     return { install, remove, status };
   }
   registerGate("libraryBadge", createLibraryBadge());
+  // The library as a stat on a game's own page, after Last Played and Play Time.
+  //
+  // Mapped from the Stable client (UI build of 2026-09-06) and the September 2026 beta on 2026-09-11,
+  // whose app-details module is the same in both:
+  //
+  //   PlayBar                  exported mobx observer class
+  //     StatusAndStats         exported mobx observer class
+  //       stats section        module-local mobx observer class, rendering
+  //         div.GameStatsSection   claim content, cloud status, install size, Last Played,
+  //                                Play Time or time left, achievements, controller support
+  //
+  // Every one of those pins a non-writable render on each instance, so no claim on a type or a
+  // prototype holds. The row passes through the JSX runtime when Steam creates it, and that is where
+  // this adds to it (interceptElements in ownership.ts): the div whose class is the play bar class
+  // map's `GameStatsSection` gets one more child. The stat is Valve's markup for Last Played, built
+  // from the same class map, so it takes the row's type, spacing and narrow-window rules, and its
+  // label is Steam's own `#Settings_Page_Library`, localized. The app is the overview the row's own
+  // children are given.
+  //
+  // The data is the library badge's publication, read by the same rules: a game on a library that is
+  // not attached shows its library dimmed, and one installed nowhere has no stat. The row draws with the
+  // page, so a new publication shows the next time the page renders.
+  function createLibraryDetails() {
+    const publicationId = "steam-ui.library-badge";
+    const TransformName = "libraryDetails";
+    const ReactTokens = ["react.transitional.element", "useState", "cloneElement", "createElement"];
+    const RuntimeTokens = ["react.transitional.element", ".jsx", ".jsxs"];
+    const ClassMapTokens = ['GameStatsSection:"', 'PlayBarDetailLabel:"', 'LastPlayedInfo:"'];
+    const LocalizationTokens = [
+      "Attempting to localize token",
+      "Unable to find localization token",
+      "LocalizeString",
+    ];
+    const RequiredClasses = [
+      "GameStatsSection",
+      "GameStat",
+      "GameStatRight",
+      "PlayBarLabel",
+      "PlayBarDetailLabel",
+    ];
+    const LabelToken = "#Settings_Page_Library";
+    const StatKey = "steam-ui-library-details";
+    const MaximumChildren = 32;
+    let runtime;
+    let react = null;
+    let jsxRuntime = null;
+    let localize = null;
+    let classes = null;
+    let installed = false;
+    let lastError = "";
+    let lastOutcome = "never rendered";
+    let placed = 0;
+    let without = 0;
+    let unsubscribe = null;
+    let reading = readLibraryBadgeState(null);
+    const label = () => {
+      try {
+        const text = localize?.(LabelToken);
+        if (typeof text === "string" && text && text !== LabelToken) return text;
+      } catch {
+        // The English word stands in for a localizer that did not resolve or answer.
+      }
+      return "Library";
+    };
+    const overviewIn = (children) => {
+      for (const child of children) {
+        const overview = child?.props?.overview;
+        if (overview && typeof overview.appid === "number") return overview;
+      }
+      return null;
+    };
+    const renderStat = (library) =>
+      react.createElement(
+        "div",
+        { key: StatKey, className: classes.stat },
+        react.createElement(
+          "div",
+          { className: classes.right },
+          react.createElement("div", { className: classes.label }, label()),
+          react.createElement(
+            "div",
+            { className: classes.value, style: library.installed ? undefined : { opacity: 0.55 } },
+            library.name,
+          ),
+        ),
+      );
+    const transform = (create, type, props, key) => {
+      if (type !== "div" || !installed || !classes || props?.className !== classes.section)
+        return undefined;
+      const children = Array.isArray(props.children) ? props.children : [props.children];
+      if (children.length > MaximumChildren || children.some((child) => child?.key === StatKey)) {
+        return undefined;
+      }
+      const library = libraryForOverview(overviewIn(children), reading);
+      if (!library) {
+        without++;
+      } else {
+        placed++;
+      }
+      lastOutcome = `placed=${placed} without=${without} libraries=${reading.count} apps=${reading.libraries.size}`;
+      if (!library) return undefined;
+      return create(type, { ...props, children: [...children, renderStat(library)] }, key);
+    };
+    const resolve = () => {
+      runtime = getWebpackRuntime("library-details");
+      react = runtime.resolve([...ReactTokens]);
+      jsxRuntime = runtime.resolve([...RuntimeTokens]);
+      if (typeof jsxRuntime?.jsx !== "function" || typeof jsxRuntime?.jsxs !== "function") {
+        lastError = "JSX runtime lacks jsx or jsxs";
+        return false;
+      }
+      // Valve's names for the play bar's classes, mapped to whatever this build emitted. Read by
+      // name, never written down.
+      const exported = runtime.resolve([...ClassMapTokens]);
+      const map = exported && exported.__esModule ? exported.default : exported;
+      if (!map || RequiredClasses.some((name) => typeof map[name] !== "string" || !map[name])) {
+        lastError = "the play bar class map lacks a stat class";
+        return false;
+      }
+      const join = (...names) =>
+        names
+          .map((name) => map[name])
+          .filter((value) => typeof value === "string" && value)
+          .join(" ");
+      classes = {
+        section: map.GameStatsSection,
+        stat: join("GameStat", "LastPlayed"),
+        right: join("GameStatRight"),
+        label: join("PlayBarLabel"),
+        value: join("PlayBarDetailLabel", "LastPlayedInfo"),
+      };
+      // Wanted, not required: without it the label is the English word.
+      localize = null;
+      const localization = runtime.findUnique([...LocalizationTokens]);
+      if (localization) {
+        const exports = runtime(localization[0]);
+        const candidates = new Set(
+          Object.values(exports).filter((value) => {
+            if (typeof value !== "function") return false;
+            const source = String(value);
+            return (
+              !source.startsWith("class") &&
+              source.includes(".LocalizeString(") &&
+              source.includes("void 0") &&
+              !source.includes("!0)") &&
+              !source.includes("!=null") &&
+              !source.includes("createElement")
+            );
+          }),
+        );
+        if (candidates.size === 1) localize = [...candidates][0];
+      }
+      return true;
+    };
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      try {
+        if (!resolve()) return { ok: false, error: lastError };
+      } catch (error) {
+        lastError = "library details resolution failed: " + String(error);
+        return { ok: false, error: lastError };
+      }
+      installed = true;
+      const claim = interceptElements(jsxRuntime, TransformName, transform);
+      if (!claim.ok) {
+        installed = false;
+        lastError = claim.error ?? "the JSX runtime could not be intercepted";
+        return { ok: false, error: lastError };
+      }
+      lastError = "";
+      unsubscribe = subscribe(publicationId, (state) => {
+        reading = readLibraryBadgeState(state);
+      });
+      return { ok: true, installed: true };
+    };
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      installed = false;
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+      reading = readLibraryBadgeState(null);
+      const released = releaseElements(jsxRuntime, TransformName);
+      if (!released.ok) {
+        lastError = released.error ?? "library details release failed";
+        return { ok: false, error: lastError };
+      }
+      lastOutcome = "removed";
+      return { ok: true, removed: true };
+    };
+    const status = () => ({
+      ok: true,
+      installed,
+      resolved: !!react && !!jsxRuntime && !!classes,
+      claimed: elementsIntercepted(jsxRuntime, TransformName),
+      localized: !!localize,
+      libraries: reading.count,
+      apps: reading.libraries.size,
+      lastOutcome,
+      lastError,
+    });
+    return { install, remove, status };
+  }
+  registerGate("libraryDetails", createLibraryDetails());
   // Steam's left slideout navigation panel, as an extension surface.
   //
   // The panel is module-private. Mapped against the live client on 2026-09-10:

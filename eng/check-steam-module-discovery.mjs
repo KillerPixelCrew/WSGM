@@ -73,19 +73,85 @@ function fixture() {
 
 const sort = resident("SteamDownloadSort.cs");
 const tabs = resident("SteamLibraryTabs.cs");
+// The bridge's "elements" gate, standing in for the toolkit's shared JSX-runtime claim.
+const withElementsGate = (f) => {
+  const registered = new Map();
+  f.bridgeNamespace = "__bridge_fixture";
+  f.window.__bridge_fixture = {
+    gate: (name) =>
+      name === "elements"
+        ? {
+            register: (id, transform) => {
+              registered.set(id, transform);
+              return { ok: true };
+            },
+            unregister: (id) => {
+              registered.delete(id);
+              return { ok: true };
+            },
+            registered: (id) => registered.has(id),
+          }
+        : null,
+  };
+  return registered;
+};
 {
   const f = fixture();
+  const registered = withElementsGate(f);
   runInNewContext(sort, f);
   const w = f.window.__wsgm;
   assert.equal(JSON.parse(w.dlSortInstall()).ok, true);
   assert.deepEqual(f.calls, ["react", "focus", "progress", "jsx"]);
   const jsx = f.cache.jsx;
-  const original = jsx.jsx.__wsgmDlOrig;
-  assert.equal(typeof original, "function");
+  assert.equal(jsx.jsx.__wsgmDlOrig, undefined, "download sort must not wrap the runtime itself");
+  const transform = registered.get("wsgm.download-sort");
+  assert.equal(typeof transform, "function", "the header transform must be registered");
+  const created = [];
+  const create = (type, props, key) => {
+    created.push({ type, props, key });
+    return { type, props };
+  };
+  assert.equal(
+    transform(create, "section", { sectionTitle: "#Other", count: 1, labelId: "x" }, null),
+    undefined,
+  );
+  assert.equal(created.length, 0, "other elements must be left to the runtime");
+  transform(
+    create,
+    "section",
+    { sectionTitle: "#Downloads_Section_Current", count: 2, labelId: "q" },
+    "k",
+  );
+  assert.equal(created.length, 1, "the queue header must be created once, through the runtime");
+  assert.equal(created[0].props.style.flex, "1 1 auto");
+  assert.equal(created[0].key, "k");
   w.dlSortRemove();
-  assert.equal(jsx.jsx, original);
+  assert.equal(registered.size, 0, "removal must withdraw the transform");
   assert.equal(JSON.parse(w.dlSortInstall()).ok, true);
-  assert.equal(jsx.jsx.__wsgmDlOrig, original);
+  assert.equal(registered.size, 1);
+}
+{
+  // A version 2 wrapper left on the runtime by an older build is unwound, and nothing is wrapped.
+  const f = fixture();
+  withElementsGate(f);
+  const exports = f.steamModules.resolve(["react.transitional.element", ".jsx", ".jsxs"]);
+  const original = exports.jsx;
+  const legacy = function () {};
+  legacy.__wsgmDlOrig = original;
+  exports.jsx = legacy;
+  f.calls.length = 0;
+  runInNewContext(sort, f);
+  assert.equal(JSON.parse(f.window.__wsgm.dlSortInstall()).ok, true);
+  assert.equal(exports.jsx, original, "the legacy wrapper must be unwound");
+}
+{
+  // Without the bridge there is nothing to register with, and nothing is wrapped as a fallback.
+  const f = fixture();
+  runInNewContext(sort, { ...f, bridgeNamespace: "__absent" });
+  const result = JSON.parse(f.window.__wsgm.dlSortInstall());
+  assert.equal(result.ok, false);
+  assert.equal(result.err, "bridge unavailable");
+  assert.equal(f.cache.jsx?.jsx.__wsgmDlOrig, undefined);
 }
 for (const source of [sort, tabs]) {
   for (const state of ["missing", "ambiguous"]) {
@@ -99,19 +165,6 @@ for (const source of [sort, tabs]) {
     assert.throws(act, /absent|ambiguous/u);
     assert.deepEqual(f.calls, []);
   }
-}
-{
-  const f = fixture();
-  const factory = f.factories.jsx;
-  f.factories.jsx = function (_module, exports) {
-    // react.transitional.element .jsx .jsxs
-    factory(_module, exports);
-    Object.defineProperty(exports, "jsxs", { writable: false });
-  };
-  runInNewContext(sort, f);
-  assert.throws(() => f.window.__wsgm.dlSortInstall(), /not writable/u);
-  assert.equal(f.cache.jsx.jsx.__wsgmDlOrig, undefined);
-  assert.equal(f.window.__wsgm.dlSortPatched, null);
 }
 {
   const f = fixture();

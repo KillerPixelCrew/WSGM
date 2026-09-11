@@ -14,7 +14,8 @@ namespace WSGM.Core;
 internal static class SteamDownloadSort
 {
     internal static string InstallExpression =>
-        "(()=>{try{const steamModules=" + SteamUiModuleResolver.CreateExpression("download-sort") + ";" + ResidentSetup
+        "(()=>{try{const steamModules=" + SteamUiModuleResolver.CreateExpression("download-sort") + ";"
+        + "const bridgeNamespace=" + SteamCef.JsString(SteamUiBridgeIdentity.Namespace) + ";" + ResidentSetup
         + "return W.dlSortInstall();}"
         + "catch(e){return JSON.stringify({ok:false,err:String((e&&e.stack)||e)});}})()";
 
@@ -24,15 +25,20 @@ internal static class SteamDownloadSort
         + "catch(e){return JSON.stringify({ok:false,err:String(e)});}})()";
 
     // The resident script. Guarded by dlSortVer so re-running only refreshes the
-    // functions — bump BOTH literals below ("W.dlSortVer!==2" and "W.dlSortVer=2")
+    // functions — bump BOTH literals below ("W.dlSortVer!==3" and "W.dlSortVer=3")
     // whenever this text changes, or a live Steam session keeps running the OLD
     // functions until the client restarts (same rule as the badge and Wi-Fi scripts).
     // Every shape decision in the script is a device-verified finding: docs\steam-cef.md §12.
+    //
+    // The header is intercepted through the toolkit's shared JSX-runtime claim, registered through
+    // the bridge's "elements" gate, rather than by wrapping jsx and jsxs here: the library stat on a
+    // game's page claims the same runtime, and two wrappers would each hand back the other on
+    // removal. Version 2 wrapped the runtime itself; its wrapper is unwound wherever it is on top.
     private const string ResidentSetup = """
         var W=window.__wsgm=window.__wsgm||{};
-        if(W.dlSortVer!==2){
+        if(W.dlSortVer!==3){
           if(W.dlSortRemove)W.dlSortRemove();
-          W.dlSortVer=2;
+          W.dlSortVer=3;
           W.dlSortToken='#Downloads_Section_Current';
           W.dlSortState={key:null,dir:1,busy:false};
           W.dlSortSrc=function(v){try{var f=typeof v==='function'?v:(v&&v.render?v.render:null);return f?Function.prototype.toString.call(f):'';}catch(e){return '';}};
@@ -147,22 +153,31 @@ internal static class SteamDownloadSort
             return R.createElement(F,{key:'wsgm-sort','flow-children':'row',
               style:{display:'flex',alignItems:'center',gap:'6px',flex:'0 0 auto',paddingLeft:'12px'}},kids);
           };
-          W.dlSortWrap=function(orig){
-            var w=function(type,props,key){
-              if(props&&props.sectionTitle===W.dlSortToken&&props.count!==undefined&&props.labelId!==undefined){
-                try{
-                  var hdr=orig(type,Object.assign({},props,{style:Object.assign({},props.style,{flex:'1 1 auto',minWidth:0})}),key);
-                  // paddingRight matches the header's own 16px gutter so the bar lines
-                  // up with the right edge of the rows, not the window edge.
-                  return W._react.createElement('div',
-                    {style:{display:'flex',alignItems:'center',width:'100%',paddingRight:'16px',boxSizing:'border-box'}},
-                    hdr,W.dlSortBar());
-                }catch(e){}
-              }
-              return orig.apply(this,arguments);
-            };
-            w.__wsgmDlOrig=orig;
-            return w;
+          // One element transform on the toolkit's shared JSX-runtime claim: the queue header, and
+          // nothing else, comes back inside a row with the sort bar. Undefined leaves every other
+          // element to the runtime.
+          W.dlSortTransform=function(create,type,props,key){
+            if(!(props&&props.sectionTitle===W.dlSortToken&&props.count!==undefined&&props.labelId!==undefined))return undefined;
+            var hdr=create(type,Object.assign({},props,{style:Object.assign({},props.style,{flex:'1 1 auto',minWidth:0})}),key);
+            // paddingRight matches the header's own 16px gutter so the bar lines
+            // up with the right edge of the rows, not the window edge.
+            return W._react.createElement('div',
+              {style:{display:'flex',alignItems:'center',width:'100%',paddingRight:'16px',boxSizing:'border-box'}},
+              hdr,W.dlSortBar());
+          };
+          W.dlSortGate=function(){
+            var bridge=window[bridgeNamespace];
+            return bridge&&typeof bridge.gate==='function'?bridge.gate('elements'):null;
+          };
+          // A version 2 script wrapped jsx and jsxs itself. Unwound where it is on top, so a Steam
+          // session that outlived that build does not render the bar twice.
+          W.dlSortUnwrapLegacy=function(){
+            try{
+              var e=W.dlSortModule(['react.transitional.element','.jsx','.jsxs']);
+              var unwrap=function(f){while(f&&f.__wsgmDlOrig)f=f.__wsgmDlOrig;return f;};
+              if(e.jsx&&e.jsx.__wsgmDlOrig)e.jsx=unwrap(e.jsx);
+              if(e.jsxs&&e.jsxs.__wsgmDlOrig)e.jsxs=unwrap(e.jsxs);
+            }catch(x){}
           };
           W.dlSortRerender=function(){
             try{
@@ -193,29 +208,19 @@ internal static class SteamDownloadSort
             W.dlSortScan();
             if(!W._react)return JSON.stringify({ok:false,err:'React not found'});
             if(!W._focusable)return JSON.stringify({ok:false,err:'Focusable not found'});
-            if(!W.dlSortPatched){
-              var e=W.dlSortModule(['react.transitional.element','.jsx','.jsxs']);
-              var jx=e.jsx,jxs=e.jsxs;
-              if(typeof jx!=='function'||typeof jxs!=='function')throw new Error('JSX runtime exports unavailable');
-              // Record ownership before either assignment, so removal also unwinds a partial install.
-              W.dlSortPatched=[e];
-              try{
-                if(!jx.__wsgmDlOrig)e.jsx=W.dlSortWrap(jx);
-                if(!jxs.__wsgmDlOrig)e.jsxs=W.dlSortWrap(jxs);
-                if(!e.jsx.__wsgmDlOrig||!e.jsxs.__wsgmDlOrig)throw new Error('JSX runtime is not writable');
-              }catch(error){
-                W.dlSortRemove();
-                throw error;
-              }
-            }
+            W.dlSortUnwrapLegacy();
+            var gate=W.dlSortGate();
+            if(!gate)return JSON.stringify({ok:false,err:'bridge unavailable'});
+            var registered=gate.register('wsgm.download-sort',W.dlSortTransform);
+            if(!registered||!registered.ok)return JSON.stringify({ok:false,err:(registered&&registered.error)||'element transform refused'});
+            W.dlSortPatched=true;
             W.dlSortRerender();
-            return JSON.stringify({ok:true,runtimes:(W.dlSortPatched||[]).length});
+            return JSON.stringify({ok:true});
           };
           W.dlSortRemove=function(){
-            var unwrap=function(f){while(f&&f.__wsgmDlOrig)f=f.__wsgmDlOrig;return f;};
-            for(var e of (W.dlSortPatched||[])){
-              try{e.jsx=unwrap(e.jsx);e.jsxs=unwrap(e.jsxs);}catch(x){}
-            }
+            var gate=W.dlSortGate();
+            if(gate){try{gate.unregister('wsgm.download-sort');}catch(x){}}
+            W.dlSortUnwrapLegacy();
             W.dlSortPatched=null;
             W.dlSortState={key:null,dir:1,busy:false};
             W.dlSortRerender();
@@ -241,7 +246,8 @@ internal sealed class SteamDownloadSortPatch : ISteamUiPatch
     // check permanently false, so the sorter reports Incompatible and never installs.
     public SteamUiTargetRole TargetRole => SteamUiTargetRole.SharedJsContext;
 
-    public string ResourceKey => "steam.downloads.jsx-runtime";
+    // Shared with every transform on the toolkit's JSX-runtime claim, so their claims serialize.
+    public string ResourceKey => "steam-ui.jsx-runtime";
 
     public SteamUiPatchBounds Bounds { get; } = SteamUiPatchBounds.Default;
 
@@ -253,7 +259,7 @@ internal sealed class SteamDownloadSortPatch : ISteamUiPatch
             TargetRole,
             "(()=>{try{const W=window.__wsgm;return JSON.stringify({ok:true,"
                 + "runtime:!!window.webpackChunksteamui,"
-                + "owned:!!(W&&Array.isArray(W.dlSortPatched)&&W.dlSortPatched.length)});"
+                + "owned:!!(W&&W.dlSortPatched)});"
                 + "}catch(e){return JSON.stringify({ok:false,error:String(e)});}})()",
             cancellationToken).ConfigureAwait(false);
         if (!result.Reachable || result.Value is null)
@@ -299,9 +305,9 @@ internal sealed class SteamDownloadSortPatch : ISteamUiPatch
         SteamUiPatchContext context,
         CancellationToken cancellationToken) => EvaluateAsync(
             context,
-            "(()=>{const W=window.__wsgm;return JSON.stringify({ok:!!(W"
-                + "&&Array.isArray(W.dlSortPatched)&&W.dlSortPatched.length"
-                + "&&W.dlSortPatched.every(e=>e.jsx?.__wsgmDlOrig&&e.jsxs?.__wsgmDlOrig))});})()",
+            "(()=>{const W=window.__wsgm;const b=window[" + SteamCef.JsString(SteamUiBridgeIdentity.Namespace) + "];"
+                + "const g=b&&typeof b.gate==='function'?b.gate('elements'):null;"
+                + "return JSON.stringify({ok:!!(W&&W.dlSortPatched&&g&&g.registered('wsgm.download-sort'))});})()",
             "Download queue sort verification failed.",
             cancellationToken);
 

@@ -356,6 +356,22 @@ store and reports it through `homeLayout`; `LibraryBadgeBackend` logs each trans
 `steam.home.layout`. The badge is tile-relative and draws the same in both layouts, so the report is
 a fact for the log rather than a placement input.
 
+### The library on the game page
+
+The game's own page names its library too, as a stat in the play bar after Last Played and Play
+Time, where the maintainer placed it on 2026-09-11. It reads the badge's card reading and follows
+the same rules; a library the game is not installed from is dimmed. The label is Steam's own
+"Library" string, localized.
+
+The HLTB for Deck plugin adds its bar to this page by patching the `/library/app/:appid` route's
+`renderFunc` and splicing a new element beside the play bar. That reaches the page, not the stats
+row inside it: the play bar and everything down to the row are mobx observer classes, whose class
+observer pins a non-writable `render` on each instance after its first render, so neither a type nor
+a prototype claim holds. The row is created as `jsxs("div", { className: GameStatsSection, … })`,
+and the stat is added there, through the toolkit's shared JSX-runtime claim, with every class read
+by name from the play bar's class map. Read offline from both the Stable client and the beta, whose
+app-details module is identical; not yet seen on screen.
+
 ### Home's carousel lists the attached libraries
 
 Big Picture Home's carousel shows the games on the libraries attached right now instead of Steam's
@@ -500,6 +516,12 @@ prototype accessor. What is left is wrapping `jsx`/`jsxs` and intercepting the h
 creation; the hot-path cost is one reference comparison. Some runtime modules re-export the same
 binding, so a wrapper is skipped when it already carries the guard property; wrapping a wrapper
 renders the bar twice.
+
+Since 2026-09-11 the sorter no longer wraps the runtime itself. The library stat on a game's page
+needs the same runtime, and two wrappers would each hand back the other on removal, so the toolkit
+owns one claim on `jsx` and `jsxs` and the sorter registers its header transform on it through the
+bridge's `elements` gate. The resident script's version went to 3, and it unwinds a version 2
+wrapper it finds on top.
 
 ### The Focusable lookup must stay tight
 
