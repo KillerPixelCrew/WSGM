@@ -100,10 +100,10 @@ Anything more would be a guess printed as a diagnosis.
 
 The armed-device list is the actionable half. Measured on the reference handheld on 2026-09-10: two
 of three wake-capable devices were armed, the Intel Wi-Fi 7 BE201 and the USB4 root router, after a
-22.7-hour standby that Windows attributed to a person. On a handheld that list is usually the
-answer to "why did it come back on in my bag", and `ModernStandby.TrySetWakeArmed` can act on it —
-though WSGM deliberately does not, because disarming a wake source is a global change that outlives
-the process, which is exactly what this feature's design avoids.
+22.7-hour standby that Windows attributed to a person. On a handheld that list is usually the answer
+to "why did it come back on in my bag", and `ModernStandby.TrySetWakeArmed` can act on it — though
+WSGM deliberately does not, because disarming a wake source is a global change that outlives the
+process, which is exactly what this feature's design avoids.
 
 **Not measured:** no battery-drain comparison has been run. The re-suspend behaviour and the
 diagnostics are implemented and testable; whether they add up to less drain over a night in a bag is

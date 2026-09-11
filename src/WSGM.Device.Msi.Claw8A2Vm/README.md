@@ -47,17 +47,17 @@ routes user intent back as commands. WSGM never touches the device.
 
 This one is a worked example of the parts that are easy to get wrong:
 
-| File                             | What it demonstrates                                                               |
-| -------------------------------- | ---------------------------------------------------------------------------------- |
-| `Claw8A2VmPlugin.cs`             | the lifecycle: detect, start, command, settings, stop                              |
-| `ClawCapabilities.cs`            | publishing capabilities and reporting refusals honestly                            |
-| `MsiWmiPlatform.cs`              | the vendor WMI surface behind power and fans                                       |
-| `WindowsHidTransports.cs`        | HID transports for OEM controls and lighting                                       |
-| `WindowsMotionSource.cs`         | physical legacy-Sensor-API IMU polling, freshness, and zero-rate offset correction |
-| `LegacyPhysicalMotionSensors.cs` | exact Intel ISS/LSM6DSO COM identity, fields, interval ownership, and cleanup      |
-| `ArcSyncTransport.cs`            | variable refresh through Intel's Graphics Control Library                          |
-| `IntelGraphicsMemoryTransport.cs`| a driver setting that is a registry value rather than an API call                  |
-| `ClawRecoveryJournal.cs`         | leaving the device safe when a cycle ends badly                                    |
+| File                              | What it demonstrates                                                               |
+| --------------------------------- | ---------------------------------------------------------------------------------- |
+| `Claw8A2VmPlugin.cs`              | the lifecycle: detect, start, command, settings, stop                              |
+| `ClawCapabilities.cs`             | publishing capabilities and reporting refusals honestly                            |
+| `MsiWmiPlatform.cs`               | the vendor WMI surface behind power and fans                                       |
+| `WindowsHidTransports.cs`         | HID transports for OEM controls and lighting                                       |
+| `WindowsMotionSource.cs`          | physical legacy-Sensor-API IMU polling, freshness, and zero-rate offset correction |
+| `LegacyPhysicalMotionSensors.cs`  | exact Intel ISS/LSM6DSO COM identity, fields, interval ownership, and cleanup      |
+| `ArcSyncTransport.cs`             | variable refresh through Intel's Graphics Control Library                          |
+| `IntelGraphicsMemoryTransport.cs` | a driver setting that is a registry value rather than an API call                  |
+| `ClawRecoveryJournal.cs`          | leaving the device safe when a cycle ends badly                                    |
 
 Motion writes no per-report file. Nothing here may log at the 100 Hz sensor cadence: a CSV of every
 report cost roughly 10 MB per five minutes of play, which is not a diagnostic anyone should leave on
