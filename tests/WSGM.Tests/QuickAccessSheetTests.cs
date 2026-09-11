@@ -224,7 +224,7 @@ public sealed class QuickAccessSheetTests
             Assert.False(string.IsNullOrWhiteSpace(OverlayWindow.DestinationLabel(destination)));
         }
         Assert.Equal("Quick access", OverlayWindow.DestinationLabel(OverlayDestination.QuickAccess));
-        Assert.Equal("Session", OverlayWindow.DestinationLabel(OverlayDestination.Home));
+        Assert.Equal("Power", OverlayWindow.DestinationLabel(OverlayDestination.Power));
         Assert.Equal("Tools", OverlayWindow.DestinationLabel(OverlayDestination.System));
     }
 

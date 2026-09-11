@@ -262,6 +262,7 @@ public partial class OverlayWindow : Window
         new(OverlayPage.PowerWake, PanelPowerWake, PanelPower, OverlayDestination.Power),
         new(OverlayPage.PowerTimeouts, PanelPowerTimeouts, PanelPower, OverlayDestination.Power),
         new(OverlayPage.PowerActions, PanelPowerActions, PanelPower, OverlayDestination.Power),
+        new(OverlayPage.PowerSession, PanelPowerSession, PanelPower, OverlayDestination.Power),
 
         new(OverlayPage.SteamStorageFormat, PanelFormat, PanelSteamLibrary, OverlayDestination.Steam,
             () =>
@@ -1993,7 +1994,7 @@ public partial class OverlayWindow : Window
         if (previous == OverlayDestination.Device && !deviceAvailable)
         {
             RememberDestinationState(previous);
-            _session.Destination = OverlayDestination.Home;
+            _session.Destination = OverlayDestination.QuickAccess;
         }
 
         PlacePerformanceSection(deviceAvailable);
@@ -2012,7 +2013,6 @@ public partial class OverlayWindow : Window
     private static TabStripItem CreateDestinationTab(OverlayDestination destination) => destination switch
     {
         OverlayDestination.QuickAccess => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Panel, (int)destination),
-        OverlayDestination.Home => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Play, (int)destination),
         OverlayDestination.Steam => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.SteamLike, (int)destination),
         OverlayDestination.Device => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Gear, (int)destination),
         OverlayDestination.System => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Wrench, (int)destination),
@@ -2024,7 +2024,6 @@ public partial class OverlayWindow : Window
     internal static string DestinationLabel(OverlayDestination destination) => destination switch
     {
         OverlayDestination.QuickAccess => "Quick access",
-        OverlayDestination.Home => "Session",
         OverlayDestination.Steam => "Steam",
         OverlayDestination.Device => "Device",
         OverlayDestination.System => "Tools",
@@ -2104,8 +2103,9 @@ public partial class OverlayWindow : Window
                 }
             }
             // An empty Quick access root has no row: land on the first tab button so LB/RB
-            // and the D-pad still lead somewhere visible.
-            return FirstFocusable(Tabs) ?? HomeAppButton;
+            // and the D-pad still lead somewhere visible. The close pill is header chrome and
+            // always present, which the Session row it used to fall back to no longer is.
+            return FirstFocusable(Tabs) ?? CloseButton;
         }
     }
 
@@ -2477,7 +2477,6 @@ public partial class OverlayWindow : Window
         SyncBackAffordance();
         TabEyebrow.Text = DestinationLabel(destination).ToUpperInvariant();
         PanelQuickAccess.IsVisible = destination == OverlayDestination.QuickAccess;
-        PanelHome.IsVisible = destination == OverlayDestination.Home;
         PanelSteam.IsVisible = destination == OverlayDestination.Steam;
         PanelDevice.IsVisible = destination == OverlayDestination.Device
             && _navigation.IsVisible(OverlayDestination.Device);
@@ -2517,7 +2516,6 @@ public partial class OverlayWindow : Window
 
     private Control DestinationPanel() => _navigation.Destination switch
     {
-        OverlayDestination.Home => PanelHome,
         OverlayDestination.Steam => PanelSteam,
         OverlayDestination.Device => PanelDevice,
         OverlayDestination.System => PanelSystem,
@@ -3617,6 +3615,9 @@ public partial class OverlayWindow : Window
 
     private void OnEnterPowerWake(object? sender, RoutedEventArgs e)
         => EnterSubView(OverlayPage.PowerWake);
+
+    private void OnEnterPowerSession(object? sender, RoutedEventArgs e)
+        => EnterSubView(OverlayPage.PowerSession);
 
     private void OnEnterPowerTimeouts(object? sender, RoutedEventArgs e)
         => EnterSubView(OverlayPage.PowerTimeouts);

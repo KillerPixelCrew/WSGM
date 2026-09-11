@@ -9,9 +9,6 @@ internal enum OverlayDestination
 {
     /// <summary>The pinned rows — the sheet's home and the Back target of every other root.</summary>
     QuickAccess,
-
-    /// <summary>Steam start/focus, desktop, Big Picture and Steam exit (labelled "Session").</summary>
-    Home,
     Steam,
     Device,
 
@@ -26,7 +23,6 @@ internal enum OverlayDestination
 internal enum OverlayPage
 {
     QuickAccess,
-    Home,
     Steam,
 
     /// <summary>The Steam library category page.</summary>
@@ -80,6 +76,13 @@ internal enum OverlayPage
 
     /// <summary>Standby, hibernate, restart and shut down.</summary>
     PowerActions,
+
+    /// <summary>
+    /// Steam start/focus, desktop, Big Picture and Steam exit. A root tab of its own until
+    /// 2026-09-11: four buttons did not justify one, and they are lifecycle transitions, which
+    /// is what the rest of Power is.
+    /// </summary>
+    PowerSession,
     PowerWakeLocks,
 }
 
@@ -132,9 +135,9 @@ internal sealed class OverlayNavigation
             && SectionId != WSGM.Device.Sdk.Capabilities.DeviceSections.PowerId;
 
     internal IReadOnlyList<OverlayDestination> VisibleDestinations => _deviceVisible
-        ? [OverlayDestination.QuickAccess, OverlayDestination.Home, OverlayDestination.Steam,
+        ? [OverlayDestination.QuickAccess, OverlayDestination.Steam,
             OverlayDestination.Device, OverlayDestination.System, OverlayDestination.Power]
-        : [OverlayDestination.QuickAccess, OverlayDestination.Home, OverlayDestination.Steam,
+        : [OverlayDestination.QuickAccess, OverlayDestination.Steam,
             OverlayDestination.System, OverlayDestination.Power];
 
     internal bool IsVisible(OverlayDestination destination)
@@ -230,7 +233,6 @@ internal sealed class OverlayNavigation
     private static OverlayPage RootPage(OverlayDestination destination) => destination switch
     {
         OverlayDestination.QuickAccess => OverlayPage.QuickAccess,
-        OverlayDestination.Home => OverlayPage.Home,
         OverlayDestination.Steam => OverlayPage.Steam,
         OverlayDestination.Device => OverlayPage.Device,
         OverlayDestination.System => OverlayPage.System,
@@ -241,7 +243,6 @@ internal sealed class OverlayNavigation
     private static OverlayDestination DestinationFor(OverlayPage page) => page switch
     {
         OverlayPage.QuickAccess => OverlayDestination.QuickAccess,
-        OverlayPage.Home => OverlayDestination.Home,
         OverlayPage.Steam or OverlayPage.SteamLibrary or OverlayPage.SteamLaunchFixes
             or OverlayPage.SteamLibraryTabs or OverlayPage.SteamCardManager
             or OverlayPage.SteamArtwork or OverlayPage.SteamLaunchConfiguration
@@ -257,7 +258,8 @@ internal sealed class OverlayNavigation
             or OverlayPage.SystemPlugins or OverlayPage.SystemController
             => OverlayDestination.System,
         OverlayPage.Power or OverlayPage.PowerWake or OverlayPage.PowerTimeouts
-            or OverlayPage.PowerActions or OverlayPage.PowerWakeLocks => OverlayDestination.Power,
+            or OverlayPage.PowerActions or OverlayPage.PowerSession
+            or OverlayPage.PowerWakeLocks => OverlayDestination.Power,
         _ => throw new ArgumentOutOfRangeException(nameof(page)),
     };
 }

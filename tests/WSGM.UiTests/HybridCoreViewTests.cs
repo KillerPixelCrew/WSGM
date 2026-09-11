@@ -108,7 +108,7 @@ public sealed class HybridCoreViewTests
     private static void OpenDevicePowerPage(OverlayWindow window, FakeDevice device)
     {
         window.AttachDeviceBridge(device);
-        UiFixture.Click(window, UiFixture.Tab(window, 3));
+        UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
             .Single(card => card.IsEffectivelyVisible && card.Title == "Power"));
         Dispatcher.UIThread.RunJobs();

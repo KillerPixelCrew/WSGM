@@ -95,7 +95,7 @@ public sealed class OverlayInteractionTests
         OverlayWindow window = fixture.Overlay();
         window.AttachDeviceBridge(device);
         window.AttachPowerSchemes(schemes);
-        UiFixture.Click(window, UiFixture.Tab(window, 3));
+        UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
             .Single(card => card.IsEffectivelyVisible && card.Title == "Power"));
         Expander plans = UiFixture.Named<Expander>(window, "DeviceWindowsPower");
@@ -154,7 +154,7 @@ public sealed class OverlayInteractionTests
         OverlayWindow window = fixture.Overlay();
         window.AttachDeviceBridge(device);
         window.AttachPowerPresets(model);
-        UiFixture.Click(window, UiFixture.Tab(window, 3));
+        UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
             .Single(card => card.IsEffectivelyVisible && card.Title == "Power"));
         var dropdowns = window.GetVisualDescendants().OfType<ComboBox>().ToArray();
@@ -187,7 +187,7 @@ public sealed class OverlayInteractionTests
     {
         using UiFixture fixture = new();
         OverlayWindow window = fixture.Overlay();
-        UiFixture.Click(window, UiFixture.Tab(window, 2));
+        UiFixture.Click(window, UiFixture.Tab(window, 1));
         // The Steam root is a menu now; the launch fixes are one level down.
         UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
             .Single(card => card.IsEffectivelyVisible && card.Title == "Per-game launch fixes"));
@@ -223,7 +223,9 @@ public sealed class OverlayInteractionTests
         Assert.Equal(["home.steam"], pins);
         window.SetPins(["home.desktop"]);
         Assert.Single(grid.Children, control => control.IsEnabled);
-        UiFixture.Click(window, UiFixture.Tab(window, 1));
+        // The source row lives on Power's Session page since the Session tab was absorbed.
+        UiFixture.Click(window, UiFixture.Tab(window, 3));
+        UiFixture.Click(window, VisibleCard(window, "Session"));
         CardButton source = UiFixture.Named<CardButton>(window, "HomeAppButton");
         source.Focus();
         UiFixture.Key(window, Key.Enter);
@@ -237,7 +239,7 @@ public sealed class OverlayInteractionTests
         using UiFixture fixture = new();
         OverlayWindow window = fixture.Overlay();
         window.AttachDeviceBridge(device);
-        UiFixture.Click(window, UiFixture.Tab(window, 3));
+        UiFixture.Click(window, UiFixture.Tab(window, 2));
         Dispatcher.UIThread.RunJobs();
         int dismissed = 0;
         window.Dismissed += () => dismissed++;
@@ -256,9 +258,10 @@ public sealed class OverlayInteractionTests
     }
 
     [AvaloniaTheory]
-    [InlineData(2, "PanelSteam", "Steam library", "PanelSteamLibrary")]
-    [InlineData(3, "PanelSystem", "Display", "PanelSystemDisplay")]
-    [InlineData(4, "PanelPower", "Idle timeouts", "PanelPowerTimeouts")]
+    [InlineData(1, "PanelSteam", "Steam library", "PanelSteamLibrary")]
+    [InlineData(2, "PanelSystem", "Display", "PanelSystemDisplay")]
+    [InlineData(3, "PanelPower", "Idle timeouts", "PanelPowerTimeouts")]
+    [InlineData(3, "PanelPower", "Session", "PanelPowerSession")]
     public void AGroupedTabOffersItsControlsBehindACategory(
         int tab, string root, string category, string page)
     {
@@ -289,7 +292,7 @@ public sealed class OverlayInteractionTests
         // two levels for one press and lose the group they were working in.
         using UiFixture fixture = new();
         OverlayWindow window = fixture.Overlay();
-        UiFixture.Click(window, UiFixture.Tab(window, 4));
+        UiFixture.Click(window, UiFixture.Tab(window, 3));
         UiFixture.Click(window, VisibleCard(window, "Wake"));
         UiFixture.Click(window, VisibleCard(window, "What's keeping this awake"));
         Dispatcher.UIThread.RunJobs();
@@ -311,12 +314,12 @@ public sealed class OverlayInteractionTests
     {
         using UiFixture fixture = new();
         OverlayWindow window = fixture.Overlay();
-        UiFixture.Click(window, UiFixture.Tab(window, 4));
+        UiFixture.Click(window, UiFixture.Tab(window, 3));
         UiFixture.Click(window, VisibleCard(window, "Wake"));
         UiFixture.Click(window, VisibleCard(window, "What's keeping this awake"));
         Dispatcher.UIThread.RunJobs();
 
-        UiFixture.Click(window, UiFixture.Tab(window, 2));
+        UiFixture.Click(window, UiFixture.Tab(window, 1));
         Dispatcher.UIThread.RunJobs();
         Assert.False(UiFixture.Named<Control>(window, "WakeLockHost").IsVisible);
         Assert.False(UiFixture.Named<Control>(window, "PanelPowerWake").IsVisible);
@@ -330,7 +333,7 @@ public sealed class OverlayInteractionTests
             .Single(card => card.IsEffectivelyVisible && card.Title == title);
 
     [AvaloniaFact]
-    public void ClosingAndReopeningKeepsSessionFocusAndReleasesDeviceSubscriptions()
+    public void ClosingAndReopeningKeepsTheDestinationAndReleasesDeviceSubscriptions()
     {
         using FakeDevice device = new();
         using UiFixture fixture = new();
@@ -339,15 +342,22 @@ public sealed class OverlayInteractionTests
             OverlayWindow window = fixture.Overlay();
             window.AttachDeviceBridge(device);
             Assert.Equal(1, device.Subscribers);
-            UiFixture.Click(window, UiFixture.Tab(window, 1));
+            // Power, then its Session page: the rows this used to reach on a root tab of their
+            // own. Reopening restores the destination, not a nested page, so the assertion below
+            // is on the Power root and on focus landing inside it.
+            UiFixture.Click(window, UiFixture.Tab(window, 4));
+            UiFixture.Click(window, VisibleCard(window, "Session"));
             UiFixture.Named<CardButton>(window, "DesktopButton").Focus(NavigationMethod.Directional);
             window.Close();
             Assert.Equal(0, device.Subscribers);
             device.Notify();
         }
         OverlayWindow reopened = fixture.Overlay();
-        Assert.True(UiFixture.Named<Control>(reopened, "PanelHome").IsVisible);
-        Assert.Equal("home.desktop", (reopened.FocusManager?.GetFocusedElement() as Control)?.Tag);
+        Control power = UiFixture.Named<Control>(reopened, "PanelPower");
+        Assert.True(power.IsVisible);
+        Control? focused = reopened.FocusManager?.GetFocusedElement() as Control;
+        Assert.NotNull(focused);
+        Assert.Contains(power, focused.GetVisualAncestors());
     }
 
     [AvaloniaFact]
@@ -381,7 +391,7 @@ public sealed class OverlayInteractionTests
         window.AttachPowerPresets(presets);
         Assert.NotNull(PrivateField<Delegate>(schemes, "Changed"));
         Assert.NotNull(PrivateField<Delegate>(presets, "Changed"));
-        UiFixture.Click(window, UiFixture.Tab(window, 3));
+        UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
             .Single(card => card.IsEffectivelyVisible && card.Title == "Overview"));
         UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
@@ -424,7 +434,7 @@ public sealed class OverlayInteractionTests
         await selection.RefreshAsync();
         OverlayWindow window = fixture.Overlay();
         window.AttachPowerSchemes(selection);
-        UiFixture.Click(window, UiFixture.Tab(window, 3));
+        UiFixture.Click(window, UiFixture.Tab(window, 2));
         Dispatcher.UIThread.RunJobs();
         UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
             .Single(card => card.IsEffectivelyVisible && card.Title == "Power"));

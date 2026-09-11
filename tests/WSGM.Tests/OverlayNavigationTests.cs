@@ -42,7 +42,7 @@ public sealed class OverlayNavigationTests
         Assert.Equal(
             new[]
             {
-                OverlayDestination.QuickAccess, OverlayDestination.Home, OverlayDestination.Steam,
+                OverlayDestination.QuickAccess, OverlayDestination.Steam,
                 OverlayDestination.System, OverlayDestination.Power,
             },
             navigation.VisibleDestinations);
@@ -52,7 +52,7 @@ public sealed class OverlayNavigationTests
         Assert.Equal(
             new[]
             {
-                OverlayDestination.QuickAccess, OverlayDestination.Home, OverlayDestination.Steam,
+                OverlayDestination.QuickAccess, OverlayDestination.Steam,
                 OverlayDestination.Device, OverlayDestination.System, OverlayDestination.Power,
             },
             navigation.VisibleDestinations);
@@ -126,9 +126,9 @@ public sealed class OverlayNavigationTests
         Assert.Equal("steam.artwork", navigation.Pop());
         Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(false, false));
 
-        // Session (the Home destination) is a root like any other now: Back returns to
-        // Quick access from it, and only Quick access itself closes the sheet.
-        navigation.Select(OverlayDestination.Home);
+        // Every other root behaves the same: Back returns to Quick access from it, and only
+        // Quick access itself closes the sheet.
+        navigation.Select(OverlayDestination.Steam);
         Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(false, false));
 
         navigation.Select(OverlayDestination.QuickAccess);
@@ -147,7 +147,7 @@ public sealed class OverlayNavigationTests
             memory.Recall(OverlayDestination.System));
         Assert.Equal(
             new OverlayFocusState(null, 0),
-            memory.Recall(OverlayDestination.Home));
+            memory.Recall(OverlayDestination.Power));
     }
 
     [Fact]
@@ -162,6 +162,24 @@ public sealed class OverlayNavigationTests
 
         Assert.Equal("steam.cards", navigation.Pop());
         Assert.Equal(OverlayPage.Steam, navigation.Page);
+    }
+
+    [Fact]
+    public void SessionIsAPowerCategoryRatherThanARoot()
+    {
+        // The former Session tab lives one level under Power. It pushes from the Power root like
+        // any category page, leaves with one Back, and is refused from any other root.
+        OverlayNavigation navigation = new();
+        navigation.Select(OverlayDestination.Power);
+
+        Assert.True(navigation.Push(OverlayPage.PowerSession, "power.session"));
+        Assert.Equal(OverlayPage.PowerSession, navigation.Page);
+        Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(false, false));
+        Assert.Equal("power.session", navigation.Pop());
+        Assert.Equal(OverlayPage.Power, navigation.Page);
+
+        navigation.Select(OverlayDestination.Steam);
+        Assert.False(navigation.Push(OverlayPage.PowerSession, null));
     }
 
     [Fact]
@@ -224,7 +242,7 @@ public sealed class OverlayNavigationTests
         Assert.True(navigation.Push(OverlayPage.DevicePowerAndThermals, null));
         Assert.Equal(OverlayPage.DevicePowerAndThermals, navigation.Page);
 
-        Assert.True(navigation.Select(OverlayDestination.Home));
+        Assert.True(navigation.Select(OverlayDestination.Steam));
         Assert.True(navigation.Select(OverlayDestination.Device));
 
         Assert.Equal(OverlayPage.Device, navigation.Page);

@@ -33,16 +33,16 @@ public sealed class VisualTests
         {
             UiFixture.Click(window, UiFixture.Tab(window, page switch
             {
-                "steam" => 2,
-                "tools" => 3,
-                _ => 4,
+                "steam" => 1,
+                "tools" => 2,
+                _ => 3,
             }));
         }
         else if (page != "quick-access")
         {
             window.AttachPowerSchemes(schemes);
             if (page == "plugin") { window.AttachDeviceBridge(device); }
-            UiFixture.Click(window, UiFixture.Tab(window, 3));
+            UiFixture.Click(window, UiFixture.Tab(window, 2));
             if (page == "core")
             {
                 UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()

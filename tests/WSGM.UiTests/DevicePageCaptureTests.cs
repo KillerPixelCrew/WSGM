@@ -74,7 +74,7 @@ public sealed class DevicePageCaptureTests
         window.AttachPowerSchemes(schemes);
         window.AttachPowerPresets(selection);
         await performance.RefreshAsync();
-        UiFixture.Click(window, UiFixture.Tab(window, 3));
+        UiFixture.Click(window, UiFixture.Tab(window, 2));
         if (page != "Device")
         {
             UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()

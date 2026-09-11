@@ -26,15 +26,30 @@ sheet with no extra code; a fullscreen window would have needed a second dismiss
 The header carries the wordmark, the active-destination eyebrow and the status pills, bound to a
 per-open `SystemStatus`. The radio, audio and eject panels hang from the header's measured bottom
 edge (`HeaderBottomScreenY` → `StatusPanel.DockBelowHeader`). A `TabStrip` sits over the
-always-alive destination roots: Quick access, Session, Steam, Device, Tools and Power. Every root
-that groups controls is a menu of large category tiles rather than the controls themselves: Steam
-offers Library and Per-game launch fixes; Tools offers System, Performance, Storage, Display,
-Plugins and Controller ownership; Power offers Wake, Idle timeouts and Power. Quick access and
-Session have no groups and stay as they are. Device includes shared Power, RGB, Controller and Info
-pages. Device's Power page contains the Core Windows power-profile picker even without a device
-plugin, plus device presets and AC/battery assignments when available. LB/RB cycle with wrap; the
-sheet reopens on its last destination; focus lands on the first row after a switch; the warning
-`InfoBar` stays above the tabs.
+always-alive destination roots: Quick access, Steam, Device, Tools and Power. Every root that groups
+controls is a menu of large category tiles rather than the controls themselves: Steam offers Library
+and Per-game launch fixes; Tools offers System, Performance, Storage, Display, Plugins and
+Controller ownership; Power offers Wake, Idle timeouts, Power and Session. Device includes shared
+Power, RGB, Controller and Info pages.
+
+The tab-by-tab audit behind that, so a later addition is measured against the same rule:
+
+| Tab          | Status                    | Why                                                                                                                  |
+| ------------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Quick access | Intentional direct layout | It is the pinned rows and the plugin widgets. Its whole purpose is one-step reach; a category layer would defeat it. |
+| Steam        | Converted                 | Library, Per-game launch fixes.                                                                                      |
+| Device       | Converted                 | Category tiles from the plugin's declared sections, plus the shared Power, RGB, Controller and Info pages.           |
+| Tools        | Converted                 | System, Performance, Storage, Display, Plugins, Controller ownership.                                                |
+| Power        | Converted                 | Wake, Idle timeouts, Power, Session.                                                                                 |
+| Session      | Absorbed into Power       | Four buttons never justified a root tab (2026-09-11). They are lifecycle transitions, which is what Power is.        |
+
+A new control belongs on the category page that names its group, never on a root. A control with no
+group is a reason to add a category, not to put it on the root.
+
+Device's Power page contains the Core Windows power-profile picker even without a device plugin,
+plus device presets and AC/battery assignments when available. LB/RB cycle with wrap; the sheet
+reopens on its last destination; focus lands on the first row after a switch; the warning `InfoBar`
+stays above the tabs.
 
 Quick access is the home root and the Back target of every other root. `AppConfig.QuickAccessPins`
 holds row ids (X, touch-hold or right-click toggles one through `PinToggleRequested`). The root
@@ -56,7 +71,7 @@ compete with the 16 ms gamepad poll and pointer delivery.
 ## Sub-views and navigation
 
 Destinations host nested pages in place: six self-drawing sub-views over `OverlaySubView`, the XAML
-`PanelFormat`, the eleven XAML category pages, and the Device sections. The open page is
+`PanelFormat`, the twelve XAML category pages, and the Device sections. The open page is
 `OverlayNavigation.Page`, not a flag per page; the two used to be tracked separately and could
 disagree. Adding a page means adding a row to `OverlayWindow`'s `SubViews` table (page, host, parent
 panel, destination, state released on the way out); the enter/leave sequence, `DefaultFocusTarget`,
