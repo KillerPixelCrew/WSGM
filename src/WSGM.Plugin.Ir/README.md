@@ -7,9 +7,10 @@ remain active alongside it. Hardware acceptance is still in progress under #52.
 Implemented: endpoint identity/version checks over USB serial or the local network, bounded raw
 learn/send, cancellation, command and scene storage, backup/restore, named actions, USB-only Wi-Fi
 pairing with a per-endpoint token, common-host lifecycle and Tools management forms. The real
-package has passed collectible host loading alongside a Device-category fixture. Live remote
-capture/transmission and a live network join remain pending. A COM port list is discovery
-information only; only a successful protocol identity reply establishes compatibility.
+package has passed collectible host loading alongside a Device-category fixture and has paired,
+identified and refused unpaired clients on a live network. Live remote capture/transmission remains
+pending. A COM port list is discovery information only; only a successful protocol identity reply
+establishes compatibility.
 
 ## Build and package
 
