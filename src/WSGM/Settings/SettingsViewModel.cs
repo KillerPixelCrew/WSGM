@@ -200,6 +200,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         CefLibraryTabs = _config.Cef.LibraryTabs;
         CefCardManager = _config.Cef.CardManager;
         CefSdFormat = _config.Cef.SdFormat;
+        SteamStorageFormat = _config.SteamStorageFormatEnabled;
         CefArtwork = _config.Cef.Artwork;
         CefWifiIndicator = _config.Cef.WifiIndicator;
         CefNativeQuickAccess = _config.Cef.NativeQuickAccess;
@@ -1049,6 +1050,21 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Gets or sets Format SD Card + live library registration.</summary>
     public bool CefSdFormat { get => _cefSdFormat; set { _cefSdFormat = value; Raise(nameof(CefSdFormat)); } }
 
+    private bool _steamStorageFormat;
+
+    /// <summary>Gets or sets whether Steam's own storage pages may erase a drive through WSGM.</summary>
+    /// <remarks>
+    /// Off by default and separate from <see cref="CefSdFormat"/>: that one is WSGM's own guided
+    /// flow, this one lets Steam's Format Drive modal start the same erase from one controller
+    /// press. The refusal Steam shows when this is off is a generic result code, so the switch has
+    /// to be where the user can find it — which it was not, for a day.
+    /// </remarks>
+    public bool SteamStorageFormat
+    {
+        get => _steamStorageFormat;
+        set { _steamStorageFormat = value; Raise(nameof(SteamStorageFormat)); }
+    }
+
     /// <summary>Gets or sets the shortcut-artwork changer.</summary>
     public bool CefArtwork { get => _cefArtwork; set { _cefArtwork = value; Raise(nameof(CefArtwork)); } }
 
@@ -1509,6 +1525,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.Cef.LibraryTabs = CefLibraryTabs;
         config.Cef.CardManager = CefCardManager;
         config.Cef.SdFormat = CefSdFormat;
+        config.SteamStorageFormatEnabled = SteamStorageFormat;
         config.Cef.Artwork = CefArtwork;
         config.Cef.WifiIndicator = CefWifiIndicator;
         config.Cef.NativeQuickAccess = CefNativeQuickAccess;

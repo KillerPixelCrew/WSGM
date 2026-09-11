@@ -159,7 +159,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
                 FriendlyPath: paths.Count > 0 ? paths[0] : "",
                 SizeBytes: volume?.CapacityBytes ?? entry.SizeBytes,
                 MountPaths: [.. paths, .. libraries],
-                HasSteamLibrary: libraries.Count > 0));
+                HasSteamLibrary: CarriesLibraryMarker(paths)));
         }
 
         // Steam gates its two drive-menu entries on these: Eject on unmount support, Format on
@@ -271,6 +271,40 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     private static bool IsUnformatted(
         IReadOnlyList<StorageVolume> volumes, FormatTargetEntry target) =>
         !volumes.Any(volume => volume.DiskNumber == target.DiskNumber && volume.Ready);
+
+    /// <summary>Whether the media itself carries a Steam library marker.</summary>
+    /// <param name="paths">The volume's mount paths.</param>
+    /// <returns>True when a readable <c>SteamLibrary\libraryfolder.vdf</c> with a content id is on it.</returns>
+    /// <remarks>
+    /// Read from the card, not from Steam's registry. The reader gives every card the same path,
+    /// so a registration at <c>D:\SteamLibrary</c> belongs to whichever card was last registered
+    /// there and says nothing about the one in the slot now: a blank Linux-formatted card showed
+    /// <c>has_steam_library</c> true on the strength of the previous card's entry (Claw,
+    /// 2026-09-11). The marker is the one copy of the identity that travels with the media, which
+    /// is the rule the whole card manager already follows. Unreadable is reported as absent — the
+    /// safe direction, since Steam then offers to adopt rather than hiding a drive.
+    /// </remarks>
+    private static bool CarriesLibraryMarker(IReadOnlyList<string> paths)
+    {
+        foreach (string path in paths)
+        {
+            try
+            {
+                if (SteamLibraryVdf.TryReadMarkerContentId(
+                        Path.Combine(path, "SteamLibrary"), out string? contentId)
+                    && !string.IsNullOrWhiteSpace(contentId))
+                {
+                    return true;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A card without a filesystem, or one mid-mount. Not a library either way.
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>Matches a mount path against what Windows reported for it.</summary>
     /// <param name="volumes">The volumes read for this state.</param>

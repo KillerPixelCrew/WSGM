@@ -435,6 +435,14 @@ internal sealed class CardVolumeMonitor : IDisposable
                 changed = true;
                 _knownCardPaths.Remove(key);
             }
+            else
+            {
+                // Kept in _knownCardPaths so the next pass tries again. Said out loud because a
+                // registration Steam would not drop is the state the user sees as "the card is
+                // still in Steam", and the line above alone reads as if it had been handled.
+                Log.Warn($"Card volumes: Steam did not drop {libraryPath}; it will be retried "
+                    + "on the next pass.");
+            }
         }
         return changed;
     }

@@ -54,6 +54,15 @@
                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefSdFormat}" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
+                <Border Classes="setting-row" IsVisible="{Binding CefEnabled}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="Allow formatting from Steam's storage page" Classes="setting-title" />
+                            <TextBlock Text="Let Steam's own Format Drive dialog erase a card through WSGM's format flow. Off, the dialog is refused; eject and library registration from that page keep working." Classes="caption" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamStorageFormat}" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
 
                 <Border Classes="section-header">
                     <TextBlock Text="PERFORMANCE" />

@@ -269,7 +269,18 @@ internal sealed class LibraryPolicy : IRemovableDriveEjectObserver
         {
             var removal = await SteamCdp.RemoveLibrariesAtPathAsync(libraryPath, cancellationToken)
                 .ConfigureAwait(false);
-            return removal.Status == SteamLibraryRemoveStatus.Removed;
+            // Steam's answer goes in the log by name. "Removing the library" was logged before the
+            // call and nothing after, so a purge that Steam answered with "absent" -- it does not
+            // list a pulled card's folder -- read as done while the registration stayed in
+            // libraryfolders.vdf (Claw, 2026-09-11).
+            Log.Info($"Library policy: Steam answered the removal of {libraryPath} with "
+                + $"{removal.Status}{(removal.Detail is { Length: > 0 } ? $" ({removal.Detail})" : "")}.");
+
+            // Both mean Steam's list no longer carries the path, which is what a purge is for. A
+            // path Steam had already dropped is not a failure to retry, and reporting it as one
+            // kept the card in _knownCardPaths and the warning on every later pass.
+            return removal.Status is SteamLibraryRemoveStatus.Removed
+                or SteamLibraryRemoveStatus.NotPresent;
         }
 
         // Replace and Add both end in an add. `replaceExisting` makes the add drop
