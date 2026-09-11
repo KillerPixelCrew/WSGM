@@ -1111,6 +1111,17 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         }
     }
 
+    /// <summary>Retrims one mounted volume on request, outside a format.</summary>
+    /// <param name="letter">The volume's drive letter.</param>
+    /// <returns>True when the retrim was issued; false when the reader or volume refused it.</returns>
+    /// <remarks>
+    /// The same retrim the format flow finishes with, exposed because Steam's storage page has a
+    /// Trim button of its own. It is best-effort for the same reason: a reader that does not pass
+    /// TRIM makes the cmdlet fail, which is reported rather than raised. Not gated on the format
+    /// switch — trimming free space erases nothing.
+    /// </remarks>
+    public Task<bool> TrimAsync(char letter) => RetrimVolume(letter);
+
     /// <summary>Issues TRIM (retrim) for the volume's free space via
     /// <c>Optimize-Volume -ReTrim</c> so the flash controller marks the freshly
     /// wiped blocks erasable — the proven SD write-speed win. Optimize-Volume is
@@ -1119,7 +1130,7 @@ public sealed class SdFormatManager : INotifyPropertyChanged
     /// the cmdlet fail, which is logged and the format continues. Runs elevated
     /// (the format flow already is).</summary>
     /// <param name="letter">The just-mounted drive letter.</param>
-    private static async Task RetrimVolume(char letter)
+    private static async Task<bool> RetrimVolume(char letter)
     {
         try
         {
@@ -1135,16 +1146,17 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             if (exitCode == 0)
             {
                 Log.Info($"Format: retrimmed {letter}: (TRIM issued for free space).");
+                return true;
             }
-            else
-            {
-                Log.Info($"Format: retrim of {letter}: not applied (exit {exitCode}); "
-                    + $"the reader may not pass TRIM. Output:\n{output.Trim()}");
-            }
+
+            Log.Info($"Format: retrim of {letter}: not applied (exit {exitCode}); "
+                + $"the reader may not pass TRIM. Output:\n{output.Trim()}");
+            return false;
         }
         catch (Exception ex)
         {
             Log.Warn($"Format: retrim of {letter}: failed: {ex.Message}");
+            return false;
         }
     }
 

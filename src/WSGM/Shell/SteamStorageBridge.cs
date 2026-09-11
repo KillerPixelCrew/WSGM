@@ -42,6 +42,9 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     private readonly LibraryPolicy? _policy;
     private string _loggedProjection = "";
 
+    /// <summary>Whether a Steam-requested trim is in progress, for <c>is_trim_running</c>.</summary>
+    private volatile bool _trimRunning;
+
     /// <summary>Creates the bridge over the managers that already own these operations.</summary>
     /// <param name="drives">The removable-drive manager, which owns safe eject.</param>
     /// <param name="formats">The format manager, which owns erase and library registration.</param>
@@ -169,15 +172,15 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         bool unmountSupported = devices.Count > 0;
         LogProjection(drives, devices, adoptSupported: true, unmountSupported);
 
-        // Trim is reported unsupported because neither manager exposes one. Claiming otherwise would
-        // put a button on Steam's page that could never do anything.
+        // Trim is offered whenever there is a mounted volume to trim; whether this reader passes
+        // TRIM is only known by trying, and a refusal carries its reason.
         return new SteamStorageState(
             drives,
             devices,
             AdoptSupported: true,
             UnmountSupported: unmountSupported,
-            TrimSupported: false,
-            TrimRunning: false);
+            TrimSupported: devices.Count > 0,
+            TrimRunning: _trimRunning);
     }
 
     /// <summary>The drive number Steam addresses a format target by.</summary>
@@ -498,12 +501,47 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
 
     /// <inheritdoc />
     /// <remarks>
-    /// Refused rather than faked. Neither manager exposes a trim, and the published state says
-    /// <c>TrimSupported: false</c> so Steam should not offer it; answering anything else here would
-    /// make a button that reports success and does nothing.
+    /// Steam's Trim button, over the same retrim the format flow finishes with. Every mounted
+    /// removable volume is trimmed in turn; the published <c>is_trim_running</c> is what Steam
+    /// shows while that runs. A reader that does not pass TRIM makes the cmdlet fail, which is a
+    /// refusal with a reason rather than a success that did nothing.
     /// </remarks>
-    public Task<SteamUiCommandResult> TrimAllAsync(CancellationToken cancellationToken) =>
-        Task.FromResult(Refuse("WSGM does not run drive trimming."));
+    public async Task<SteamUiCommandResult> TrimAllAsync(CancellationToken cancellationToken)
+    {
+        var letters = _drives.Drives
+            .Where(entry => !entry.Ejected)
+            .SelectMany(entry => SplitLetters(entry.Letters))
+            .Select(path => path[0])
+            .Distinct()
+            .ToArray();
+        Log.Info($"Steam storage: trim requested for [{string.Join(" ", letters)}].");
+        if (letters.Length == 0)
+        {
+            return Refuse("There is no mounted removable volume to trim.");
+        }
+
+        _trimRunning = true;
+        try
+        {
+            int trimmed = 0;
+            foreach (char letter in letters)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (await _formats.TrimAsync(letter).ConfigureAwait(false))
+                {
+                    trimmed++;
+                }
+            }
+
+            return trimmed > 0
+                ? SteamUiCommandResult.Applied
+                : Refuse("The reader did not accept a TRIM for any volume.");
+        }
+        finally
+        {
+            _trimRunning = false;
+        }
+    }
 
     /// <summary>A refusal that carries its reason, which the contract requires of every failure.</summary>
     /// <param name="reason">What the user is told, on the control they pressed.</param>
