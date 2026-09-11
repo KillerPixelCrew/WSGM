@@ -76,6 +76,47 @@ next operation identifies the endpoint again before doing anything else. Endpoin
 learn timeout or an overflowing capture are shown as plain instructions in Tools. Plugin suspend
 closes the connection. Device replacement does not erase the host library.
 
+## Firmware remotes
+
+Firmware 0.4.0 can carry complete remotes. Each is a folder under `Firmware/remotes/`, for tracked
+examples, or the untracked `Firmware/remotes.local/`, for your own devices, which wins on the same
+id. The folder name is the remote's id; the folder holds `remote.json` and an optional `index.html`.
+The build step `embed_remotes.py` checks every definition against the pinned IRremoteESP8266
+sources, fails the build on any error, compresses the pages and embeds everything. The tracked
+`remotes/hisense-tv` maps Hisense's published discrete code table onto a remote-shaped page.
+
+`remote.json` has a `name` and at least one of `buttons` or `climate`:
+
+- A button with `protocol` and a hex `value` sends a known code. NEC can give `address` and
+  `command` instead, and a protocol that carries a byte state takes `state`. Optional `bits` and
+  `repeats` work as in `sendCode`. `defaults` shares a `protocol`, `address`, `bits` or `repeats`.
+- A button with `ac` sends one fixed air-conditioner state using the `sendAc` fields.
+- A button with `raw` sends learned `carrierHz` and `timingsUs`, with optional `repeats` and
+  `gapMs`.
+- `climate` declares an air conditioner: `protocol`, optional `model` and `celsius`, the supported
+  `modes` and `fans`, `minDegrees`, `maxDegrees`, and `swing` as `none` or `toggle`.
+- `sequences` list steps of `{ "button": id }` and `{ "delayMs": n }`, at most 32 steps and ten
+  minutes of delay in total.
+
+Ids are lowercase letters, digits and dashes, and a custom page may only reference existing ids.
+
+Once the endpoint is on Wi-Fi and web credentials are set over USB with the `web` operation, a
+browser opens `http://<endpoint>/` using HTTP Basic authentication, which browsers can remember.
+`GET /` lists the remotes and `GET /remotes/<id>/` serves a remote's page. Without `index.html` the
+firmware serves a generated page with the remote's buttons, sequences and climate controls. Pages
+act through relative requests that carry the header `X-WSGM-IR: 1`:
+
+- `POST buttons/<button>` answers `200` with status `transmitted`.
+- `POST sequences/<sequence>` answers `202` with status `started`.
+- `POST climate` takes a JSON body with the fields of the `climate` operation.
+- `GET remote.json` returns the remote's catalog entry.
+
+A busy endpoint answers `409`, an unknown id `404` and a refused request `422`, each with a JSON
+`status`. The required header stops another website from pressing buttons through credentials the
+browser saved. Basic authentication over plain HTTP sends the password readable on the local
+network, like the pairing token, so do not reuse a password from elsewhere. A generated climate page
+remembers the last state it sent in the browser, because IR cannot report the unit's actual state.
+
 ## Reference hardware and recovery
 
 The [Seeed wiki](https://wiki.seeedstudio.com/XIAO_IR_Mate_Smart_IR_Remote/) links the
@@ -86,15 +127,16 @@ evidence. The supplied software specifies transmitter GPIO3, active-low receiver
 with pull-down, motor GPIO6 and one WS2812 GRB LED on GPIO7. The firmware uses the IR library's
 standard active-low demodulating receiver handling and a NeoPixel driver, not a plain GPIO LED.
 
-Firmware 0.3.0 implements protocol 1 over USB CDC at 115200 and, once paired, over TCP port 7521
-with mDNS advertisement as `_wsgm-ir._tcp`. It adds `sendCode`, `sendAc` and `protocols`, so
-appliances whose remote is lost can be driven from published codes or the library's A/C encoders. It
-also enlarges the USB receive queue to the frame limit: firmware 0.2.0 kept the core's 256-byte
-default and answered `malformed` when a full raw payload arrived over USB in one write. Credentials
-and the token live in the ESP32 NVS `wsgmir` namespace; there is no persistent command database,
-cloud dependency or web interface. The RGB LED and motor provide brief feedback; touch gives
-feedback without transmitting a user command. The current envelope-capture implementation does not
-measure carrier frequency. Payloads distinguish `assumed`, `protocol`, `measured` and `manual`
+Firmware 0.4.0 implements protocol 1 over USB CDC at 115200 and, once paired, over TCP port 7521
+with mDNS advertisement as `_wsgm-ir._tcp`, and serves its built-in remotes over HTTP on port 80.
+Firmware 0.3.0 added `sendCode`, `sendAc` and `protocols`, so appliances whose remote is lost can be
+driven from published codes or the library's A/C encoders. It also enlarged the USB receive queue to
+the frame limit: firmware 0.2.0 kept the core's 256-byte default and answered `malformed` when a
+full raw payload arrived over USB in one write. Wi-Fi credentials, the token and the web credentials
+live in the ESP32 NVS `wsgmir` namespace. Built-in remotes are fixed at build time; there is no
+runtime command storage or cloud dependency. The RGB LED and motor provide brief feedback; touch
+gives feedback without transmitting a user command. The current envelope-capture implementation does
+not measure carrier frequency. Payloads distinguish `assumed`, `protocol`, `measured` and `manual`
 provenance; this firmware returns an explicitly assumed 38 kHz. Actual carrier-measurement
 capability of the receiver hardware remains unverified. A separate per-command override preserves
 the original captured value and provenance. The initial Tools UI includes the last learned command's
@@ -144,6 +186,13 @@ unit's opening air flap, which blocks line of sight once it runs. Cool, Auto, Fa
 points of 20 and 24 °C, all three fan speeds and the swing toggle also worked. Swing is a toggle in
 this protocol: each send that requests swing flips the louver. Frames the flap blocked needed a
 second send. Heat, sleep and the other toggles remain unverified.
+
+Firmware 0.4.0 was flashed the same way. Once web credentials were set over USB, the endpoint
+answered 401 without a password or with a wrong one, served the index and the Hisense page,
+redirected a remote address that lacked its trailing slash, and refused a press without `X-WSGM-IR`,
+unknown remotes, buttons and sequences, and climate requests outside the declared range or modes,
+all without emitting. A remote with an unknown protocol failed the build. Core logging is compiled
+out because NVS and web server logs over USB ran into the next protocol reply.
 
 The ESP32-C3 ROM loader remains the recovery path; Seeed also links a factory firmware flasher from
 the wiki. Reflashing does not touch the host command library or pairing file, but it does not clear

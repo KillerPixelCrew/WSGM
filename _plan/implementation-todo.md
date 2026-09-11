@@ -658,7 +658,12 @@ architecture smaller.
       maintainer's TV. Firmware 0.3.0 adds `sendCode`, `sendAc` and `protocols` and fixes long USB
       frames. The Koenic KAC 12020 (no Wi-Fi module) answers the library's `MIDEA` A/C protocol for
       power, Cool/Auto/Fan/Dry, set point, fan speed and swing. Midea swing is a toggle, so a host
-      A/C action must model it as an explicit toggle rather than stored state. Remaining: host commands authored from codes and A/C states, and a switch
+      A/C action must model it as an explicit toggle rather than stored state.
+      Firmware 0.4.0 bakes remote definitions and optional pages into the image at build time and
+      serves them over HTTP with Basic authentication; the Hisense example is tracked, the switch
+      and air conditioner live in the untracked `remotes.local`. Remaining: the WSGM plugin lists
+      and presses built-in remotes (`remotes`, `press`, `climate`, `run`), the switch audio-reset
+      delay is tuned live, and host commands from codes cover endpoints without built-in remotes. Remaining: host commands authored from codes and A/C states, and a switch
       power-cycle scene whose delay is long enough for the second press to register.
 
 - [x] **Fix two SD cards showing under one card's name.** Steam's `libraryfolders.vdf` `label`

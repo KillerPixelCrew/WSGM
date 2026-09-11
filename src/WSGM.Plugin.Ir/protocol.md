@@ -36,6 +36,25 @@ Firmware 0.3.0 adds three operations within protocol 1. Older firmware answers t
 Both send operations confirm emission only. A recognized protocol is not proof that an appliance
 accepts the frame.
 
+Firmware 0.4.0 serves the remotes built into it, with these further operations within protocol 1:
+
+- `remotes` answers `ok` with each built-in remote's `id`, `name`, button and sequence `id` and
+  `label` pairs and, for an air conditioner, its declared `climate` capabilities.
+- `press` takes `remote` and `button` and answers as the button's send does, or `unknown-remote` or
+  `unknown-button`.
+- `climate` takes `remote`, `power`, `mode`, `degrees`, `fan` and optional `toggleSwing`. A value
+  outside the remote's declared modes, fans and temperature range, or a swing toggle on a remote
+  without one, answers `invalid-ac-state`.
+- `run` takes `remote` and `sequence` and answers `started`. The endpoint then works through the
+  steps in the background, and a failed step ends the sequence. `cancel` also stops a sequence.
+- `web` takes `user` (at most 32 characters, no colon) and `password` (8–64 characters). It is
+  accepted over USB only and stores both on the endpoint. Empty values disable the web remotes, and
+  clearing Wi-Fi clears them too.
+
+While a learn or a sequence runs, every send, press, climate request, sequence start and learn
+answers `busy`. `identify` also reports `webPort`, `webConfigured`, the number of built-in `remotes`
+and `sequenceRunning`.
+
 `learn` is asynchronous on the endpoint so cancellation and health remain available. Another learn
 or send while learning receives `busy`. Learning also ends on its firmware deadline without a host,
 answering `timeout`. Send is bounded to five seconds including repeats and gaps. Cancellation of a
@@ -63,5 +82,6 @@ Payload fields:
 Payloads with gaps beyond representable limits or capture overflow are refused, never silently
 truncated. Oversized input is discarded through the next newline, then parsing recovers. Malformed,
 unsupported and incompatible requests receive explicit error status. Boot diagnostics lack a valid
-matching identity and cannot complete a host operation. Libraries and named scenes exist only on the
-host; the endpoint has no slot API or filesystem command storage.
+matching identity and cannot complete a host operation. The host's command library and scenes exist
+only on the host. Built-in remotes are fixed at build time; the endpoint has no operation that adds,
+changes or stores commands.
