@@ -10,11 +10,11 @@ type.
 
 Unlike the Steam Input lease, the source is not vendored into
 this repository: it is an external project pinned by revision in
-third_party\controller\viiper\README.md, with the patches WSGM needs alongside
-it. This script checks the pinned revision out, applies those patches, builds
-the shared library, and stages it into src\WSGM\Native\Viiper, which WSGM.csproj
-copies beside the executable. The staging directory is generated and is not
-committed.
+third_party\controller\viiper\README.md. The pin names the KillerPixelCrew fork,
+whose wsgm branch carries the downstream fixes as commits, so this script only
+checks the revision out, builds the shared library, and stages it into
+src\WSGM\Native\Viiper, which WSGM.csproj copies beside the executable. The
+staging directory is generated and is not committed.
 
 The library exposes a small C ABI over blittable types, keeping its native
 ownership and lifetime rules out of the managed device layer.
@@ -38,13 +38,14 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
-$pinned = Join-Path $root "third_party\controller\viiper"
 $staging = Join-Path $root "src\WSGM\Native\Viiper"
 
 # Pinned by revision, not by branch tip: a moving branch would silently change
-# what ships between two builds of the same WSGM commit.
-$repository = "https://github.com/corando98/VIIPER.git"
-$revision = "024aef3a5659fb54d9675929d05f155f47049c4c"
+# what ships between two builds of the same WSGM commit. The source is the
+# KillerPixelCrew fork's wsgm branch, which carries the downstream patch set as
+# reviewable commits on top of the corando98/VIIPER viiper-controller baseline.
+$repository = "https://github.com/KillerPixelCrew/VIIPER.git"
+$revision = "fe726ce80bd2995a8b149440d977a561850d9e89"
 
 if (-not $SourceRoot) {
     $SourceRoot = Join-Path (Split-Path -Parent $root) "wsgm-viiper"
@@ -89,20 +90,20 @@ if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot ".git"))) {
 
 Push-Location $SourceRoot
 try {
-    # Reset hard before applying patches so a repeated build is idempotent rather
-    # than failing on an already-applied hunk.
+    # An existing checkout was cloned from whichever repository the pin named at
+    # the time. Point origin at the current one before fetching, or moving the
+    # pin to a different fork fails as "revision unavailable" on every machine
+    # that already has a source tree.
+    git remote set-url origin $repository
+    if ($LASTEXITCODE -ne 0) { throw "Failed to point $SourceRoot at $repository" }
+
+    # Reset hard so a repeated build is idempotent, and so a checkout left dirty
+    # by an interrupted run does not silently ship modified source.
     git fetch --quiet origin $revision 2>$null | Out-Null
     git checkout --quiet --force $revision
     if ($LASTEXITCODE -ne 0) { throw "Pinned VIIPER revision $revision is unavailable" }
     git reset --quiet --hard $revision
     git clean -qfd
-
-    $patches = Get-ChildItem -LiteralPath $pinned -Filter "*.patch" | Sort-Object Name
-    foreach ($patch in $patches) {
-        Write-Host "Applying $($patch.Name)"
-        git apply --whitespace=nowarn $patch.FullName
-        if ($LASTEXITCODE -ne 0) { throw "Failed to apply $($patch.Name) to VIIPER $revision" }
-    }
 
     if ($Validate) {
         go test ./device/steamdeck/...

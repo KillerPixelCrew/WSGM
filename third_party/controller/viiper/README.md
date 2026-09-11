@@ -1,24 +1,54 @@
 # VIIPER, and what WSGM needs from it
 
 WSGM's virtual controller targets are created by [VIIPER](https://github.com/Alia5/VIIPER), a
-userspace virtual-USB framework that speaks USBIP. Nothing in this directory is a checkout: it holds
-the exact upstream revision WSGM builds against and the patches that revision still needs. The
-reasoning for choosing VIIPER over HIDMaestro is in the parent `README.md`.
+userspace virtual-USB framework that speaks USBIP. Nothing in this directory is a checkout: it
+records which revision WSGM builds against, what the downstream commits on it are for, and how to
+move the pin. The reasoning for choosing VIIPER over HIDMaestro is in the parent `README.md`.
 
 ## Pinned revision
 
-- Repository: `corando98/VIIPER`, branch `viiper-controller`
-- Commit: `024aef3a5659fb54d9675929d05f155f47049c4c`
+- Repository: [`KillerPixelCrew/VIIPER`](https://github.com/KillerPixelCrew/VIIPER), branch `wsgm`
+- Commit: `fe726ce80bd2995a8b149440d977a561850d9e89`
+- Baseline: `corando98/VIIPER@024aef3a5659fb54d9675929d05f155f47049c4c` (`viiper-controller`)
 
-That branch is well ahead of `Valkirie/VIIPER` and carries the performance work this integration
-depends on: opt-in NAK-idle interrupt-IN endpoints, hardware-paced completions, a type-agnostic clib
-fast path, value-typed input state, and a `GOMAXPROCS` cap.
+The downstream changes used to live here as `.patch` files applied at build time. They are commits
+on the fork now, which is what this repository's contributor guide asks of any dependency it has to
+keep changed: the diff is reviewable where it applies, `git log` attributes each change, and a
+rebase onto a newer baseline is an ordinary rebase rather than six patches to re-fit by hand. The
+build script no longer applies anything — it checks the pinned revision out and builds it.
 
-## Patches WSGM applies
+`viiper-controller` is the baseline because it is well ahead of `Valkirie/VIIPER` on the performance
+work this integration depends on: opt-in NAK-idle interrupt-IN endpoints, hardware-paced
+completions, a type-agnostic clib fast path, value-typed input state, and a `GOMAXPROCS` cap.
 
-`0001-steamdeck-idle-and-stick-fixes.patch` carries two fixes that are merged in `Valkirie/VIIPER`
-but not on this branch. A third, the SDL3 `ucLength` fix, is already present here and needs no
-patch.
+## The fork's branches
+
+| Branch | What it is |
+| --- | --- |
+| `viiper-controller` | Untouched mirror of the upstream baseline. Never commit to it; fast-forward it from `upstream` and rebase `wsgm` onto it. |
+| `wsgm` | The baseline plus the downstream commits below. This is what WSGM pins. |
+| `main`, `sd-controller-output`, `gh-pages` | Mirrored from upstream at fork time, unused by WSGM. |
+
+The GitHub fork relationship records `corando98/VIIPER` as parent, so a fresh clone already has the
+right `upstream`.
+
+## Downstream commits
+
+Listed oldest first, which is the order they sit on the baseline.
+
+| Commit | Change |
+| --- | --- |
+| `4c111ae` | `steamdeck`: clamp stick Y, leave placeholder endpoints pending, fix the stale quaternion assertion |
+| `f29a4b2` | `windows`: declare both `plugin_hardware` layouts, newest first |
+| `8179541` | `clib`: `viiper_device_add` no longer attaches |
+| `540bda4` | `clib`: plug the usbip client port out on device remove |
+| `29b0393` | `clib`: quiesce feedback before the client detach |
+| `1ee755c` | `steamdeck`: report credible attributes so Steam sends trigger rumble |
+| `935eacb` | `clib`: `viiper_device_add_ex` no longer attaches either |
+| `fe726ce` | `windows`: guard the device-interface size query |
+
+The first commit carries two fixes that are merged in `Valkirie/VIIPER` but not on this branch. A
+third, the SDL3 `ucLength` fix, is already present here and needed nothing.
 
 | Source | Fix | Why it matters to WSGM |
 | --- | --- | --- |
@@ -26,11 +56,11 @@ patch.
 | Valkirie/VIIPER#2 | Placeholder mouse and keyboard endpoints stay pending | They carry no data, yet completed a transfer on every poll. That both wakes the system from standby and burns CPU for nothing. |
 | WSGM | Stale quaternion assertion | `9de6355` deliberately dropped the forced identity orientation quaternion, because a frozen identity made Steam ignore raw angular velocity and collapse gyro-to-stick to centre. The test still expected `0x4000` and was left failing, so the package had no green baseline to regress from. |
 
-`0002-attach-plugin-hardware-layouts.patch` is WSGM's own, and without it `viiper_device_attach`
+`f29a4b2` is WSGM's own, and without it `viiper_device_attach`
 cannot succeed against usbip-win2 0.9.7.8. See the next section — it was found by running the call,
 not by reading the code.
 
-`0003-device-add-does-not-attach.patch` is WSGM's own and stops `viiper_device_add` attaching. That
+`8179541` is WSGM's own and stops `viiper_device_add` attaching. That
 matters twice over. Upstream attached in both `add` and `attach`, so the documented pair produced
 **two** USB/IP attachments of one device — two ports in `usbip port` pointing at the same bus/dev,
 and two identical controllers in Steam's controller list (device-observed 2026-08-29). Attach was
@@ -39,17 +69,17 @@ retry. It also made the intended ordering impossible: a caller cannot present a 
 before Windows enumerates the device when adding it is what enumerates it. With attach explicit,
 WSGM opens the fast handle, submits a neutral frame, and only then lets the host see the controller.
 
-`0004-detach-usbip-port-on-device-remove.patch` backports the detach change from Handheld
+`540bda4` backports the detach change from Handheld
 Companion's bundled VIIPER commit `679f7e0` without replacing the pinned
 `corando98/VIIPER@024aef3a` `viiper-controller` baseline, its newer performance work, or the Steam
-Deck patches above. usbip-win2 assigns a client port when a device is attached. Removing only
+Deck fixes above. usbip-win2 assigns a client port when a device is attached. Removing only
 VIIPER's server-side device closes its stream but does not plug that port out of the Windows driver,
-so an immediate replacement can collide with the stale attachment. The patch retains the port
+so an immediate replacement can collide with the stale attachment. It retains the port
 returned by either attach route and issues `IOCTL_PLUGOUT_HARDWARE` before server-side removal, with
 the command route as fallback.
 
-`0005-quiesce-feedback-before-client-detach.patch` tightens the removal ordering that patch 0004
-introduced. Patch 0004 performed the blocking driver plugout while holding VIIPER's global C-API
+`29b0393` tightens the removal ordering that `540bda4`
+introduced. That commit performed the blocking driver plugout while holding VIIPER's global C-API
 mutex and while its reverse feedback callback was still registered; usbip-win2 may deliver a last
 output packet as it cancels the endpoints, so a callback could in principle re-enter WSGM from
 VIIPER's Go thread while the caller synchronously waited for removal. Removal now deletes the
@@ -60,14 +90,14 @@ That patch was written against the wrong diagnosis, and the record matters more 
 "cannot create a new stack guard page" crash on every live target change was **not** native
 re-entry: a procdump first-chance `STATUS_STACK_OVERFLOW` dump (2026-09-01) showed 1,598 frames of
 `ViiperControllerBackend.SafeNative` calling itself — a managed overload-resolution bug in WSGM
-(see the remark on that method). Patch 0005 stays because holding the C-API mutex across a driver
+(see the remark on that method). `29b0393` stays because holding the C-API mutex across a driver
 request was wrong on its own terms, but it never fixed, and could not have fixed, that crash.
 
 PR #2 needed adapting rather than applying verbatim: this branch replaced the inline `ctx.Done()`
 waits with `device.BlockUntilDeadline`, so the two endpoint cases collapse into one that blocks and
 returns no data.
 
-`0006-report-credible-deck-attributes.patch` is WSGM's own. Steam decides controller features from
+`1ee755c` is WSGM's own. Steam decides controller features from
 the `GET_ATTRIBUTES_VALUES` identity block, and with the baseline's answers — board revision 1 and
 a BCD-style firmware build time (`0x20260226`, which reads as the year 1987 when taken as the unix
 epoch Steam expects) — Steam never sends `ID_TRIGGER_RUMBLE_CMD` (0xEB) to the virtual Deck, while
@@ -77,9 +107,118 @@ then withholding 0xEB). The patch reports the identity hhd's emulated Deck prese
 revision `0x2e`, real epoch firmware and bootloader build times, and the trailing attribute set
 (`0x0c`..`0x0e`) a current Deck answers — which Steam demonstrably sends rumble to.
 
+`935eacb` finishes what `8179541` started. That change stopped `viiper_device_add` attaching but
+left `viiper_device_add_ex` doing it, so both the duplicate attachment and the impossible frame
+ordering survived on the extended entry point. WSGM calls `add`, so this was never a live fault
+here; it was an inconsistency waiting for the first caller that used the other function.
+
+`fe726ce` is ported from upstream, and is the one change here that fixes a crash rather than a
+behaviour. See the audit below.
+
+## Audit of the other VIIPER variants
+
+`Valkirie/VIIPER` and `hbashton/VIIPER` were compared against the baseline commit by commit. Both
+are measured against the merge base `904bef3` — the fork point on `main` — because neither shares
+`viiper-controller`'s history: Valkirie's tree is Alia5 upstream plus its own work, and corando's
+branch is 25 commits of Steam Deck and NAK-idle work on top of the same older `main`. Each fork
+therefore has an independent Steam Deck implementation, and neither is a superset of the other.
+
+| Variant | Ahead of merge base | Character |
+| --- | --- | --- |
+| `Valkirie/VIIPER:main` | 56 | Alia5 upstream past the fork point, plus NS2Pro, DualSense/Edge, Steam Controller and Xbox GIP devices, build/CI tooling, and two attach/CPU changes |
+| `hbashton/VIIPER:feature/native-udecx-bus` | 621 | Releases 0.0.7-0.0.9 and a native UDE bus rewrite |
+| `hbashton/VIIPER:feature/latency-superiority` | 625 | Superset of the above through 0.1.0 |
+| `hbashton/VIIPER:ds4-audio-emulation` | 139 | DS4 audio emulation on the Valkirie tooling base |
+
+### Ported
+
+**`fe726ce`, from Alia5's "Solidify autoattach handling" (`d2af157`), reached through Valkirie.**
+`getDeviceInterfacePath` discarded the result of its `SetupDiGetDeviceInterfaceDetailW` size query.
+That query is *expected* to fail with `ERROR_INSUFFICIENT_BUFFER` — that is how it reports the size
+— but on any other failure `requiredSize` stays zero, and the next two lines allocate a zero-length
+slice and index element zero of it. Discovery panics inside the server instead of reporting that
+the driver was not found. This is the code path WSGM's attach runs through on every controller
+creation, so it is the one variant change that is worth the risk of taking. Rewritten rather than
+cherry-picked: the structure and its callers are both renamed on this branch.
+
+### Evaluated and not ported
+
+**Valkirie `209c882`, "Deduplicate Windows device attach flow".** The same duplicate attachment
+`8179541` fixes, found independently, answered by making the attach idempotent instead. That keeps
+`add` enumerating the device, which is the half that makes a neutral first frame impossible, so it
+does not solve WSGM's ordering problem. Its one durable observation — that `add_ex` has the bug too
+— is taken, as `935eacb`.
+
+**Valkirie `9254837`, "Fixed abnormal CPU usage".** Replaces the URB loop's non-blocking `default:`
+with `case <-time.After(10 * time.Millisecond)` and sleeps a millisecond in the cached-report path.
+That adds up to 10 ms to every URB header read, which is fatal for a 1 kHz controller. The baseline
+does not need it: NAK-idle endpoints and the data-driven completion port already removed both
+busy-loops, and the cached-report branch it sleeps in no longer exists here.
+
+**Alia5 `7e33d2d`, "Improve device emulation efficiency".** Already on the baseline — `server.go`
+names it in the comment on the data-driven completion plumbing.
+
+**Alia5/Valkirie build and CI work** (`5b3f7fd` justfile, `9710536` golangci-lint, `717a95e`
+Windows CI, `520f842` licence notices in CI artifacts). WSGM does not build VIIPER through its
+makefile, justfile or CI: `eng\build-viiper.ps1` runs `go build -buildmode=c-shared ./clib`
+directly and stages `LICENSE.txt` and `NOTICE.md` itself, which is the requirement the licence
+commit exists to satisfy. Taking them would add lint and tooling churn across the whole tree for no
+change to what WSGM ships, and would make every future rebase larger.
+
+**Valkirie's device implementations** (NS2Pro, DualSense/Edge, Steam Controller, Xbox GIP,
+`xboxelite2`). WSGM emulates one device type, the Steam Deck, and the baseline has its own. Lifting
+a second implementation of devices WSGM does not create is pure drift.
+
+**hbashton `7a24743`, "Bound adaptive virtual controller input scheduling".** The stated goal —
+stopping cached reports busy-looping through USB/IP and advertising a 1 kHz ceiling — is the
+problem the baseline's NAK-idle endpoints and data-driven completions already solve, by a different
+route. The commit touches `dualsense`, `dualshock4`, `ns2pro`, `xbox360`, `keyboard` and `mouse`
+plus 106 lines of `server.go` that conflict directly with NAK-idle. There is nothing to take
+without re-deriving it against a different scheduling model, and no measured deficit here to
+justify that.
+
+**hbashton `ae4b5aa`, "Harden VIIPER first-run startup registration".** Hardens
+`scripts/install.ps1` and the GitHub build workflow. WSGM installs nothing through VIIPER's script:
+`libviiper.dll` is embedded in the WSGM process and usbip-win2 is installed by WSGM's own
+`Install-UsbipDriver.ps1`, which already does more than this commit adds — verifies digest and
+signer, skips a newer install, and confirms the service registration afterwards rather than
+trusting an exit code.
+
+**hbashton's branches generally.** At 621-625 commits ahead of the merge base they are a different
+project rather than a patch set. Anything wanted from them has to be read and reimplemented against
+this baseline with attribution, never merged as a branch.
+
+## Keeping the fork current
+
+The fork keeps `viiper-controller` as an untouched mirror and `wsgm` as the patch set, so refreshing
+against upstream is one rebase:
+
+```
+git clone https://github.com/KillerPixelCrew/VIIPER.git
+cd VIIPER
+git remote add upstream https://github.com/corando98/VIIPER.git
+git fetch upstream
+git checkout viiper-controller
+git merge --ff-only upstream/viiper-controller
+git push origin viiper-controller
+git rebase viiper-controller wsgm
+```
+
+Then, before the pin moves:
+
+1. `go build ./...` succeeds for the whole tree.
+2. `go test ./...` fails in exactly the three places named under "Build baseline" and nowhere else.
+3. `eng\build-viiper.ps1 -Validate` runs end to end from the new revision.
+4. WSGM's controller tests pass, and a controller is created, attached, driven and removed on real
+   hardware. `WSGM.DeviceLab` is the tool for the last part; the pin does not move on a green build
+   alone, because every fault the commits above exist for was found by running the thing.
+5. Drop any downstream commit whose fix has landed upstream, and say so in this file.
+
+Update the pin in `eng\build-viiper.ps1` and the revision and commit table above in the same change.
+
 ## How WSGM builds and binds it
 
-`eng\build-viiper.ps1` checks the pinned revision out, applies the patches, optionally runs the Deck
+`eng\build-viiper.ps1` checks the pinned revision out, optionally runs the Deck
 device tests, builds `libviiper.dll` with `go build -buildmode=c-shared ./clib`, and stages it with
 its header and licences into `src\WSGM\Native\Viiper`. `WSGM.csproj` copies that beside the
 executable. The staging directory is generated and is not committed.
@@ -93,9 +232,15 @@ The library exposes a flat C ABI over blittable types, so WSGM binds it directly
 
 ## Build baseline
 
-Verified with Go 1.27.0 and WinLibs GCC on the reference Claw, 2026-09-01. `go build ./...` succeeds
-for the whole tree, `go test ./device/steamdeck/...` passes with the patch applied, and
-`eng\build-viiper.ps1 -Validate` runs the whole sequence end to end.
+Verified with Go 1.27.0 and WinLibs GCC on the reference Claw, 2026-09-11, at the pinned fork
+revision. `go build ./...` succeeds for the whole tree, `go test ./device/steamdeck/...` passes, and
+`eng\build-viiper.ps1 -Validate` runs the whole sequence end to end and stages `libviiper.dll`.
+
+`go test ./...` fails in exactly three places, all of them present before any downstream commit and
+none of them on WSGM's path: `device/xboxelite2` (paddle bit ordering), `device/xboxgip` (LEB128
+fragment length), and `internal/server/api` (its test file has not followed `HandleTransfer`'s
+context parameter, so the test binary does not compile). A fourth failure appearing is a regression
+worth investigating.
 
 **The binding is verified end to end against the real library and the real driver.** Every entry
 point WSGM uses — `viiper_init`, `viiper_bus_create`, `viiper_device_add("steamdeck")`,

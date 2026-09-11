@@ -21,9 +21,10 @@ the Steam Input lease and the rest of Device Integration continue.
 
 ### Why VIIPER replaced HIDMaestro
 
-**Decided 2026-08-29.** VIIPER (`corando98/VIIPER`, branch `viiper-controller`, pinned at
-`024aef3a` in `viiper/README.md`) creates virtual USB devices in userspace over USBIP, and it wins
-on both halves of the gate above.
+**Decided 2026-08-29.** VIIPER creates virtual USB devices in userspace over USBIP, and it wins on
+both halves of the gate above. WSGM builds it from the `KillerPixelCrew/VIIPER` fork, whose `wsgm`
+branch carries the downstream commits on top of the `corando98/VIIPER` `viiper-controller` baseline;
+`viiper/README.md` holds the pin, the commit list and the rebase procedure.
 
 - **Nothing is missing.** Its `device/steamdeck` carries the whole Neptune frame natively, including
   all four rear controls and capacitive stick touch. The bit map is settled by three independent
