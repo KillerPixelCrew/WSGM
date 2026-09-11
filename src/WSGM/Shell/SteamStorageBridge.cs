@@ -80,12 +80,19 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         _formats.Refresh();
 
     /// <summary>Projects what the managers currently see into Steam's own state shape.</summary>
-    /// <returns>The state, or null while neither manager has anything to report.</returns>
+    /// <returns>The state, or null until the first enumeration has completed.</returns>
     /// <remarks>
     /// Null and empty mean different things on this wire. Null is "nothing to say", which leaves
     /// Steam's page as it was; an empty state is the assertion that the machine has no removable
     /// storage, which the page renders as such. Reporting empty before the managers have scanned
     /// would show "no drives" to someone holding a card.
+    /// <para>
+    /// But empty after a scan is a real answer and has to be sent. It was not: an empty result
+    /// returned null unconditionally, so when the last card was pulled -- or ejected from Windows
+    /// rather than from Steam -- nothing was published, the gate kept the last state it had, and
+    /// Steam went on showing a drive that was no longer in the machine. The drive manager's first
+    /// completed scan is what draws the line between the two cases.
+    /// </para>
     /// </remarks>
     public SteamStorageState? ReadState()
     {
@@ -93,7 +100,21 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         var formattable = _formats.Targets.ToArray();
         if (ejectable.Length == 0 && formattable.Length == 0)
         {
-            return null;
+            if (!_drives.HasScanned)
+            {
+                return null;
+            }
+
+            _lastAdoptSupported = true;
+            _lastUnmountSupported = false;
+            LogProjection([], []);
+            return new SteamStorageState(
+                [],
+                [],
+                AdoptSupported: _lastAdoptSupported,
+                UnmountSupported: _lastUnmountSupported,
+                TrimSupported: false,
+                TrimRunning: false);
         }
 
         // One read of what Windows says about mounted volumes, shared by every row below. It is the
@@ -336,13 +357,52 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     private static bool HasSteamLibrary(string path) => LibraryPathsOn(path).Count > 0;
 
     /// <inheritdoc />
-    public async Task<SteamUiCommandResult> AdoptAsync(uint driveId, CancellationToken cancellationToken)
+    /// <remarks>
+    /// Steam's storage page never sends Format. Its Format Drive modal sends Adopt with the name
+    /// the user typed, because on SteamOS adopting a drive that carries no filesystem is what
+    /// erases it. So this is two operations under one name, and which one is decided by the disk
+    /// rather than by the request: no mountable filesystem means erase and register, and goes
+    /// behind the same switch as any other erase started from Steam's pages; a filesystem already
+    /// there means register what is on it, which is never destructive. The validate flag is
+    /// Steam's and is logged, not acted on -- WSGM's format already re-verifies the disk before
+    /// every destructive step, so there is no lighter variant of it to offer.
+    /// </remarks>
+    public async Task<SteamUiCommandResult> AdoptAsync(
+        uint driveId, string label, bool validate, CancellationToken cancellationToken)
     {
+        Log.Info($"Steam storage: adopt requested (drive {driveId}, label '{label}', "
+            + $"validate={validate}).");
         FormatTargetEntry? target = FindTarget(driveId);
-        string? path = FirstMountPath(driveId);
-        if (target is null && path is null)
+        if (target is null)
         {
+            Log.Warn($"Steam storage: adopt refused, no disk answers to drive {driveId}.");
             return Refuse("That drive is no longer present.");
+        }
+
+        string? path = FirstMountPath(driveId);
+        if (path is null)
+        {
+            // Nothing mountable on it: this is the erase-and-register adopt.
+            if (!_formatAllowed())
+            {
+                return Refuse("Formatting from Steam's pages is switched off in WSGM Settings.");
+            }
+            if (_formats.Busy)
+            {
+                return Refuse("Another format is already running.");
+            }
+
+            try
+            {
+                await _formats.FormatAsync(target, label.Length > 0 ? label : null)
+                    .ConfigureAwait(false);
+                return SteamUiCommandResult.Applied;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Log.Warn($"Steam storage: adopting {driveId} by formatting failed: {ex.Message}");
+                return Refuse("The format did not complete.");
+            }
         }
 
         try
@@ -350,11 +410,11 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
             // Adopting is the user overriding a standing eject, so it is dropped before the
             // registration rather than after: the monitor must not see the add and the intent at
             // the same time and decide the add was a mistake.
-            _policy?.ClearEjected(path ?? "");
+            _policy?.ClearEjected(path);
 
             // The manager registers the folder with the running client and reconciles Steam's own
-            // library file; this only names the path.
-            await _formats.AddLibraryAsync(path ?? "").ConfigureAwait(false);
+            // library file; a drive root becomes <root>SteamLibrary, which is Steam's own layout.
+            await _formats.AddLibraryAsync(path).ConfigureAwait(false);
             return SteamUiCommandResult.Applied;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -471,14 +531,26 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         return id is null ? null : _formats.Targets.FirstOrDefault(target => target.Id == id);
     }
 
+    /// <summary>The mount path of the first readable volume on one of Steam's drives.</summary>
+    /// <param name="driveId">The drive number Steam sent.</param>
+    /// <returns>A mount path such as <c>D:\</c>, or null when nothing mountable is on the disk.</returns>
+    /// <remarks>
+    /// Resolved through the disk number, the same join the published state uses. The earlier
+    /// version looked the format target's identifier up in the drive manager's list, which keys on
+    /// a different identifier for the same card, so it never matched and every adopt of a mounted
+    /// drive was refused as no longer present.
+    /// </remarks>
     private string? FirstMountPath(uint driveId)
     {
-        string? id = ResolveDrive(driveId);
-        RemovableDriveEntry? entry = id is null
-            ? null
-            : _drives.Drives.FirstOrDefault(drive => drive.Id == id);
-        IReadOnlyList<string> paths = entry is null ? [] : SplitLetters(entry.Letters);
-        return paths.Count > 0 ? paths[0] : null;
+        FormatTargetEntry? target = FindTarget(driveId);
+        if (target is null)
+        {
+            return null;
+        }
+
+        StorageVolume? volume = WindowsStorage.DescribeVolumes()
+            .FirstOrDefault(candidate => candidate.Ready && candidate.DiskNumber == target.DiskNumber);
+        return volume?.MountPath;
     }
 
     /// <summary>Turns the manager's display string of drive letters into mount paths.</summary>

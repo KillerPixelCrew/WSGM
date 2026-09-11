@@ -31,4 +31,25 @@ public sealed class SteamStorageBridgeTests
     {
         Assert.Empty(SteamStorageBridge.SplitLetters(null!));
     }
+
+    [Fact]
+    public void NothingIsPublishedBeforeTheFirstScanAndEmptyIsPublishedAfterIt()
+    {
+        using var drives = new RemovableDriveManager();
+        using var bridge = new SteamStorageBridge(drives, new SdFormatManager(), () => false);
+
+        // Before any enumeration, silence: an empty answer here would tell Steam "no drives" to
+        // someone holding a card the first scan has not reached yet.
+        Assert.Null(bridge.ReadState());
+
+        // After one, an empty list is a real answer and has to reach Steam, or a card pulled from
+        // the reader -- or ejected from Windows rather than from Steam -- stays on its page.
+        drives.Apply([]);
+        SteamStorageState? state = bridge.ReadState();
+
+        Assert.NotNull(state);
+        Assert.Empty(state.Drives);
+        Assert.Empty(state.BlockDevices);
+        Assert.False(state.UnmountSupported);
+    }
 }

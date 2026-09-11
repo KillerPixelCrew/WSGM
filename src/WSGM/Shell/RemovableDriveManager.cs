@@ -50,6 +50,15 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
     /// (all its volumes together), one per removable-media volume.</summary>
     public ObservableCollection<RemovableDriveEntry> Drives { get; } = [];
 
+    /// <summary>Gets whether at least one enumeration has completed since <see cref="Start"/>.</summary>
+    /// <remarks>
+    /// This is what separates "no removable storage" from "not looked yet". Both leave
+    /// <see cref="Drives"/> empty, and a consumer that publishes the list elsewhere -- Steam's
+    /// storage pages -- has to say "nothing here" when a card is pulled, but must not say it at
+    /// startup to someone who is holding a card the first scan has not reached.
+    /// </remarks>
+    public bool HasScanned { get; private set; }
+
     private bool _hasDrives;
     /// <summary>Gets whether anything ejectable is present — the taskbar shows
     /// its eject tile only while this is true.</summary>
@@ -439,6 +448,7 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
                 + $"(+{added}/-{removed}).");
         }
         HasDrives = Drives.Count > 0;
+        HasScanned = true;
     }
 
     private RemovableDriveEntry? FindDrive(string id)

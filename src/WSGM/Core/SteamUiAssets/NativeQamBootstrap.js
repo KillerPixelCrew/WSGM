@@ -2779,18 +2779,90 @@
     let answered = 0;
     let forwarded = 0;
     let lastMethod = "";
+    let lastPayload = "";
+    let lastRequest = "";
+    /// One of Steam's uint32 identifiers, whatever JavaScript type it arrived as. Zero for anything
+    /// that is not a usable identifier, which is the wire's own "not named".
+    const asId = (value) => {
+      const parsed = typeof value === "string" ? Number(value) : value;
+      return typeof parsed === "number" && Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    };
+    // Every route a generated message exposes a field through, tried in order. Steam's messages
+    // define prototype accessors named after the declared field (that is what the `prototype.x ||
+    // Sg(M())` guard at construction installs), `toObject()` may spell the key either way, and a
+    // plain object hands the field back untouched. Reading only toObject() under the declared
+    // spelling found nothing, so every action forwarded zero for both identifiers and the host
+    // refused it as naming neither a volume nor a drive — the exact line the log printed for
+    // Steam's eject. The identifier being asked for is the one this gate published, echoed back;
+    // losing it here is losing our own number.
+    const readId = (request, fields, declared, accessor) => {
+      // The generated prototype accessor is a function named after the declared field (that is
+      // what `Sg` installs: `proto[field] = () => getField(this, n)`), so on the body it has to be
+      // called, not read -- reading it hands back the function, which is not an identifier.
+      const body = typeof request?.Body === "function" ? request.Body() : request;
+      const candidates = [
+        fields?.[declared],
+        fields?.[accessor],
+        typeof body?.[declared] === "function" ? body[declared]() : body?.[declared],
+      ];
+      for (const value of candidates) {
+        const id = asId(value);
+        if (id > 0) return id;
+      }
+      return 0;
+    };
+    // The shape of the last action request, for the status probe: whether it was a message or a
+    // plain object, what toObject() yielded, and which own and prototype names it carried. This is
+    // what turns "forwarded zero" from a guess about the encoder into a fact about it.
+    const describeRequest = (request, fields) => {
+      try {
+        const proto = request ? Object.getPrototypeOf(request) : null;
+        return JSON.stringify({
+          type: request?.constructor?.name ?? typeof request,
+          hasToObject: typeof request?.toObject === "function",
+          fieldKeys: fields && typeof fields === "object" ? Object.keys(fields).slice(0, 12) : [],
+          ownKeys: request && typeof request === "object" ? Object.keys(request).slice(0, 12) : [],
+          protoKeys: proto ? Object.getOwnPropertyNames(proto).slice(0, 24) : [],
+        });
+      } catch (error) {
+        return "describe failed: " + String(error);
+      }
+    };
     // Steam's callers only ever ask a response two things, so the response is duck-typed rather than
     // built as a protobuf. Constructing a real Message would mean owning the wire format, which is
     // the client's business and not something this should mirror.
-    const ok = (body) => Promise.resolve({ BSuccess: () => true, Body: () => body });
+    // k_EResultOK. The action methods do not read the body at all: they return
+    // `(await ...).GetEResult()` and the caller compares it against OK, so a response without that
+    // method throws "GetEResult is not a function" inside an async click handler with nothing
+    // attached to it. The button then does precisely nothing, with no error anywhere — which is what
+    // eject did until this was found, while the read paths worked because the hooks use BSuccess and
+    // Body instead.
+    const ResultOk = 1;
+    const ok = (body) =>
+      Promise.resolve({ BSuccess: () => true, Body: () => body, GetEResult: () => ResultOk });
     const failed = (reason) =>
-      Promise.resolve({ BSuccess: () => false, Body: () => ({}), GetErrorMessage: () => reason });
+      Promise.resolve({
+        BSuccess: () => false,
+        Body: () => ({}),
+        // 2 is k_EResultFail: a refusal has to be a result the caller can compare, not an absent
+        // method that throws where the comparison would have been.
+        GetEResult: () => 2,
+        GetErrorMessage: () => reason,
+      });
     // The request arrives already encoded. Steam's encoder yields a Message, which answers toObject(),
     // so the fields are readable without decoding bytes; anything that does not is treated as empty
     // rather than guessed at.
+    // The request SendMsg receives is not the message. Steam's encoder (`I8`) wraps the generated
+    // message in an envelope -- `P.InitFromObject(T, fields)` -- that carries a header beside it, and
+    // the fields live on `Body()`. Reading toObject() off the envelope produced no fields at all,
+    // so every action forwarded zero for both identifiers and was refused as naming neither a
+    // volume nor a drive: the number being lost was the one this gate had published and Steam was
+    // handing straight back. The body's toObject() (Steam's own `BT`) keys by the declared field
+    // name, so block_device_id comes back spelled exactly as the message declares it.
     const readRequest = (request) => {
       try {
-        const fields = typeof request?.toObject === "function" ? request.toObject() : request;
+        const body = typeof request?.Body === "function" ? request.Body() : request;
+        const fields = typeof body?.toObject === "function" ? body.toObject() : body;
         return fields && typeof fields === "object" ? fields : {};
       } catch {
         return {};
@@ -2817,10 +2889,35 @@
           // Steam's identifiers are uint32 on the wire, and Unmount names the volume while the
           // drive-level actions name the drive. Zero means "not named": the client numbers these
           // from one, so it is unambiguous and the host refuses rather than guessing.
-          request0(command, {
-            driveId: typeof fields.drive_id === "number" ? fields.drive_id : 0,
-            blockDeviceId: typeof fields.block_device_id === "number" ? fields.block_device_id : 0,
-          });
+          //
+          // Numbers are coerced rather than type-tested. The encoder hands these back through
+          // toObject(), which is not obliged to return the same JavaScript type it was given, and a
+          // strict typeof test turned an identifier that arrived as a string into zero — which the
+          // host then refuses as "named neither a volume nor a drive", silently, because a refusal
+          // that never reaches a backend logs nothing.
+          // Adopt is Steam's SteamOS "make this drive a library": its Format Drive modal sends
+          // Adopt, not Format, with the name the user typed and a validate flag. Both travel, so the
+          // host can tell a register-only adopt from an erase-and-register one and label the result.
+          const body = typeof request?.Body === "function" ? request.Body() : request;
+          const readText = (name) => {
+            const value =
+              fields?.[name] ?? (typeof body?.[name] === "function" ? body[name]() : undefined);
+            return typeof value === "string" ? value.slice(0, 64) : "";
+          };
+          const readFlag = (name) => {
+            const value =
+              fields?.[name] ?? (typeof body?.[name] === "function" ? body[name]() : undefined);
+            return value === true;
+          };
+          const payload = {
+            driveId: readId(request, fields, "drive_id", "driveId"),
+            blockDeviceId: readId(request, fields, "block_device_id", "blockDeviceId"),
+            label: readText("label"),
+            validate: readFlag("validate"),
+          };
+          lastPayload = JSON.stringify(payload);
+          lastRequest = describeRequest(request, fields);
+          request0(command, payload);
           return ok({ toObject: () => ({}) });
         }
         default:
@@ -3015,6 +3112,10 @@
       answered,
       forwarded,
       lastMethod,
+      // What the last action actually forwarded. An identifier that arrived in an unexpected shape
+      // is the difference between a press the host refused and a press it never saw.
+      lastPayload,
+      lastRequest,
       lastError,
     });
     return { install, remove, status };
