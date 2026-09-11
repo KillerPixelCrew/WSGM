@@ -6,9 +6,12 @@ submodule changes, without feature branches or pull requests.
 
 ## Current issue workoff
 
-After delivery of #38/#39, #51/#53, #58/#59, #61, #65–#68 and #20/#22/#26/#28/#35/#36,
-21 issues remain open. Issues #41–#45, #47 and #48 remain deferred; the other 14 are the 2.0 scope.
-#52 hardware capture and #69 investigation remain open.
+After delivery of #38/#39, #51/#53, #58/#59, #61, #65–#68, #22/#26/#35/#36 and, on 2026-09-11,
+#30/#31/#34, 14 issues remain open. Issues #41, #42, #44, #45, #47 and #48 remain deferred; the
+other eight are the 2.0 scope. #20 and #28 were closed on 2026-09-10 and reopened on 2026-09-11:
+#20 because the category migration was judged incomplete, #28 because the September 9 Steam
+Client Beta reworked the library UI and added Big Art Mode. #52 hardware capture remains open.
+#70–#72 were filed on 2026-09-11 for the same beta.
 
 Every remaining 2.0 issue is waiting on something outside the repository, which is why the count
 stops here rather than at zero:
@@ -16,13 +19,31 @@ stops here rather than at zero:
 - #64 still needs a decision on what "driver-level VSync" maps to: Intel's header has no
   `CTL_3D_FEATURE_VSYNC`. `CTL_3D_FEATURE_GAMING_FLIP_MODES` and `CTL_3D_FEATURE_LOW_LATENCY` both
   answer on the reference unit but neither is a VSync toggle.
-- #23, #24, #30 and #31 begin with discovering Steam's own routes, components or stores. #24 rules
-  out DOM replacement explicitly, and #30 opens with "discover the relevant routes". That is a live
-  Steam session, and sweeping the module registry is not an unattended action.
 - #21 and #52 need the hardware: power-button capture over ACPI/HID/EC, and live IR learn/transmit.
-- #69 needs one attended measurement; the runnable probe is on the issue.
-- #34 needs a fork created in the KillerPixelCrew organization; #46 needs Screenscraper credentials.
+- #20 needs the maintainer to name which overlay tabs the reopen refers to: only Quick access and
+  Session are not category menus, and both read as the intentional-direct-layout case the issue
+  allows.
+- #28 needs live badge work against the beta. The Big Art Mode detection primitive is settled
+  offline: it is Steam's own `library_home_big_art` setting (field 7010), read by the Home component
+  through a settings hook, so the toolkit can observe state rather than measure pixels.
 - #27 and #40 are implemented as far as they can be without a device session and the brand mark.
+
+- #30 and #31 are delivered and verified live on the September 2026 beta (2026-09-11). The
+  audit that reopened them was right: the bridge existed and was referenced by nothing. It is
+  declared now, over session-owned managers shared with the overlay. What it took, each found by
+  driving Steam's own page and each recorded in its commit: Steam caches its two storage queries
+  forever, so the gate invalidates the client's query keys; the wire contract is eleven and
+  fourteen fields with `uint32` ids and an idle `adopt_stage` of 1; requests arrive as an envelope
+  whose `Body()` holds the message; the folder row matches `mount_paths` exactly against the
+  library path; the page never sends `Format` — its Format Drive modal sends `Adopt` with a label.
+  Windows-side: the disk↔volume join goes through `WindowsStorage.DescribeVolumes` in
+  windows-device-control; the library flag comes from the card's marker; eject, hard pull, format
+  (the existing `SdFormatManager` flow, retrim included) and trim all run from Steam's page. The
+  format switch is a Settings row, on by default. `docs\sd-cards.md`, `docs\steam-cef.md`.
+- #34 is delivered. `KillerPixelCrew/VIIPER@wsgm` carries the former six patches as commits plus two
+  new ones (`add_ex` no longer attaches; the device-interface size query is guarded), WSGM pins
+  `fe726ce`, the patch files are gone, and every rejected variant change has a stated reason in
+  `third_party\controller\viiper\README.md`. Validated on the reference Claw.
 
 - #32 is implemented. The Claw package publishes the Intel GPU memory share as a 13-87 percent
   device-persistent row on the Power page. It is a driver setting rather than an IGCL call:
@@ -60,7 +81,8 @@ stops here rather than at zero:
   disarmed device then restoring from the snapshot returned the machine to its exact prior arming.
   Writes need elevation; unelevated Windows fails them with `ERROR_WMI_SET_FAILURE`.
 
-- #20 is implemented. Steam, Tools and Power present large category tiles and their controls live
+- #20 was implemented as below and reopened on 2026-09-11 as incomplete; see the open-issue note
+  above. Steam, Tools and Power present large category tiles and their controls live
   one level down as ordinary sub-views, so Back and B leave a category like any other page. A page
   opened from inside a category names that category as its parent, so one press moves one level.
   Two latent defects surfaced: leaving any non-`OverlaySubView` page called the format panel's
@@ -68,7 +90,10 @@ stops here rather than at zero:
   hand-written list of pages that had already gone stale. Both are driven by the stack now. Three
   new visual baselines and interaction cases for enter/leave, nested return and destination switch.
 
-- #28 is implemented. The library badge anchors under the hero art rather than over Steam's search
+- #28 was implemented as below against the Steam Stable client and reopened on 2026-09-11: the
+  September 9 Steam Client Beta reworked the library UI and added Big Art Mode, and the badge's
+  injection point has not been revalidated against it; see the open-issue note above. As built,
+  the library badge anchors under the hero art rather than over Steam's search
   bar, is larger, names the internal library from the absence of a map entry, and states connection
   with a glyph and a word rather than colour alone. A disconnected library keeps its remembered name
   because that name comes from the card's own marker. Hidden cards are pushed as well: hiding
@@ -549,6 +574,16 @@ architecture smaller.
       forgetting and the marker reader. `eng/verify.ps1` passed: 2,056 managed tests, coverage and a
       Release build with zero warnings/errors. No live card-swap validation was run.
       `docs\sd-cards.md`.
+- [x] **Give removable libraries one owner.** The card volume monitor decided registrations and
+      applied them itself, and a media-level eject — which leaves the card in the reader for Windows
+      to remount within seconds — put back the library the user had just ejected, from either
+      surface. `Shell\LibraryPolicy` now owns adopt, eject, format and what an arriving or departing
+      volume means; the monitor detects and reports, in every mode and from every startup path
+      (it was game-mode-only, and the desktop-startup path never started it, and it bailed before
+      scanning when Steam was not up yet — three separate reasons a pulled card stayed in Steam).
+      An eject is an intent that survives the remount, matched on the card's identity, cleared by
+      the media leaving, a different card, or an explicit adopt. Verified live on the reference Claw,
+      2026-09-11. `docs\sd-cards.md`.
 - [ ] **Fix the Claw OEM button opening Xbox Game Bar on the Windows desktop.** Reopened after
       the maintainer reported continued Game Bar activation on 2026-09-05. The follow-up adds
       missing extended-key flag and HC's Win+G key-down interception, including ordinary keyboard
