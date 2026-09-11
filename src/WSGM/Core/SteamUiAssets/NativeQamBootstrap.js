@@ -1745,8 +1745,9 @@
   // array is the data boundary: replacing it there feeds Steam's own components rather than building
   // cards, and the background, focus restore and featured tile all follow it. Nothing upstream of it
   // is reachable — the hook, the carousel and Home are all module-local — so the Home memo is taken
-  // from the router's route list in SharedJSContext's React tree, the way the page gate finds the
-  // router, and its `type` is claimed. The carousel element is found in what Home renders.
+  // from the router's route list, and its `type` is claimed. That router renders in the Big Picture
+  // popup window's own React root, not in SharedJSContext's #root. The carousel element is found in
+  // what Home renders.
   //
   // The carousel is already virtualized, and Home defeats that: it passes `overscan: games.length`,
   // so every tile in the list is mounted. At Steam's cap of 20 that is harmless; at a whole library it
@@ -2100,17 +2101,43 @@
       typeof type.type === "function" &&
       (type.type[claimKeys.marker] === true ||
         HomeTokens.every((token) => String(type.type).includes(token)));
-    // Home from the router's route list in SharedJSContext's React tree. The list is found by content
-    // — the array holding a route for /library/home — and the page element under that route names
-    // the Home memo. Bounded, read-only, and the same walk shape the page gate uses for the router.
+    const containerFiber = (element) => {
+      if (!element) return null;
+      const key = Object.keys(element).find((name) => name.startsWith("__reactContainer$"));
+      return key ? element[key] : null;
+    };
+    // The React roots Home can be rendered under. Big Picture's router is not in SharedJSContext's own
+    // #root: the Big Picture window is a popup whose document holds a `popup_target` root of its own,
+    // so that window is asked first — through Steam's window store, then every popup Steam's popup
+    // manager holds — and SharedJSContext's root last. On the reference client the first probe, which
+    // searched #root alone, found the Home module, the stores and the observer and no Home.
+    const reactRoots = () => {
+      const roots = [];
+      const add = (doc) => {
+        try {
+          const fiber =
+            containerFiber(doc?.getElementById("popup_target")) ??
+            containerFiber(doc?.getElementById("root"));
+          if (fiber && !roots.includes(fiber)) roots.push(fiber);
+        } catch {}
+      };
+      const win = window;
+      add(win.SteamUIStore?.WindowStore?.GamepadUIMainWindowInstance?.BrowserWindow?.document);
+      try {
+        for (const popup of win.g_PopupManager?.m_mapPopups?.values?.() ?? []) {
+          add(popup?.window?.document);
+        }
+      } catch {}
+      add(document);
+      return roots;
+    };
+    // Home from the router's route list. The list is found by content — the array holding a route for
+    // /library/home — and the page element under that route names the Home memo. Bounded and
+    // read-only; the memo is one object whichever window renders it, so claiming it reaches them all.
     const findHome = () => {
-      const host = document.getElementById("root");
-      if (!host) return null;
-      const containerKey = Object.keys(host).find((name) => name.startsWith("__reactContainer$"));
-      if (!containerKey) return null;
       let visited = 0;
       let found = null;
-      const stack = [host[containerKey]];
+      const stack = reactRoots();
       while (stack.length && !found && visited < MaximumNodesVisited) {
         const node = stack.pop();
         if (!node) continue;
