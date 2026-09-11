@@ -37,7 +37,8 @@ stops here rather than at zero:
   Follow-up the same evening: the library also shows on the game's own page, as a stat after Last
   Played and Play Time (`steam-ui.library-details`), through a new shared JSX-runtime claim that
   download sort moved onto. Offline checks pass on Stable and the beta, and the maintainer confirmed
-  the page on Stable; download sort after the move was not reported on separately.
+  the page on Stable. Download sort on the shared claim, now on in either mode, was confirmed on
+  screen after the next deploy (`da0b56f`).
 - #72 is delivered (2026-09-11). Home's carousel is `SteamHomeCarouselSurface`: the toolkit
   claims Home's memo, replaces the one `games` array Home hands the carousel and its background, and
   orders it from Steam's own collections under WSGM's instruction (games on disconnected cards
