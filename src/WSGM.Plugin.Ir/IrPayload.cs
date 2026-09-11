@@ -88,9 +88,50 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
         return library;
     }
 
-    internal async Task SaveAsync(string path, CancellationToken token)
+    internal Task SaveAsync(string path, CancellationToken token)
     {
         Validate();
+        return JsonFile.WriteAsync(path, this, token);
+    }
+}
+
+/// <summary>
+/// Network pairing the plugin minted over USB: the endpoint's mDNS host name, its last known address
+/// and the shared token. Kept apart from the command library so backups never carry the secret.
+/// </summary>
+internal sealed record IrPairing(string Token, string Hostname, string Ip)
+{
+    internal void Validate()
+    {
+        if (Token is not { Length: >= 16 and <= 64 } || Token.Any(char.IsControl) || Hostname is not { Length: <= 253 }
+            || Hostname.Any(char.IsWhiteSpace) || Ip is not { Length: <= 64 })
+        {
+            throw new InvalidDataException("Invalid IR endpoint pairing.");
+        }
+    }
+
+    internal static async Task<IrPairing?> LoadAsync(string path, CancellationToken token)
+    {
+        if (!File.Exists(path)) { return null; }
+        await using FileStream stream = File.OpenRead(path);
+        IrPairing pairing = await JsonSerializer.DeserializeAsync<IrPairing>(stream, IrLibrary.Json, token).ConfigureAwait(false)
+            ?? throw new InvalidDataException("IR endpoint pairing is empty.");
+        pairing.Validate();
+        return pairing;
+    }
+
+    internal Task SaveAsync(string path, CancellationToken token)
+    {
+        Validate();
+        return JsonFile.WriteAsync(path, this, token);
+    }
+}
+
+internal static class JsonFile
+{
+    /// <summary>Writes through a temporary sibling and moves it into place, so a failure leaves the previous file intact.</summary>
+    internal static async Task WriteAsync<T>(string path, T value, CancellationToken token)
+    {
         string fullPath = Path.GetFullPath(path);
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
         string temporary = fullPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
@@ -99,7 +140,7 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
             await using (FileStream stream = new(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None,
                 4096, FileOptions.WriteThrough | FileOptions.Asynchronous))
             {
-                await JsonSerializer.SerializeAsync(stream, this, Json, token).ConfigureAwait(false);
+                await JsonSerializer.SerializeAsync(stream, value, IrLibrary.Json, token).ConfigureAwait(false);
                 await stream.FlushAsync(token).ConfigureAwait(false);
             }
             token.ThrowIfCancellationRequested();

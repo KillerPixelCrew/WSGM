@@ -1,7 +1,7 @@
 {
   "id": "wsgm.ir",
   "name": "IR Blaster",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "category": "wsgm.infrared",
   "minimumApiVersion": 1,
   "maximumApiVersion": 1,

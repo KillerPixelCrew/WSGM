@@ -1,14 +1,15 @@
 # WSGM IR plugin
 
-This independent `wsgm.infrared` package owns its command library, USB protocol and XIAO IR Mate
-firmware. It uses the common Plugin SDK and has no Device SDK dependency. The Device plugin can
+This independent `wsgm.infrared` package owns its command library, endpoint protocol and XIAO IR
+Mate firmware. It uses the common Plugin SDK and has no Device SDK dependency. The Device plugin can
 remain active alongside it. Hardware acceptance is still in progress under #52.
 
-Implemented: endpoint identity/version checks, bounded raw learn/send, cancellation, command and
-scene storage, backup/restore, named actions, common-host lifecycle and Tools management forms. The
-real package has passed collectible host loading alongside a Device-category fixture. Live remote
-capture/transmission remains pending. A COM port list is discovery information only; only a
-successful protocol identity reply establishes compatibility.
+Implemented: endpoint identity/version checks over USB serial or the local network, bounded raw
+learn/send, cancellation, command and scene storage, backup/restore, named actions, USB-only Wi-Fi
+pairing with a per-endpoint token, common-host lifecycle and Tools management forms. The real
+package has passed collectible host loading alongside a Device-category fixture. Live remote
+capture/transmission and a live network join remain pending. A COM port list is discovery
+information only; only a successful protocol identity reply establishes compatibility.
 
 ## Build and package
 
@@ -21,9 +22,33 @@ python -m venv .codex/ir-tools
 ```
 
 The package contains `plugin.wsgm.json`, its entry assembly and package dependencies. Install and
-enable it through the existing common plugin package workflow. Set the USB port in plugin
-preferences, then use Connect in Overlay Tools. Loading or changing modes does not emit IR
-automatically.
+enable it through the existing common plugin package workflow. Plugin preferences hold the USB
+serial port, the endpoint connection (`usb` or `wifi`) and an optional Wi-Fi host name or IP that
+overrides the paired one. Connect in Overlay Tools verifies the endpoint identity explicitly; learn,
+send and scenes identify the endpoint themselves whenever no verified connection exists, so route
+automation works after a restart, a resume or a dropped link without a manual Connect.
+Identification is a read-only exchange. Loading, changing modes, connecting and pairing never emit
+IR.
+
+## Wi-Fi pairing
+
+Pairing always runs over the USB cable, whatever connection is selected: holding the cable is the
+proof of possession. Pair Wi-Fi over USB takes the network name and password, mints a random
+48-character token if the plugin has none, and stores credentials and token on the endpoint. The
+plugin keeps only the token, the endpoint's mDNS host name (`wsgm-ir-<last three MAC octets>.local`)
+and its last address in `endpoint.json`, apart from the command library so backups never carry the
+secret. The password is never written to plugin state or published. Pairing waits up to fifteen
+seconds for the endpoint to join and reports Unconfirmed, not failure, if it has not yet; Connect
+shows the join state afterwards. Forget Wi-Fi over USB clears both sides.
+
+With the `wifi` connection the plugin opens plain TCP to port 7521 on the paired host name, or on
+the preference override, which may carry an explicit `host:port`. Every request except identify
+carries the token; the endpoint answers `unauthorized` otherwise, so other LAN clients cannot blast
+commands, though the token travels unencrypted on the local network. The endpoint serves one host at
+a time and the newest connection replaces an older one, so a reconnecting WSGM never waits on a dead
+socket. Firmware 0.1.0 has no network support; Wi-Fi setup against it reports that explicitly.
+
+## Library and actions
 
 Tools action forms use the existing controller/touch keyboard. Learn takes a device and command
 name; Select accepts the displayed `Device / command` name. The selection survives a plugin restart.
@@ -44,8 +69,10 @@ are host validation bounds, not firmware slots.
 
 Core automation can call `send` with a `command` ID or `scene` with a `scene` ID. Transmission
 returns `Dispatched`: an endpoint acknowledgement proves emission, not that a TV or HDMI switch
-changed state. Uncertain operations are not retried. Plugin suspend closes the serial connection;
-explicit Connect revalidates it after resume. Device replacement does not erase the host library.
+changed state. Uncertain operations are not retried; a failed exchange drops the connection and the
+next operation identifies the endpoint again before doing anything else. Endpoint refusals such as a
+learn timeout or an overflowing capture are shown as plain instructions in Tools. Plugin suspend
+closes the connection. Device replacement does not erase the host library.
 
 ## Reference hardware and recovery
 
@@ -57,14 +84,15 @@ evidence. The supplied software specifies transmitter GPIO3, active-low receiver
 with pull-down, motor GPIO6 and one WS2812 GRB LED on GPIO7. The firmware uses the IR library's
 standard active-low demodulating receiver handling and a NeoPixel driver, not a plain GPIO LED.
 
-Firmware 0.1.0 implements protocol 1 over USB CDC at 115200. It has no Wi-Fi service or persistent
-command database. The RGB LED and motor provide brief feedback; touch gives feedback without
-transmitting a user command. The current envelope-capture implementation does not measure carrier
-frequency. Payloads distinguish `assumed`, `protocol`, `measured` and `manual` provenance; this
-firmware returns an explicitly assumed 38 kHz. Actual carrier-measurement capability of the receiver
-hardware remains unverified. A separate per-command override preserves the original captured value
-and provenance. The initial Tools UI includes the last learned command's carrier status, override
-slider and reset action.
+Firmware 0.2.0 implements protocol 1 over USB CDC at 115200 and, once paired, over TCP port 7521
+with mDNS advertisement as `_wsgm-ir._tcp`. Credentials and the token live in the ESP32 NVS `wsgmir`
+namespace; there is no persistent command database, cloud dependency or web interface. The RGB LED
+and motor provide brief feedback; touch gives feedback without transmitting a user command. The
+current envelope-capture implementation does not measure carrier frequency. Payloads distinguish
+`assumed`, `protocol`, `measured` and `manual` provenance; this firmware returns an explicitly
+assumed 38 kHz. Actual carrier-measurement capability of the receiver hardware remains unverified. A
+separate per-command override preserves the original captured value and provenance. The initial
+Tools UI includes the last learned command's carrier status, override slider and reset action.
 
 Do not infer measurement from a Pronto frequency field: ESPHome's
 [Pronto decoder](https://github.com/esphome/esphome/blob/dev/esphome/components/remote_base/pronto_protocol.cpp)
@@ -83,17 +111,21 @@ COM3 was this workstation's observed port, not a portable identity. Use the actu
 On this workstation, bundled esptool 4.5.1's stub stalled during flash reads. esptool 5.1.0 with
 `--no-stub` read the full 4 MiB and uploaded all four PlatformIO images successfully. The private
 factory backup is `.codex/issue-52/factory-flash.bin`, SHA-256
-`0e7b02cb0e63d6e4fa4642d9f9ef512b68b89ff144f6d371e00c4be432de391f`. The running C# plugin identified
-firmware 0.1.0/protocol 1 on the flashed XIAO on 2026-09-09. Live checks also passed protocol
-mismatch rejection, malformed-frame recovery, invalid-send refusal, learn cancellation and idle
-health readback. Those checks did not transmit IR or establish appliance behavior. The ESP32-C3 ROM
-loader remains the recovery path; Seeed also links a factory firmware flasher from the wiki.
-Reflashing does not touch the host command library. Hardware acceptance must distinguish a firmware
-build from successful capture and verified appliance behavior.
+`0e7b02cb0e63d6e4fa4642d9f9ef512b68b89ff144f6d371e00c4be432de391f`. Firmware 0.2.0 was flashed the
+same way on 2026-09-11 and the running C# plugin identified it as firmware 0.2.0/protocol 1 with
+host name `wsgm-ir-15ef50`. Live USB checks passed protocol mismatch rejection, malformed-frame
+recovery, invalid-send refusal, invalid Wi-Fi argument refusal, learn cancellation, learn timeout
+status and idle health readback. Those checks did not transmit IR, join a network or establish
+appliance behavior. The ESP32-C3 ROM loader remains the recovery path; Seeed also links a factory
+firmware flasher from the wiki. Reflashing does not touch the host command library or pairing file,
+but it does not clear NVS either: Forget Wi-Fi over USB, or an esptool `erase-flash`, removes stored
+credentials. Hardware acceptance must distinguish a firmware build from successful capture and
+verified appliance behavior.
 
 See [protocol.md](protocol.md) for the shared wire contract. Main repository GPL licensing applies
 to this plugin and its authored firmware. The common SDK retains its MIT boundary. PlatformIO
-downloads the separately licensed IRremoteESP8266, ArduinoJson and Adafruit NeoPixel dependencies.
+downloads the separately licensed IRremoteESP8266, ArduinoJson and Adafruit NeoPixel dependencies;
+Wi-Fi, mDNS and NVS come from the Arduino ESP32 core.
 
 The selected-command widget can be pinned from the plugin page. It shows the selected command and
 uses the existing explicit send action; pinning or displaying it never sends infrared.

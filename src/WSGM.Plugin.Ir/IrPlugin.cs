@@ -1,4 +1,5 @@
 using System.IO.Ports;
+using System.Security.Cryptography;
 using WSGM.Plugin.Sdk;
 
 namespace WSGM.Plugin.Ir;
@@ -6,18 +7,20 @@ namespace WSGM.Plugin.Ir;
 /// <summary>Independent IR command library and versioned endpoint integration.</summary>
 public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPluginUi
 {
-    private readonly Func<string, IIrEndpoint> _createEndpoint;
+    private const string UsbTransport = "usb", WifiTransport = "wifi";
+    private readonly Func<IrEndpointTarget, IIrEndpoint> _createEndpoint;
 
     /// <summary>Creates an inactive plugin. Resources are acquired only by explicit connection.</summary>
-    public IrPlugin() : this(port => new SerialIrEndpoint(port)) { }
+    public IrPlugin() : this(IrEndpointConnection.Create) { }
 
-    internal IrPlugin(Func<string, IIrEndpoint> createEndpoint) => _createEndpoint = createEndpoint;
+    internal IrPlugin(Func<IrEndpointTarget, IIrEndpoint> createEndpoint) => _createEndpoint = createEndpoint;
     private readonly SemaphoreSlim _lane = new(1, 1);
     private IPluginHost? _host;
     private PluginContext? _context;
     private IIrEndpoint? _endpoint;
     private IrLibrary _library = IrLibrary.Empty;
-    private string _port = "";
+    private IrPairing? _pairing;
+    private string _port = "", _transport = UsbTransport, _hostName = "";
     private string _lastCommand = "";
     private long _sequence;
     private bool _stopped = true;
@@ -27,7 +30,11 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
 
     /// <inheritdoc />
     public IReadOnlyList<PluginSetting> Settings { get; } =
-    [new("port", "USB serial port", PluginSettingKind.Text, new(Text: ""))];
+    [
+        new("port", "USB serial port", PluginSettingKind.Text, new(Text: "")),
+        new("transport", "Endpoint connection", PluginSettingKind.Text, new(Text: UsbTransport), Choices: [UsbTransport, WifiTransport]),
+        new("host", "Wi-Fi host name or IP (empty uses the paired endpoint)", PluginSettingKind.Text, new(Text: "")),
+    ];
 
     private static PluginSetting Text(string key, string label, string value = "") =>
         new(key, label, PluginSettingKind.Text, new(Text: value));
@@ -37,6 +44,8 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     [
         new("discover", "Find USB endpoints", []),
         new("connect", "Connect IR endpoint", []),
+        new("wifi-setup", "Pair Wi-Fi over USB", [Text("ssid", "Network name (SSID)"), Text("password", "Network password")]),
+        new("wifi-clear", "Forget Wi-Fi over USB", []),
         new("learn", "Learn command", [Text("device", "Device", "Remote"), Text("name", "Command name", "Learned command")]),
         new("select", "Select command", [Text("command", "Device / command name")]),
         new("rename", "Rename selected command", [Text("device", "Device"), Text("name", "Command name")]),
@@ -82,6 +91,9 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         new("ports", "USB ports", "infrared", PluginUiKind.Status, StateKey: "ports"),
         new("discover", "Find USB endpoints", "infrared", PluginUiKind.Action, ActionId: "discover"),
         new("connect", "Connect IR endpoint", "infrared", PluginUiKind.Action, ActionId: "connect"),
+        new("network", "Wi-Fi pairing", "network", PluginUiKind.Status, StateKey: "network"),
+        new("wifi-setup", "Pair Wi-Fi over USB", "network", PluginUiKind.Action, ActionId: "wifi-setup"),
+        new("wifi-clear", "Forget Wi-Fi over USB", "network", PluginUiKind.Action, ActionId: "wifi-clear"),
         new("learn", "Learn command", "infrared", PluginUiKind.Action, ActionId: "learn"),
         new("send", "Test selected command", "infrared", PluginUiKind.Action, ActionId: "send"),
         new("carrier-source", "Carrier provenance", "infrared", PluginUiKind.Status, StateKey: "carrier-source"),
@@ -97,9 +109,11 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         _host = host;
         _context = context;
         _library = await IrLibrary.LoadAsync(LibraryPath(context), cancellationToken).ConfigureAwait(false);
+        _pairing = await IrPairing.LoadAsync(PairingPath(context), cancellationToken).ConfigureAwait(false);
         _lastCommand = _library.SelectedCommandId ?? _library.Commands.LastOrDefault()?.Id ?? "";
         _stopped = false;
-        Publish("status", "Choose a USB port in plugin preferences, then connect.");
+        Publish("status", "Choose the endpoint connection in plugin preferences. Learn and send identify it on demand.");
+        PublishNetwork();
         PublishLibrary();
         return PluginHealth.Ready;
     }
@@ -122,7 +136,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         cancellationToken.ThrowIfCancellationRequested();
         _context = context;
         _stopped = false;
-        Publish("status", "Resumed; reconnect the IR endpoint before sending.");
+        Publish("status", "Resumed; the next learn or send identifies the endpoint again.");
         return ValueTask.CompletedTask;
     }
 
@@ -130,19 +144,31 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     public async ValueTask<PluginConfigurationResult> ConfigureAsync(PluginConfiguration configuration,
         PluginContext context, CancellationToken cancellationToken)
     {
-        string port = configuration.Values["port"].Text ?? "";
+        string port = Value(configuration, "port") ?? "";
+        string transport = Value(configuration, "transport") ?? UsbTransport;
+        string hostName = (Value(configuration, "host") ?? "").Trim();
         if (port.Length != 0 && (!port.StartsWith("COM", StringComparison.OrdinalIgnoreCase)
             || !int.TryParse(port.AsSpan(3), out int number) || number <= 0))
         {
             return new(configuration.Revision, PluginConfigurationOutcome.Rejected, "Select a COM port.");
         }
+        if (transport is not (UsbTransport or WifiTransport))
+        {
+            return new(configuration.Revision, PluginConfigurationOutcome.Rejected, "Endpoint connection must be usb or wifi.");
+        }
+        if (hostName.Length > 253 || hostName.Any(char.IsWhiteSpace))
+        {
+            return new(configuration.Revision, PluginConfigurationOutcome.Rejected, "Enter a host name or IP address without spaces.");
+        }
         await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_port != port)
+            if (_port != port || _transport != transport || _hostName != hostName)
             {
                 if (_endpoint is not null) { await _endpoint.DisposeAsync().ConfigureAwait(false); _endpoint = null; }
                 _port = port;
+                _transport = transport;
+                _hostName = hostName;
             }
             return new(configuration.Revision, PluginConfigurationOutcome.Applied);
         }
@@ -165,21 +191,27 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
             switch (request.ActionId)
             {
                 case "discover":
-                    Publish("ports", string.Join(", ", SerialPort.GetPortNames().Order(StringComparer.Ordinal)), request.OperationId);
+                    string[] ports = SerialPort.GetPortNames().Order(StringComparer.Ordinal).ToArray();
+                    Publish("ports", ports.Length == 0 ? "No USB serial ports found." : string.Join(", ", ports), request.OperationId);
                     break;
                 case "connect":
-                    if (string.IsNullOrEmpty(_port)) { throw new InvalidOperationException("Select a USB serial port first."); }
-                    if (_endpoint is not null) { await _endpoint.DisposeAsync().ConfigureAwait(false); }
-                    _endpoint = _createEndpoint(_port);
-                    IrEndpointIdentity identity = await _endpoint.IdentifyAsync(cancellationToken).ConfigureAwait(false);
-                    Publish("status", $"{identity.Model} {identity.Identity}, firmware {identity.Firmware}, protocol {identity.Protocol}", request.OperationId);
+                    if (_endpoint is not null) { await _endpoint.DisposeAsync().ConfigureAwait(false); _endpoint = null; }
+                    await EndpointAsync(request.OperationId, cancellationToken).ConfigureAwait(false);
                     return new(request.OperationId, PluginActionOutcome.AppliedVerified, "Endpoint identity verified.");
+                case "wifi-setup":
+                    if (Arg("ssid").Trim().Length == 0)
+                    {
+                        return new(request.OperationId, PluginActionOutcome.Rejected, "Enter the network name. Use Forget Wi-Fi to clear it.");
+                    }
+                    return await PairAsync(Arg("ssid"), Arg("password"), request.OperationId, context, cancellationToken).ConfigureAwait(false);
+                case "wifi-clear":
+                    return await PairAsync("", "", request.OperationId, context, cancellationToken).ConfigureAwait(false);
                 case "learn":
                     if (_library.Commands.Any(item => item.Device == Arg("device") && item.Name == Arg("name")))
                     {
                         return new(request.OperationId, PluginActionOutcome.Rejected, "This command already exists. Select it and use Relearn.");
                     }
-                    IrPayload payload = await Endpoint().LearnAsync(TimeSpan.FromSeconds(8), cancellationToken).ConfigureAwait(false);
+                    IrPayload payload = await LearnAsync(request.OperationId, cancellationToken).ConfigureAwait(false);
                     string id = Guid.NewGuid().ToString("N");
                     IrLibrary learned = _library with
                     {
@@ -205,7 +237,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     break;
                 case "relearn":
                     IrCommand previous = ResolveCommand("selected");
-                    IrPayload capture = await Endpoint().LearnAsync(TimeSpan.FromSeconds(8), cancellationToken).ConfigureAwait(false);
+                    IrPayload capture = await LearnAsync(request.OperationId, cancellationToken).ConfigureAwait(false);
                     await ReplaceCommandAsync(previous with { Payload = capture }, context, cancellationToken).ConfigureAwait(false);
                     break;
                 case "timing":
@@ -255,14 +287,14 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     _library = edited;
                     break;
                 case "send":
-                    await SendAsync(Arg("command"), cancellationToken).ConfigureAwait(false);
+                    await SendAsync(Arg("command"), request.OperationId, cancellationToken).ConfigureAwait(false);
                     Publish("status", "IR emitted; appliance state is not verified.", request.OperationId);
                     return new(request.OperationId, PluginActionOutcome.Dispatched, "IR emitted; appliance state is not verified.");
                 case "scene":
                     IrScene scene = ResolveScene(Arg("scene"));
                     foreach (IrSceneStep step in scene.Steps)
                     {
-                        await SendAsync(step.CommandId, cancellationToken).ConfigureAwait(false);
+                        await SendAsync(step.CommandId, request.OperationId, cancellationToken).ConfigureAwait(false);
                         await Task.Delay(step.DelayAfterMs, cancellationToken).ConfigureAwait(false);
                     }
                     return new(request.OperationId, PluginActionOutcome.Dispatched, "Scene emitted; appliance state is not verified.");
@@ -308,7 +340,97 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         finally { _lane.Release(); }
     }
 
-    private IIrEndpoint Endpoint() => _endpoint ?? throw new InvalidOperationException("Connect the IR endpoint first.");
+    /// <summary>
+    /// Returns an endpoint with a verified identity, identifying it first when no verified connection
+    /// exists. Identification only reads; this lets route automation send after a restart or a dropped
+    /// link without a manual Connect, while emission still needs an explicit send or scene.
+    /// </summary>
+    private async Task<IIrEndpoint> EndpointAsync(Guid operation, CancellationToken token)
+    {
+        _endpoint ??= _createEndpoint(Target());
+        if (_endpoint.Identity is null)
+        {
+            IrEndpointIdentity identity = await _endpoint.IdentifyAsync(token).ConfigureAwait(false);
+            Publish("status", Describe(identity), operation);
+        }
+        return _endpoint;
+    }
+
+    private IrEndpointTarget Target()
+    {
+        if (_transport == WifiTransport)
+        {
+            if (_pairing is null) { throw new InvalidOperationException("Pair the endpoint over USB first, or choose the USB connection."); }
+            string address = _hostName.Length != 0 ? _hostName : _pairing.Hostname;
+            return new(true, address, _pairing.Token);
+        }
+        if (string.IsNullOrEmpty(_port)) { throw new InvalidOperationException("Select a USB serial port in plugin preferences first."); }
+        return new(false, _port, null);
+    }
+
+    private async Task<IrPayload> LearnAsync(Guid operation, CancellationToken token)
+    {
+        IIrEndpoint endpoint = await EndpointAsync(operation, token).ConfigureAwait(false);
+        Publish("status", "Learning: point the remote at the receiver and press one button briefly.", operation);
+        return await endpoint.LearnAsync(TimeSpan.FromSeconds(8), token).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Pairs over USB regardless of the configured transport: the cable proves possession, the plugin
+    /// mints the pairing token, and the endpoint stores credentials and token itself. An empty SSID
+    /// clears both sides. Credentials and the token are never published as state.
+    /// </summary>
+    private async Task<PluginActionResult> PairAsync(string ssid, string password, Guid operation, PluginContext context,
+        CancellationToken token)
+    {
+        if (string.IsNullOrEmpty(_port)) { throw new InvalidOperationException("Select the USB serial port the endpoint is attached to first."); }
+        if (_endpoint is not null) { await _endpoint.DisposeAsync().ConfigureAwait(false); _endpoint = null; }
+        await using IIrEndpoint usb = _createEndpoint(new(false, _port, null));
+        await usb.IdentifyAsync(token).ConfigureAwait(false);
+        if (ssid.Length == 0)
+        {
+            await usb.ConfigureNetworkAsync("", "", "", token).ConfigureAwait(false);
+            _pairing = null;
+            File.Delete(PairingPath(context));
+            PublishNetwork();
+            return new(operation, PluginActionOutcome.AppliedVerified, "The endpoint forgot its Wi-Fi network and pairing token.");
+        }
+        string pairingToken = _pairing?.Token ?? Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(24));
+        IrEndpointIdentity identity = await usb.ConfigureNetworkAsync(ssid, password, pairingToken, token).ConfigureAwait(false);
+        string hostname = string.IsNullOrWhiteSpace(identity.Hostname) ? "" : identity.Hostname + ".local";
+        IrPairing pairing = new(pairingToken, hostname, identity.Ip ?? "");
+        await pairing.SaveAsync(PairingPath(context), token).ConfigureAwait(false);
+        _pairing = pairing;
+        Publish("network", "Paired; waiting for the endpoint to join the network.", operation);
+        // The endpoint joins in the background. Poll its identity for a bounded time; none of this emits IR.
+        for (int attempt = 0; attempt < 15 && !identity.WifiConnected; attempt++)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(1), token).ConfigureAwait(false);
+            identity = await usb.IdentifyAsync(token).ConfigureAwait(false);
+        }
+        if (identity.WifiConnected && !string.IsNullOrEmpty(identity.Ip))
+        {
+            _pairing = pairing with { Ip = identity.Ip };
+            await _pairing.SaveAsync(PairingPath(context), token).ConfigureAwait(false);
+            PublishNetwork();
+            return new(operation, PluginActionOutcome.AppliedVerified, $"Endpoint joined the network as {_pairing.Hostname} ({identity.Ip}).");
+        }
+        PublishNetwork();
+        return new(operation, PluginActionOutcome.Unconfirmed,
+            "The endpoint stored the network and token but has not joined yet. Check the SSID and password, then Connect.");
+    }
+
+    private static string? Value(PluginConfiguration configuration, string key) =>
+        configuration.Values.TryGetValue(key, out PluginValue value) ? value.Text : null;
+
+    private static string Describe(IrEndpointIdentity identity) =>
+        $"{identity.Model} {identity.Identity}, firmware {identity.Firmware}, protocol {identity.Protocol}"
+        + (identity.WifiConnected ? $", Wi-Fi {identity.Ip}" : identity.WifiConfigured ? ", Wi-Fi configured but not connected" : "");
+
+    private void PublishNetwork() => Publish("network", _pairing is null
+        ? "Not paired. Pair over USB to enable the Wi-Fi connection."
+        : $"Paired with {_pairing.Hostname}" + (_pairing.Ip.Length != 0 ? $" (last address {_pairing.Ip})" : ""));
+
     private static int IntegerArgument(PluginActionRequest request, string key, int minimum, int maximum)
     {
         double value = request.Arguments[key].Number ?? double.NaN;
@@ -333,12 +455,14 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     }
     private Task ReplaceCommandAsync(IrCommand command, PluginContext context, CancellationToken token) =>
         SaveLibraryAsync(_library with { Commands = _library.Commands.Select(item => item.Id == command.Id ? command : item).ToArray() }, context, token);
-    private async Task SendAsync(string id, CancellationToken token)
+    private async Task SendAsync(string id, Guid operation, CancellationToken token)
     {
         IrCommand command = ResolveCommand(id);
-        await Endpoint().TransmitAsync(command.TransmitPayload, command.Repeats, command.GapMs, token).ConfigureAwait(false);
+        IIrEndpoint endpoint = await EndpointAsync(operation, token).ConfigureAwait(false);
+        await endpoint.TransmitAsync(command.TransmitPayload, command.Repeats, command.GapMs, token).ConfigureAwait(false);
     }
     private static string LibraryPath(PluginContext context) => Path.Combine(context.StateDirectory, "library.json");
+    private static string PairingPath(PluginContext context) => Path.Combine(context.StateDirectory, "endpoint.json");
     private void PublishLibrary()
     {
         Publish("library", $"{_library.Commands.Length} commands, {_library.Scenes.Length} scenes\n"

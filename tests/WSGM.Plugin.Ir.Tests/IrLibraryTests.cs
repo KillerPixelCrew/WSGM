@@ -17,8 +17,7 @@ public sealed class IrLibraryTests
             await using (IrPlugin plugin = new(_ => endpoint))
             {
                 await plugin.StartAsync(new Host(), context, default);
-                await plugin.ConfigureAsync(new(1, PluginConfigurationOrigin.User,
-                    new Dictionary<string, PluginValue> { ["port"] = new(Text: "COM3") }), context, default);
+                await plugin.ConfigureAsync(Configuration(port: "COM3"), context, default);
                 Assert.Equal(PluginActionOutcome.AppliedVerified, (await Invoke(plugin, context, "connect")).Outcome);
                 await Invoke(plugin, context, "learn", ("device", new(Text: "HDMI switch")), ("name", new(Text: "PC")));
                 await Invoke(plugin, context, "save-scene", ("name", new(Text: "Game")),
@@ -53,14 +52,84 @@ public sealed class IrLibraryTests
         return plugin.ExecuteActionAsync(new(Guid.NewGuid(), action, PluginActionOrigin.User, arguments), context, default);
     }
 
-    private sealed class FakeEndpoint : IIrEndpoint
+    [Fact]
+    public async Task LearnAndSendIdentifyTheEndpointOnDemandAndAfterALostLink()
     {
-        internal IrPayload? Sent;
-        public Task<IrEndpointIdentity> IdentifyAsync(CancellationToken token) => Task.FromResult(new IrEndpointIdentity("test", "fake", "1", 1, 1024));
-        public Task<IrPayload> LearnAsync(TimeSpan timeout, CancellationToken token) => Task.FromResult(new IrPayload(36000, [9000, 4500], "measured"));
-        public Task TransmitAsync(IrPayload payload, int repeats, int gapMs, CancellationToken token) { Sent = payload; return Task.CompletedTask; }
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        string folder = Path.Combine(Path.GetTempPath(), "wsgm-ir-tests-" + Guid.NewGuid().ToString("N"));
+        PluginContext context = new(new("wsgm.ir", "test"), 1, PluginSessionMode.Desktop, DateTimeOffset.UtcNow.AddMinutes(1), folder);
+        FakeEndpoint endpoint = new();
+        List<IrEndpointTarget> targets = [];
+        try
+        {
+            await using IrPlugin plugin = new(target => { targets.Add(target); return endpoint; });
+            await plugin.StartAsync(new Host(), context, default);
+            PluginActionResult unconfigured = await Invoke(plugin, context, "connect");
+            Assert.Equal(PluginActionOutcome.Unconfirmed, unconfigured.Outcome);
+            Assert.Contains("USB serial port", unconfigured.Detail);
+            await plugin.ConfigureAsync(Configuration(port: "COM3"), context, default);
+            Assert.Equal(PluginActionOutcome.AppliedVerified,
+                (await Invoke(plugin, context, "learn", ("device", new(Text: "Remote")), ("name", new(Text: "Power")))).Outcome);
+            Assert.Equal(1, endpoint.Identifications);
+            Assert.Equal([new IrEndpointTarget(false, "COM3", null)], targets);
+            Assert.Equal(PluginActionOutcome.Dispatched, (await Invoke(plugin, context, "send")).Outcome);
+            Assert.Equal(1, endpoint.Identifications);
+            endpoint.Identity = null; // A failed exchange forgets the identity; the next send re-verifies it.
+            Assert.Equal(PluginActionOutcome.Dispatched, (await Invoke(plugin, context, "send")).Outcome);
+            Assert.Equal(2, endpoint.Identifications);
+        }
+        finally { if (Directory.Exists(folder)) { Directory.Delete(folder, true); } }
     }
+
+    [Fact]
+    public async Task WifiPairingOverUsbMintsATokenAndTheNetworkTransportUsesIt()
+    {
+        string folder = Path.Combine(Path.GetTempPath(), "wsgm-ir-tests-" + Guid.NewGuid().ToString("N"));
+        PluginContext context = new(new("wsgm.ir", "test"), 1, PluginSessionMode.Desktop, DateTimeOffset.UtcNow.AddMinutes(1), folder);
+        FakeEndpoint endpoint = new();
+        List<IrEndpointTarget> targets = [];
+        try
+        {
+            await using (IrPlugin plugin = new(target => { targets.Add(target); return endpoint; }))
+            {
+                await plugin.StartAsync(new Host(), context, default);
+                await plugin.ConfigureAsync(Configuration(port: "COM3", transport: "wifi"), context, default);
+                PluginActionResult unpaired = await Invoke(plugin, context, "connect");
+                Assert.Equal(PluginActionOutcome.Unconfirmed, unpaired.Outcome);
+                Assert.Contains("Pair the endpoint over USB", unpaired.Detail);
+                PluginActionResult paired = await Invoke(plugin, context, "wifi-setup", ("ssid", new(Text: "Home")), ("password", new(Text: "hunter22")));
+                Assert.Equal(PluginActionOutcome.AppliedVerified, paired.Outcome);
+                Assert.Equal("Home", endpoint.Network!.Value.Ssid);
+                Assert.Equal("hunter22", endpoint.Network.Value.Password);
+                Assert.Equal(48, endpoint.Network.Value.Token.Length);
+                Assert.Equal(new IrEndpointTarget(false, "COM3", null), targets.Single()); // Pairing always goes over the cable.
+                await Invoke(plugin, context, "learn", ("device", new(Text: "TV")), ("name", new(Text: "Power")));
+                Assert.Equal(new IrEndpointTarget(true, "wsgm-ir-abc123.local", endpoint.Network.Value.Token), targets.Last());
+            }
+            IrPairing saved = (await IrPairing.LoadAsync(Path.Combine(folder, "endpoint.json"), default))!;
+            Assert.Equal(endpoint.Network!.Value.Token, saved.Token);
+            Assert.Equal("192.0.2.7", saved.Ip);
+            Assert.DoesNotContain("hunter22", await File.ReadAllTextAsync(Path.Combine(folder, "endpoint.json")));
+            await using IrPlugin restarted = new(target => { targets.Add(target); return endpoint; });
+            await restarted.StartAsync(new Host(), context, default);
+            await restarted.ConfigureAsync(Configuration(port: "COM3", transport: "wifi", host: "10.0.0.9:7521"), context, default);
+            Assert.Equal(PluginActionOutcome.Dispatched, (await Invoke(restarted, context, "send")).Outcome);
+            Assert.Equal(new IrEndpointTarget(true, "10.0.0.9:7521", saved.Token), targets.Last());
+            Assert.Equal(PluginActionOutcome.AppliedVerified, (await Invoke(restarted, context, "wifi-clear")).Outcome);
+            Assert.Equal("", endpoint.Network!.Value.Ssid);
+            Assert.False(File.Exists(Path.Combine(folder, "endpoint.json")));
+            Assert.Contains("Pair the endpoint over USB", (await Invoke(restarted, context, "send")).Detail);
+        }
+        finally { if (Directory.Exists(folder)) { Directory.Delete(folder, true); } }
+    }
+
+    private static PluginConfiguration Configuration(string port = "", string transport = "usb", string host = "") =>
+        new(1, PluginConfigurationOrigin.User, new Dictionary<string, PluginValue>
+        {
+            ["port"] = new(Text: port),
+            ["transport"] = new(Text: transport),
+            ["host"] = new(Text: host),
+        });
+
     [Fact]
     public void CarrierOverridePreservesCapturedFrequencyAndProvenance()
     {

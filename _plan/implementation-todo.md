@@ -217,7 +217,14 @@ stops here rather than at zero:
   the flashed XIAO on COM3 as firmware 0.1.0/protocol 1. Eight plugin tests, three package tests and the
   focused controller-keyboard editor test pass.
   Live firmware checks also pass malformed/version rejection, invalid-send refusal and learn cancellation.
-  The package is staged at `publish/plugins/wsgm.ir`; a real remote/button is requested for capture/replay.
+  On 2026-09-11 the plugin gained a network transport: firmware 0.2.0 serves the same protocol on TCP
+  7521 with mDNS, credentials and a plugin-minted token are stored through a USB-only `wifi` operation,
+  and network requests without the token are refused. Learn, send and scenes identify the endpoint on
+  demand so #51 routes work after a restart without a manual Connect, and endpoint refusals read as
+  instructions. Seventeen plugin tests cover the wire framing, cancellation, pairing and on-demand
+  identification. Firmware 0.2.0 is flashed on the reference XIAO and passed the USB checks again plus
+  invalid Wi-Fi argument refusal and learn timeout. Still open on hardware: a live network join and
+  token check over Wi-Fi, and a real remote/button for capture/replay.
 
 - #67 is implemented: one Tools keyboard action routes by current mode, with Steam-specific invocation
   in the toolkit and Windows using the existing touch keyboard. Sheet dismissal precedes invocation;
