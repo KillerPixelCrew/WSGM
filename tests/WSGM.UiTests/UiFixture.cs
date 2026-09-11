@@ -51,7 +51,10 @@ internal sealed class UiFixture : IDisposable
                 return new(fresh, [], null);
             },
             _ => { Calls.Add("reconcile"); return Task.CompletedTask; },
-            (message, _) => Calls.Add(message));
+            (message, _) => Calls.Add(message),
+            // A fixed report: the real reader describes this machine's last standby, which put the
+            // previous night's sleep length into the settings-system baselines.
+            () => new ModernStandbyReport(true, "This machine has not been in standby since it booted.", []));
         var model = new SettingsViewModel(ConfigStore.CloneJson(Saved, ConfigJsonContext.Default.AppConfig),
             null, false, services);
         var windowServices = new SettingsWindowServices(new(),

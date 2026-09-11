@@ -59,7 +59,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         Action EndImportSession,
         Func<SaveRequest, Task<SaveResult>> Persist,
         Func<AppConfig, Task> ApplySteamInput,
-        Action<string, Exception?> Report)
+        Action<string, Exception?> Report,
+        Func<ModernStandbyReport> ReadStandby)
     {
         internal static SettingsServices Windows(SettingsViewModel owner) => new(
             () => OperatingSystem.IsWindows() ? Core.DisplayProfiles.ReadActiveProfiles() : [],
@@ -67,7 +68,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             SplashTheme.BeginImportSession, SplashTheme.EndImportSession,
             request => Task.Run(() => PersistSave(request)),
             config => Task.Run(() => owner.ApplySteamInputManagementAfterSave(config)),
-            (message, error) => { if (error is null) { Log.Info(message); } else { Log.Error(message, error); } });
+            (message, error) => { if (error is null) { Log.Info(message); } else { Log.Error(message, error); } },
+            // Windows' account of the last standby. Injected so a preview or a test renders a fixed
+            // report instead of whatever this machine did last night.
+            ModernStandbyDiagnostics.Read);
     }
 
     private bool _isSaving;
@@ -208,7 +212,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         CefDownloadQueueSort = _config.Cef.DownloadQueueSort;
         MuteWhileDisplayOff = _config.MuteWhileDisplayOff;
         ResuspendUnexplainedWakes = _config.ResuspendUnexplainedWakes;
-        ModernStandbyReport standby = ModernStandbyDiagnostics.Read();
+        ModernStandbyReport standby = _services.ReadStandby();
         ModernStandbyStatusText = standby.ArmedWakeSources.Count == 0
             ? standby.Summary
             : $"{standby.Summary} Allowed to wake it: {string.Join(", ", standby.ArmedWakeSources)}.";

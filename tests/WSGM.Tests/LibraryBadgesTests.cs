@@ -1,4 +1,3 @@
-using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Shell;
 
@@ -13,11 +12,15 @@ public sealed class LibraryBadgesTests
         AppConfig config = new();
         config.CardLibraries.Add(new CardLibraryConfig
         {
-            ContentId = "blue", Name = "Blue card", AppIds = [70, 400],
+            ContentId = "blue",
+            Name = "Blue card",
+            AppIds = [70, 400],
         });
         config.CardLibraries.Add(new CardLibraryConfig
         {
-            ContentId = "red", Name = "Red card", AppIds = [220],
+            ContentId = "red",
+            Name = "Red card",
+            AppIds = [220],
         });
 
         SteamLibraryBadgeState state = LibraryBadges.Build(config, new HashSet<string> { "red" }, revision: 3);
@@ -45,7 +48,11 @@ public sealed class LibraryBadgesTests
         AppConfig config = new();
         config.CardLibraries.Add(new CardLibraryConfig
         {
-            ContentId = "blue", Name = "Blue card", Hidden = true, Enabled = false, AppIds = [70],
+            ContentId = "blue",
+            Name = "Blue card",
+            Hidden = true,
+            Enabled = false,
+            AppIds = [70],
         });
 
         SteamLibraryBadgeState state = LibraryBadges.Build(config, new HashSet<string>());
