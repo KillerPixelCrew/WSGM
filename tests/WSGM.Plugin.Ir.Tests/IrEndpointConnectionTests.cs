@@ -1,3 +1,5 @@
+using System.Net.Sockets;
+using System.Text;
 using System.Text.Json;
 using Xunit;
 
@@ -122,6 +124,44 @@ public sealed class IrEndpointConnectionTests
         Assert.Equal("pässwörd", wifi.GetProperty("password").GetString());
         Assert.Equal("0123456789abcdef", wifi.GetProperty("token").GetString());
         await Assert.ThrowsAsync<ArgumentException>(() => endpoint.ConfigureNetworkAsync("Home", "x", "short", default));
+    }
+
+    [Fact]
+    public async Task TcpLinkSpeaksTheProtocolAgainstALoopbackListenerAndFailsFastWhenClosed()
+    {
+        using TcpListener listener = new(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        List<string> received = [];
+        Task server = Task.Run(async () =>
+        {
+            using TcpClient peer = await listener.AcceptTcpClientAsync();
+            using StreamReader reader = new(peer.GetStream(), Encoding.UTF8);
+            using StreamWriter writer = new(peer.GetStream(), new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
+            await writer.WriteLineAsync("ESP-ROM boot noise"); // Arrives before any request; must be ignored.
+            for (int frames = 0; frames < 2; frames++)
+            {
+                string request = (await reader.ReadLineAsync())!;
+                received.Add(request);
+                JsonElement element = JsonDocument.Parse(request).RootElement;
+                string id = element.GetProperty("id").GetString()!;
+                bool authorized = element.TryGetProperty("token", out JsonElement token) && token.GetString() == "0123456789abcdef";
+                await Task.Delay(250); // Longer than the link's receive timeout, so idle polling is exercised.
+                await writer.WriteLineAsync(element.GetProperty("op").GetString() == "identify"
+                    ? $"{{\"v\":1,\"id\":\"{id}\",\"status\":\"ok\",\"data\":{{{Identity},\"hostname\":\"wsgm-ir-15ef50\",\"wifiConnected\":true,\"ip\":\"127.0.0.1\"}}}}"
+                    : authorized ? $"{{\"v\":1,\"id\":\"{id}\",\"status\":\"transmitted\"}}" : $"{{\"v\":1,\"id\":\"{id}\",\"status\":\"unauthorized\"}}");
+            }
+        });
+        IrEndpointConnection endpoint = IrEndpointConnection.Create(new(true, $"127.0.0.1:{port}", "0123456789abcdef"));
+        IrEndpointIdentity identity = await endpoint.IdentifyAsync(default);
+        Assert.Equal("127.0.0.1", identity.Ip);
+        await endpoint.TransmitAsync(new(38000, [9000, 4500]), 0, 40, default);
+        await server;
+        Assert.Equal(["identify", "send"], received.Select(Op));
+        // The peer closed its side after two frames: the next exchange fails instead of hanging.
+        await Assert.ThrowsAsync<IOException>(() => endpoint.IdentifyAsync(default));
+        Assert.Null(endpoint.Identity);
+        await endpoint.DisposeAsync();
     }
 
     private static string Id(string frame) => JsonDocument.Parse(frame).RootElement.GetProperty("id").GetString()!;
