@@ -330,6 +330,41 @@ public sealed class SteamUiSessionHostTests
     }
 
     [Fact]
+    public async Task ScreensaverRowsAreDeclaredOnlyWithASessionTimeoutOwnerAndRunWithoutQuickAccess()
+    {
+        await using var transport = new SessionHostTransport();
+        await using var performance = new PerformanceService(
+            new SimulatedRtssAdapter(),
+            (_, _) => Task.CompletedTask);
+        await using var without = new SteamUiSessionHost(
+            transport,
+            _ => Task.FromResult(true),
+            null,
+            performance);
+        Assert.DoesNotContain(
+            without.GetPatchSnapshots(),
+            snapshot => snapshot.Id == SteamScreensaverSurface.PatchId);
+
+        await using var screensaverTransport = new SessionHostTransport();
+        await using var host = new SteamUiSessionHost(
+            screensaverTransport,
+            _ => Task.FromResult(true),
+            null,
+            performance,
+            displayTimeouts: new DisplayTimeouts(_ => 600, (_, _) => true));
+
+        host.ApplyScreensaverTimeouts(true);
+        await screensaverTransport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await WaitForAsync(() => screensaverTransport.BridgeConfiguration is not null);
+
+        Assert.Contains(
+            "\"steam-ui.screensaver\":[\"report\",\"setTimeout\"]",
+            screensaverTransport.BridgeConfiguration,
+            StringComparison.Ordinal);
+        Assert.Contains(host.GetPatchSnapshots(), snapshot => snapshot.Id == SteamScreensaverSurface.PatchId);
+    }
+
+    [Fact]
     public async Task SharedContextGenerationCancelsInflightSemanticRequest()
     {
         await using var transport = new SessionHostTransport();

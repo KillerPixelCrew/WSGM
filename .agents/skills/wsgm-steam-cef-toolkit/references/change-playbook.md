@@ -21,8 +21,10 @@ down into the toolkit.
 
 1. Find the nearest existing toolkit surface, gate, publication, and tests. Extend them when they
    already own the backend; add a new gate only for a genuinely separate ownership boundary.
-2. Identify the Valve contract using a literal current module id or a unique source/prototype token.
-   Never enumerate and execute unknown webpack modules.
+2. Identify the Valve contract by a unique source/prototype token conjunction and the export by its
+   shape, never by a module id or export name. Never enumerate and execute unknown webpack modules.
+   Map it offline from the installed bundle where possible and confirm uniqueness with
+   `node eng/check-steam-fingerprints.mjs`.
 3. Define a narrow render gate separately from the data-availability gate. Account for stores that
    cache availability and need an explicit state invalidation.
 4. Add or extend the toolkit TypeScript gate as required, then add the typed C# surface or row,

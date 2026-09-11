@@ -165,6 +165,26 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
         set { _displayAcTimeout = value; Raise(nameof(DisplayAcTimeout)); }
     }
 
+    /// <summary>What a display-off row says when nothing bounds it.</summary>
+    public const string DisplayTimeoutDescription = "Idle time before the display turns off";
+
+    private string _displayDcDescription = DisplayTimeoutDescription;
+    private string _displayAcDescription = DisplayTimeoutDescription;
+
+    /// <summary>The battery display-off row's description, naming Steam's screensaver bound when there is one.</summary>
+    public string DisplayDcDescription
+    {
+        get => _displayDcDescription;
+        set { _displayDcDescription = value; Raise(nameof(DisplayDcDescription)); }
+    }
+
+    /// <summary>The plugged-in display-off row's description, naming Steam's screensaver bound when there is one.</summary>
+    public string DisplayAcDescription
+    {
+        get => _displayAcDescription;
+        set { _displayAcDescription = value; Raise(nameof(DisplayAcDescription)); }
+    }
+
     /// <summary>Current standby timeout on battery.</summary>
     public string SleepDcTimeout
     {

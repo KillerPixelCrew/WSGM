@@ -43,11 +43,16 @@ changes outside the requested feature.
   unique semantic fingerprint. Remove applied-but-unverified work.
 - Recognize state already owned by WSGM, save the exact original on a durable object or string
   marker, and remove only WSGM's change. Accept the owned post-apply state on the next probe.
-- Discover only named module ids or uniquely matched source/prototype strings. Never execute the
-  webpack registry, instantiate unknown exports, or spoof broad platform state such as
-  `TS.IS_STEAMOS` or `force_deck_perf_tab`. Use the toolkit's `SteamUiModuleResolver` for matching
-  and module resolution. Features provide fingerprints; they must not implement registry scans or
-  expose raw webpack require.
+- Discover modules only by uniquely matched source/prototype strings and exports only by shape
+  (`exported(tokens, predicate)`). Never write down a module id or a minified export name: client
+  builds renumber and rename both, and the September 2026 beta refused every gate that named one.
+  Never execute the webpack registry, instantiate unknown exports, or spoof broad platform state
+  such as `TS.IS_STEAMOS` or `force_deck_perf_tab`. Use the toolkit's `SteamUiModuleResolver` for
+  matching and module resolution. Features provide fingerprints; they must not implement registry
+  scans or expose raw webpack require. After a Steam update, `node eng/check-steam-fingerprints.mjs`
+  counts every fingerprint's matches in the installed bundle without attaching to Steam.
+- React has one `useMemo`; a surface that needs its results registers a transform on the toolkit's
+  shared claim (`interceptMemo`) instead of wrapping it.
 - Keep the bridge vocabulary closed and derived from registered modules. Maintain camelCase wire
   fields, payload limits, positive sequence/action generations, validation, and replay rejection.
 - Treat `null` projected state as "publish nothing," not a zero/default value. Keep data

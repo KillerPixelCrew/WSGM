@@ -566,6 +566,61 @@
       return { ok: false, error: String(error) };
     }
   };
+  // Intercepts what React.useMemo returns, for every surface that needs to see an array Steam builds
+  // through it: the Quick Access tab list, the Settings page list.
+  //
+  // React has one useMemo. Two gates each wrapping it would stack wrappers, and whichever was removed
+  // first would hand back the other's wrapper or the original from under it. So there is one member
+  // claim on it for all of them: taken with the first transform and released with the last. Transforms
+  // run in registration order, each seeing the result of the one before, and one that throws leaves
+  // the value as it found it. The claim's marker and original live on the wrapper, so a bridge
+  // replaced in place reclaims rather than wraps its predecessor.
+  const memoClaimKeys = {
+    marker: "__steamUiOwnedUseMemo",
+    original: "__steamUiOriginalUseMemo",
+  };
+  const memoTransforms = new Map();
+  let memoWrapper = null;
+  const interceptMemo = (react, name, transform) => {
+    if (!react || typeof react.useMemo !== "function") {
+      return { ok: false, error: "React useMemo unavailable" };
+    }
+    memoTransforms.set(name, transform);
+    if (memoWrapper && react.useMemo === memoWrapper) return { ok: true };
+    const claim = claimMember(react, "useMemo", memoClaimKeys, (original) => {
+      const useMemo = original;
+      return function SteamUiUseMemo(factory, dependencies) {
+        let value = useMemo(factory, dependencies);
+        for (const apply of memoTransforms.values()) {
+          try {
+            value = apply(value);
+          } catch {
+            // A failing transform leaves what it was given.
+          }
+        }
+        return value;
+      };
+    });
+    if (!claim.ok || !memberClaimed(react, "useMemo", memoClaimKeys)) {
+      memoTransforms.delete(name);
+      return {
+        ok: false,
+        error: claim.ok ? "React useMemo wrapper could not be installed" : claim.error,
+      };
+    }
+    memoWrapper = react.useMemo;
+    return { ok: true };
+  };
+  // Withdraws one transform, and hands useMemo back once none is left.
+  const releaseMemo = (react, name) => {
+    memoTransforms.delete(name);
+    if (memoTransforms.size || !react) return { ok: true };
+    const released = releaseMember(react, "useMemo", memoClaimKeys);
+    if (released.ok) memoWrapper = null;
+    return released;
+  };
+  const memoIntercepted = (react, name) =>
+    !!react && memoTransforms.has(name) && !!memoWrapper && react.useMemo === memoWrapper;
   // Answering what Steam asks.
   //
   // The client calls a service method and reads a transport reply, not a bare value. Two gates
@@ -584,15 +639,23 @@
     Body: () => ({ ...body, toObject: () => body }),
   });
   // Replacing a stub is only half the job: react-query still holds the answer the stub gave, so the
-  // UI keeps rendering the refusal until the query that cached it is invalidated. Live-verified that
-  // the query client's invalidateQueries is reachable at module 21371.
+  // UI keeps rendering the refusal until the query that cached it is invalidated.
+  //
+  // The client has one query client, built by the module that provides it with its default options
+  // and mounts the devtools beside it. It was module 21371, export L, when first verified; the
+  // September 2026 beta renumbered the module, so it is found by that provider's source and by the
+  // shape of the client instead.
   //
   // Failure is swallowed on purpose. A client whose query layer moved keeps the stale answer and the
   // row simply does not update — which is a degraded surface, not a broken one, and never a reason to
   // tear down a gate that is otherwise working.
+  // The same conjunction the storage gate resolves its query client by.
+  const QueryClientTokens = ["ReactQueryDevtools", "offlineFirst"];
+  const isQueryClient = (value) =>
+    typeof value?.invalidateQueries === "function" && typeof value?.getQueryState === "function";
   const invalidateQuery = (req, queryKey) => {
     try {
-      req?.("21371")?.L?.invalidateQueries({ queryKey });
+      req?.exported(QueryClientTokens, isQueryClient).invalidateQueries({ queryKey });
     } catch {
       // Intentionally ignored; see above.
     }
@@ -1016,6 +1079,26 @@
         );
       return requirePresent(ids[0]);
     };
+    // One export of a uniquely fingerprinted module, chosen by what it is. Client builds renumber
+    // modules and rename exports, so neither a module id nor an export name is an identity: the
+    // September 2026 beta did both and took down every gate that had named them. Aliases of one value
+    // count once; no fit or two distinct fits throws, so a moved export says so instead of guessing.
+    requirePresent.exported = (tokens, predicate) => {
+      if (typeof predicate !== "function") throw new Error("Steam export predicate invalid");
+      const exports = requirePresent.resolve(tokens);
+      const fits = new Set();
+      for (const name of Object.keys(exports ?? {})) {
+        try {
+          const value = exports[name];
+          if (predicate(value)) fits.add(value);
+        } catch {
+          // An export whose getter or shape test throws is not the one being looked for.
+        }
+      }
+      if (fits.size !== 1)
+        throw new Error(`Steam export ${fits.size ? "ambiguous" : "absent"}: ${tokens.join(", ")}`);
+      return [...fits][0];
+    };
     return requirePresent;
   }
   // @steam-ui-module-resolver-end
@@ -1102,11 +1185,19 @@
     // SteamClient.System.Audio did not exist, so the audio section would stay hidden forever.
     // Live-verified 2026-08-30: the flag is writable and RegisterOrUpdateDevice is the store's own
     // ingestion path, the same verified path the network gate now owns for the network store.
+    //
+    // Found by what it is: the one audio-store module, and the one export on it carrying the store's
+    // availability flag and ingestion method. It was module 1409, export F5, when verified; the
+    // September 2026 beta renumbered the module and the probe refused the gate.
+    const AudioStoreTokens = ["SteamClient.System.Audio", "RegisterForDeviceAdded", "m_bAvailable"];
+    const isAudioStore = (value) =>
+      !!value &&
+      typeof value === "object" &&
+      "m_bAvailable" in value &&
+      typeof value.RegisterOrUpdateDevice === "function";
     const liveStore = () => {
       try {
-        const req = getWebpackRuntime("audio-store");
-        const store = req?.("1409")?.F5;
-        return store && "m_bAvailable" in store ? store : null;
+        return getWebpackRuntime("audio-store").exported(AudioStoreTokens, isAudioStore);
       } catch {
         return null;
       }
@@ -1369,8 +1460,11 @@
   //
   // The second gate matters here as much as the first: availability is read through react-query
   // with staleTime Infinity, so replacing the methods changes nothing until that cache is
-  // invalidated. Live-verified 2026-08-30 that RF's methods are writable and configurable and that
-  // the query client's invalidateQueries is reachable.
+  // invalidated. Live-verified 2026-08-30 that the stub's methods are writable and configurable and
+  // that the query client's invalidateQueries is reachable.
+  //
+  // The stub was module 60517, export RF, when verified. The September 2026 beta renumbered the
+  // module, so it is found by its service method name and by its shape.
   function createBluetoothService() {
     const patchId = "steam-ui.bluetooth";
     const queryKey = ["BluetoothManagerService", "State"];
@@ -1384,6 +1478,20 @@
     // and the host only carries them through from the state it was given.
     let latest = { is_service_available: false, adapters: [], devices: [] };
     const modules = () => getWebpackRuntime("bluetooth-service");
+    const serviceStub = (req) => {
+      try {
+        return req.exported(
+          ["BluetoothManager.GetState#1"],
+          (value) =>
+            !!value &&
+            typeof value === "object" &&
+            typeof value.GetState === "function" &&
+            typeof value.Pair === "function",
+        );
+      } catch {
+        return null;
+      }
+    };
     const reply = transportReply;
     const invalidate = (req) => invalidateQuery(req, queryKey);
     // The host sends its own field names and the mapping into Steam's lives here, so the client's
@@ -1427,7 +1535,7 @@
     const install = () => {
       if (installed) return { ok: true, alreadyInstalled: true };
       const req = modules();
-      const RF = req?.("60517")?.RF;
+      const RF = serviceStub(req);
       if (!RF || typeof RF.GetState !== "function") {
         lastError = "BluetoothManagerService stub unavailable";
         return { ok: false, error: lastError };
@@ -1511,7 +1619,7 @@
         unsubscribe = null;
       }
       const req = modules();
-      const RF = req?.("60517")?.RF;
+      const RF = serviceStub(req);
       if (RF) {
         for (const [name, original] of originals) {
           if (claimed(RF[name], { marker: methodMarker, original: originalMethodField })) {
@@ -1566,10 +1674,18 @@
     let requestVersion = 0;
     let pendingWrite = false;
     let confirmedState = null;
+    // The display settings store by what it is: the one module holding the brightness observable,
+    // and the one exported class on it with a singleton Get() whose body declares that observable.
+    // It was module 59547, export mG, when verified; the September 2026 beta renumbered the module.
+    const DisplayStoreTokens = ["m_flDisplayBrightness", "is_display_brightness_available"];
+    const isDisplayStoreClass = (value) =>
+      typeof value === "function" &&
+      typeof value.Get === "function" &&
+      String(value).includes("m_flDisplayBrightness");
     const displayStore = () => {
       try {
         const req = getWebpackRuntime("brightness-store");
-        return req?.("59547")?.mG?.Get?.() ?? null;
+        return req.exported(DisplayStoreTokens, isDisplayStoreClass).Get() ?? null;
       } catch {
         return null;
       }
@@ -3624,6 +3740,415 @@
     return { install, remove, status };
   }
   registerGate("perf", createPerfNamespace());
+  // Big Picture's Screensaver settings, with the host's timeout rows beside Steam's own screensaver
+  // timeout.
+  //
+  // Mapped from the September 2026 client beta's shipped bundle on 2026-09-11:
+  //
+  //   Settings page list          the Settings root's hook builds it with React.useMemo, one entry per
+  //                               page: { visible, title, icon, route, content }
+  //     /settings/customization   content is a module-local page returning a list of sections
+  //       Screensaver section     module-local; draws "#Settings_Customization_Screensaver" and calls
+  //                               Screensaver.ForceScreensaver for its preview button. Its last row is
+  //                               Steam's "When idle, start screensaver after", which writes the
+  //                               system_idle_screensaver_ac_sec client setting
+  //
+  // Steam keeps per-source idle settings on its Power page, and shows that page only on a machine it
+  // believes has a battery or under gamescope; everywhere else the Screensaver section carries the one
+  // plugged-in timeout. The report therefore carries both values and whether Steam believes there is a
+  // battery, and the host decides which of its own timeouts each one bounds.
+  //
+  // Nothing of Steam's is restyled or rebuilt. The page list passes through the one shared useMemo
+  // claim (ownership.ts); there the customization page is replaced by a wrapper that renders it and
+  // swaps the Screensaver section for a wrapper that renders the section with the host's rows appended.
+  // Both wrappers are cached by the component they wrap, so React keeps one stable type per original,
+  // and both render exactly what Steam shipped once the gate is removed.
+  //
+  // The host owns what the rows offer: which timeouts, their observed values, and only the choices the
+  // screensaver timeout allows. This half reads Steam's settings inside Steam's own mobx observer, so a
+  // change made on the page re-renders the rows and reaches the host at once.
+  function createScreensaverSettings() {
+    const patchId = "steam-ui.screensaver";
+    const MemoName = "screensaverSettings";
+    const ReactTokens = ["react.transitional.element", "useState", "cloneElement", "createElement"];
+    const FieldTokens = ["DialogSlider_Container", "DropDownField", "SliderField"];
+    const DropdownMarkers = ["contextMenuPositionOptions", "childrenContainerWidth", "menuLabel"];
+    const SettingsTokens = ["get clientSettings()", "m_setDeferredSettings"];
+    const ObserverTokens = ["mobx-react-lite requires React with Hooks support"];
+    const RouteTokens = ["GameAPIOSK:", "/gameapiosk"];
+    const SectionTokens = ['"#Settings_Customization_Screensaver"', "ForceScreensaver"];
+    const PluggedInSetting = "system_idle_screensaver_ac_sec";
+    const BatterySetting = "system_idle_screensaver_battery_sec";
+    const MaximumRows = 4;
+    const MaximumOptions = 16;
+    const MaximumSeconds = 604800;
+    const MaximumPages = 128;
+    // Steam's settings can arrive after the gate installs. The first report is retried on this
+    // bounded schedule rather than waiting for someone to open the page.
+    const ReportAttempts = 60;
+    const ReportIntervalMilliseconds = 2000;
+    let runtime;
+    let react = null;
+    let dropdown = null;
+    let settings = null;
+    let useObserver = null;
+    let route = "";
+    let installed = false;
+    let lastError = "";
+    let lastOutcome = "never rendered";
+    let lastReport = "";
+    let unsubscribe = null;
+    let reportTimer = null;
+    // The host's rows, replaced whole on each publication.
+    let rows = [];
+    let revision = 0;
+    const pending = new Set();
+    const listeners = new Set();
+    const pageCache = new Map();
+    const sectionCache = new Map();
+    const listCache = new WeakMap();
+    const notify = () => {
+      revision += 1;
+      for (const listener of [...listeners]) {
+        try {
+          listener();
+        } catch {}
+      }
+    };
+    const subscribeLocal = (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    };
+    const readRevision = () => revision;
+    const text = (value, limit) => (typeof value === "string" ? value.slice(0, limit) : "");
+    const seconds = (value) =>
+      Number.isInteger(value) && value >= 0 && value <= MaximumSeconds ? value : null;
+    // Validated rather than trusted: a malformed option list renders a dropdown whose entries select
+    // nothing. A state that fails is dropped whole and the outcome says so.
+    const normalize = (value) => {
+      if (!value || typeof value !== "object" || !Array.isArray(value.rows)) return null;
+      if (value.rows.length > MaximumRows) return null;
+      const ids = new Set();
+      const next = [];
+      for (const row of value.rows) {
+        if (!row || typeof row !== "object") return null;
+        const id = text(row.id, 32);
+        const current = seconds(row.seconds);
+        if (
+          !/^[a-z][a-z0-9-]{0,31}$/u.test(id) ||
+          ids.has(id) ||
+          current === null ||
+          !Array.isArray(row.options) ||
+          row.options.length > MaximumOptions
+        )
+          return null;
+        const options = [];
+        for (const option of row.options) {
+          const optionSeconds = seconds(option?.seconds);
+          const label = text(option?.label, 64);
+          if (optionSeconds === null || !label) return null;
+          options.push({ data: optionSeconds, label });
+        }
+        ids.add(id);
+        next.push({
+          id,
+          label: text(row.label, 240),
+          description: text(row.description, 240),
+          seconds: current,
+          options,
+          available: row.available === true,
+        });
+      }
+      return next;
+    };
+    // Steam's own screensaver timeouts from its client settings, and whether Steam believes the
+    // machine has a battery (the test its Power page is shown on). Null until the settings arrive.
+    const readScreensaver = () => {
+      const values = settings?.clientSettings;
+      const pluggedIn = seconds(values?.[PluggedInSetting]);
+      if (pluggedIn === null) return null;
+      return {
+        acSeconds: pluggedIn,
+        batterySeconds: seconds(values?.[BatterySetting]),
+        battery: window.SystemPowerStore?.batteryState?.bHasBattery === true,
+      };
+    };
+    // Once per change, and again whenever the page opens, because that is when the host's reading of
+    // its own timeouts is worth refreshing.
+    const report = (reading, force) => {
+      if (!installed || !reading) return false;
+      const signature = JSON.stringify(reading);
+      if (!force && signature === lastReport) return true;
+      lastReport = signature;
+      request(patchId, "report", reading).catch((error) => {
+        lastError = "screensaver report failed: " + String(error);
+      });
+      return true;
+    };
+    const reportWhenReady = (attempt) => {
+      reportTimer = null;
+      if (!installed || report(readScreensaver(), false) || attempt >= ReportAttempts) return;
+      reportTimer = setTimeout(() => reportWhenReady(attempt + 1), ReportIntervalMilliseconds);
+    };
+    const select = (row, value) => {
+      const chosen = seconds(value);
+      if (!installed || chosen === null || chosen === row.seconds || pending.has(row.id)) return;
+      pending.add(row.id);
+      notify();
+      request(patchId, "setTimeout", { row: row.id, seconds: chosen })
+        .catch((error) => {
+          lastError = "timeout change failed: " + String(error);
+        })
+        .finally(() => {
+          pending.delete(row.id);
+          notify();
+        });
+    };
+    function SteamUiScreensaverTimeouts() {
+      react.useSyncExternalStore(subscribeLocal, readRevision);
+      const reading = useObserver
+        ? useObserver(readScreensaver, "SteamUiScreensaverTimeouts")
+        : readScreensaver();
+      const signature = reading ? JSON.stringify(reading) : "";
+      react.useEffect(() => {
+        report(readScreensaver(), true);
+      }, []);
+      react.useEffect(() => {
+        report(readScreensaver(), false);
+      }, [signature]);
+      if (!installed) return null;
+      if (!rows.length) {
+        lastOutcome = "no rows published";
+        return null;
+      }
+      lastOutcome = `rendered ${rows.length} row(s)`;
+      return react.createElement(
+        react.Fragment,
+        null,
+        ...rows.map((row) =>
+          react.createElement(dropdown, {
+            key: `steam-ui-timeout-${row.id}`,
+            label: row.label,
+            description: row.description || undefined,
+            rgOptions: row.options,
+            selectedOption: row.seconds,
+            disabled: !row.available || pending.has(row.id),
+            controlled: true,
+            onChange: (option) => select(row, option?.data),
+          }),
+        ),
+      );
+    }
+    const childrenOf = (element) => {
+      const children = element.props?.children;
+      return Array.isArray(children) ? children : children === undefined ? [] : [children];
+    };
+    const keyed = (element) =>
+      element.key === null ? element.props : { ...element.props, key: element.key };
+    const isSection = (type) => {
+      if (typeof type !== "function") return false;
+      const source = String(type);
+      return SectionTokens.every((token) => source.includes(token));
+    };
+    const sectionFor = (original) => {
+      let wrapped = sectionCache.get(original);
+      if (wrapped) return wrapped;
+      wrapped = function SteamUiScreensaverSection(props) {
+        const section = original(props);
+        if (!installed || !react.isValidElement(section)) return section;
+        return react.cloneElement(
+          section,
+          undefined,
+          ...childrenOf(section),
+          react.createElement(SteamUiScreensaverTimeouts, { key: "steam-ui-screensaver-timeouts" }),
+        );
+      };
+      sectionCache.set(original, wrapped);
+      return wrapped;
+    };
+    const pageFor = (original) => {
+      let wrapped = pageCache.get(original);
+      if (wrapped) return wrapped;
+      wrapped = function SteamUiCustomizationPage(props) {
+        const tree = original(props);
+        if (!installed || !react.isValidElement(tree)) return tree;
+        let found = 0;
+        const children = childrenOf(tree).map((child) => {
+          if (!react.isValidElement(child) || !isSection(child.type)) return child;
+          found += 1;
+          return react.createElement(sectionFor(child.type), keyed(child));
+        });
+        if (found !== 1) {
+          lastOutcome = found
+            ? "the screensaver section was not unique on the page"
+            : "the screensaver section was not found on the page";
+          return tree;
+        }
+        return react.cloneElement(tree, undefined, ...children);
+      };
+      pageCache.set(original, wrapped);
+      return wrapped;
+    };
+    // The page list, with the customization page's content wrapped. The same input list always maps
+    // to the same output list, so memo consumers downstream see a stable identity.
+    const transformPages = (value) => {
+      if (!installed || !Array.isArray(value) || !value.length || value.length > MaximumPages)
+        return value;
+      const first = value[0];
+      if (!first || typeof first !== "object" || !("route" in first) || !("content" in first))
+        return value;
+      const cached = listCache.get(value);
+      if (cached) return cached;
+      let index = -1;
+      for (let at = 0; at < value.length; at++) {
+        const item = value[at];
+        if (
+          item &&
+          typeof item === "object" &&
+          item.route === route &&
+          react.isValidElement(item.content)
+        ) {
+          if (index >= 0) return value;
+          index = at;
+        }
+      }
+      if (index < 0 || typeof value[index].content.type !== "function") return value;
+      const item = value[index];
+      const next = value.slice();
+      next[index] = {
+        ...item,
+        content: react.createElement(pageFor(item.content.type), keyed(item.content)),
+      };
+      listCache.set(value, next);
+      return next;
+    };
+    const resolve = () => {
+      runtime = getWebpackRuntime("screensaver-settings");
+      react = runtime.resolve([...ReactTokens]);
+      if (
+        typeof react?.useSyncExternalStore !== "function" ||
+        typeof react?.useEffect !== "function"
+      ) {
+        lastError = "React runtime lacks useSyncExternalStore or useEffect";
+        return false;
+      }
+      const fields = runtime.resolve([...FieldTokens]);
+      const dropdowns = new Set(
+        Object.values(fields).filter(
+          (value) =>
+            typeof value === "function" &&
+            DropdownMarkers.every((token) => String(value).includes(token)),
+        ),
+      );
+      if (dropdowns.size !== 1) {
+        lastError = "the dropdown field was not a unique match";
+        return false;
+      }
+      dropdown = [...dropdowns][0];
+      const pages = runtime.exported(
+        [...RouteTokens],
+        (value) => typeof value?.Settings?.Customization === "function",
+      );
+      route = pages.Settings.Customization();
+      if (typeof route !== "string" || !route.startsWith("/")) {
+        lastError = "the customization settings route is unavailable";
+        return false;
+      }
+      if (!runtime.findUnique([...SectionTokens])) {
+        lastError = "the screensaver section module was not a unique match";
+        return false;
+      }
+      settings = runtime.exported(
+        [...SettingsTokens],
+        (value) => !!value && typeof value === "object" && typeof value.clientSettings === "object",
+      );
+      // Wanted, not required: without it the rows still follow the host, and a change to Steam's
+      // timeout reaches the host on the section's next render. `status.tracking` says which.
+      useObserver = null;
+      const observer = runtime.findUnique([...ObserverTokens]);
+      if (observer) {
+        const exports = runtime(observer[0]);
+        const hooks = Object.keys(exports).filter((name) => {
+          const value = exports[name];
+          return (
+            typeof value === "function" &&
+            value.length === 2 &&
+            String(value).includes('"observed"')
+          );
+        });
+        if (hooks.length === 1) useObserver = exports[hooks[0]];
+      }
+      return true;
+    };
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      try {
+        if (!resolve()) return { ok: false, error: lastError };
+      } catch (error) {
+        lastError = "screensaver settings resolution failed: " + String(error);
+        return { ok: false, error: lastError };
+      }
+      installed = true;
+      const intercepted = interceptMemo(react, MemoName, transformPages);
+      if (!intercepted.ok) {
+        installed = false;
+        lastError = intercepted.error ?? "React useMemo could not be intercepted";
+        return { ok: false, error: lastError };
+      }
+      lastError = "";
+      unsubscribe = subscribe(patchId, (published) => {
+        const next = normalize(published);
+        if (!next) {
+          lastOutcome = "state received but rejected by validation";
+          return;
+        }
+        rows = next;
+        notify();
+      });
+      reportWhenReady(0);
+      return { ok: true, installed: true };
+    };
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      installed = false;
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+      if (reportTimer) {
+        clearTimeout(reportTimer);
+        reportTimer = null;
+      }
+      // An open page re-renders without the rows; its wrappers pass Steam's own tree through.
+      rows = [];
+      pending.clear();
+      lastReport = "";
+      notify();
+      const released = releaseMemo(react, MemoName);
+      if (!released.ok) {
+        lastError = released.error ?? "React useMemo could not be released";
+        return { ok: false, error: lastError };
+      }
+      pageCache.clear();
+      sectionCache.clear();
+      return { ok: true, removed: true };
+    };
+    const status = () => ({
+      ok: true,
+      installed,
+      resolved: !!react && !!dropdown && !!route,
+      claimed: memoIntercepted(react, MemoName),
+      route,
+      settings: !!settings,
+      tracking: !!useObserver,
+      rows: rows.length,
+      lastOutcome,
+      lastReport,
+      lastError,
+    });
+    return { install, remove, status };
+  }
+  registerGate("screensaver", createScreensaverSettings());
   // Steam's own storage device manager, revived on Windows.
   //
   // Big Picture ships a complete SteamOS storage UI — drives, block devices, format, adopt, eject,
@@ -4017,8 +4542,8 @@
     // patched memo. Null means it has not been seen yet, which the status reports.
     let quickSettingsRoot = null;
     const quickSettingsWrapCache = new Map();
-    let originalUseMemo;
-    let patchedUseMemo;
+    // This host's name on the shared useMemo claim (ownership.ts).
+    const MemoName = "quickAccessTabs";
     let disposedHost = false;
     let lastPatchError = "";
     // One entry per wrapped tab, because "the perf panel appended fine" and "Quick Settings never
@@ -4143,6 +4668,14 @@
       );
       return matches.length === 1 ? matches[0] : null;
     };
+    const uniqueFunctionWhere = (exports, test) => {
+      const matches = Object.values(exports).filter((value) => {
+        if (typeof value !== "function") return false;
+        const source = String(value);
+        return !source.startsWith("class") && test(source);
+      });
+      return matches.length === 1 ? matches[0] : null;
+    };
     const uniqueObject = (exports, predicate) => {
       const matches = Object.values(exports).filter(
         (value) => value && typeof value === "object" && predicate(value),
@@ -4208,7 +4741,22 @@
         layout,
         (value) => value.$$typeof && typeof value.render === "function",
       );
-      const localize = uniqueFunction(localization, ["LocalizeString(e)", "void 0===r?e"]);
+      // Valve's localize-with-fallback: it passes the token alone to LocalizeString and returns the
+      // token when no string exists. Chosen by that shape, not by parameter names — the tokens
+      // "LocalizeString(e)" and "void 0===r?e" held until the September 2026 beta's minifier renamed
+      // the parameters and flipped the comparison, and every Quick Access row then refused with
+      // "React, fields, layout or localization runtime was not a unique match". Its siblings differ
+      // in what they do: the quiet variant passes !0, the presence test compares with null, and the
+      // formatting variant builds elements.
+      const localize = uniqueFunctionWhere(
+        localization,
+        (source) =>
+          source.includes(".LocalizeString(") &&
+          source.includes("void 0") &&
+          !source.includes("!0)") &&
+          !source.includes("!=null") &&
+          !source.includes("createElement"),
+      );
       if (!slider || !dropdown || !section || !row || !localize) return null;
       // The toggle and the label field are deliberately not in that guard. They arrived after the
       // other four, so a client where either cannot be found still gets every control that does not
@@ -5971,12 +6519,7 @@
       return true;
     };
     const ensurePatched = () => {
-      if (
-        controlRuntime &&
-        performanceRoot &&
-        patchedUseMemo &&
-        controlRuntime.react.useMemo === patchedUseMemo
-      )
+      if (controlRuntime && performanceRoot && memoIntercepted(controlRuntime.react, MemoName))
         return true;
       try {
         if (!resolveControls()) return false;
@@ -5992,7 +6535,6 @@
         );
         return appendControls(controlRuntime, performanceRoot(props));
       }
-      originalUseMemo = controlRuntime.react.useMemo;
       // One wrapper per wrapped tab, matched by root identity in the same memoized tab array.
       // Each root must match exactly once or it is left alone — the discipline that kept the
       // performance wrap honest, applied per root rather than to the array as a whole.
@@ -6039,8 +6581,8 @@
           fallbackKey: "steam-ui-quick-settings-root",
         },
       ];
-      patchedUseMemo = function SteamUiUseMemo(factory, dependencies) {
-        const value = originalUseMemo(factory, dependencies);
+      // The tab array passes through the one useMemo claim every surface shares (ownership.ts).
+      const transformTabs = (value) => {
         if (!Array.isArray(value)) return value;
         let result = value;
         for (const wrapper of wrappers) {
@@ -6063,9 +6605,9 @@
         }
         return result;
       };
-      controlRuntime.react.useMemo = patchedUseMemo;
-      if (controlRuntime.react.useMemo !== patchedUseMemo) {
-        lastPatchError = "React useMemo wrapper could not be installed";
+      const intercepted = interceptMemo(controlRuntime.react, MemoName, transformTabs);
+      if (!intercepted.ok) {
+        lastPatchError = intercepted.error || "React useMemo wrapper could not be installed";
         return false;
       }
       lastPatchError = "";
@@ -6087,13 +6629,8 @@
       if (!Object.hasOwn(definitions, kind)) return { ok: true, absent: true };
       registrations.delete(kind);
       notify();
-      if (
-        !registrations.size &&
-        controlRuntime &&
-        originalUseMemo &&
-        controlRuntime.react.useMemo === patchedUseMemo
-      ) {
-        controlRuntime.react.useMemo = originalUseMemo;
+      if (!registrations.size && controlRuntime) {
+        releaseMemo(controlRuntime.react, MemoName);
       }
       return { ok: true, kind, registered: false };
     };
@@ -6102,8 +6639,7 @@
       kind,
       registered: registrations.has(kind),
       hostVersion: 1,
-      performanceRootWrapped:
-        !!controlRuntime && !!patchedUseMemo && controlRuntime.react.useMemo === patchedUseMemo,
+      performanceRootWrapped: !!controlRuntime && memoIntercepted(controlRuntime.react, MemoName),
       // Everything above can be true while the panel still shows nothing, because insertion
       // depends on the shape of the tree Steam renders. This is the part that says so.
       lastAppend: appendDiagnostics.perf,
@@ -6119,8 +6655,7 @@
       registrations.clear();
       notify();
       listeners.clear();
-      if (controlRuntime && originalUseMemo && controlRuntime.react.useMemo === patchedUseMemo)
-        controlRuntime.react.useMemo = originalUseMemo;
+      if (controlRuntime) releaseMemo(controlRuntime.react, MemoName);
     };
     return { install, remove, status, dispose: disposeHostResources };
   }

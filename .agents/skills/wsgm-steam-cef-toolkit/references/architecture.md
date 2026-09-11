@@ -65,7 +65,10 @@ not headless startup injection. Remote-debugging opt-in receives the configured 
 separately, so the startup hold cannot suppress the flag on a first cold start.
 
 Module scans and resolution belong to `SteamUiModuleResolver` in the toolkit. WSGM features supply
-their fingerprints and interpret exports; they use the same resolver source as probes and gates.
+their fingerprints and choose exports by shape; they use the same resolver source as probes and
+gates. Module ids and export names are per client build and never appear in code: the September 2026
+beta renumbered every module. `eng/check-steam-fingerprints.mjs` checks every fingerprint against
+the installed client's bundle.
 
 A healthy cold start orders evidence as:
 

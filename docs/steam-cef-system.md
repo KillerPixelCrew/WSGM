@@ -199,6 +199,7 @@ backend (toolkit reference §15).
 | audio (only with an audio manager)                                             | `SteamAudioSurface`                                 | `AudioManagerNativeQamAudioService`                 |
 | network (only with a radio manager)                                            | `SteamNetworkSurface`                               | `NativeQamNetworkService`                           |
 | bluetooth (only with a radio manager)                                          | `SteamBluetoothSurface`                             | `NativeQamBluetoothService`                         |
+| screensaver (only with a session timeout owner)                                | `SteamScreensaverSurface`                           | `DisplayTimeouts`                                   |
 
 Publications are enabled while native Quick Access is on; the network publication is also enabled
 while the header indicator is on.
@@ -217,6 +218,7 @@ while the header indicator is on.
 | eleven `steam-ui.*` row patches | `SteamQuickAccessRowPatch` (toolkit) | SharedJSContext | `steam-ui.performance-root`          | QAM                        |
 | `wsgm.download-sort`            | `SteamDownloadSortPatch`             | SharedJSContext | `steam.downloads.jsx-runtime`        | download sort only         |
 | `wsgm.steam-input.glyph-style`  | `SteamInputGlyphStylePatch`          | MainWindow      | `wsgm.steam-input.glyph-style`       | glyph delivery only        |
+| `steam-ui.screensaver`          | gate `screensaver`                   | SharedJSContext | `steam-ui.settings-pages`            | CEF master switch          |
 
 ### Switching and synchronization
 
@@ -234,6 +236,27 @@ resources, controller images or absent controls (`Log.Change("steam.ui.glyphs", 
 
 Disposal runs the disable passes, disposes the runtime first so it stops answering, then the patch
 manager, the bridge and the services; the shell detaches and disposes the transport afterwards.
+
+### Screensaver settings
+
+Steam's Big Picture screensaver runs natively on Windows on its own idle timeout, and holds no power
+request while it does. WSGM leaves it Steam's and adds two rows, "Turn display off after (on
+battery)" and "(plugged in)", to the Screensaver section of Steam's Customization settings through
+the toolkit's `SteamScreensaverSurface`. They edit the same active-scheme display timeouts as the
+overlay's Power page, through the one session owner `Shell\DisplayTimeouts.cs`; nothing caches the
+values, and both surfaces read Windows each time.
+
+The gate reports Steam's `system_idle_screensaver_ac_sec` and `system_idle_screensaver_battery_sec`
+and whether Steam believes the machine has a battery, when it first reads them, when they change on
+the page and whenever the page opens. `Core\DisplayTimeoutPolicy.cs` bounds each display timeout by
+the screensaver timeout Steam pairs with it: plugged-in by plugged-in, battery by battery, and both
+by the plugged-in one on a machine Steam believes has none, because that is the only timeout it
+shows there. A report finding a display timeout below its bound raises it once to the shortest
+preset at or above it (`Display timeout … raised from … to …`); a refused write is logged, not
+retried. Steam's rows offer only allowed choices and the backend refuses anything else with the
+reason; the overlay's cycle skips forbidden presets and names the bound in the row description. Zero
+is never for the display and disabled for the screensaver, so it satisfies and imposes no bound
+respectively. The rows follow the CEF master switch and are not declared in overlay-test.
 
 ## 5. The injected asset
 
@@ -275,13 +298,13 @@ bridge.
 
 ### Gates
 
-| Gate         | Literal module                  | What it does                                                                                                                                                                                                                                                                              | Markers                                                                                                 |
-| ------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `perf`       | `74514` (perf store holder)     | `supplyNamespace(SteamClient.System, "Perf")` with `UpdateSettings(base64)` decoded through the store's own message class and forwarded as `updateSettings {delta}`; state written into `SystemPerfStore.m_msgState`                                                                      | `__steamUiOwnedNamespace`                                                                               |
-| `audio`      | `1409` (audio store)            | supplies `System.Audio` (`GetDevices`, `SetDefaultDeviceOverride`, `SetDeviceVolume(id, direction, volume)`, no-op app volume, eight `RegisterFor*`); state feeds the running store through `RegisterOrUpdateDevice` and sets `m_bAvailable`; dispatches a volume change only above 0.004 | `__steamUiOwnedNamespace`                                                                               |
-| `brightness` | `59547` (display settings)      | `claimValue` on `is_display_brightness_available`, `claimMember` on `SetBrightness` → `setBrightness {percent}`; state sets the slider                                                                                                                                                    | `__steamUiBrightnessRevealed`, `__steamUiOriginalBrightnessAvailability`, `__steamUiOwnedSetBrightness` |
-| `network`    | `77347` (network store)         | `claimAccessor` on the prototype getter `networkManagementAvailable`; wraps start/stop scanning and always calls through; writes up to 24 synthetic access points (ids 990001+) through `SetDeviceInfo`; removal deletes them and calls `ForceRefresh`                                    | `__steamUiOwnedGetter`, `__steamUiOriginalGetterDescriptor`, `__steamUiOwnedNetworkScan`                |
-| `bluetooth`  | `60517` (service stub), `21371` | replaces eleven methods on the stub; one synthetic adapter; invalidates `["BluetoothManagerService","State"]`                                                                                                                                                                             | `__steamUiOwnedBluetoothService`, `__steamUiOriginalBluetoothServiceMethod`                             |
+| Gate         | Found by                    | What it does                                                                                                                                                                                                                                                                              | Markers                                                                                                 |
+| ------------ | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `perf`       | perf store fingerprint      | `supplyNamespace(SteamClient.System, "Perf")` with `UpdateSettings(base64)` decoded through the store's own message class and forwarded as `updateSettings {delta}`; state written into `SystemPerfStore.m_msgState`                                                                      | `__steamUiOwnedNamespace`                                                                               |
+| `audio`      | audio store fingerprint     | supplies `System.Audio` (`GetDevices`, `SetDefaultDeviceOverride`, `SetDeviceVolume(id, direction, volume)`, no-op app volume, eight `RegisterFor*`); state feeds the running store through `RegisterOrUpdateDevice` and sets `m_bAvailable`; dispatches a volume change only above 0.004 | `__steamUiOwnedNamespace`                                                                               |
+| `brightness` | display store fingerprint   | `claimValue` on `is_display_brightness_available`, `claimMember` on `SetBrightness` → `setBrightness {percent}`; state sets the slider                                                                                                                                                    | `__steamUiBrightnessRevealed`, `__steamUiOriginalBrightnessAvailability`, `__steamUiOwnedSetBrightness` |
+| `network`    | `window.SystemNetworkStore` | `claimAccessor` on the prototype getter `networkManagementAvailable`; wraps start/stop scanning and always calls through; writes up to 24 synthetic access points (ids 990001+) through `SetDeviceInfo`; removal deletes them and calls `ForceRefresh`                                    | `__steamUiOwnedGetter`, `__steamUiOriginalGetterDescriptor`, `__steamUiOwnedNetworkScan`                |
+| `bluetooth`  | service stub fingerprint    | replaces eleven methods on the stub; one synthetic adapter; invalidates `["BluetoothManagerService","State"]`                                                                                                                                                                             | `__steamUiOwnedBluetoothService`, `__steamUiOriginalBluetoothServiceMethod`                             |
 
 ### The component host
 
@@ -296,8 +319,9 @@ containing `#QuickAccess_Tab_Settings_Section_Other_Title` and
 Valve's Performance tree. Quick Settings places Display before the native controls, then Charging
 and RGB lighting after them. Performance groups profile scope, power profiles, display/frame rate,
 power limits, controller and reset. Steam's two FPS-counter rows are hidden only while WSGM has rows
-to add. `useMemo` is restored when the last kind is removed. RGB brightness stays visible; Edit
-color reveals the zone and HSV sliders only when needed.
+to add. The wrap is one transform on the toolkit's shared `useMemo` claim, which the Screensaver
+settings rows use too; `useMemo` is handed back when the last transform on it is removed. RGB
+brightness stays visible; Edit color reveals the zone and HSV sliders only when needed.
 
 Rows and section headers carry a glyph from `icons.ts`, drawn by the toolkit on a 24x24 grid rather
 than taken from the client, filled with `currentColor` so it inherits the row's colour. A row passes
@@ -356,6 +380,17 @@ cached. Features supply fingerprints and interpret exports, but do not scan and 
 registry. The network gate reads `window.SystemNetworkStore`, which Steam publishes itself, instead
 of loading its module or constructing the singleton. Factory presence alone does not prove
 dependency readiness, so these checks supplement the attachment gate.
+
+Nothing names a module id or a minified export name. A gate resolves a module by a source
+fingerprint that matches it alone and takes the export by its shape with
+`exported(tokens, predicate)`: the audio store is the export carrying `m_bAvailable` and
+`RegisterOrUpdateDevice` in the module with `SteamClient.System.Audio`; the perf and display stores
+are the exported classes whose `Get()` body declares `m_msgState` or `m_flDisplayBrightness`; the
+Bluetooth stub is the object with `GetState` and `Pair` in the module naming
+`BluetoothManager.GetState#1`; the query client is the one with `invalidateQueries` in the provider
+module carrying `ReactQueryDevtools` and `offlineFirst`. Native QAM, Home and keyboard replay and
+the side-menu snapshot read Steam's own `window.SteamUIStore`. The September 2026 beta renumbered
+every module and refused each gate that had named one; the record is in `docs\steam-cef.md`.
 
 | Gate        | Verify                                  | Remove              |
 | ----------- | --------------------------------------- | ------------------- |
@@ -547,6 +582,9 @@ Steam.
 | QAM                                | `native-qam-echo-<Kind>`, `Native QAM performance delta refused`, `Native QAM power limit released to the device ceiling`, `Native QAM audio: …`, `Bluetooth: …`, `Native QAM resolution refused`, `display.backlight`                                                                      |
 | Library                            | `Library tabs injected`, `Library tabs (boot)`, `steam.home.layout`, `steam.home.carousel`, `Library badge: initial reading failed`, `Steam current app <id> (<signal>)`, `Steam library added to the live client.`                                                                         |
 
+The Screensaver settings rows log `steam.screensaver` once per change of Steam's reported timeouts,
+and each raise or refused raise of a display timeout on its own line.
+
 ## 11. Tooling
 
 `tools\WsgmLibTest` attaches to the same debug port and requires Steam started with the flag. It
@@ -568,7 +606,16 @@ real window. The raw helpers do not all prove that port 8080 belongs to Steam, a
 does not turn JavaScript `exceptionDetails` into a failing exit code. Verify the listener owner and
 loopback websocket target before attaching, inspect output rather than trusting exit zero, and do
 not treat `qam-harness.mjs status` as pure observation. Neither the harness nor the MCP relaxes the
-literal-module rule.
+fingerprint rule. The `probe-*.js` files still name the module ids of the client they were written
+against, which no longer exist on the September 2026 beta.
+
+`node eng\check-steam-fingerprints.mjs [<Steam directory>]` answers whether a Steam update moved a
+fingerprint without attaching to Steam. It reads every token conjunction out of the toolkit's
+surfaces and gates and WSGM's Core and Shell, parses the installed `steamui` bundle into its module
+factories without executing them, prints each conjunction's match count and where it is used, and
+exits non-zero when one matches no module or several. A unique match on disk is unique in the live
+registry, which holds a subset. It is not part of `eng\verify.ps1`, because its answer depends on
+the client installed rather than on the change being verified.
 
 ## 12. Verification boundary
 

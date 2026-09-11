@@ -86,6 +86,12 @@ public sealed class OverlayController : IDisposable
     /// enumerate every volume twice and could disagree about what is still ejectable.
     /// </remarks>
     private readonly Shell.RemovableDriveManager? _sessionDrives;
+
+    /// <summary>
+    /// The session's display-off timeouts, shared with Steam's Screensaver settings, or null when the
+    /// controller has no session behind it.
+    /// </summary>
+    private readonly Shell.DisplayTimeouts? _displayTimeouts;
     private readonly HotkeyService _hotkey;
     private readonly GamepadService _gamepad = new();
 
@@ -149,9 +155,15 @@ public sealed class OverlayController : IDisposable
         DevicePowerAssignments? powerAssignments = null,
         CommonPluginOverlaySource? commonPlugins = null,
         Shell.RemovableDriveManager? drives = null,
-        Shell.SdFormatManager? formats = null)
+        Shell.SdFormatManager? formats = null,
+        Shell.DisplayTimeouts? displayTimeouts = null)
     {
         _commonPlugins = commonPlugins;
+        _displayTimeouts = displayTimeouts;
+        if (_displayTimeouts is not null)
+        {
+            _displayTimeouts.Changed += OnDisplayTimeoutsChanged;
+        }
         _powerPresets = powerPresets;
         _powerAssignments = powerAssignments;
         _sessionAudio = audio;
@@ -453,13 +465,16 @@ public sealed class OverlayController : IDisposable
     }
 
     /// <summary>Reads the four idle timeouts from the active power scheme into the
-    /// Power tab's badges ("—" when the power API gives no answer).</summary>
-    private static void RefreshPowerTimeouts(OverlayViewModel vm)
+    /// Power tab's badges ("—" when the power API gives no answer), and says when Steam's
+    /// screensaver holds a display timeout up.</summary>
+    private void RefreshPowerTimeouts(OverlayViewModel vm)
     {
         static string Format(int? seconds)
             => seconds is null ? "—" : PowerTimeouts.Describe(seconds.Value);
         vm.DisplayDcTimeout = Format(PowerTimeouts.Read(PowerTimeoutKind.DisplayDc));
         vm.DisplayAcTimeout = Format(PowerTimeouts.Read(PowerTimeoutKind.DisplayAc));
+        vm.DisplayDcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayDc);
+        vm.DisplayAcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayAc);
         vm.SleepDcTimeout = Format(PowerTimeouts.Read(PowerTimeoutKind.SleepDc));
         vm.SleepAcTimeout = Format(PowerTimeouts.Read(PowerTimeoutKind.SleepAc));
     }
@@ -476,6 +491,23 @@ public sealed class OverlayController : IDisposable
             _overlayViewModel.KeepAwakeManualMode = _keepAwake.ManualMode;
             _overlayViewModel.KeepAwakeDownloadActive = _keepAwake.DownloadHold;
         });
+
+    /// <summary>Mirrors a display timeout chosen in Steam's Screensaver settings, or a new bound from
+    /// Steam's screensaver timeout, into an open panel's view model.</summary>
+    private void OnDisplayTimeoutsChanged()
+        => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (!_disposed && _overlayViewModel is { } vm)
+            {
+                RefreshPowerTimeouts(vm);
+            }
+        });
+
+    /// <summary>The display row's description: the plain one, or the bound Steam's screensaver sets.</summary>
+    private string DisplayTimeoutDescription(PowerTimeoutKind kind)
+        => _displayTimeouts?.Minimum(kind) is int minimum
+            ? $"Idle time before the display turns off; at least {PowerTimeouts.Describe(minimum)} for Steam's screensaver"
+            : OverlayViewModel.DisplayTimeoutDescription;
 
     private Avalonia.Threading.DispatcherTimer? _wakeLockRefresh;
     private string? _lastWakeLockError;
@@ -945,6 +977,13 @@ public sealed class OverlayController : IDisposable
             // block input; a failed read still refuses to write blind.
             await Task.Run(() =>
             {
+                // The session's owner skips display presets Steam's screensaver forbids and tells
+                // Steam's Screensaver settings about the change.
+                if (_displayTimeouts is { } timeouts)
+                {
+                    timeouts.Cycle(kind);
+                    return;
+                }
                 lock (PowerSchemes.MutationGate)
                 {
                     var current = PowerTimeouts.Read(kind);
@@ -2133,6 +2172,10 @@ public sealed class OverlayController : IDisposable
         AttachTrayHost(null);
         _modes.SteamStartFailed -= WarnOrReopen;
         SteamInputBlocker.RecoveryWarningRaised -= OnSteamInputRecoveryWarning;
+        if (_displayTimeouts is not null)
+        {
+            _displayTimeouts.Changed -= OnDisplayTimeoutsChanged;
+        }
         if (_keepAwake is not null)
         {
             // The service belongs to ShellSession; only the subscription is ours.

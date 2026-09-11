@@ -98,6 +98,10 @@ public sealed class ShellSession : IAsyncDisposable
     private bool _libraryBadgeEnabled;
     private bool _homeCarouselEnabled;
     private bool _carouselShowUninstalled;
+    private bool _screensaverTimeoutsEnabled;
+    // The one owner of the display-off timeouts: the overlay's Power page and the rows WSGM adds to
+    // Steam's Screensaver settings both edit through it, and it hears Steam's screensaver timeout.
+    private readonly DisplayTimeouts _displayTimeouts = new();
     // Field-rooted for the session lifetime: it owns a native power-setting
     // registration and the "did WSGM mute this?" flag.
     private DisplayOffMuteService? _displayMute;
@@ -279,6 +283,7 @@ public sealed class ShellSession : IAsyncDisposable
         _libraryBadgeEnabled = config.Cef.Enabled && config.Cef.CardManager;
         _homeCarouselEnabled = config.Cef.Enabled && config.Cef.ConnectedLibraryCarousel;
         _carouselShowUninstalled = config.Cef.CarouselShowUninstalled;
+        _screensaverTimeoutsEnabled = config.Cef.Enabled;
         // The real shell opens the transport only through the readiness gate, once it is
         // running and knows whether Steam is cold-starting under it. Overlay-test never
         // attaches a transport and keeps the plain master flag so its static callers
@@ -405,6 +410,7 @@ public sealed class ShellSession : IAsyncDisposable
         _steamUi?.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
         _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
         _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
+        _steamUi?.ApplyScreensaverTimeouts(_screensaverTimeoutsEnabled);
         KickTabBootSync();
     }
 
@@ -711,7 +717,8 @@ public sealed class ShellSession : IAsyncDisposable
                     _deviceCoordinator is not null && _deviceOverlay is not null
                         ? new DeviceWidgetSource(_deviceCoordinator, _deviceOverlay) : null),
             drives: _drives,
-            formats: _formats);
+            formats: _formats,
+            displayTimeouts: _displayTimeouts);
         _overlay.ShowOnScreenKeyboard = ShowOnScreenKeyboardAsync;
         _overlay.ManualTdp = _deviceCoordinator;
         if (!_overlayTestOnly)
@@ -865,7 +872,8 @@ public sealed class ShellSession : IAsyncDisposable
                 _deviceCoordinator is null ? null : SetVariableRefreshRateFromUserAsync,
                 () => _overlay?.ShowBluetoothPanel() == true,
                 _brightness,
-                _steamStorage);
+                _steamStorage,
+                _overlayTestOnly ? null : _displayTimeouts);
             _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
             _steamUi.ApplySurfaceObservation(_config.Cef.Enabled);
             if (_deviceCoordinator is { } handoffDevice)
@@ -886,6 +894,7 @@ public sealed class ShellSession : IAsyncDisposable
             _steamUi.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
             _steamUi.ApplyLibraryBadge(_libraryBadgeEnabled);
             _steamUi.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
+            _steamUi.ApplyScreensaverTimeouts(_screensaverTimeoutsEnabled);
             ApplyGlyphConfig(_config);
             if (_deviceCoordinator is not null)
             {
@@ -931,6 +940,7 @@ public sealed class ShellSession : IAsyncDisposable
             _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
             _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
             _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
+            _steamUi?.ApplyScreensaverTimeouts(_screensaverTimeoutsEnabled);
             // Returning from desktop mode disabled tabs/badge and cancelled the boot
             // sync; re-inject without requiring an overlay open.
             KickTabBootSync();
@@ -1532,6 +1542,20 @@ public sealed class ShellSession : IAsyncDisposable
             + $"{(enabled ? $", uninstalled games {(showUninstalled ? "shown" : "hidden")}" : "")}.");
     }
 
+    /// <summary>Adds or retracts the display-off rows in Steam's Screensaver settings to match a
+    /// reloaded configuration. They follow the CEF master switch alone.</summary>
+    /// <param name="enabled">Whether the rows should be drawn.</param>
+    private void ApplyScreensaverTimeouts(bool enabled)
+    {
+        if (_overlayTestOnly || enabled == _screensaverTimeoutsEnabled)
+        {
+            _screensaverTimeoutsEnabled = enabled;
+            return;
+        }
+        _screensaverTimeoutsEnabled = enabled;
+        _steamUi?.ApplyScreensaverTimeouts(enabled);
+    }
+
     /// <summary>Applies a Steam Input Management change that arrived through a
     /// config reload.</summary>
     /// <remarks>
@@ -1599,6 +1623,7 @@ public sealed class ShellSession : IAsyncDisposable
                     _steamUi?.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
                     _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
                     _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
+                    _steamUi?.ApplyScreensaverTimeouts(_screensaverTimeoutsEnabled);
                 });
             });
             return;
@@ -2185,6 +2210,7 @@ public sealed class ShellSession : IAsyncDisposable
                         ApplyHomeCarousel(
                             config.Cef.Enabled && config.Cef.ConnectedLibraryCarousel,
                             config.Cef.CarouselShowUninstalled);
+                        ApplyScreensaverTimeouts(config.Cef.Enabled);
                         _displayMute?.ApplyConfig(config.MuteWhileDisplayOff);
                         _overlay?.ApplyConfig(config);
                         _startupWatcher?.Apply(config.StartupApps);

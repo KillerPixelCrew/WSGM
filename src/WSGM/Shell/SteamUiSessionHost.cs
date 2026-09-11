@@ -67,6 +67,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>Hears what Big Picture Home's carousel holds.</summary>
     private readonly HomeCarouselBackend _homeCarousel = new();
 
+    /// <summary>The session's display-off timeouts, shared with the overlay, or null without one.</summary>
+    private readonly DisplayTimeouts? _displayTimeouts;
+
     private readonly PerformanceService _performanceService;
     private readonly PerformanceServiceNativeQamAdapter _performance;
     private readonly Action<PerformanceState> _onPerformanceStateChanged;
@@ -93,6 +96,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private volatile bool _libraryBadgeEnabled;
     private volatile bool _homeCarouselEnabled;
     private volatile bool _carouselShowUninstalled;
+    private volatile bool _screensaverEnabled;
     private volatile bool _glyphsEnabled;
     private volatile bool _glyphDeliveryEnabled;
     private volatile bool _disposed;
@@ -123,6 +127,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// declared at all, so Steam's storage pages stay as inert as they are without WSGM rather than
     /// opening onto controls with nothing behind them.
     /// </param>
+    /// <param name="displayTimeouts">
+    /// The session's display-off timeouts, shared with the overlay, or null when this session has
+    /// none. Steam's Screensaver settings get no rows then.
+    /// </param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
@@ -137,9 +145,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         Func<bool, CancellationToken, Task<bool>>? applyVariableRefreshRate = null,
         Func<bool>? showBluetoothPanel = null,
         NativeQamBrightnessService? brightness = null,
-        SteamStorageBridge? storage = null)
+        SteamStorageBridge? storage = null,
+        DisplayTimeouts? displayTimeouts = null)
     {
         _storage = storage;
+        _displayTimeouts = displayTimeouts;
         _resolution = resolution is null ? null : new NativeQamResolutionService(resolution);
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         ArgumentNullException.ThrowIfNull(toggleQuickAccess);
@@ -193,11 +203,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _runtime = new SteamUiModuleRuntime(
             _bridge,
             _modules,
-            commandsEnabled: () => _enabled || _libraryBadgeEnabled || _homeCarouselEnabled,
-            publishEnabled: () =>
-                _enabled || _networkIndicatorEnabled || _libraryBadgeEnabled || _homeCarouselEnabled);
+            commandsEnabled: () =>
+                _enabled || _libraryBadgeEnabled || _homeCarouselEnabled || _screensaverEnabled,
+            publishEnabled: () => _enabled || IndependentSurfacesEnabled());
         _transport.GenerationChanged += OnGenerationChanged;
         LibraryBadges.Changed += OnSemanticStateChanged;
+        if (_displayTimeouts is not null)
+        {
+            _displayTimeouts.Changed += OnSemanticStateChanged;
+        }
         _tdp.StateChanged += OnSemanticStateChanged;
         _deviceControls.StateChanged += OnSemanticStateChanged;
         _autoTdp.StateChanged += OnSemanticStateChanged;
@@ -245,9 +259,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             CancelAllInflightRequests();
             ReleasePerformanceObservation();
-            SetPatchStates(
-                bootstrap: _networkIndicatorEnabled || _libraryBadgeEnabled || _homeCarouselEnabled,
-                components: false);
+            SetPatchStates(bootstrap: IndependentSurfacesEnabled(), components: false);
         }
         QueueSynchronization();
     }
@@ -270,9 +282,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             network.PostStopScanning();
         }
-        SetPatchStates(
-            bootstrap: _enabled || enabled || _libraryBadgeEnabled || _homeCarouselEnabled,
-            components: _enabled);
+        SetPatchStates(bootstrap: _enabled || IndependentSurfacesEnabled(), components: _enabled);
         QueueSynchronization();
         QueueStatePublication();
     }
@@ -291,9 +301,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _patches.SetGlobalEnabled(true);
         }
-        SetPatchStates(
-            bootstrap: _enabled || _networkIndicatorEnabled || _libraryBadgeEnabled || _homeCarouselEnabled,
-            components: _enabled);
+        SetPatchStates(bootstrap: _enabled || IndependentSurfacesEnabled(), components: _enabled);
         QueueSynchronization();
     }
 
@@ -315,9 +323,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _patches.SetGlobalEnabled(true);
         }
-        SetPatchStates(
-            bootstrap: _enabled || _networkIndicatorEnabled || enabled || _homeCarouselEnabled,
-            components: _enabled);
+        SetPatchStates(bootstrap: _enabled || IndependentSurfacesEnabled(), components: _enabled);
         QueueSynchronization();
         QueueStatePublication();
     }
@@ -352,12 +358,38 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _patches.SetGlobalEnabled(true);
         }
-        SetPatchStates(
-            bootstrap: _enabled || _networkIndicatorEnabled || _libraryBadgeEnabled || enabled,
-            components: _enabled);
+        SetPatchStates(bootstrap: _enabled || IndependentSurfacesEnabled(), components: _enabled);
         QueueSynchronization();
         QueueStatePublication();
     }
+
+    /// <summary>Adds or retracts WSGM's display-off rows in Steam's Screensaver settings.</summary>
+    /// <param name="enabled">Whether the rows should be drawn and Steam's screensaver timeouts heard.</param>
+    /// <remarks>
+    /// Independent of native Quick Access: the rows edit the same display-off timeouts as the overlay's
+    /// Power page, and hearing Steam's screensaver timeout is what keeps the display from turning off
+    /// before the screensaver can start. Not declared at all without a session timeout owner.
+    /// </remarks>
+    internal void ApplyScreensaverTimeouts(bool enabled)
+    {
+        if (_disposed || _displayTimeouts is null || _screensaverEnabled == enabled)
+        {
+            return;
+        }
+
+        _screensaverEnabled = enabled;
+        if (enabled)
+        {
+            _patches.SetGlobalEnabled(true);
+        }
+        SetPatchStates(bootstrap: _enabled || IndependentSurfacesEnabled(), components: _enabled);
+        QueueSynchronization();
+        QueueStatePublication();
+    }
+
+    /// <summary>Whether any surface that runs without native Quick Access is on.</summary>
+    private bool IndependentSurfacesEnabled() =>
+        _networkIndicatorEnabled || _libraryBadgeEnabled || _homeCarouselEnabled || _screensaverEnabled;
 
     /// <summary>Returns the immutable patch-registry view used by diagnostics and isolated tests.</summary>
     internal IReadOnlyList<SteamUiPatchSnapshot> GetPatchSnapshots() => _patches.GetSnapshots();
@@ -404,6 +436,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _downloadSortEnabled = false;
         _libraryBadgeEnabled = false;
         _homeCarouselEnabled = false;
+        _screensaverEnabled = false;
         _glyphsEnabled = false;
         _surfaceObservationEnabled = false;
         _patches.SetPatchEnabled(_overlayActivation.Id, false);
@@ -443,6 +476,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             || _downloadSortEnabled
             || _libraryBadgeEnabled
             || _homeCarouselEnabled
+            || _screensaverEnabled
             || _glyphsEnabled
             || _glyphDeliveryEnabled
             || _surfaceObservationEnabled)
@@ -588,6 +622,17 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 _homeCarousel),
         ];
 
+        // WSGM's display-off rows in Steam's Screensaver settings, over the same timeouts the overlay
+        // edits. Reading goes to Windows each time, so an overlay change reaches Steam on the next
+        // publication and a change made in Windows reaches it when the page next opens.
+        if (_displayTimeouts is { } timeouts)
+        {
+            modules.Add(SteamScreensaverSurface.Module(
+                () => _screensaverEnabled,
+                () => new(timeouts.ReadState()),
+                timeouts));
+        }
+
         if (_resolution is { } resolution)
         {
             modules.Add(SteamResolutionRow.Module(
@@ -668,6 +713,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                         ? _libraryBadgeEnabled
                         : patch.Id == SteamHomeCarouselSurface.PatchId
                             ? _homeCarouselEnabled
+                        : patch.Id == SteamScreensaverSurface.PatchId
+                            ? _screensaverEnabled
                         : patch.Id == SteamUiBridgePatch.PatchId
                             ? bootstrap
                             : patch.Id == SteamNetworkSurface.PatchId
@@ -780,6 +827,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
         _transport.GenerationChanged -= OnGenerationChanged;
         LibraryBadges.Changed -= OnSemanticStateChanged;
+        if (_displayTimeouts is not null)
+        {
+            _displayTimeouts.Changed -= OnSemanticStateChanged;
+        }
         _tdp.StateChanged -= OnSemanticStateChanged;
         _deviceControls.StateChanged -= OnSemanticStateChanged;
         _performanceService.StateChanged -= _onPerformanceStateChanged;

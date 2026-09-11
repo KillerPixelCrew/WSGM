@@ -390,6 +390,12 @@ panel is open.
 
 ### Idle-timeout rows
 
+The two screen-off rows never turn the display off before Steam's Big Picture screensaver may start.
+They cycle through `Shell\DisplayTimeouts.cs`, the owner Steam's Screensaver settings rows share,
+which skips presets below Steam's reported screensaver timeout and names that bound in the row's
+description. The bound and how it is enforced are in `docs\steam-cef-system.md`, "Screensaver
+settings".
+
 Four rows (screen-off and standby, each for battery and plugged-in) cycle presets of 1, 3, 5, 10,
 15, 30, 60 min and never through `Core\PowerTimeouts.cs`, using Windows Device Control's
 policy-value API. Parsing `powercfg /q` was rejected: its output is localized, the same trap as

@@ -44,6 +44,24 @@ stops here rather than at zero:
   built its tree, the carousel reported 93 installed entries with the 88 games found only on
   absent cards left out (matching the card model with SDCard1 in the reader), and the maintainer
   confirmed Home. Greyed uninstalled games were not checked on screen.
+- #70 is implemented, not closed (2026-09-11). The beta renumbered Steam's module registry: on its
+  first start the audio, performance, brightness and Bluetooth gates refused and every Quick Access
+  row degraded, and the side-menu snapshot and native QAM/Home/keyboard replay (#65, #67) named ids
+  that were gone. Nothing names a module id or a minified export any more: the resolver's
+  `exported(tokens, predicate)` finds a module by fingerprint and an export by shape, the UI store is
+  Steam's `window.SteamUIStore`, and the localizer is chosen by what it does rather than by its
+  parameter names. `eng\check-steam-fingerprints.mjs` reads every fingerprint out of the toolkit and
+  WSGM and counts its matches in the installed bundle: all unique on the beta. Evidence and the new
+  beta features' evaluation are in `docs\steam-cef.md`. **Open:** a live pass with the fix deployed,
+  the Stable client (no Stable bundle is on this machine), and the restart and transition matrix.
+- #71 is implemented, not closed (2026-09-11). `SteamScreensaverSurface` appends "Turn display off
+  after (on battery)" and "(plugged in)" to Steam's Screensaver section through a new shared
+  `useMemo` claim the Quick Access host now uses too. Both rows and the overlay's screen-off rows go
+  through one owner, `Shell\DisplayTimeouts`, over the active scheme; Steam's reported screensaver
+  timeout bounds them (`Core\DisplayTimeoutPolicy`), a report raises a breach once, choices below the
+  bound are neither offered nor accepted. 30 toolkit cases, the emitted-gate check and 30 WSGM cases
+  (policy, owner and host) pass. **Open:** the rows on the live beta page, the raise on the device, CEF reload, Steam restart,
+  desktop-to-game transition and AC/battery changes, and `powercfg /requests` unaffected.
 - #27 and #40 are implemented as far as they can be without a device session and the brand mark.
 
 - #30 and #31 are delivered and verified live on the September 2026 beta (2026-09-11). The

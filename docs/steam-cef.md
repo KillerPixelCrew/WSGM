@@ -14,6 +14,61 @@ Related:
 - `docs\sd-cards.md` — the card manager and format UI that call into library registration.
 - `docs\elevation.md` — the launch wrapper and the non-Steam shortcut rules.
 
+## September 2026 client beta audit, 2026-09-11
+
+The Steam Client Beta of 2026-09-09 renumbered the webpack registry. On the first start with it
+(12:41 in `wsgm.log`) four gates refused and every Quick Access row degraded; the patches that
+already found Steam by fingerprint (bridge, network, overlay activation, storage, library badge,
+Home carousel) verified.
+
+- `steam-ui.audio` and `steam-ui.performance`: `storeSingletonReachable:false`. Their probes loaded
+  modules `1409` and `74514`, which no longer exist; the stores are `10652` (export still `F5`) and
+  `83761`.
+- `steam-ui.brightness`: `Steam module absent: 59547`; the display store is `75191`, export `mG`.
+- `steam-ui.bluetooth`: `Steam module absent: 60517`; the stub is `63202`, export `RF`, and the
+  query client moved from `21371` to `40208`, export `L` in both.
+- Every row: `React, fields, layout or localization runtime was not a unique match`. The four
+  modules still matched once each. The localizer export did not: it was chosen by the tokens
+  `LocalizeString(e)` and `void 0===r?e`, and the new minifier emits
+  `let R=C.LocalizeString(k);return R===void 0?k:…`.
+- Not refused only because nothing had run them since the update: native QAM, Home and keyboard
+  replay (#65, #67) and the side-menu snapshot named `61236` (UI store), `18057` (route table) and
+  `5822` (side-menu enum), now `5757`, `80344` and `7284`, with the route table's export renamed
+  from `BV` to `B`.
+
+Most export names survived and one did not, so renumbering the ids would have broken again at the
+next build. Every one of these now resolves a module by a fingerprint and an export by its shape
+(`exported(tokens, predicate)` in the toolkit's resolver), replay and the side-menu snapshot read
+Steam's own `window.SteamUIStore`, and the localizer is the export that calls `LocalizeString` with
+the token alone and falls back to it.
+
+All of this was read offline from the installed bundle, parsed and never executed: 2,859 factories
+on disk against 2,622 loaded in the live registry on the same client.
+`eng\check-steam-fingerprints.mjs` found every fingerprint the toolkit and WSGM use matching exactly
+one module after the change, including download sort's and the library tabs' lookups, which did not
+run in desktop mode that day. The glyph stylesheet's three generated classes are still present in
+the beta's stylesheets.
+
+**Not established here:** a live pass on the beta with these changes deployed; any pass against the
+Stable client, whose bundle is no longer on this machine because Steam keeps one
+`steamui_websrc_all` package; and the restart and desktop/game transition matrix #70 asks for.
+
+### What else the beta brought
+
+- **Screensaver.** The `Screensaver` service (`GetActiveState`, `ForceScreensaver`,
+  `GetLocalScreensavers`, `NotifyActiveStateChanged`), `steamui\screensavers\bouncinglogo`, a
+  Customization section and the idle timeout `system_idle_screensaver_ac_sec`. Left native; WSGM
+  adds display-off rows to that section, bounded by Steam's timeout (#71).
+- **Per-source idle settings.** Power page sections `Settings_System_Idle_*` (dim, screensaver and
+  sleep per source), shown only when Steam's power store reports a battery or under gamescope. Not
+  revived: it would take revealing Steam's battery fact, and dim and sleep there are SteamOS
+  backends with no Windows counterpart. The display-off rows keep the one order that matters.
+- **Big Art Mode.** `library_home_big_art`, read by Home through the settings store. Read by the
+  library badge and logged as `steam.home.layout`; nothing to revive.
+- **Personal Calendar.** Nothing by that name in this build: no calendar string in
+  `steamui_english`, `EventCalendar_*` in `shared_english` is the News Hub, and the Home tab is
+  `HomeTab_Recommended`. Nothing to inspect until a build carries it.
+
 ## Independent power sliders, 2026-09-06
 
 The maintainer reported that selecting Full Power left the QAM slider at its previous value, and

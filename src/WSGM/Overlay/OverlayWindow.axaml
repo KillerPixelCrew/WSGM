@@ -607,13 +607,13 @@
                                       Tag="system.timeout.display-dc"
                                       IconGeometry="{x:Static c:Icons.Monitor}"
                                       Title="Screen off — battery"
-                                      Description="Idle time before the display turns off"
+                                      Description="{Binding DisplayDcDescription}"
                                       TrailingText="{Binding DisplayDcTimeout}" />
                         <c:CardButton Click="OnCycleDisplayAc"
                                       Tag="system.timeout.display-ac"
                                       IconGeometry="{x:Static c:Icons.Monitor}"
                                       Title="Screen off — plugged in"
-                                      Description="Idle time before the display turns off"
+                                      Description="{Binding DisplayAcDescription}"
                                       TrailingText="{Binding DisplayAcTimeout}" />
                         <c:CardButton Click="OnCycleSleepDc"
                                       Tag="system.timeout.sleep-dc"
