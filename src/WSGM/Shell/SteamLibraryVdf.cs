@@ -496,6 +496,31 @@ public static class SteamLibraryVdf
             ? string.Empty
             : path.Replace('/', '\\').TrimEnd('\\').ToLowerInvariant();
 
+    /// <summary>The volume root a path sits on, for example <c>D:\</c>.</summary>
+    /// <param name="path">Any path on the volume.</param>
+    /// <returns>The root, or empty when the path does not name one.</returns>
+    /// <remarks>
+    /// Everything that reasons about "which volume holds this library" keys on this — the eject
+    /// intent, the registered-library lookup, the projection to Steam — so it lives here once
+    /// rather than beside each of them.
+    /// </remarks>
+    internal static string VolumeRoot(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            return Path.GetPathRoot(path) ?? string.Empty;
+        }
+        catch (ArgumentException)
+        {
+            return string.Empty;
+        }
+    }
+
     /// <summary>Offsets of every top-level numbered entry line, in file order.</summary>
     private static List<int> TopLevelEntryStarts(string vdf)
     {

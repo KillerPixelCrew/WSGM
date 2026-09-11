@@ -144,7 +144,7 @@ internal sealed class LibraryPolicy : IRemovableDriveEjectObserver
         {
             foreach (string path in mountPaths)
             {
-                string root = RootOf(path);
+                string root = SteamLibraryVdf.VolumeRoot(path);
                 if (root.Length > 0)
                 {
                     _ejected[root] = contentId ?? "";
@@ -164,7 +164,7 @@ internal sealed class LibraryPolicy : IRemovableDriveEjectObserver
     /// </remarks>
     internal void ClearEjected(string path)
     {
-        string root = RootOf(path);
+        string root = SteamLibraryVdf.VolumeRoot(path);
         if (root.Length == 0)
         {
             return;
@@ -185,7 +185,7 @@ internal sealed class LibraryPolicy : IRemovableDriveEjectObserver
     /// <returns>True while the standing eject covers exactly that library.</returns>
     internal bool IsHeldEjected(string path, string? contentId)
     {
-        string root = RootOf(path);
+        string root = SteamLibraryVdf.VolumeRoot(path);
         if (root.Length == 0)
         {
             return false;
@@ -295,24 +295,4 @@ internal sealed class LibraryPolicy : IRemovableDriveEjectObserver
     internal static Task<bool> UnregisterAsync(
         string libraryPath, CancellationToken cancellationToken) =>
         ApplyAsync(LibraryTransition.Purge, libraryPath, "", cancellationToken);
-
-    /// <summary>The volume root a path sits on, upper-cased, for example <c>D:\</c>.</summary>
-    /// <param name="path">Any path on the volume.</param>
-    /// <returns>The root, or empty when the path does not name one.</returns>
-    private static string RootOf(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return "";
-        }
-
-        try
-        {
-            return System.IO.Path.GetPathRoot(path) ?? "";
-        }
-        catch (ArgumentException)
-        {
-            return "";
-        }
-    }
 }

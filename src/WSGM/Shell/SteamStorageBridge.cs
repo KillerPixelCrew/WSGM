@@ -41,8 +41,6 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     /// <summary>The session's library policy, or null when this session owns none.</summary>
     private readonly LibraryPolicy? _policy;
     private string _loggedProjection = "";
-    private bool _lastAdoptSupported;
-    private bool _lastUnmountSupported;
 
     /// <summary>Creates the bridge over the managers that already own these operations.</summary>
     /// <param name="drives">The removable-drive manager, which owns safe eject.</param>
@@ -105,14 +103,12 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
                 return null;
             }
 
-            _lastAdoptSupported = true;
-            _lastUnmountSupported = false;
-            LogProjection([], []);
+            LogProjection([], [], adoptSupported: true, unmountSupported: false);
             return new SteamStorageState(
                 [],
                 [],
-                AdoptSupported: _lastAdoptSupported,
-                UnmountSupported: _lastUnmountSupported,
+                AdoptSupported: true,
+                UnmountSupported: false,
                 TrimSupported: false,
                 TrimRunning: false);
         }
@@ -170,18 +166,16 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         // adopt support. Unmount is reported against the rows that can actually be ejected rather
         // than against the drive list, because a machine with a formattable disk and nothing
         // ejectable would otherwise offer an eject with no row behind it.
-        _lastAdoptSupported = true;
-        _lastUnmountSupported = devices.Count > 0;
-
-        LogProjection(drives, devices);
+        bool unmountSupported = devices.Count > 0;
+        LogProjection(drives, devices, adoptSupported: true, unmountSupported);
 
         // Trim is reported unsupported because neither manager exposes one. Claiming otherwise would
         // put a button on Steam's page that could never do anything.
         return new SteamStorageState(
             drives,
             devices,
-            AdoptSupported: _lastAdoptSupported,
-            UnmountSupported: _lastUnmountSupported,
+            AdoptSupported: true,
+            UnmountSupported: unmountSupported,
             TrimSupported: false,
             TrimRunning: false);
     }
@@ -229,6 +223,8 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     /// <summary>Records what this state says, once per change.</summary>
     /// <param name="drives">The drive rows about to be published.</param>
     /// <param name="devices">The volume rows about to be published.</param>
+    /// <param name="adoptSupported">Whether Steam may offer Format; it gates that entry on this.</param>
+    /// <param name="unmountSupported">Whether Steam may offer Eject; it gates that entry on this.</param>
     /// <remarks>
     /// This exists because the alternative was reading the projection out of a running Steam, and
     /// attaching a debugger to Steam's renderer while it is still building its UI wedges
@@ -237,7 +233,10 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     /// left alone. Logged only when it changes, because it is produced on a poll.
     /// </remarks>
     private void LogProjection(
-        IReadOnlyList<SteamStorageDrive> drives, IReadOnlyList<SteamStorageBlockDevice> devices)
+        IReadOnlyList<SteamStorageDrive> drives,
+        IReadOnlyList<SteamStorageBlockDevice> devices,
+        bool adoptSupported,
+        bool unmountSupported)
     {
         var summary = string.Join("; ", drives.Select(drive =>
                 $"drive {drive.Id} '{drive.Model}' {drive.SizeBytes}B "
@@ -250,7 +249,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         // eject on unmount, format on adopt -- so a row that is right and a menu that is empty is
         // answered here rather than by reading it out of the client.
         var rows = summary.Length == 0 ? "no removable storage" : summary;
-        summary = $"{rows} | adopt={_lastAdoptSupported} unmount={_lastUnmountSupported}";
+        summary = $"{rows} | adopt={adoptSupported} unmount={unmountSupported}";
         if (summary == _loggedProjection)
         {
             return;
@@ -294,7 +293,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     /// </remarks>
     private static IReadOnlyList<string> LibraryPathsOn(string path)
     {
-        string root = RootOf(path);
+        string root = SteamLibraryVdf.VolumeRoot(path);
         if (root.Length == 0)
         {
             return [];
@@ -308,7 +307,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
             }
 
             return SteamLibraryVdf.ValuesOf(vdf, "path")
-                .Where(library => string.Equals(RootOf(library), root,
+                .Where(library => string.Equals(SteamLibraryVdf.VolumeRoot(library), root,
                     StringComparison.OrdinalIgnoreCase))
                 .ToArray();
         }
@@ -318,44 +317,6 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
             return [];
         }
     }
-
-    /// <summary>The volume root a path sits on, or empty when it does not name one.</summary>
-    /// <param name="path">Any path on the volume.</param>
-    /// <returns>The root, for example <c>D:\</c>.</returns>
-    private static string RootOf(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return "";
-        }
-
-        try
-        {
-            return Path.GetPathRoot(path) ?? "";
-        }
-        catch (ArgumentException)
-        {
-            return "";
-        }
-    }
-
-    /// <summary>Whether a mounted path carries a Steam library.</summary>
-    /// <param name="path">The mount path, for example <c>D:\</c>.</param>
-    /// <returns>True when any registered Steam library sits on that volume.</returns>
-    /// <remarks>
-    /// Asked of Steam's own <c>libraryfolders.vdf</c> rather than by looking for a directory. The
-    /// first attempt tested for <c>steamapps</c> at the volume root, which is only true when the
-    /// library is the whole drive; a library at <c>D:\SteamLibrary</c> — the ordinary case, and the
-    /// one on this machine — reported false. Steam then saw a drive carrying no library, which is
-    /// what it renders as unadopted, and offered to format a card full of games.
-    /// <para>
-    /// Registered paths are compared by volume root, because that is the question Steam is asking:
-    /// not "is this the library" but "does this volume hold one". Reported false when the file
-    /// cannot be read, which is the safe direction: Steam then offers to adopt a drive that is
-    /// already a library, rather than silently treating an unknown drive as in use.
-    /// </para>
-    /// </remarks>
-    private static bool HasSteamLibrary(string path) => LibraryPathsOn(path).Count > 0;
 
     /// <inheritdoc />
     /// <remarks>
