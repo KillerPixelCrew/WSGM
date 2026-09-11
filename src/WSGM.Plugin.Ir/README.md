@@ -137,7 +137,11 @@ through firmware 0.2.0. The same session captured the HDMI switch remote's input
 power buttons (NEC address 128, commands 1, 2 and 3). PlatformIO's bundled esptool 4.5.1 then
 flashed firmware 0.3.0 over COM5 without stalling; the endpoint kept its pairing, rejoined Wi-Fi,
 parsed an unchunked full-length USB payload and refused malformed codes, unknown protocols and
-invalid A/C states without emitting.
+invalid A/C states without emitting. It then sent the Hisense POWER ON through `sendCode` (NEC
+`20DF8E71`), and `sendAc` with protocol `MIDEA` (Cool, 24 °C, fan auto) turned a Koenic KAC 12020
+portable air conditioner on. Its power off only registered after the endpoint was raised above the
+unit's opening air flap, which blocks line of sight once it runs. Other Midea settings on that unit
+remain unverified.
 
 The ESP32-C3 ROM loader remains the recovery path; Seeed also links a factory firmware flasher from
 the wiki. Reflashing does not touch the host command library or pairing file, but it does not clear
