@@ -106,6 +106,41 @@ public sealed class DisplayTimeoutsTests
     }
 
     [Fact]
+    public async Task ForgettingSteamLiftsTheBoundOnceAndOnlyOnce()
+    {
+        FakeScheme scheme = new() { [PowerTimeoutKind.DisplayAc] = 600 };
+        DisplayTimeouts timeouts = scheme.Owner();
+        await timeouts.ReportAsync(new(300, null, false), CancellationToken.None);
+        int changes = 0;
+        timeouts.Changed += () => changes++;
+
+        timeouts.ForgetSteam();
+        timeouts.ForgetSteam();
+
+        Assert.Null(timeouts.Steam);
+        Assert.Null(timeouts.Minimum(PowerTimeoutKind.DisplayAc));
+        Assert.Equal(1, changes);
+        Assert.True((await timeouts.SetTimeoutAsync("plugged-in", 60, CancellationToken.None)).Succeeded);
+        Assert.Equal(string.Empty, timeouts.ReadState().Rows[1].Description);
+    }
+
+    [Theory]
+    [InlineData(SteamUiPatchState.Verified, true, true)]
+    [InlineData(SteamUiPatchState.Applying, true, true)]
+    [InlineData(SteamUiPatchState.Applied, true, true)]
+    [InlineData(SteamUiPatchState.Incompatible, true, false)]
+    [InlineData(SteamUiPatchState.AbsentTarget, true, false)]
+    [InlineData(SteamUiPatchState.Verified, false, false)]
+    public void OnlyAHoldingScreensaverSurfaceKeepsSteamsReport(SteamUiPatchState state, bool enabled, bool holds)
+    {
+        SteamUiPatchSnapshot snapshot = new(
+            SteamScreensaverSurface.PatchId, 1, enabled, state, null, default, null, DateTimeOffset.UnixEpoch);
+
+        Assert.Equal(holds, SteamUiSessionHost.ScreensaverReportHolds(snapshot));
+        Assert.False(SteamUiSessionHost.ScreensaverReportHolds(null));
+    }
+
+    [Fact]
     public void CyclingRefusesToWriteBlindWhenWindowsGivesNoReading()
     {
         FakeScheme scheme = new();

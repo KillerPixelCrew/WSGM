@@ -62,6 +62,27 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
         }
     }
 
+    /// <summary>Drops Steam's reported screensaver timeouts, so nothing bounds the display until Steam reports again.</summary>
+    /// <remarks>
+    /// Called whenever the Screensaver settings surface does not hold: a client without the
+    /// screensaver, a Steam restart, or the rows switched off. A bound kept from a client that is gone
+    /// goes on refusing display timeouts that nothing needs.
+    /// </remarks>
+    internal void ForgetSteam()
+    {
+        lock (_gate)
+        {
+            if (_steam is null)
+            {
+                return;
+            }
+            _steam = null;
+        }
+
+        Log.Change("steam.screensaver", "Steam's screensaver timeouts no longer apply: the Screensaver settings are not active.");
+        OnChanged();
+    }
+
     /// <summary>The bound on one display timeout, or null when nothing bounds it.</summary>
     /// <param name="kind">The display timeout.</param>
     /// <returns>The minimum in seconds, or null.</returns>

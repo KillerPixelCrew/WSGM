@@ -52,8 +52,11 @@ stops here rather than at zero:
   Steam's `window.SteamUIStore`, and the localizer is chosen by what it does rather than by its
   parameter names. `eng\check-steam-fingerprints.mjs` reads every fingerprint out of the toolkit and
   WSGM and counts its matches in the installed bundle: all unique on the beta. Evidence and the new
-  beta features' evaluation are in `docs\steam-cef.md`. **Open:** a live pass with the fix deployed,
-  the Stable client (no Stable bundle is on this machine), and the restart and transition matrix.
+  beta features' evaluation are in `docs\steam-cef.md`. Verified live the same evening on the beta and
+  then on Stable: every patch verified on both, the Screensaver rows standing aside on Stable, which
+  has no screensaver. Those passes also moved the header Wi-Fi indicator to both modes and made a
+  stale screensaver bound drop when its surface does not hold. **Open:** the restart and transition
+  matrix.
 - #71 is implemented, not closed (2026-09-11). `SteamScreensaverSurface` appends "Turn display off
   after (on battery)" and "(plugged in)" to Steam's Screensaver section through a new shared
   `useMemo` claim the Quick Access host now uses too. Both rows and the overlay's screen-off rows go

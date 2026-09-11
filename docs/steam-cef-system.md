@@ -130,8 +130,8 @@ notification and scanning still start immediately so a present card and removals
 live library add/remove, tab and manifest sync, and download-state polling wait for the window.
 Desktop download polling and overlay-driven operations stay immediate because they do not act on a
 half-built game-mode session; their shared transport still waits for a MainWindow on cold starts.
-Resuming `--shell` next to Explorer disables the game-mode indicator and download sorter before
-opening the desktop transport gate, just as a normal desktop transition does.
+Resuming `--shell` next to Explorer disables the download sorter before opening the desktop
+transport gate, just as a normal desktop transition does.
 
 The remote-debugging flag uses the configured `Cef.Enabled` value, not the temporary transport hold.
 A first cold start must write the flag while attachment is still prohibited.
@@ -147,10 +147,18 @@ library tabs, and closes the transport, under a 5 s budget; on timeout it logs
 When the transition settles, the hold is released, the gate is re-checked and the surfaces are
 re-applied. The transition sequence itself is in `docs\boot-and-shell.md`.
 
-Mode events: `DesktopModeStarting` clears game mode, cancels the tab boot sync, turns the indicator
-and download sort off and retracts the tabs; `GameModeEntered` sets game mode, re-checks the gate,
-turns them on and starts the tab boot sync. The library badge and the Home carousel are not
-mode-bound: they follow their own switches in either mode, like the card services they read.
+Mode events: `DesktopModeStarting` clears game mode, cancels the tab boot sync, turns download sort
+off and retracts the tabs; `GameModeEntered` sets game mode, re-checks the gate, turns it on and
+starts the tab boot sync. The header Wi-Fi indicator, the library badge, the Home carousel and the
+Screensaver settings rows are not mode-bound: they follow their own switches in either mode, because
+Big Picture on the desktop draws the same surfaces. A desktop-mode indicator used to leave the
+header empty until Steam's network page started a scan (Claw, 2026-09-11). With native Quick Access
+off, any of these keeps the bootstrap up on its own.
+
+Steam's screensaver timeouts bound the display timeouts only while the Screensaver settings patch is
+enabled and applying, applied or verified. After every synchronization pass and on every
+SharedJSContext generation change the host drops the report otherwise, so a client without the
+screensaver, such as the Stable client of 2026-09-11, leaves nothing bounding the overlay's rows.
 `SteamStarted` and `SteamExited` both request a gate check so a restart's headless context is never
 connected before its own window.
 

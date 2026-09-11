@@ -49,9 +49,24 @@ one module after the change, including download sort's and the library tabs' loo
 run in desktop mode that day. The glyph stylesheet's three generated classes are still present in
 the beta's stylesheets.
 
-**Not established here:** a live pass on the beta with these changes deployed; any pass against the
-Stable client, whose bundle is no longer on this machine because Steam keeps one
-`steamui_websrc_all` package; and the restart and desktop/game transition matrix #70 asks for.
+Deployed the same evening. On the beta (18:13) every patch verified within a second of Big Picture
+coming up, including audio, performance, brightness, Bluetooth, all Quick Access rows and the new
+Screensaver settings rows; the screensaver reported 5 min plugged in and disabled on battery, and
+the plugged-in display timeout was raised from 1 min to 5 min. The maintainer then switched to the
+Stable client (UI build of 2026-09-06, 18:22): every patch verified again, brightness and the Home
+carousel on their second probe while Big Picture was still loading, and the Screensaver settings
+patch stood aside because Stable has no Screensaver section (no screensaver string in its
+localization). The fingerprint check against Stable's bundle found 36 of 37 unique, the missing one
+being that section.
+
+Two findings from those passes. The display bound from the beta's report outlived the switch to
+Stable, so the overlay kept refusing timeouts under 5 min for a screensaver that no longer existed;
+the report is now dropped whenever the Screensaver settings patch does not hold. And WSGM resumed in
+desktop mode next to Explorer, where the header Wi-Fi indicator was not fed, so the icon appeared
+only after opening Steam's network page started a scan; the indicator now follows its switch in both
+modes.
+
+**Still open:** the restart and desktop/game transition matrix #70 asks for.
 
 ### What else the beta brought
 

@@ -406,7 +406,7 @@ public sealed class ShellSession : IAsyncDisposable
         RequestSteamUiTransportGateCheck();
         _steamUi?.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
         _steamUi?.ApplySurfaceObservation(_config.Cef.Enabled);
-        _steamUi?.ApplyNetworkIndicator(_inGameMode && _wifiIndicatorEnabled);
+        _steamUi?.ApplyNetworkIndicator(_wifiIndicatorEnabled);
         _steamUi?.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
         _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
         _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
@@ -890,7 +890,7 @@ public sealed class ShellSession : IAsyncDisposable
                     ownerIsCurrent: _steamControllerOwnership.OwnerIsCurrentAsync);
                 _overlay.SteamOwnership = () => _steamControllerHandoff;
             }
-            _steamUi.ApplyNetworkIndicator(_inGameMode && _wifiIndicatorEnabled);
+            _steamUi.ApplyNetworkIndicator(_wifiIndicatorEnabled);
             _steamUi.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
             _steamUi.ApplyLibraryBadge(_libraryBadgeEnabled);
             _steamUi.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
@@ -918,7 +918,8 @@ public sealed class ShellSession : IAsyncDisposable
             // Tabs and the badge are game-mode surfaces; the ACF watcher only exists
             // to keep them fresh, so it stands down with them.
             ApplyCardServices(gameModeActive: false);
-            _steamUi?.ApplyNetworkIndicator(false);
+            // The Wi-Fi indicator stays: Big Picture on the desktop draws the same header, and
+            // without the connected network it stays empty until something scans (Claw, 2026-09-11).
             _steamUi?.ApplyDownloadSort(false);
             _ = SteamLibraryTabs.DisableAsync();
             _volumeButtons?.SetGameModeActive(false);
@@ -1036,7 +1037,6 @@ public sealed class ShellSession : IAsyncDisposable
             // Steam's list, with Steam's storage page showing a drive that was not there (Claw,
             // 2026-09-11). The policy decides what runs on the desktop; this only asks it.
             ApplyCardServices(gameModeActive: false);
-            _steamUi?.ApplyNetworkIndicator(false);
             _steamUi?.ApplyDownloadSort(false);
             RequestSteamUiTransportGateCheck();
             _monitor.Paused = true;
@@ -2153,17 +2153,9 @@ public sealed class ShellSession : IAsyncDisposable
             Log.Info("Big Picture Wi-Fi indicator turned off.");
             return;
         }
-        if (_inGameMode)
-        {
-            _steamUi?.ApplyNetworkIndicator(true);
-            Log.Info("Big Picture Wi-Fi indicator turned on.");
-        }
-        else
-        {
-            Log.Change(
-                "steam.network-indicator",
-                "Big Picture Wi-Fi indicator deferred: requested=true, mode=desktop.");
-        }
+        // Either mode: Big Picture on the desktop draws the same header indicator.
+        _steamUi?.ApplyNetworkIndicator(true);
+        Log.Info("Big Picture Wi-Fi indicator turned on.");
     }
 
     private void WatchConfig()

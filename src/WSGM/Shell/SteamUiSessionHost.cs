@@ -382,6 +382,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _patches.SetGlobalEnabled(true);
         }
+        else
+        {
+            _displayTimeouts.ForgetSteam();
+        }
         SetPatchStates(bootstrap: _enabled || IndependentSurfacesEnabled(), components: _enabled);
         QueueSynchronization();
         QueueStatePublication();
@@ -465,6 +469,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             // an explicit bridge cancel.
             CancelAllInflightRequests();
             ReleasePerformanceObservation();
+            // A new document is a new client until its screensaver surface reports again.
+            _displayTimeouts?.ForgetSteam();
         }
 
         // The patch manager marks patches for every changed target role, so every role change must
@@ -507,7 +513,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 await _synchronizeSignal.WaitAsync(_shutdown.Token).ConfigureAwait(false);
                 Interlocked.Exchange(ref _signalPending, 0);
                 await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
-                if (_enabled || _networkIndicatorEnabled)
+                ReconcileScreensaverReport();
+                // Every surface that runs without native Quick Access keeps the bootstrap up. Only
+                // the network indicator used to count here, so with Quick Access off the library
+                // badge, the Home carousel and the screensaver rows were retracted after each pass.
+                if (_enabled || IndependentSurfacesEnabled())
                 {
                     if (_enabled)
                     {
@@ -538,6 +548,45 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             }
         }
     }
+
+    /// <summary>Forgets Steam's screensaver timeouts whenever the surface that reports them does not hold.</summary>
+    /// <remarks>
+    /// The bound they set belongs to the client that reported it. Switching to a Steam build without
+    /// the screensaver, or turning the rows off, otherwise leaves the overlay refusing short display
+    /// timeouts for a screensaver that no longer exists. A holding surface reports again on install.
+    /// </remarks>
+    private void ReconcileScreensaverReport()
+    {
+        if (_displayTimeouts is null)
+        {
+            return;
+        }
+
+        SteamUiPatchSnapshot? surface = null;
+        foreach (SteamUiPatchSnapshot patch in _patches.GetSnapshots())
+        {
+            if (patch.Id == SteamScreensaverSurface.PatchId)
+            {
+                surface = patch;
+                break;
+            }
+        }
+
+        if (!ScreensaverReportHolds(surface))
+        {
+            _displayTimeouts.ForgetSteam();
+        }
+    }
+
+    /// <summary>Whether a Screensaver settings patch in this state still vouches for Steam's report.</summary>
+    /// <param name="surface">The patch's snapshot, or null when it is not registered.</param>
+    /// <returns>True while it is enabled and applying, applied or verified.</returns>
+    internal static bool ScreensaverReportHolds(SteamUiPatchSnapshot? surface) =>
+        surface is
+        {
+            Enabled: true,
+            State: SteamUiPatchState.Applying or SteamUiPatchState.Applied or SteamUiPatchState.Verified,
+        };
 
     /// <summary>
     /// Every Steam UI surface this session offers, one declaration each: which toolkit surface it
