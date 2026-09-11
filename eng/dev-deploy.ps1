@@ -226,11 +226,15 @@ if ($NoRestart) {
     return
 }
 
-Write-Host "== Starting WSGM $WsgmArguments, then Steam ==" -ForegroundColor Cyan
+Write-Host "== Starting WSGM $WsgmArguments, then Steam Big Picture ==" -ForegroundColor Cyan
 Start-Process -FilePath (Join-Path $binDirectory 'WSGM.exe') -ArgumentList $WsgmArguments
 Start-Sleep -Seconds 6
 if (-not (Get-Process WSGM -ErrorAction SilentlyContinue)) {
     throw 'WSGM did not stay running after the swap - check %LOCALAPPDATA%\WSGM\wsgm.log.'
 }
-Start-Process -FilePath $steamExe
+# Straight into Big Picture, the way WSGM cold-starts Steam itself (Steam.LaunchBigPicture). Starting
+# Steam on the desktop and switching afterwards meant the switch had to be timed against Steam's own
+# startup, and landing it early is what left the new build's first probes running against a
+# half-built UI.
+Start-Process -FilePath $steamExe -ArgumentList 'steam://open/bigpicture'
 Write-Host 'Deployed.' -ForegroundColor Green
