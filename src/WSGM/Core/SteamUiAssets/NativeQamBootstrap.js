@@ -1784,7 +1784,9 @@
     const MaximumItems = 5000;
     const MaximumDisconnected = 8192;
     const MaximumDescent = 12;
-    const MaximumNodesVisited = 60000;
+    // Fiber reads are cheap and the walk runs once per install; the bound stops a cyclic or runaway
+    // tree, not a legitimate search through a window with a whole library mounted.
+    const MaximumNodesVisited = 250000;
     const ContainerClass = "steam-ui-home-carousel";
     let runtime;
     let react;
@@ -2134,24 +2136,46 @@
     // Home from the router's route list. The list is found by content — the array holding a route for
     // /library/home — and the page element under that route names the Home memo. Bounded and
     // read-only; the memo is one object whichever window renders it, so claiming it reaches them all.
+    //
+    // Breadth-first over the child and sibling links: a router sits near the top of its tree, and a
+    // depth-first walk can spend the whole bound inside the first large subtree — a mounted library
+    // grid — before it gets there. What the walk saw is kept for `status` and the refusal, so a miss
+    // on a new client says which assumption failed without anyone attaching to Steam.
+    let lastSearch = { roots: 0, visited: 0, homeRoutes: 0, page: "" };
     const findHome = () => {
-      let visited = 0;
       let found = null;
-      const stack = reactRoots();
-      while (stack.length && !found && visited < MaximumNodesVisited) {
-        const node = stack.pop();
+      const roots = reactRoots();
+      const search = { roots: roots.length, visited: 0, homeRoutes: 0, page: "" };
+      const queue = roots.slice();
+      for (
+        let head = 0;
+        head < queue.length && !found && search.visited < MaximumNodesVisited;
+        head++
+      ) {
+        const node = queue[head];
         if (!node) continue;
-        visited++;
-        const children = node.memoizedProps?.children;
+        search.visited++;
+        // A Fragment's fiber holds its children array as the props themselves.
+        const props = node.memoizedProps;
+        const children = Array.isArray(props) ? props : props?.children;
         if (Array.isArray(children) && children.length > 2 && children.length < 512) {
           const route = children.find(
             (child) => react.isValidElement(child) && child.props?.path === KnownRoute,
           );
-          const page = route?.props?.children;
-          if (react.isValidElement(page) && isHome(page.type)) found = page.type;
+          if (route) {
+            search.homeRoutes++;
+            const type = route.props?.children?.type;
+            search.page = !type
+              ? "none"
+              : typeof type === "function"
+                ? "function"
+                : String(type.$$typeof);
+            if (isHome(type)) found = type;
+          }
         }
-        stack.push(node.sibling, node.child);
+        queue.push(node.child, node.sibling);
       }
+      lastSearch = search;
       return found;
     };
     const resolve = () => {
@@ -2200,7 +2224,9 @@
       }
       home = findHome();
       if (!home) {
-        lastError = "Home was not found in the router's route list";
+        lastError =
+          `Home was not found in the router's route list (roots=${lastSearch.roots} ` +
+          `visited=${lastSearch.visited} homeRoutes=${lastSearch.homeRoutes} page=${lastSearch.page || "-"})`;
         return false;
       }
       return true;
@@ -2280,6 +2306,7 @@
       includeUninstalled: policy.includeUninstalled,
       disconnected: policy.disconnected.size,
       counts: cached?.counts ?? null,
+      search: lastSearch,
       lastOutcome,
       lastError,
     });
