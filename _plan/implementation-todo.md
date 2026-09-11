@@ -34,14 +34,16 @@ stops here rather than at zero:
   `library_home_big_art` setting, read from the settings store and reported through `homeLayout`;
   the badge is tile-relative and needs no separate placement per layout. The in-page resident
   script and its boot retry are gone. Verified on the beta with the card present and pulled.
-- #72 is implemented (2026-09-11) and waiting on its live check. Home's carousel is
-  `SteamHomeCarouselSurface`: the toolkit claims Home's memo, replaces the one `games` array Home
-  hands the carousel and its background, and orders it from Steam's own collections under WSGM's
-  instruction (games on disconnected cards excluded, uninstalled games optional and greyed). The
-  maintainer's memory concern was the overscan: the carousel is already virtualized and Home passed
-  the whole list as overscan, so it now gets the component default of 3. Settings rows under
-  Integration, the carousel on and uninstalled off by default. Evidence so far is the shipped bundle
-  and the fixture harness; the carousel reports its counts to `wsgm.log`.
+- #72 is delivered (2026-09-11). Home's carousel is `SteamHomeCarouselSurface`: the toolkit
+  claims Home's memo, replaces the one `games` array Home hands the carousel and its background, and
+  orders it from Steam's own collections under WSGM's instruction (games on disconnected cards
+  excluded, uninstalled games optional and greyed). The maintainer's memory concern was the
+  overscan: the carousel is already virtualized and Home passed the whole list as overscan, so it
+  now gets the component default of 3. Settings rows under Integration, the carousel on and
+  uninstalled off by default. Verified live on the beta: the patch verified once Big Picture had
+  built its tree, the carousel reported 93 installed entries with the 88 games found only on
+  absent cards left out (matching the card model with SDCard1 in the reader), and the maintainer
+  confirmed Home. Greyed uninstalled games were not checked on screen.
 - #27 and #40 are implemented as far as they can be without a device session and the brand mark.
 
 - #30 and #31 are delivered and verified live on the September 2026 beta (2026-09-11). The
