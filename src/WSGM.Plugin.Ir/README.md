@@ -2,15 +2,16 @@
 
 This independent `wsgm.infrared` package owns its command library, endpoint protocol and XIAO IR
 Mate firmware. It uses the common Plugin SDK and has no Device SDK dependency. The Device plugin can
-remain active alongside it. Hardware acceptance is still in progress under #52.
+remain active alongside it. Hardware acceptance for #52 passed on the reference XIAO on 2026-09-11.
 
 Implemented: endpoint identity/version checks over USB serial or the local network, bounded raw
 learn/send, cancellation, command and scene storage, backup/restore, named actions, USB-only Wi-Fi
 pairing with a per-endpoint token, common-host lifecycle and Tools management forms. The real
 package has passed collectible host loading alongside a Device-category fixture and has paired,
-identified and refused unpaired clients on a live network. Live remote capture/transmission remains
-pending. A COM port list is discovery information only; only a successful protocol identity reply
-establishes compatibility.
+identified and refused unpaired clients on a live network. On 2026-09-11 it learned a real HDMI
+switch remote button over Wi-Fi as a 71-timing NEC frame (address 128, command 1) and replayed it
+twice; the maintainer confirmed the switch changed to input 1 each time. A COM port list is
+discovery information only; only a successful protocol identity reply establishes compatibility.
 
 ## Build and package
 
@@ -120,12 +121,14 @@ status and idle health readback. Later that day the plugin paired the endpoint o
 the maintainer's network, resolved as `wsgm-ir-15ef50.local`, and the plugin verified its identity
 over Wi-Fi through both the paired name and an explicit `host:port`. From an unpaired LAN client,
 identify answered while health, send, learn and cancel returned `unauthorized` and `wifi` returned
-`usb-only`; a learn over Wi-Fi with no remote reported the timeout as an instruction. Those checks
-did not transmit IR or establish appliance behavior. The ESP32-C3 ROM loader remains the recovery
-path; Seeed also links a factory firmware flasher from the wiki. Reflashing does not touch the host
-command library or pairing file, but it does not clear NVS either: Forget Wi-Fi over USB, or an
-esptool `erase-flash`, removes stored credentials. Hardware acceptance must distinguish a firmware
-build from successful capture and verified appliance behavior.
+`usb-only`; a learn over Wi-Fi with no remote reported the timeout as an instruction. The HDMI
+switch capture and replay described above then established real appliance behavior for one command;
+the assumed 38 kHz carrier was sufficient for that switch. Other appliances and carriers remain
+unverified. The ESP32-C3 ROM loader remains the recovery path; Seeed also links a factory firmware
+flasher from the wiki. Reflashing does not touch the host command library or pairing file, but it
+does not clear NVS either: Forget Wi-Fi over USB, or an esptool `erase-flash`, removes stored
+credentials. Hardware acceptance must distinguish a firmware build from successful capture and
+verified appliance behavior.
 
 See [protocol.md](protocol.md) for the shared wire contract. Main repository GPL licensing applies
 to this plugin and its authored firmware. The common SDK retains its MIT boundary. PlatformIO

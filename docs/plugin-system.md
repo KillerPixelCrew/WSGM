@@ -5,8 +5,8 @@ It owns its endpoint protocol, command library and companion firmware, and reach
 USB serial or, after USB-only pairing with a per-endpoint token, over the local network. Its
 declarative Tools contributions use the existing common host. Command selection, naming, relearning,
 timing, scene management and Wi-Fi pairing are available through host-rendered action forms.
-Hardware acceptance remains incomplete. See its README for the implemented boundary and current
-limitations.
+Hardware acceptance passed on the reference XIAO with a real HDMI switch remote. See its README for
+the implemented boundary and remaining limitations.
 
 `src/WSGM.Plugin.Sdk` is the MIT, dependency-free common contract assembly. `WSGM.Device.Sdk`
 continues to define hardware detection, controllers, capabilities and Device Lab integration. The

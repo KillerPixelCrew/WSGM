@@ -7,8 +7,8 @@ submodule changes, without feature branches or pull requests.
 ## Current issue workoff
 
 After delivery of #38/#39, #51/#53, #58/#59, #61, #65–#68, #22/#26/#35/#36 and, on 2026-09-11,
-#20/#28/#30/#31/#34/#70/#71/#72, nine issues remain open. Issues #41, #42, #44, #45, #47 and #48
-remain deferred; #21, #40 and #52 are the 2.0 scope. #20 and #28 were closed on 2026-09-10 and
+#20/#28/#30/#31/#34/#70/#71/#72 and, that evening, #52, eight issues remain open. Issues #41, #42,
+#44, #45, #47 and #48 remain deferred; #21 and #40 are the 2.0 scope. #20 and #28 were closed on 2026-09-10 and
 reopened on 2026-09-11: #20 because the Session tab had not followed the category migration, #28
 because the September 9 Steam Client Beta reworked the library UI and added Big Art Mode; both were
 delivered the same day. #70–#72 were filed on 2026-09-11 for the same beta and closed that evening.
@@ -19,7 +19,7 @@ stops here rather than at zero:
 - #64 still needs a decision on what "driver-level VSync" maps to: Intel's header has no
   `CTL_3D_FEATURE_VSYNC`. `CTL_3D_FEATURE_GAMING_FLIP_MODES` and `CTL_3D_FEATURE_LOW_LATENCY` both
   answer on the reference unit but neither is a VSync toggle.
-- #21 and #52 need the hardware: power-button capture over ACPI/HID/EC, and live IR learn/transmit.
+- #21 needs the hardware: power-button capture over ACPI/HID/EC.
 - #20 is delivered (2026-09-11, `804df0d`). The reopen named Session: four buttons on a root tab
   of their own. It is a Power category now, beside Wake, Idle timeouts and Power, with rows, tags
   and handlers unchanged so pins survive. The tab-by-tab audit the issue asked for is in
@@ -205,7 +205,7 @@ stops here rather than at zero:
 
 - #58 is implemented: Overlay Tools shares the session-owned brightness service with Steam QAM, including with CEF disabled. Confirmed reads update a retained slider without writes; unavailable displays disable it. Seven service tests and one headless UI test pass. Live hardware review remains.
 
-- #52 is in progress. The XIAO ESP32-C3 enumerates on COM3. A common-SDK IR package now owns
+- #52 is delivered and closed (2026-09-11). The XIAO ESP32-C3 enumerates on COM3. A common-SDK IR package now owns
   the USB endpoint protocol, persistent command/scene library, named actions and module-local firmware.
   The firmware builds for the reference board; source and hardware archive from Seeed were inspected.
   Tools now provides command selection, naming, relearning, repeat timing and scene management using
@@ -225,8 +225,10 @@ stops here rather than at zero:
   identification. Firmware 0.2.0 is flashed on the reference XIAO and passed the USB checks again plus
   invalid Wi-Fi argument refusal and learn timeout. The endpoint then paired and joined the network,
   resolved by mDNS, identified over Wi-Fi through the real plugin, refused unpaired LAN clients and
-  reported a remote-less learn as a timeout instruction. Still open on hardware: a real remote/button
-  for capture/replay.
+  reported a remote-less learn as a timeout instruction. Finally the plugin learned a real HDMI
+  switch remote button over Wi-Fi as a 71-timing NEC frame and replayed it twice; the maintainer
+  confirmed the switch changed to input 1 both times. Every acceptance criterion on the issue is met.
+  Other appliances and carriers remain unverified and are field-review follow-up.
 
 - #67 is implemented: one Tools keyboard action routes by current mode, with Steam-specific invocation
   in the toolkit and Windows using the existing touch keyboard. Sheet dismissal precedes invocation;
