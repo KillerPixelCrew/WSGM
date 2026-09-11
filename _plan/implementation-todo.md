@@ -539,47 +539,69 @@ DPI and HDR; audio endpoints and playback/capture volume; Wi-Fi and Bluetooth; p
 keep-awake and screen-off mute) are already Core and stay there. A hardware plugin may publish a
 device-specific power limit consumed by AutoTDP, but it never owns or reimplements RTSS.
 
-- [ ] **Desktop First is a complete resident WSGM session, not a reduced agent.** Separate whether
-      WSGM starts at logon from whether the initial session mode is Desktop or Game. Desktop First
-      still initializes the device/capability plugins, overlay, keyboard hotkey, controller chord,
-      running-application monitor, performance services, Steam integration permitted on the
-      desktop, config watching and a desktop notification-area entry. Explorer remains the shell
-      and game-mode-only effects stay off: no takeover, replacement tray host, Game display
-      profile, startup-app sequence or Big Picture request. Returning from Game mode restores this
-      same fully running Desktop state rather than stopping or downgrading WSGM.
-- [ ] **Make on-demand Game Mode one cancellable, fail-open transaction.** The overlay and configured
-      direct keyboard/controller triggers can begin it from Desktop First. Show the WSGM splash over
-      the live desktop, prepare optional plugin participants, display every bounded prerequisite
-      that is still waiting, and allow cancellation before Explorer exit without changing WSGM's
-      shell or display state. After the prerequisites resolve, capture the verified Explorer
-      recovery anchor, exit Explorer, apply the destination scene and display profile in order, and
-      enter the existing Game surfaces/Steam launch path. A failure after the irreversible boundary
-      compensates successful participants in reverse order and restores the Desktop scene, display
-      profile and Explorer. External preparation such as IR or Home Assistant calls is explicitly
-      best-effort/compensated; it cannot truthfully promise that no external side effect occurred.
+Desktop Mode design agreed with the maintainer on 2026-09-11. The reference machine is the desktop
+PC from #51: it shares an HDMI switch with a TV box, and the TV exposes no EDID while the switch is
+on the other input. Inventory at that date: #38/#39/#50/#51/#52 supply the notification icon,
+shortcuts, WDC profile primitives, route bindings and the IR endpoint; none of the items below was
+complete. Build order follows the list.
+
+- [ ] **Desktop Mode is a complete resident WSGM session, not a reduced agent.** Settings offers two
+      independent choices: start WSGM at sign-in, and start in Desktop or Game. Desktop residency
+      must not depend on route automation (`BootManifestWriter` currently derives it from
+      `DisplayRoutes.Enabled`). Desktop Mode keeps the device/capability plugins, overlay, keyboard
+      hotkey, controller chord, running-application monitor, performance services, Steam
+      integration permitted on the desktop, config watching and the notification icon, which is
+      shown in Desktop Mode only. WSGM starts Steam without Big Picture when it is not already
+      running, so Steam inherits WSGM's elevation instead of relying on a user autostart or
+      scheduled task. Explorer remains the shell and game-mode-only effects stay off: no takeover,
+      replacement tray host, Game display layout, startup-app sequence or Big Picture request.
+      Returning from Game Mode restores this same fully running Desktop state.
+- [ ] **Add editable display layouts to Windows Device Control.** Capture the current arrangement
+      into an editable layout: active targets, primary, position, resolution, refresh rate and HDR,
+      keyed by stable target identity. Never make a user hand-author raw `DISPLAYCONFIG_*` data.
+      Expose verified apply with readback of paths, modes and primary, and the currently active
+      outputs. Keep a catalog of every display seen, with identity, supported modes and HDR
+      support, so an absent display can still be configured. An absent designated target is a
+      retryable waiting state, not a failed transition. DPI applies after the layout establishes
+      which targets exist. Include crash, cancellation and Desktop rollback coverage so a layout
+      change cannot strand the session without Explorer or a usable display.
 - [ ] **Wait for display arrival is a release-blocking Game Mode path.** Support the reference setup
       where the inactive HDMI-extractor input exposes no EDID and Windows therefore has no TV target
-      to configure. A Desktop First Game Mode request keeps the complete WSGM session and Explorer
-      running, leaves the Desktop scene/profile untouched, and shows an actionable waiting line on
-      the splash until the designated TV arrives, the user cancels, or WSGM shuts down. It must not
-      inherit the boot splash's 120-second timeout, proceed without the target, start Big Picture or
-      run game-mode startup applications while waiting. An IR or Home Assistant participant may ask
-      the extractor/TV to switch first, but Windows display arrival remains the authoritative gate.
-      On `WM_DISPLAYCHANGE`/`WM_DEVICECHANGE`, confirm the target through `QueryDisplayConfig`, wait
-      for two identical enumerations 500 ms apart, apply the TV scene, then continue the same
+      to configure. A Game Mode request from Desktop keeps the complete WSGM session and Explorer
+      running, leaves the Desktop layout untouched, and shows an actionable waiting line on the
+      splash until the designated TV arrives, the user cancels, or WSGM shuts down. It must not
+      inherit the boot splash's 120-second timeout or the current 1–120 s route deadline, proceed
+      without the target, start Big Picture or run game-mode startup applications while waiting.
+      A plugin action may ask the extractor/TV to switch first, but Windows display arrival remains
+      the authoritative gate. On `WM_DISPLAYCHANGE`/`WM_DEVICECHANGE`, confirm the target through
+      `QueryDisplayConfig`, wait for two identical enumerations 500 ms apart, then continue the same
       transaction automatically. If the target disappears again before Explorer exit, return to
       waiting without partially entering Game Mode; disappearance after Game Mode is established is
       non-fatal. Cover the state machine with synthetic tests. Live observation on the exact
       extractor/TV path is optional maintainer-directed diagnosis, not a completion gate.
-- [ ] **Add captured Windows display-topology scenes to Core.** Capture `desk`, `tv` and `both` from
-      the current Windows arrangement; persist stable target identity, active paths, modes and the
-      primary display; expose verified apply/readback and the currently active outputs; and never
-      make a user hand-author raw `DISPLAYCONFIG_*` structures. An absent designated target is a
-      retryable waiting state, not a failed transition. Observe display/device notifications,
-      confirm the target with `QueryDisplayConfig`, require two identical enumerations 500 ms apart
-      before applying, and let WSGM's existing per-mode resolution/refresh/DPI/HDR profile run after
-      the scene establishes which targets exist. Include crash, cancellation and Desktop rollback
-      coverage so a topology change cannot strand the session without Explorer or a usable display.
+- [ ] **Make on-demand Game Mode one cancellable, fail-open transaction.** The overlay and the
+      notification icon begin it from Desktop Mode. Show the WSGM splash over the live desktop, run
+      the configured plugin actions, display every prerequisite that is still waiting, and allow
+      cancellation before Explorer exit without changing WSGM's shell or display state. After the
+      prerequisites resolve, capture the verified Explorer recovery anchor, exit Explorer, apply the
+      destination layout in order, and enter the existing Game surfaces/Steam launch path. Today
+      the profile is applied and Big Picture requested before Explorer exits; that order changes. A
+      failure after the irreversible boundary compensates successful steps in reverse order and
+      restores the Desktop layout and Explorer. External actions such as IR or Home Assistant calls
+      are best-effort/compensated; they cannot truthfully promise that no external side effect
+      occurred.
+- [ ] **Game Mode launch configuration in WSGM Settings.** Default keeps today's launch on the main
+      display. Custom shows the launch editor: which displays are active, which is primary, each
+      display's position, resolution, refresh rate, DPI and HDR, an optional display wait, and
+      optional plugin actions chosen per enabled plugin with their arguments. Snapshot fills the
+      editor from the current Windows arrangement, DisplayMagician style, and Save stores it.
+      Saving changes nothing live; test actions that switch displays or fire external devices stay
+      in the overlay. Leaving Game Mode returns to a configurable layout: the arrangement captured
+      at entry, persisted for crash recovery, or a configured Desktop layout from the same editor
+      with its own Snapshot. A Desktop section keeps #51's Leave Game Mode, Desktop startup and
+      Desktop wake plugin actions, so a switch that auto-selects the PC on wake can be sent back to
+      its preferred source. This replaces the fixed Desktop/Game profiles in Settings > Display and
+      the Overlay > Tools > Display routes editor, with migration of existing configuration.
 - [x] **Add Windows power-scheme selection to Core.** Enumerate installed schemes, identify and read
       the active scheme, select one through the locale-independent `powrprof` API, and verify with
       `PowerGetActiveScheme`. Project it on WSGM's Power/Performance surfaces independently of
@@ -619,6 +641,19 @@ device-specific power limit consumed by AutoTDP, but it never owns or reimplemen
 
 Capabilities that were already incomplete or explicitly future work. None was removed to make the
 architecture smaller.
+
+- [ ] **Author IR commands from known codes.** The maintainer has lost the remotes for the Hisense
+      TV and a Koenic air conditioner, so learning is unavailable for both. Add commands from
+      protocol codes: first NEC/NECext encoded to raw timings, to test public Hisense power
+      candidates such as Flipper-IRDB entries, then stateful air-conditioner protocols where one
+      frame carries mode, temperature, fan and swing. Identify the Koenic model's protocol before
+      building AC support; Koenic is not listed by name in the maintainer-supplied reference
+      [pyhvac](https://github.com/frawau/pyhvac) (MIT, derived from IRremoteESP8266, 70+ brands
+      including Midea, Gree, TCL and Haier), so the unit's OEM protocol must be matched first.
+      Check the upstream license provenance before porting any frame encoder.
+      Encoded commands report their carrier as protocol-derived, not measured.
+      Most TV power codes toggle, and an endpoint acknowledgement proves emission only; where the
+      HDMI chain allows it, display arrival confirms power-on.
 
 - [x] **Fix two SD cards showing under one card's name.** Steam's `libraryfolders.vdf` `label`
       belongs to a path registration, not a card, so re-registering a reader path left the previous
