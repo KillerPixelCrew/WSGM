@@ -7,11 +7,11 @@ submodule changes, without feature branches or pull requests.
 ## Current issue workoff
 
 After delivery of #38/#39, #51/#53, #58/#59, #61, #65–#68, #22/#26/#35/#36 and, on 2026-09-11,
-#20/#30/#31/#34, 13 issues remain open. Issues #41, #42, #44, #45, #47 and #48 remain deferred; the
-other seven are the 2.0 scope. #20 and #28 were closed on 2026-09-10 and reopened on 2026-09-11:
-#20 because the Session tab had not followed the category migration (delivered the same day), #28
-because the September 9 Steam Client Beta reworked the library UI and added Big Art Mode. #52
-hardware capture remains open. #70–#72 were filed on 2026-09-11 for the same beta.
+#20/#28/#30/#31/#34/#70/#71/#72, nine issues remain open. Issues #41, #42, #44, #45, #47 and #48
+remain deferred; #21, #40 and #52 are the 2.0 scope. #20 and #28 were closed on 2026-09-10 and
+reopened on 2026-09-11: #20 because the Session tab had not followed the category migration, #28
+because the September 9 Steam Client Beta reworked the library UI and added Big Art Mode; both were
+delivered the same day. #70–#72 were filed on 2026-09-11 for the same beta and closed that evening.
 
 Every remaining 2.0 issue is waiting on something outside the repository, which is why the count
 stops here rather than at zero:
@@ -36,8 +36,8 @@ stops here rather than at zero:
   script and its boot retry are gone. Verified on the beta with the card present and pulled.
   Follow-up the same evening: the library also shows on the game's own page, as a stat after Last
   Played and Play Time (`steam-ui.library-details`), through a new shared JSX-runtime claim that
-  download sort moved onto. Offline checks pass on Stable and the beta; not yet seen on screen, and
-  download sort needs a live check after the move.
+  download sort moved onto. Offline checks pass on Stable and the beta, and the maintainer confirmed
+  the page on Stable; download sort after the move was not reported on separately.
 - #72 is delivered (2026-09-11). Home's carousel is `SteamHomeCarouselSurface`: the toolkit
   claims Home's memo, replaces the one `games` array Home hands the carousel and its background, and
   orders it from Steam's own collections under WSGM's instruction (games on disconnected cards
@@ -48,7 +48,7 @@ stops here rather than at zero:
   built its tree, the carousel reported 93 installed entries with the 88 games found only on
   absent cards left out (matching the card model with SDCard1 in the reader), and the maintainer
   confirmed Home. Greyed uninstalled games were not checked on screen.
-- #70 is implemented, not closed (2026-09-11). The beta renumbered Steam's module registry: on its
+- #70 is delivered and closed (2026-09-11). The beta renumbered Steam's module registry: on its
   first start the audio, performance, brightness and Bluetooth gates refused and every Quick Access
   row degraded, and the side-menu snapshot and native QAM/Home/keyboard replay (#65, #67) named ids
   that were gone. Nothing names a module id or a minified export any more: the resolver's
@@ -59,16 +59,18 @@ stops here rather than at zero:
   beta features' evaluation are in `docs\steam-cef.md`. Verified live the same evening on the beta and
   then on Stable: every patch verified on both, the Screensaver rows standing aside on Stable, which
   has no screensaver. Those passes also moved the header Wi-Fi indicator to both modes and made a
-  stale screensaver bound drop when its surface does not hold. **Open:** the restart and transition
-  matrix.
-- #71 is implemented, not closed (2026-09-11). `SteamScreensaverSurface` appends "Turn display off
+  stale screensaver bound drop when its surface does not hold. Closed at the maintainer's direction
+  after those passes; the restart and desktop/game transition matrix was not run as its own pass.
+- #71 is delivered and closed (2026-09-11). `SteamScreensaverSurface` appends "Turn display off
   after (on battery)" and "(plugged in)" to Steam's Screensaver section through a new shared
   `useMemo` claim the Quick Access host now uses too. Both rows and the overlay's screen-off rows go
   through one owner, `Shell\DisplayTimeouts`, over the active scheme; Steam's reported screensaver
   timeout bounds them (`Core\DisplayTimeoutPolicy`), a report raises a breach once, choices below the
   bound are neither offered nor accepted. 30 toolkit cases, the emitted-gate check and 30 WSGM cases
-  (policy, owner and host) pass. **Open:** the rows on the live beta page, the raise on the device, CEF reload, Steam restart,
-  desktop-to-game transition and AC/battery changes, and `powercfg /requests` unaffected.
+  (policy, owner and host) pass. On the beta the patch verified and raised the plugged-in display
+  timeout from 1 to 5 min; on Stable it stood aside. Closed at the maintainer's direction; not run as
+  separate passes: CEF reload, desktop-to-game transition, AC/battery changes and
+  `powercfg /requests`.
 - #27 and #40 are implemented as far as they can be without a device session and the brand mark.
 
 - #30 and #31 are delivered and verified live on the September 2026 beta (2026-09-11). The
