@@ -223,8 +223,10 @@ stops here rather than at zero:
   demand so #51 routes work after a restart without a manual Connect, and endpoint refusals read as
   instructions. Seventeen plugin tests cover the wire framing, cancellation, pairing and on-demand
   identification. Firmware 0.2.0 is flashed on the reference XIAO and passed the USB checks again plus
-  invalid Wi-Fi argument refusal and learn timeout. Still open on hardware: a live network join and
-  token check over Wi-Fi, and a real remote/button for capture/replay.
+  invalid Wi-Fi argument refusal and learn timeout. The endpoint then paired and joined the network,
+  resolved by mDNS, identified over Wi-Fi through the real plugin, refused unpaired LAN clients and
+  reported a remote-less learn as a timeout instruction. Still open on hardware: a real remote/button
+  for capture/replay.
 
 - #67 is implemented: one Tools keyboard action routes by current mode, with Steam-specific invocation
   in the toolkit and Windows using the existing touch keyboard. Sheet dismissal precedes invocation;

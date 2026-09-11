@@ -115,8 +115,12 @@ factory backup is `.codex/issue-52/factory-flash.bin`, SHA-256
 same way on 2026-09-11 and the running C# plugin identified it as firmware 0.2.0/protocol 1 with
 host name `wsgm-ir-15ef50`. Live USB checks passed protocol mismatch rejection, malformed-frame
 recovery, invalid-send refusal, invalid Wi-Fi argument refusal, learn cancellation, learn timeout
-status and idle health readback. Those checks did not transmit IR, join a network or establish
-appliance behavior. The ESP32-C3 ROM loader remains the recovery path; Seeed also links a factory
+status and idle health readback. Later that day the plugin paired the endpoint over USB; it joined
+the maintainer's network, resolved as `wsgm-ir-15ef50.local`, and the plugin verified its identity
+over Wi-Fi through both the paired name and an explicit `host:port`. From an unpaired LAN client,
+identify answered while health, send, learn and cancel returned `unauthorized` and `wifi` returned
+`usb-only`; a learn over Wi-Fi with no remote reported the timeout as an instruction. Those checks
+did not transmit IR or establish appliance behavior. The ESP32-C3 ROM loader remains the recovery path; Seeed also links a factory
 firmware flasher from the wiki. Reflashing does not touch the host command library or pairing file,
 but it does not clear NVS either: Forget Wi-Fi over USB, or an esptool `erase-flash`, removes stored
 credentials. Hardware acceptance must distinguish a firmware build from successful capture and
