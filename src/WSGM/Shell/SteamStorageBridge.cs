@@ -41,6 +41,8 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     /// <summary>The session's library policy, or null when this session owns none.</summary>
     private readonly LibraryPolicy? _policy;
     private string _loggedProjection = "";
+    private bool _lastAdoptSupported;
+    private bool _lastUnmountSupported;
 
     /// <summary>Creates the bridge over the managers that already own these operations.</summary>
     /// <param name="drives">The removable-drive manager, which owns safe eject.</param>
@@ -132,15 +134,23 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
             // CardReader" on the drive above. Size is the volume's for the same reason — the
             // entry's is the whole device's, which would report one size on every partition.
             StorageVolume? volume = paths.Count == 0 ? null : FindVolume(volumes, paths[0]);
+            IReadOnlyList<string> libraries = paths.Count == 0 ? [] : LibraryPathsOn(paths[0]);
             devices.Add(new SteamStorageBlockDevice(
                 Id: DeviceId(entry.Id),
                 DriveId: MatchingDrive(volume, formattable),
                 Label: volume is null || volume.Label.Length == 0 ? entry.Name : volume.Label,
                 FriendlyPath: paths.Count > 0 ? paths[0] : "",
                 SizeBytes: volume?.CapacityBytes ?? entry.SizeBytes,
-                MountPaths: paths,
-                HasSteamLibrary: paths.Any(HasSteamLibrary)));
+                MountPaths: [.. paths, .. libraries],
+                HasSteamLibrary: libraries.Count > 0));
         }
+
+        // Steam gates its two drive-menu entries on these: Eject on unmount support, Format on
+        // adopt support. Unmount is reported against the rows that can actually be ejected rather
+        // than against the drive list, because a machine with a formattable disk and nothing
+        // ejectable would otherwise offer an eject with no row behind it.
+        _lastAdoptSupported = true;
+        _lastUnmountSupported = devices.Count > 0;
 
         LogProjection(drives, devices);
 
@@ -149,8 +159,8 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         return new SteamStorageState(
             drives,
             devices,
-            AdoptSupported: true,
-            UnmountSupported: ejectable.Length > 0,
+            AdoptSupported: _lastAdoptSupported,
+            UnmountSupported: _lastUnmountSupported,
             TrimSupported: false,
             TrimRunning: false);
     }
@@ -213,7 +223,12 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
                 + $"unformatted={drive.Unformatted}")
             .Concat(devices.Select(device =>
                 $"volume {device.Id} '{device.Label}' {device.FriendlyPath} {device.SizeBytes}B "
-                + $"onDrive={device.DriveId} steamLibrary={device.HasSteamLibrary}")));
+                + $"onDrive={device.DriveId} steamLibrary={device.HasSteamLibrary} "
+                + $"mounts=[{string.Join(" ", device.MountPaths)}]")));
+        // The support flags decide whether Steam draws its Eject and Format entries at all --
+        // eject on unmount, format on adopt -- so a row that is right and a menu that is empty is
+        // answered here rather than by reading it out of the client.
+        summary += $" | adopt={_lastAdoptSupported} unmount={_lastUnmountSupported}";
         if (summary == _loggedProjection)
         {
             return;
@@ -244,6 +259,64 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         volumes.FirstOrDefault(volume => volume.MountPath.Length > 0 && path.Length > 0
             && char.ToUpperInvariant(volume.MountPath[0]) == char.ToUpperInvariant(path[0]));
 
+    /// <summary>Every Steam library registered on a volume, as Steam spells the path.</summary>
+    /// <param name="path">Any path on the volume, for example <c>D:\</c>.</param>
+    /// <returns>The registered library paths on it, which may be empty.</returns>
+    /// <remarks>
+    /// These have to travel in the volume's <c>mount_paths</c>, and that is not cosmetic. Steam's
+    /// library-folder row finds the volume behind a folder by looking for a block device whose
+    /// mount paths <em>contain the folder path</em> — <c>D:\SteamLibrary</c>, not <c>D:\</c> — and
+    /// the row's eject calls <c>Unmount</c> with the id of whatever that lookup returned. Publishing
+    /// only the volume root means the lookup finds nothing, so the eject has nothing to call and
+    /// the press does nothing at all, with no request leaving the client.
+    /// </remarks>
+    private static IReadOnlyList<string> LibraryPathsOn(string path)
+    {
+        string root = RootOf(path);
+        if (root.Length == 0)
+        {
+            return [];
+        }
+
+        try
+        {
+            if (!Steam.TryReadLibraryFolders(out _, out string? vdf) || vdf is null)
+            {
+                return [];
+            }
+
+            return SteamLibraryVdf.ValuesOf(vdf, "path")
+                .Where(library => string.Equals(RootOf(library), root,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or ArgumentException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>The volume root a path sits on, or empty when it does not name one.</summary>
+    /// <param name="path">Any path on the volume.</param>
+    /// <returns>The root, for example <c>D:\</c>.</returns>
+    private static string RootOf(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return "";
+        }
+
+        try
+        {
+            return Path.GetPathRoot(path) ?? "";
+        }
+        catch (ArgumentException)
+        {
+            return "";
+        }
+    }
+
     /// <summary>Whether a mounted path carries a Steam library.</summary>
     /// <param name="path">The mount path, for example <c>D:\</c>.</param>
     /// <returns>True when any registered Steam library sits on that volume.</returns>
@@ -260,30 +333,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     /// already a library, rather than silently treating an unknown drive as in use.
     /// </para>
     /// </remarks>
-    private static bool HasSteamLibrary(string path)
-    {
-        if (path.Length == 0)
-        {
-            return false;
-        }
-
-        try
-        {
-            if (!Steam.TryReadLibraryFolders(out _, out string? vdf) || vdf is null)
-            {
-                return false;
-            }
-
-            string root = Path.GetPathRoot(path) ?? "";
-            return root.Length > 0 && SteamLibraryVdf.ValuesOf(vdf, "path").Any(library =>
-                string.Equals(Path.GetPathRoot(library), root, StringComparison.OrdinalIgnoreCase));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-            or ArgumentException)
-        {
-            return false;
-        }
-    }
+    private static bool HasSteamLibrary(string path) => LibraryPathsOn(path).Count > 0;
 
     /// <inheritdoc />
     public async Task<SteamUiCommandResult> AdoptAsync(uint driveId, CancellationToken cancellationToken)
@@ -318,6 +368,11 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     public async Task<SteamUiCommandResult> EjectAsync(
         uint blockDeviceId, uint driveId, CancellationToken cancellationToken)
     {
+        // Logged on arrival, not only on failure. Steam's own UI decides whether to send this at
+        // all, so "nothing happened" has two very different causes — the press never left the
+        // client, or it arrived and was refused — and only one of them is WSGM's to fix.
+        Log.Info($"Steam storage: eject requested (volume {blockDeviceId}, drive {driveId}).");
+
         // The volume is preferred: it is what Windows ejects. A drive-level press is resolved to
         // the volume sitting on it, because the managers only eject volumes and devices.
         string? id = ResolveDevice(blockDeviceId) ?? ResolveDrive(driveId);
@@ -326,6 +381,8 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
             : _drives.Drives.FirstOrDefault(drive => drive.Id == id);
         if (entry is null)
         {
+            Log.Warn($"Steam storage: eject refused, no row answers to volume {blockDeviceId} "
+                + $"or drive {driveId}.");
             return Refuse("That drive is no longer present.");
         }
         if (!entry.ActionEnabled)

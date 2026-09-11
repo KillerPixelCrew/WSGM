@@ -16,10 +16,6 @@ public enum EjectKind
     Media = 1,
 }
 
-/// <summary>One row in the Safe Eject list — a physical removable device (all of
-/// its volumes together), or one piece of removable media. A row instance
-/// survives refreshes so the gamepad cursor keeps its place; only its values are
-/// updated (the radio/Bluetooth row discipline).</summary>
 /// <summary>Watches one eject so something else can decide what it means.</summary>
 /// <remarks>
 /// The drive manager performs Windows ejects and knows nothing about Steam libraries. This is how
@@ -40,6 +36,10 @@ public interface IRemovableDriveEjectObserver
     Task EjectedAsync(RemovableDriveEntry entry, bool succeeded);
 }
 
+/// <summary>One row in the Safe Eject list — a physical removable device (all of
+/// its volumes together), or one piece of removable media. A row instance
+/// survives refreshes so the gamepad cursor keeps its place; only its values are
+/// updated (the radio/Bluetooth row discipline).</summary>
 public sealed class RemovableDriveEntry : INotifyPropertyChanged
 {
     /// <summary>Raised after a displayed value changes.</summary>

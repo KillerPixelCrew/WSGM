@@ -137,8 +137,8 @@ on the scan can be seconds old, and a reader takes a new card in far less than t
 `StillInTheReader` re-reads the marker immediately before the add or replace and abandons the
 decision when the identity no longer matches — otherwise the pass would register the card that left,
 or hand the card that arrived the previous one's label, and `LibraryPolicy.Decide` would see a
-matching id afterwards and never correct it. The swap raised its own notification, so the pass it schedules
-decides again on what is actually there.
+matching id afterwards and never correct it. The swap raised its own notification, so the pass it
+schedules decides again on what is actually there.
 
 This one path cannot use a volume GUID: `AddInstallFolder` registers a path with Steam, and Steam
 needs a real drive-letter path. The re-read immediately before the call is the whole guard available
