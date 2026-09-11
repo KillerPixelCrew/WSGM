@@ -1054,10 +1054,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Gets or sets whether Steam's own storage pages may erase a drive through WSGM.</summary>
     /// <remarks>
-    /// Off by default and separate from <see cref="CefSdFormat"/>: that one is WSGM's own guided
-    /// flow, this one lets Steam's Format Drive modal start the same erase from one controller
-    /// press. The refusal Steam shows when this is off is a generic result code, so the switch has
-    /// to be where the user can find it — which it was not, for a day.
+    /// An opt-out, separate from <see cref="CefSdFormat"/>: that one is WSGM's own guided flow,
+    /// this one lets Steam's Format Drive modal start the same erase. The refusal Steam shows when
+    /// this is off is a generic result code, so the switch has to be where the user can find it —
+    /// which it was not, for a day.
     /// </remarks>
     public bool SteamStorageFormat
     {

@@ -718,12 +718,15 @@ public sealed class AppConfig
 
     /// <summary>Allow Steam's own storage pages to erase a drive through WSGM's format workflow.</summary>
     /// <remarks>
-    /// Off by default. Reviving those pages makes eject and library registration reachable from Big
-    /// Picture, which are recoverable; erasing a card is not, and Steam's page can offer it to a
-    /// single controller press. The format itself is <see cref="Shell.SdFormatManager"/>'s, with all
-    /// of its identity re-checks — this only decides whether that path may be started from Steam.
+    /// On by default, as an opt-out. It started life off by default on the argument that Steam's
+    /// page offers an erase to a single controller press; in use, Steam's Format Drive modal is
+    /// already a confirmation with a typed name, and <see cref="Shell.SdFormatManager"/> re-verifies
+    /// the disk's identity before every destructive step regardless of who asked. What the extra
+    /// gate actually did was make the feature look broken to anyone who had not found the toggle
+    /// (Claw, 2026-09-11). Off refuses only the erase; eject and library registration from that
+    /// page keep working.
     /// </remarks>
-    public bool SteamStorageFormatEnabled { get; set; }
+    public bool SteamStorageFormatEnabled { get; set; } = true;
     /// <summary>Fullscreen "Please wait" cover at logon that hides startup-app
     /// window flashes until Steam Big Picture is on screen (see Shell\BootSplash).</summary>
     public bool BootSplashEnabled { get; set; } = true;
