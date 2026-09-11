@@ -483,6 +483,53 @@ public sealed class SteamUiSessionHostTests
             snapshot => snapshot.Id == "steam-ui.overlay-activation").Enabled);
     }
 
+    [Fact]
+    public async Task StorageSurfaceIsDeclaredOnlyWithABridgeBehindIt()
+    {
+        await using var transport = new SessionHostTransport();
+        await using var performance = new PerformanceService(
+            new SimulatedRtssAdapter(), (_, _) => Task.CompletedTask);
+        using var drives = new RemovableDriveManager();
+        var bridge = new SteamStorageBridge(drives, new SdFormatManager(), () => false);
+        await using var host = new SteamUiSessionHost(
+            transport, _ => Task.FromResult(true), null, performance, storage: bridge);
+
+        host.Apply(true);
+        await transport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await WaitForAsync(() => transport.BridgeConfiguration is not null);
+
+        // The gate and the command vocabulary both reach the client, which is what a session
+        // holding a bridge but never declaring the module would not do — the failure this covers.
+        Assert.Contains(
+            "\"steam-ui.storage\":[\"adopt\",\"unmount\",\"eject\",\"format\",\"trimall\"]",
+            transport.BridgeConfiguration,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            host.GetPatchSnapshots(), snapshot => snapshot.Id == SteamStorageSurface.PatchId);
+    }
+
+    [Fact]
+    public async Task StorageSurfaceIsAbsentWithoutOne()
+    {
+        await using var transport = new SessionHostTransport();
+        await using var performance = new PerformanceService(
+            new SimulatedRtssAdapter(), (_, _) => Task.CompletedTask);
+        await using var host = new SteamUiSessionHost(
+            transport, _ => Task.FromResult(true), null, performance);
+
+        host.Apply(true);
+        await transport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await WaitForAsync(() => transport.BridgeConfiguration is not null);
+
+        // Overlay-test owns no storage managers. Installing the gate there would revive Steam's
+        // pages onto a backend that cannot answer them. The asset always carries the gate's source,
+        // so what says whether the surface exists is the command vocabulary, not the text.
+        Assert.DoesNotContain(
+            "\"steam-ui.storage\":[", transport.BridgeConfiguration, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            host.GetPatchSnapshots(), snapshot => snapshot.Id == SteamStorageSurface.PatchId);
+    }
+
     private static async Task WaitForAsync(Func<bool> condition)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));

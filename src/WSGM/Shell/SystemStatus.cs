@@ -24,6 +24,9 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     /// <param name="radios">
     /// A session-scoped radio manager to share, or null to create and own one.
     /// </param>
+    /// <param name="drives">
+    /// A session-scoped removable-drive manager to share, or null to create and own one.
+    /// </param>
     /// <remarks>
     /// The taskbar comes and goes while a session lasts, so anything that must answer for the whole
     /// session — Steam's audio namespace, in particular — cannot depend on a manager this object
@@ -31,12 +34,15 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     /// point: two managers would enumerate endpoints twice and could disagree about which device is
     /// default.
     /// </remarks>
-    public SystemStatus(AudioManager? audio = null, RadioManager? radios = null)
+    public SystemStatus(
+        AudioManager? audio = null, RadioManager? radios = null, RemovableDriveManager? drives = null)
     {
         _ownsAudio = audio is null;
         Audio = audio ?? new AudioManager();
         _ownsRadios = radios is null;
         Radios = radios ?? new RadioManager();
+        _ownsDrives = drives is null;
+        Drives = drives ?? new RemovableDriveManager();
     }
 
     /// <summary>Raised after a status property changes.</summary>
@@ -44,6 +50,7 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
 
     private readonly bool _ownsAudio;
     private readonly bool _ownsRadios;
+    private readonly bool _ownsDrives;
     private DispatcherTimer? _timer;
     private bool _disposed;
 
@@ -107,8 +114,9 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     public AudioManager Audio { get; }
 
     /// <summary>Gets the removable-storage manager backing the taskbar's eject
-    /// tile and the Safe Eject panel. Owned and disposed with this object.</summary>
-    public RemovableDriveManager Drives { get; } = new();
+    /// tile and the Safe Eject panel. Disposed with this object only when this object
+    /// created it — a manager supplied by the session outlives every taskbar.</summary>
+    public RemovableDriveManager Drives { get; }
 
     /// <summary>Performs an immediate refresh and starts the 1 s update timer.
     /// UI-thread callers only (the timer is a DispatcherTimer). Idempotent.
@@ -156,7 +164,11 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
             Audio.Dispose();
         }
 
-        Drives.Dispose();
+        if (_ownsDrives)
+        {
+            Drives.Dispose();
+        }
+
         if (_timer is null)
         {
             return;

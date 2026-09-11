@@ -55,6 +55,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>The Bluetooth surface, riding the same radio-manager condition.</summary>
     private readonly NativeQamBluetoothService? _bluetooth;
 
+    /// <summary>
+    /// Steam's revived storage pages over WSGM's own eject, format and library registration, or
+    /// null when this session has no storage managers to answer with.
+    /// </summary>
+    private readonly SteamStorageBridge? _storage;
+
     private readonly PerformanceService _performanceService;
     private readonly PerformanceServiceNativeQamAdapter _performance;
     private readonly Action<PerformanceState> _onPerformanceStateChanged;
@@ -102,6 +108,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <param name="applyVariableRefreshRate">Applies the VRR flag, or null.</param>
     /// <param name="showBluetoothPanel">Opens the session's Bluetooth prompt and status surface.</param>
     /// <param name="brightness">Session-owned brightness, or null for a standalone host.</param>
+    /// <param name="storage">
+    /// The bridge over the session's own storage managers, or null when this session has none —
+    /// overlay-test, which owns no drive or format manager to answer with. The surface is then not
+    /// declared at all, so Steam's storage pages stay as inert as they are without WSGM rather than
+    /// opening onto controls with nothing behind them.
+    /// </param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
@@ -115,8 +127,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         Func<int, bool>? applyRefreshRate = null,
         Func<bool, CancellationToken, Task<bool>>? applyVariableRefreshRate = null,
         Func<bool>? showBluetoothPanel = null,
-        NativeQamBrightnessService? brightness = null)
+        NativeQamBrightnessService? brightness = null,
+        SteamStorageBridge? storage = null)
     {
+        _storage = storage;
         _resolution = resolution is null ? null : new NativeQamResolutionService(resolution);
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         ArgumentNullException.ThrowIfNull(toggleQuickAccess);
@@ -503,6 +517,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_bluetooth is { } bluetooth)
         {
             modules.Add(SteamBluetoothSurface.Module(Enabled, bluetooth.ReadStateAsync, bluetooth));
+        }
+
+        // Reading is synchronous: both managers keep their own state and this only projects it,
+        // so there is nothing to await and no reason to hop threads to answer Steam.
+        if (_storage is { } storage)
+        {
+            modules.Add(SteamStorageSurface.Module(Enabled, () => new(storage.ReadState()), storage));
         }
 
         return modules;

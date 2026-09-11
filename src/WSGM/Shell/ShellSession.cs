@@ -143,6 +143,32 @@ public sealed class ShellSession : IAsyncDisposable
     /// power and only makes sense while a network list is on screen.
     /// </remarks>
     private RadioManager? _radios;
+
+    /// <summary>
+    /// The one removable-drive manager for this session, shared by the taskbar's eject tile and
+    /// Steam's revived storage pages.
+    /// </summary>
+    /// <remarks>
+    /// Session-scoped for the same reason as the audio manager: Steam's storage service is asked
+    /// while the overlay is closed, and the taskbar's manager dies with the taskbar. Two would
+    /// enumerate every volume twice and could disagree about what is still ejectable.
+    /// </remarks>
+    private RemovableDriveManager? _drives;
+
+    /// <summary>
+    /// The one format manager for this session, shared by the overlay's Format SD Card flow and
+    /// Steam's storage pages.
+    /// </summary>
+    /// <remarks>
+    /// Session-scoped because a format outlives the surface that started it, which was already true
+    /// of the overlay's own: it kept one for the controller's lifetime so a completion reached with
+    /// the sheet closed still surfaced. Steam's pages make that matter twice over, since the format
+    /// can now be started from either side and both have to see the same run.
+    /// </remarks>
+    private SdFormatManager? _formats;
+
+    /// <summary>Steam's revived storage pages over those two managers, or null in overlay-test.</summary>
+    private SteamStorageBridge? _steamStorage;
     private int _pairedFrameLimit = -1;
     private PerformanceOverlayBridge? _performanceOverlay;
     private PersistentSteamUiTransport? _steamUiTransport;
@@ -629,6 +655,20 @@ public sealed class ShellSession : IAsyncDisposable
             // network list. The manager exists for the whole session so Steam's Internet page can
             // drive it, but it stays idle until something asks.
             _radios = new RadioManager();
+
+            // Started here rather than by the taskbar, for the same reason as audio: Steam's
+            // storage pages ask what is ejectable while the overlay is closed, and an unstarted
+            // manager would answer "nothing" to someone holding a card.
+            _drives = new RemovableDriveManager();
+            _drives.Start();
+            _formats = new SdFormatManager();
+
+            // Over the same two managers the overlay's storage flows use. Steam's revived pages are
+            // a second surface on one backend, not a second implementation. The format switch is
+            // read through the session's live config, so switching it in Settings takes effect on
+            // the next press rather than the next session.
+            _steamStorage = new SteamStorageBridge(
+                _drives, _formats, () => _config.SteamStorageFormatEnabled);
         }
 
         _overlay = new OverlayController(
@@ -646,7 +686,9 @@ public sealed class ShellSession : IAsyncDisposable
             commonPlugins: _commonPlugins is null && _deviceCoordinator is null ? null
                 : new CommonPluginOverlaySource(_commonPlugins, _pluginHost,
                     _deviceCoordinator is not null && _deviceOverlay is not null
-                        ? new DeviceWidgetSource(_deviceCoordinator, _deviceOverlay) : null));
+                        ? new DeviceWidgetSource(_deviceCoordinator, _deviceOverlay) : null),
+            drives: _drives,
+            formats: _formats);
         _overlay.ShowOnScreenKeyboard = ShowOnScreenKeyboardAsync;
         _overlay.ManualTdp = _deviceCoordinator;
         if (!_overlayTestOnly)
@@ -788,7 +830,8 @@ public sealed class ShellSession : IAsyncDisposable
                 // bare ApplyVariableRefreshRateAsync stays the profile restore's device write.
                 _deviceCoordinator is null ? null : SetVariableRefreshRateFromUserAsync,
                 () => _overlay?.ShowBluetoothPanel() == true,
-                _brightness);
+                _brightness,
+                _steamStorage);
             _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
             _steamUi.ApplySurfaceObservation(_config.Cef.Enabled);
             if (_deviceCoordinator is { } handoffDevice)
@@ -2442,6 +2485,22 @@ public sealed class ShellSession : IAsyncDisposable
                 _radios.Dispose();
                 _radios = null;
             }
+
+            // Before the drive manager, whose collection the bridge is subscribed to. The format
+            // manager holds no timer or handle to release; its work is a task already cancelled
+            // with the session, so only the drive manager is disposed after it.
+            if (_steamStorage is not null)
+            {
+                _steamStorage.Dispose();
+                _steamStorage = null;
+            }
+
+            if (_drives is not null)
+            {
+                _drives.Dispose();
+                _drives = null;
+            }
+            _formats = null;
             _tabBootSyncCancellation.Dispose();
             _shutdownCancellation.Dispose();
 

@@ -2730,13 +2730,41 @@
     const ServicePrefix = "StorageDeviceManager.";
     const TransportToken = "GetDefaultTransport";
     const ServiceToken = "StorageDeviceManager.IsServiceAvailable#1";
+    // Claiming the transport is not enough, and this is the part that was wrong: Steam asks each of
+    // these questions exactly once. Both queries are registered with `staleTime: 1/0`, and the state
+    // query is `enabled:` on the availability answer, so the client's whole storage UI hangs off one
+    // cached boolean.
+    //
+    // That answer is already cached by the time this gate can install. The availability query runs
+    // when the first component using it mounts, which happens while the library is building itself --
+    // before Steam's UI exists as a patch target at all. It goes to the real transport, the Windows
+    // client has no service behind it, and the rejection is cached forever. From then on nothing asks
+    // again: the drive menu's Eject and Format entries are gated on `is_unmount_supported` and
+    // `is_adopt_supported` from a state query that is disabled, so they are simply absent, and no
+    // StorageDeviceManager call is ever made for this gate to answer. Observed exactly that way on
+    // the September 2026 beta: gate installed, resolved and claimed, 13 unrelated calls forwarded,
+    // zero answered.
+    //
+    // Steam's own store solves this the same way when the service state changes -- it invalidates
+    // both keys through the shared query client -- so this does what the client does, with the key
+    // names read off the client's own module.
+    const QueryClientTokens = ["ReactQueryDevtools", "offlineFirst"];
+    const StorageQueryScope = "SystemStorageService";
+    const AvailabilityQueryKey = [StorageQueryScope, "IsServiceAvailable"];
+    const StateQueryKey = [StorageQueryScope, "State"];
     // A machine with more drives than this is not a handheld, and the state is rendered as rows.
     const MaximumDrives = 32;
     let runtime;
     let transport = null;
+    let queryClient = null;
     let installed = false;
     let lastError = "";
     let unsubscribe = null;
+    let invalidated = 0;
+    // What was last published, as the shape Steam would read. A publication that says the same thing
+    // must not invalidate: the host republishes on its own poll, and invalidating each time would put
+    // a GetState and a re-render on every tick for storage that has not changed.
+    let stateSignature = "";
     // What the host says the machine's storage looks like. Empty until it publishes, and an empty
     // state is still answered: "no removable drives" is a truthful answer and the page renders it,
     // where refusing to answer leaves Steam's spinner up forever.
@@ -2836,6 +2864,33 @@
       lastError = "no export yielded a transport";
       return false;
     };
+    // The one shared query client, found by the module that builds it rather than by a name: it is
+    // constructed once beside the provider and the devtools element, and exported as a plain object.
+    // Duck-typed on invalidateQueries for the same reason the transport is duck-typed on SendMsg --
+    // the export names are minified and change between builds, the shape does not.
+    const resolveQueryClient = () => {
+      const ids = runtime.findUnique(QueryClientTokens);
+      if (!ids) return null;
+      const exports = runtime(ids[0]);
+      for (const key of Object.keys(exports)) {
+        const candidate = exports[key];
+        if (candidate && typeof candidate.invalidateQueries === "function") {
+          return candidate;
+        }
+      }
+      return null;
+    };
+    // Never fatal. A gate that answers Steam's questions is still strictly better than one that does
+    // not, and the alternative to a missed invalidation is refusing to install at all.
+    const invalidate = (queryKey) => {
+      if (!queryClient) return;
+      try {
+        queryClient.invalidateQueries({ queryKey });
+        invalidated++;
+      } catch (error) {
+        lastError = "invalidate failed: " + String(error);
+      }
+    };
     const install = () => {
       if (installed) return { ok: true, alreadyInstalled: true };
       try {
@@ -2862,6 +2917,7 @@
       }
       installed = true;
       lastError = "";
+      queryClient = resolveQueryClient();
       unsubscribe = subscribe(patchId, (published) => {
         if (!published || typeof published !== "object") return;
         const drives = Array.isArray(published.drives) ? published.drives : [];
@@ -2883,7 +2939,15 @@
           is_trim_supported: published.trimSupported === true,
           is_trim_running: published.trimRunning === true,
         };
+        const signature = JSON.stringify(state);
+        if (signature === stateSignature) return;
+        stateSignature = signature;
+        invalidate(StateQueryKey);
       });
+      // Availability first: the state query stays disabled until that answer changes, so invalidating
+      // the state key alone would drop the refetch on the floor.
+      invalidate(AvailabilityQueryKey);
+      invalidate(StateQueryKey);
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
     const remove = () => {
@@ -2898,6 +2962,12 @@
         lastError = released.error ?? "storage transport release failed";
         return { ok: false, error: lastError };
       }
+      // Leaving the answers cached would leave Steam's pages offering Eject and Format against a
+      // service that is no longer claimed, and the first press would reach a transport with nothing
+      // behind it. Asking again puts the client back on its own answer, which is "unavailable".
+      invalidate(AvailabilityQueryKey);
+      invalidate(StateQueryKey);
+      stateSignature = "";
       return { ok: true, removed: true };
     };
     const status = () => ({
@@ -2905,6 +2975,10 @@
       installed,
       resolved: !!transport,
       claimed: memberClaimed(transport, "SendMsg", claimKeys),
+      // Whether the client's cached answers were dropped. Zero here with answered also zero is the
+      // signature of the failure this exists for: claimed, but Steam never asks.
+      queryClient: !!queryClient,
+      invalidated,
       drives: state.drives.length,
       blockDevices: state.block_devices.length,
       // Everything above can be true while the page shows nothing, because Steam only asks once its

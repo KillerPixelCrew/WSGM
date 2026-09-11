@@ -76,6 +76,16 @@ public sealed class OverlayController : IDisposable
     /// Null in overlay-test, where no session owns one and the cluster creates its own.
     /// </remarks>
     private readonly RadioManager? _sessionRadios;
+
+    /// <summary>
+    /// The session's removable-drive manager, or null when this controller's taskbar owns one.
+    /// </summary>
+    /// <remarks>
+    /// Shared for the same reason audio is: Steam's revived storage pages answer while the overlay
+    /// is closed, and a manager the taskbar disposes cannot serve them. Two managers would also
+    /// enumerate every volume twice and could disagree about what is still ejectable.
+    /// </remarks>
+    private readonly Shell.RemovableDriveManager? _sessionDrives;
     private readonly HotkeyService _hotkey;
     private readonly GamepadService _gamepad = new();
 
@@ -137,13 +147,21 @@ public sealed class OverlayController : IDisposable
         RadioManager? radios = null,
         DevicePowerPresets? powerPresets = null,
         DevicePowerAssignments? powerAssignments = null,
-        CommonPluginOverlaySource? commonPlugins = null)
+        CommonPluginOverlaySource? commonPlugins = null,
+        Shell.RemovableDriveManager? drives = null,
+        Shell.SdFormatManager? formats = null)
     {
         _commonPlugins = commonPlugins;
         _powerPresets = powerPresets;
         _powerAssignments = powerAssignments;
         _sessionAudio = audio;
         _sessionRadios = radios;
+        _sessionDrives = drives;
+        if (formats is not null)
+        {
+            _formatManager = formats;
+            _formatManager.Finished += OnFormatFinished;
+        }
         _config = config;
         _monitor = monitor;
         _modes = modes;
@@ -830,7 +848,7 @@ public sealed class OverlayController : IDisposable
         OnTrayIconsChanged();
         // Shares the session's audio and radio managers when there are any, so the sheet's
         // pills and Steam's own surfaces are the same state rather than two views that can disagree.
-        _systemStatus = new SystemStatus(_sessionAudio, _sessionRadios);
+        _systemStatus = new SystemStatus(_sessionAudio, _sessionRadios, _sessionDrives);
         _systemStatus.Start();
         long setupDone = System.Diagnostics.Stopwatch.GetTimestamp();
         _overlay = new OverlayWindow(vm, switcher, _systemStatus, UiScale(), WindowCenter(_restoreFocusTo));
@@ -1229,7 +1247,7 @@ public sealed class OverlayController : IDisposable
 
         try
         {
-            var status = new SystemStatus(_sessionAudio, _sessionRadios);
+            var status = new SystemStatus(_sessionAudio, _sessionRadios, _sessionDrives);
             var window = new OverlayWindow(
                 new OverlayViewModel(),
                 new AppSwitcherViewModel(),

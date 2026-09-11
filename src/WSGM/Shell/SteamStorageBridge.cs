@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -23,7 +24,7 @@ namespace WSGM.Shell;
 /// A refusal is reported rather than swallowed, so the button says why instead of doing nothing.
 /// </para>
 /// </remarks>
-public sealed class SteamStorageBridge : ISteamStorageBackend
+public sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
 {
     private readonly RemovableDriveManager _drives;
     private readonly SdFormatManager _formats;
@@ -33,13 +34,30 @@ public sealed class SteamStorageBridge : ISteamStorageBackend
     /// <param name="drives">The removable-drive manager, which owns safe eject.</param>
     /// <param name="formats">The format manager, which owns erase and library registration.</param>
     /// <param name="formatAllowed">Whether formatting from Steam's own pages is permitted.</param>
+    /// <remarks>
+    /// The format manager enumerates on demand and has no timer of its own, because until now the
+    /// only thing that opened it was the overlay's format page. Steam's pages have no such moment:
+    /// they ask for the state, and a state with no drive rows leaves the block device Steam did get
+    /// pointing at a parent that is not there. So the enumeration is driven from the one signal that
+    /// already exists — the drive manager's own list, which it reconciles on a 2 s signature — and
+    /// once at construction for whatever is already inserted. That keeps this off a poll: disks are
+    /// re-read when storage changed, not every time Steam asks.
+    /// </remarks>
     public SteamStorageBridge(
         RemovableDriveManager drives, SdFormatManager formats, Func<bool> formatAllowed)
     {
         _drives = drives ?? throw new ArgumentNullException(nameof(drives));
         _formats = formats ?? throw new ArgumentNullException(nameof(formats));
         _formatAllowed = formatAllowed ?? throw new ArgumentNullException(nameof(formatAllowed));
+        _drives.Drives.CollectionChanged += OnDrivesChanged;
+        _formats.Refresh();
     }
+
+    /// <summary>Stops following the drive manager's list.</summary>
+    public void Dispose() => _drives.Drives.CollectionChanged -= OnDrivesChanged;
+
+    private void OnDrivesChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
+        _formats.Refresh();
 
     /// <summary>Projects what the managers currently see into Steam's own state shape.</summary>
     /// <returns>The state, or null while neither manager has anything to report.</returns>
