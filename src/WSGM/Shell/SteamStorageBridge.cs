@@ -249,14 +249,15 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         // The support flags decide whether Steam draws its Eject and Format entries at all --
         // eject on unmount, format on adopt -- so a row that is right and a menu that is empty is
         // answered here rather than by reading it out of the client.
-        summary += $" | adopt={_lastAdoptSupported} unmount={_lastUnmountSupported}";
+        var rows = summary.Length == 0 ? "no removable storage" : summary;
+        summary = $"{rows} | adopt={_lastAdoptSupported} unmount={_lastUnmountSupported}";
         if (summary == _loggedProjection)
         {
             return;
         }
 
         _loggedProjection = summary;
-        Log.Info($"Steam storage: {(summary.Length == 0 ? "nothing to publish" : summary)}");
+        Log.Info($"Steam storage: {summary}");
     }
 
     /// <summary>Whether a disk carries no filesystem Windows could mount.</summary>

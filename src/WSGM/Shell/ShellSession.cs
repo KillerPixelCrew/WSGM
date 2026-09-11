@@ -998,6 +998,13 @@ public sealed class ShellSession : IAsyncDisposable
             // not start next to a live explorer (and nothing would retract them).
             _inGameMode = false;
             _ = NotifyPluginModeAsync(WSGM.Plugin.Sdk.PluginSessionMode.Desktop);
+            // The third entry path the card services have to be started from. Game-mode boot
+            // and the desktop-to-game transition both call this; a session that starts next to a
+            // live desktop did not, and since DesktopModeStarting never fires for it either, the
+            // volume monitor was simply absent: a card pulled from the reader left its library in
+            // Steam's list, with Steam's storage page showing a drive that was not there (Claw,
+            // 2026-09-11). The policy decides what runs on the desktop; this only asks it.
+            ApplyCardServices(gameModeActive: false);
             _steamUi?.ApplyNetworkIndicator(false);
             _steamUi?.ApplyDownloadSort(false);
             RequestSteamUiTransportGateCheck();

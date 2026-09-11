@@ -192,12 +192,18 @@ The notification arrives before the volume is mounted and lettered, so the react
 rescans all drives rather than resolving the reported device path. The decision compares the card's
 own `contentid` (the identity that travels with the card) against the ids registered for that path
 in `libraryfolders.vdf`; Steam's live folder API exposes no content id, so the file is the source.
-Reconciliation is gated on the CEF master switch and off in `--overlay-test`.
+Reconciliation is gated on the CEF master switch and off in `--overlay-test`, and on nothing else.
+It used to be a game-mode service as well, which left Big Picture on the desktop showing a library
+whose card had been pulled (Claw, 2026-09-11): Steam's storage pages are revived whenever the bridge
+is on, in either mode, so the card that is in the reader has to be the library Steam has in either
+mode too. The monitor still waits for the Big Picture window before changing anything, so the wider
+gate changes when it watches, not when it may act. Manifest watching stays with game mode; it serves
+the library tabs.
 
-The monitor must start for both ways game mode becomes active: the initial boot and a later
-desktop-to-game transition. Initial boot does not raise `SessionModes.GameModeEntered`, and relying
-on that event alone left the monitor absent for a whole boot session (Claw, 2026-08-22: Safe Eject
-succeeded with no card-volume notification or reconcile).
+The monitor must start on every path that can leave it absent: desktop-mode startup, the initial
+game-mode boot, and a later desktop-to-game transition. Initial boot does not raise
+`SessionModes.GameModeEntered`, and relying on that event alone left the monitor absent for a whole
+boot session (Claw, 2026-08-22: Safe Eject succeeded with no card-volume notification or reconcile).
 
 Notification and scanning start immediately so a present card and removals are not missed, but the
 live add and remove are deferred until Steam's Big Picture window exists. A running Steam process
