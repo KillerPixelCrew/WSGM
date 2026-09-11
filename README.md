@@ -33,6 +33,8 @@ Windows shell the whole time.
 - **SD card & external drive libraries** — every removable Steam library gets its own tab that
   remembers its games while ejected; rename, hide, or forget cards from a controller-driven manager,
   and a badge on every library tile names the library a game is on, green while it is installed.
+- **Connected-library Home** — Big Picture Home's carousel lists every game on the libraries
+  attached right now, last played first, and drops a card's games when the card comes out.
 - **Drive formatting** — format a card or drive into a ready-to-use Steam library in one guided
   flow, keeping its exact drive letter; register any folder or network share with the running Steam
   client, no restart.

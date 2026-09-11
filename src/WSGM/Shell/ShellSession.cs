@@ -96,6 +96,8 @@ public sealed class ShellSession : IAsyncDisposable
     // their target generation and retries through the common patch registry.
     private bool _downloadSortEnabled;
     private bool _libraryBadgeEnabled;
+    private bool _homeCarouselEnabled;
+    private bool _carouselShowUninstalled;
     // Field-rooted for the session lifetime: it owns a native power-setting
     // registration and the "did WSGM mute this?" flag.
     private DisplayOffMuteService? _displayMute;
@@ -275,6 +277,8 @@ public sealed class ShellSession : IAsyncDisposable
         _wifiIndicatorEnabled = config.Cef.Enabled && config.Cef.WifiIndicator;
         _downloadSortEnabled = config.Cef.Enabled && config.Cef.DownloadQueueSort;
         _libraryBadgeEnabled = config.Cef.Enabled && config.Cef.CardManager;
+        _homeCarouselEnabled = config.Cef.Enabled && config.Cef.ConnectedLibraryCarousel;
+        _carouselShowUninstalled = config.Cef.CarouselShowUninstalled;
         // The real shell opens the transport only through the readiness gate, once it is
         // running and knows whether Steam is cold-starting under it. Overlay-test never
         // attaches a transport and keeps the plain master flag so its static callers
@@ -400,6 +404,7 @@ public sealed class ShellSession : IAsyncDisposable
         _steamUi?.ApplyNetworkIndicator(_inGameMode && _wifiIndicatorEnabled);
         _steamUi?.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
         _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
+        _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
         KickTabBootSync();
     }
 
@@ -880,6 +885,7 @@ public sealed class ShellSession : IAsyncDisposable
             _steamUi.ApplyNetworkIndicator(_inGameMode && _wifiIndicatorEnabled);
             _steamUi.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
             _steamUi.ApplyLibraryBadge(_libraryBadgeEnabled);
+            _steamUi.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
             ApplyGlyphConfig(_config);
             if (_deviceCoordinator is not null)
             {
@@ -924,6 +930,7 @@ public sealed class ShellSession : IAsyncDisposable
             _steamUi?.ApplyNetworkIndicator(_wifiIndicatorEnabled);
             _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
             _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
+            _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
             // Returning from desktop mode disabled tabs/badge and cancelled the boot
             // sync; re-inject without requiring an overlay open.
             KickTabBootSync();
@@ -1507,6 +1514,24 @@ public sealed class ShellSession : IAsyncDisposable
         Log.Info($"Library badge {(enabled ? "enabled" : "disabled")}.");
     }
 
+    /// <summary>Applies the connected-library Home carousel and its uninstalled-games preference
+    /// from a reloaded configuration, so both switches apply without a re-logon.</summary>
+    /// <param name="enabled">Whether Home's carousel lists the attached libraries.</param>
+    /// <param name="showUninstalled">Whether it also lists owned games that are not installed.</param>
+    private void ApplyHomeCarousel(bool enabled, bool showUninstalled)
+    {
+        bool changed = enabled != _homeCarouselEnabled || showUninstalled != _carouselShowUninstalled;
+        _homeCarouselEnabled = enabled;
+        _carouselShowUninstalled = showUninstalled;
+        if (_overlayTestOnly || !changed)
+        {
+            return;
+        }
+        _steamUi?.ApplyHomeCarousel(enabled, showUninstalled);
+        Log.Info($"Home carousel {(enabled ? "enabled" : "disabled")}"
+            + $"{(enabled ? $", uninstalled games {(showUninstalled ? "shown" : "hidden")}" : "")}.");
+    }
+
     /// <summary>Applies a Steam Input Management change that arrived through a
     /// config reload.</summary>
     /// <remarks>
@@ -1573,6 +1598,7 @@ public sealed class ShellSession : IAsyncDisposable
                     KickTabBootSync();
                     _steamUi?.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
                     _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
+                    _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
                 });
             });
             return;
@@ -2156,6 +2182,9 @@ public sealed class ShellSession : IAsyncDisposable
                         ApplyNetworkIndicator(config.Cef.Enabled && config.Cef.WifiIndicator);
                         ApplyDownloadSort(config.Cef.Enabled && config.Cef.DownloadQueueSort);
                         ApplyLibraryBadge(config.Cef.Enabled && config.Cef.CardManager);
+                        ApplyHomeCarousel(
+                            config.Cef.Enabled && config.Cef.ConnectedLibraryCarousel,
+                            config.Cef.CarouselShowUninstalled);
                         _displayMute?.ApplyConfig(config.MuteWhileDisplayOff);
                         _overlay?.ApplyConfig(config);
                         _startupWatcher?.Apply(config.StartupApps);

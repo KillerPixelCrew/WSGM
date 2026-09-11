@@ -866,10 +866,15 @@ public sealed class ConfigurationTests
         Assert.True(defaults.WifiIndicator);
         Assert.True(defaults.DownloadKeepAwake);
         Assert.True(defaults.DownloadQueueSort);
+        Assert.True(defaults.ConnectedLibraryCarousel);
+        // A presentation preference, not a feature: greyed uninstalled games stay out by default.
+        Assert.False(defaults.CarouselShowUninstalled);
 
         var original = new AppConfig();
         original.Cef.DownloadQueueSort = false;
         original.Cef.DownloadKeepAwake = false;
+        original.Cef.ConnectedLibraryCarousel = false;
+        original.Cef.CarouselShowUninstalled = true;
 
         var json = JsonSerializer.Serialize(original, ConfigJsonContext.Default.AppConfig);
         var restored = JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig);
@@ -877,6 +882,8 @@ public sealed class ConfigurationTests
         Assert.NotNull(restored);
         Assert.False(restored.Cef.DownloadQueueSort);
         Assert.False(restored.Cef.DownloadKeepAwake);
+        Assert.False(restored.Cef.ConnectedLibraryCarousel);
+        Assert.True(restored.Cef.CarouselShowUninstalled);
         Assert.True(restored.Cef.WifiIndicator);
     }
 

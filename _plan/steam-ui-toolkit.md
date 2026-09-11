@@ -222,7 +222,7 @@ documented anywhere:
 | Feature | What it does |
 | --- | --- |
 | `SteamPageBridge.GetCurrentAppIdAsync` | which game page is open — focused React fiber walk, with a largest-visible-hero fallback for mouse/touch |
-| `UpdateCardBadgesAsync` / `DisableBadgeAsync` | attach and remove badges on library cards |
+| `SteamLibraryBadgeSurface`, `SteamHomeCarouselSurface` | library badges on Steam's tiles and Home's carousel fed from the attached libraries; both moved into the toolkit (2026-09-11) |
 | `SteamLibraryTabs` | sync and reorder library tabs |
 | `SteamCollections` | read and delete collections |
 | `SteamArtwork`, `SteamGridDb` | apply and clear custom artwork |

@@ -210,6 +210,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         CefNativeQuickAccess = _config.Cef.NativeQuickAccess;
         CefDownloadKeepAwake = _config.Cef.DownloadKeepAwake;
         CefDownloadQueueSort = _config.Cef.DownloadQueueSort;
+        CefConnectedLibraryCarousel = _config.Cef.ConnectedLibraryCarousel;
+        CefCarouselShowUninstalled = _config.Cef.CarouselShowUninstalled;
         MuteWhileDisplayOff = _config.MuteWhileDisplayOff;
         ResuspendUnexplainedWakes = _config.ResuspendUnexplainedWakes;
         ModernStandbyReport standby = _services.ReadStandby();
@@ -946,6 +948,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private bool _cefNativeQuickAccess = true;
     private bool _cefDownloadKeepAwake = true;
     private bool _cefDownloadQueueSort = true;
+    private bool _cefConnectedLibraryCarousel = true;
+    private bool _cefCarouselShowUninstalled;
     private bool _performanceEnabled;
     private int _frameLimitStrategyIndex;
     private bool _muteWhileDisplayOff;
@@ -1085,6 +1089,14 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Gets or sets the Name/Size/Type sort buttons injected into Big
     /// Picture's download-queue header.</summary>
     public bool CefDownloadQueueSort { get => _cefDownloadQueueSort; set { _cefDownloadQueueSort = value; Raise(nameof(CefDownloadQueueSort)); } }
+
+    /// <summary>Gets or sets whether Big Picture Home's carousel lists the games on the
+    /// libraries attached right now.</summary>
+    public bool CefConnectedLibraryCarousel { get => _cefConnectedLibraryCarousel; set { _cefConnectedLibraryCarousel = value; Raise(nameof(CefConnectedLibraryCarousel)); } }
+
+    /// <summary>Gets or sets whether that carousel also lists owned games that are not
+    /// installed, greyed.</summary>
+    public bool CefCarouselShowUninstalled { get => _cefCarouselShowUninstalled; set { _cefCarouselShowUninstalled = value; Raise(nameof(CefCarouselShowUninstalled)); } }
 
     /// <summary>Gets or sets muting system audio while the screen is off.</summary>
     public bool MuteWhileDisplayOff { get => _muteWhileDisplayOff; set { _muteWhileDisplayOff = value; Raise(nameof(MuteWhileDisplayOff)); } }
@@ -1535,6 +1547,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.Cef.NativeQuickAccess = CefNativeQuickAccess;
         config.Cef.DownloadKeepAwake = CefDownloadKeepAwake;
         config.Cef.DownloadQueueSort = CefDownloadQueueSort;
+        config.Cef.ConnectedLibraryCarousel = CefConnectedLibraryCarousel;
+        config.Cef.CarouselShowUninstalled = CefCarouselShowUninstalled;
         config.MuteWhileDisplayOff = MuteWhileDisplayOff;
         config.ResuspendUnexplainedWakes = ResuspendUnexplainedWakes;
         config.LogVerbosity = VerboseLogging ? LogVerbosity.Verbose : LogVerbosity.Normal;
@@ -1773,6 +1787,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.Cef.NativeQuickAccess = values.Cef.NativeQuickAccess;
         config.Cef.DownloadKeepAwake = values.Cef.DownloadKeepAwake;
         config.Cef.DownloadQueueSort = values.Cef.DownloadQueueSort;
+        config.Cef.ConnectedLibraryCarousel = values.Cef.ConnectedLibraryCarousel;
+        config.Cef.CarouselShowUninstalled = values.Cef.CarouselShowUninstalled;
         config.MuteWhileDisplayOff = values.MuteWhileDisplayOff;
         config.ResuspendUnexplainedWakes = values.ResuspendUnexplainedWakes;
         config.LogVerbosity = values.LogVerbosity;

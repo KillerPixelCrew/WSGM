@@ -106,7 +106,11 @@ const sourcePaths = [
 const bundleEpilogue = "})();\n";
 const outputPath = join(assetDirectory, "NativeQamBootstrap.js");
 const catalogPath = join(repositoryRoot, "src", "WSGM", "Core", "SteamUiAssetCatalog.cs");
-const maximumAssetBytes = 256 * 1024;
+// A sanity bound on the one CDP evaluation that carries the asset, not a limit anything downstream
+// imposes: the bridge host evaluates it through the transport directly, outside the patch context's
+// expression cap, and the connection bounds only what Steam sends back. Raised from 256 KiB when the
+// library badge and Home carousel surfaces took the readable, commented asset past it (2026-09-11).
+const maximumAssetBytes = 512 * 1024;
 
 // Everything above this marker is type declaration that exists only to type the
 // injected script. The asset starts at the IIFE.

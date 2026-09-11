@@ -286,6 +286,33 @@ store and reports it through `homeLayout`; `LibraryBadgeBackend` logs each trans
 `steam.home.layout`. The badge is tile-relative and draws the same in both layouts, so the report is
 a fact for the log rather than a placement input.
 
+### Home's carousel lists the attached libraries
+
+Big Picture Home's carousel shows the games on the libraries attached right now instead of Steam's
+own mix. It is `SteamHomeCarouselSurface` in steam-ui-toolkit; WSGM feeds it.
+`Shell\HomeCarousel.cs` builds the instruction from the same card reading as the badge: the app ids
+on a card that is not in the reader, minus any an attached card also holds, and whether uninstalled
+games are wanted. The two switches are `Cef.ConnectedLibraryCarousel`, on by default, and
+`Cef.CarouselShowUninstalled`, off.
+
+Steam builds its list in a module-local hook from four collections and caps it at 20. The list is
+one array of app ids that Home hands to both the carousel and its background, so that array is where
+the toolkit replaces it: Steam's own components draw the result, and the background, focus restore
+and featured tile follow. The order is the most recently played game first, installed games by last
+played merged with unplayed purchases from the last week by purchase time, never-played installed
+games by install time, then owned uninstalled games when wanted. Anything not installed is greyed.
+When nothing on the attached libraries qualifies, Steam's own list stands in rather than a blank
+Home.
+
+The memory concern was real but narrower than a missing recycler. The carousel is already a
+react-virtualized grid; Home passes `overscan: games.length`, which mounts every tile. That is
+harmless at 20 and a flood at a whole library, so the toolkit puts overscan back to the component's
+default of 3, which is what the Play Next carousel on the same page already uses. Read from the
+shipped bundle on 2026-09-11, not from the live client.
+
+The carousel reports what it holds once per change, and `HomeCarouselBackend` logs it as
+`steam.home.carousel`, so a pasted `wsgm.log` says what Home showed after a card was pulled.
+
 ### Current-game detection stays in the visible window
 
 `SharedJSContext` is headless: empty DOM, no images, only stores and React. The artwork and launch

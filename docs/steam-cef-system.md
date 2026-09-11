@@ -33,19 +33,21 @@ Related:
            └─ NativeQam*Service (Shell\)     the backends: TDP, AutoTDP, frame limit, VRR, controller
                                              target, device controls, audio, network, Bluetooth,
                                              brightness, resolution — each feeds one toolkit surface
- Core\SteamLibraryTabs.cs, SteamPageBridge.cs   legacy resident scripts: tabs and the card badge
+ Core\SteamLibraryTabs.cs                       legacy resident script: library tabs
+ Shell\LibraryBadges.cs, HomeCarousel.cs        card readings behind the library badge and Home carousel
+ Core\SteamPageBridge.cs                        current-game detection in the visible window
  Core\SteamCdp.cs, SteamLaunchConfig.cs, SteamArtwork.cs, SteamCollections.cs, SteamDownloads.cs
                                                 one-shot evaluations through the session transport
  tools\WsgmLibTest\                             live probes and the QAM harness
 ```
 
 Ownership follows decision D16. The toolkit owns how to find, own and remove a thing safely, and
-every revived Valve surface: the six gates, the eleven Quick Access rows, the module ids and
-localization tokens they name, and the wire shape of each state and command. WSGM owns the data
-behind them (its managers, RTSS, the device plugin) adapted onto the toolkit's `ISteam*Backend`
-interfaces by the `NativeQam*Service` classes, and the policy about which patches are on when. Its
-own features (library tabs, the card badge, download sorting, glyph delivery) stay WSGM's. A plugin
-owns nothing here; device state reaches the QAM only through WSGM's backend services.
+every revived Valve surface: the gates, the Quick Access rows, the library badge and the Home
+carousel, the module ids and localization tokens they name, and the wire shape of each state and
+command. WSGM owns the data behind them (its managers, RTSS, the device plugin, the card model)
+adapted onto the toolkit's `ISteam*Backend` interfaces, and the policy about which patches are on
+when. Its own features (library tabs, download sorting, glyph delivery) stay WSGM's. A plugin owns
+nothing here; device state reaches the QAM only through WSGM's backend services.
 
 ## 2. Finding and driving Steam
 
@@ -139,21 +141,23 @@ A first cold start must write the flag while attachment is still prohibited.
 Steam rebuilds its front-end for a Big Picture request and bootstraps against whatever
 `SteamClient.System.*` says exists, so namespaces WSGM supplied on the desktop would go unanswered
 once the gate closes. `PrepareSteamUiForBigPictureAsync` marks the request pending, disables the
-session host, the card badge and the library tabs, and closes the transport, under a 5 s budget; on
-timeout it logs
+session host (which retracts the library badge and the Home carousel with every other patch) and the
+library tabs, and closes the transport, under a 5 s budget; on timeout it logs
 `Steam UI retraction did not finish before the Big Picture request; continuing with the transition.`
 When the transition settles, the hold is released, the gate is re-checked and the surfaces are
 re-applied. The transition sequence itself is in `docs\boot-and-shell.md`.
 
 Mode events: `DesktopModeStarting` clears game mode, cancels the tab boot sync, turns the indicator
-and download sort off and retracts badge and tabs; `GameModeEntered` sets game mode, re-checks the
-gate, turns them on and starts the tab boot sync. `SteamStarted` and `SteamExited` both request a
-gate check so a restart's headless context is never connected before its own window.
+and download sort off and retracts the tabs; `GameModeEntered` sets game mode, re-checks the gate,
+turns them on and starts the tab boot sync. The library badge and the Home carousel are not
+mode-bound: they follow their own switches in either mode, like the card services they read.
+`SteamStarted` and `SteamExited` both request a gate check so a restart's headless context is never
+connected before its own window.
 
 ### Master switch
 
 Turning `Cef.Enabled` off stops the card volume monitor and the tab boot sync, then under the gate
-disables the host, badge and tabs and closes the transport
+disables the host and the tabs and closes the transport
 (`Steam CEF integration disabled — injected UI retracted.`). Every evaluation then fails closed,
 which is why removal is awaited before the choke point closes. Turning it on re-runs the gate
 through readiness rather than opening directly.
@@ -247,7 +251,7 @@ a mismatch, so a hand edit cannot ship.
 
 | Check                         | Fails on                                                                                 |
 | ----------------------------- | ---------------------------------------------------------------------------------------- |
-| `npm run steam-assets:check`  | stale file, stale hash, a second `.js` beside the asset, a BOM, invalid UTF-8, > 256 KiB |
+| `npm run steam-assets:check`  | stale file, stale hash, a second `.js` beside the asset, a BOM, invalid UTF-8, > 512 KiB |
 | `npm run steam-assets:claims` | the toolkit's ownership scenarios against the shipped bytes                              |
 
 Both run in `eng\verify.ps1` and in CI.
@@ -471,18 +475,21 @@ on Windows.
 
 The findings behind each of these are in `docs\steam-cef.md`.
 
-| Feature              | Files                                                                     | Mechanism                                                                                                                                                                                                                                                      | Switch                  |
-| -------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| Library tabs         | `Core\SteamLibraryTabs.cs`, `Shell\LibraryTabManager.cs`                  | legacy resident in SharedJSContext; wraps `useMemo` through React's dispatcher slot to append fake in-memory collections; inputs `window.__wsgm.tabs`, `tabOrder`, `hiddenTabs`; kill switches `suspendTabs`, `disableTabs`; `PushOrderAsync` debounced 600 ms | `Cef.LibraryTabs`       |
-| Card badge           | `Core\SteamPageBridge.cs`                                                 | legacy resident in the visible window; signal `focus`, else `hero image`, else the library route; fixed pill with a mutation observer and a 2 s interval, versioned; class `wsgm-badge` under `window.__wsgm`                                                  | `Cef.CardManager`       |
-| Collections          | `Core\SteamCollections.cs`                                                | read-only: lists collections, batches filter predicates into one evaluation, counts store tags; one-time cleanup of ids older builds created                                                                                                                   | —                       |
-| Downloads            | `Core\SteamDownloads.cs`, `Core\SteamDownloadSort.cs`                     | overview is a one-shot `RegisterForDownloadOverview` with immediate unregister (keep-awake, screen-off mute); the sort patch wraps the JSX runtime's `jsx`/`jsxs`, builds buttons from Valve's `Focusable`, renumbers through `SetQueueIndex` every 120 ms     | `Cef.DownloadQueueSort` |
-| Launch configuration | `Core\SteamLaunchConfig.cs`, `Core\SteamCustomLaunchCommand.cs`           | reads through `RegisterForAppDetails` (3 s timeout, unregister); writes `SetAppLaunchOptions` for titles, `SetShortcutExe` + `SetShortcutLaunchOptions` for shortcuts, verbatim, 400 ms settle; clipboard fallback with CEF off                                | —                       |
-| Artwork              | `Core\SteamArtwork.cs`, `Core\ArtworkProviders.cs`, `Core\SteamGridDb.cs` | providers searched in parallel behind `ArtworkSearch`; SteamGridDB and Screenscraper.fr over HTTPS, 20 s timeout, bounded downloads; clear, 500 ms, `SetCustomArtworkForApp`; icons refused                                                                    | `Cef.Artwork`           |
-| Libraries            | `Core\SteamCdp.cs`, `Shell\SteamLibraryVdf.cs`                            | `AddInstallFolder` on the running client after purging same-path registrations; removal iterates one snapshot; `libraryfolders.vdf` splice with Steam closed                                                                                                   | `Cef.SdFormat`          |
+| Feature              | Files                                                                     | Mechanism                                                                                                                                                                                                                                                      | Switch                                                        |
+| -------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Library tabs         | `Core\SteamLibraryTabs.cs`, `Shell\LibraryTabManager.cs`                  | legacy resident in SharedJSContext; wraps `useMemo` through React's dispatcher slot to append fake in-memory collections; inputs `window.__wsgm.tabs`, `tabOrder`, `hiddenTabs`; kill switches `suspendTabs`, `disableTabs`; `PushOrderAsync` debounced 600 ms | `Cef.LibraryTabs`                                             |
+| Library badge        | `Shell\LibraryBadges.cs`, toolkit `SteamLibraryBadgeSurface`              | patch lifecycle; claims the library tile memo and draws the library name beside Valve's Steam Input badge, green installed and grey not; fed from the card reading; reports Big Art Mode as `steam.home.layout`                                                | `Cef.CardManager`                                             |
+| Home carousel        | `Shell\HomeCarousel.cs`, toolkit `SteamHomeCarouselSurface`               | patch lifecycle; claims Home's memo, replaces the carousel's `games` array with the attached libraries' games and clears its whole-list overscan; excludes games on disconnected cards; reports its counts as `steam.home.carousel`                            | `Cef.ConnectedLibraryCarousel`, `Cef.CarouselShowUninstalled` |
+| Current game         | `Core\SteamPageBridge.cs`                                                 | one-shot read in the visible window: signal `focus`, else `hero image`, else the library route                                                                                                                                                                 | —                                                             |
+| Collections          | `Core\SteamCollections.cs`                                                | read-only: lists collections, batches filter predicates into one evaluation, counts store tags; one-time cleanup of ids older builds created                                                                                                                   | —                                                             |
+| Downloads            | `Core\SteamDownloads.cs`, `Core\SteamDownloadSort.cs`                     | overview is a one-shot `RegisterForDownloadOverview` with immediate unregister (keep-awake, screen-off mute); the sort patch wraps the JSX runtime's `jsx`/`jsxs`, builds buttons from Valve's `Focusable`, renumbers through `SetQueueIndex` every 120 ms     | `Cef.DownloadQueueSort`                                       |
+| Launch configuration | `Core\SteamLaunchConfig.cs`, `Core\SteamCustomLaunchCommand.cs`           | reads through `RegisterForAppDetails` (3 s timeout, unregister); writes `SetAppLaunchOptions` for titles, `SetShortcutExe` + `SetShortcutLaunchOptions` for shortcuts, verbatim, 400 ms settle; clipboard fallback with CEF off                                | —                                                             |
+| Artwork              | `Core\SteamArtwork.cs`, `Core\ArtworkProviders.cs`, `Core\SteamGridDb.cs` | providers searched in parallel behind `ArtworkSearch`; SteamGridDB and Screenscraper.fr over HTTPS, 20 s timeout, bounded downloads; clear, 500 ms, `SetCustomArtworkForApp`; icons refused                                                                    | `Cef.Artwork`                                                 |
+| Libraries            | `Core\SteamCdp.cs`, `Shell\SteamLibraryVdf.cs`                            | `AddInstallFolder` on the running client after purging same-path registrations; removal iterates one snapshot; `libraryfolders.vdf` splice with Steam closed                                                                                                   | `Cef.SdFormat`                                                |
 
 The tab boot sync waits for the Big Picture window plus `webpackChunksteamui`, `collectionStore` and
-`appStore`, retries a failed sync in full, and retries the badge alone thirty times.
+`appStore` and retries a failed sync in full. It also replaces the card reading the library badge
+and the Home carousel publish from, which the session seeds at start so neither waits for a sync.
 
 ### Artwork sources
 
@@ -516,6 +523,8 @@ supplied the bytes.
 | `Cef.WifiIndicator`                                                 | true    | The header Wi-Fi indicator through the network gate.                                 |
 | `Cef.DownloadQueueSort`                                             | true    | The download sort patch.                                                             |
 | `Cef.LibraryTabs`, `Cef.CardManager`, `Cef.SdFormat`, `Cef.Artwork` | true    | Tabs and order; card tabs, badge and relabel; format plus register; artwork changer. |
+| `Cef.ConnectedLibraryCarousel`                                      | true    | Home's carousel lists the games on the attached libraries.                           |
+| `Cef.CarouselShowUninstalled`                                       | false   | That carousel also lists owned games that are not installed, greyed.                 |
 | `Cef.DownloadKeepAwake`                                             | true    | Wake lock while a download is polled.                                                |
 | `SteamAutoRelaunch`                                                 | false   | Relaunch Big Picture 10 s after Steam exits.                                         |
 | `SteamLaunchUnelevated`                                             | false   | De-elevated Steam launch through the scheduled task.                                 |
@@ -536,7 +545,7 @@ Steam.
 | Toolkit (`Core\WsgmSteamUiLog.cs`) | `steam.ui.discovery`, `steam.ui.patch.<id>`, `steam.ui.bridge.rejected`, `steam.ui.request.<patch>.<command>`, `steam.ui.response.<patch>.<command>`, `steam.ui.publication.<patch>`                                                                                                        |
 | Host                               | `steam.ui.glyphs`, `steam.ui.append.<id>`, `steam.ui.append.error.<id>`, `Steam UI patch synchronization failed`                                                                                                                                                                            |
 | QAM                                | `native-qam-echo-<Kind>`, `Native QAM performance delta refused`, `Native QAM power limit released to the device ceiling`, `Native QAM audio: …`, `Bluetooth: …`, `Native QAM resolution refused`, `display.backlight`                                                                      |
-| Library                            | `Library tabs injected`, `Library tabs (boot)`, `Card badge install failed`, `Steam current app <id> (<signal>)`, `Steam library added to the live client.`                                                                                                                                 |
+| Library                            | `Library tabs injected`, `Library tabs (boot)`, `steam.home.layout`, `steam.home.carousel`, `Library badge: initial reading failed`, `Steam current app <id> (<signal>)`, `Steam library added to the live client.`                                                                         |
 
 ## 11. Tooling
 
@@ -580,8 +589,8 @@ running client and recorded in `docs\steam-cef.md`.
 - The QAM harness acknowledges every page request without performing it, so it cannot validate a
   write path. It proves rendering and publication only, and its `remove` command does not remove the
   runtime binding installed when the harness connected.
-- Library tabs and the card badge remain legacy resident scripts outside the patch manager until
-  their attended migrations land.
+- Library tabs remain a legacy resident script outside the patch manager until their attended
+  migration lands. The library badge made that move for #28 and the Home carousel was built on it.
 - The Extensions tab the toolkit's host was built for is not mounted yet.
 
 The power-limit surface exposes a Unified TDP toggle using the coordinator's persisted manual mode.

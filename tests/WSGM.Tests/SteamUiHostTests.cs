@@ -561,6 +561,30 @@ public sealed class SteamUiSessionHostTests
         Assert.NotEqual(SteamUiPatchState.Disabled, badge.State);
     }
 
+    [Fact]
+    public async Task HomeCarouselSurfaceIsDeclaredAndFollowsItsOwnSwitch()
+    {
+        await using var transport = new SessionHostTransport();
+        await using var performance = new PerformanceService(
+            new SimulatedRtssAdapter(), (_, _) => Task.CompletedTask);
+        await using var host = new SteamUiSessionHost(
+            transport, _ => Task.FromResult(true), null, performance);
+
+        // The carousel is its own switch, independent of native Quick Access, and its report is in
+        // the vocabulary the bridge allows.
+        host.ApplyHomeCarousel(enabled: true, includeUninstalled: false);
+        await transport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await WaitForAsync(() => transport.BridgeConfiguration is not null);
+
+        Assert.Contains(
+            "\"steam-ui.home-carousel\":[\"report\"]",
+            transport.BridgeConfiguration,
+            StringComparison.Ordinal);
+        var carousel = Assert.Single(
+            host.GetPatchSnapshots(), snapshot => snapshot.Id == SteamHomeCarouselSurface.PatchId);
+        Assert.NotEqual(SteamUiPatchState.Disabled, carousel.State);
+    }
+
     private static async Task WaitForAsync(Func<bool> condition)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));

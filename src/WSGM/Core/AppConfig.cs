@@ -935,7 +935,8 @@ public static class QuickSetup
 /// over its debug port. <see cref="Enabled"/> off means WSGM never writes or uses
 /// the CEF debug flag at all (no injection, and the sub-features are hidden from
 /// the overlay); the sub-toggles gate individual injected features while CEF is on.
-/// Every flag defaults on, so an existing install behaves exactly as before.</summary>
+/// Every feature flag defaults on, so an existing install behaves exactly as before; the one
+/// presentation preference, <see cref="CarouselShowUninstalled"/>, defaults off.</summary>
 public sealed class CefConfig
 {
     /// <summary>Master CEF switch. Off = the debug-port flag is never written, no
@@ -947,8 +948,18 @@ public sealed class CefConfig
     public bool LibraryTabs { get; set; } = true;
 
     /// <summary>The SD-card library manager: per-card injected library tabs, the
-    /// "On: &lt;card&gt;" game-page badges, and live library relabeling.</summary>
+    /// library badge on Steam's game tiles, and live library relabeling.</summary>
     public bool CardManager { get; set; } = true;
+
+    /// <summary>Big Picture Home's carousel shows the games on the libraries attached right
+    /// now, newest played first, behind recent purchases, instead of Steam's own mix
+    /// (<c>SteamHomeCarouselSurface</c>).</summary>
+    public bool ConnectedLibraryCarousel { get; set; } = true;
+
+    /// <summary>With <see cref="ConnectedLibraryCarousel"/> on, also lists owned games that are
+    /// not installed, greyed. A presentation preference rather than a feature, so it defaults
+    /// off.</summary>
+    public bool CarouselShowUninstalled { get; set; }
 
     /// <summary>Format SD Card and register its library into the running Steam. The
     /// whole feature (native disk format included) is hidden when off.</summary>

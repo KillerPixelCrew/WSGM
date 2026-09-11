@@ -64,6 +64,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>Hears the library badge's Home layout report.</summary>
     private readonly LibraryBadgeBackend _libraryBadge = new();
 
+    /// <summary>Hears what Big Picture Home's carousel holds.</summary>
+    private readonly HomeCarouselBackend _homeCarousel = new();
+
     private readonly PerformanceService _performanceService;
     private readonly PerformanceServiceNativeQamAdapter _performance;
     private readonly Action<PerformanceState> _onPerformanceStateChanged;
@@ -88,6 +91,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private volatile bool _networkIndicatorEnabled;
     private volatile bool _downloadSortEnabled;
     private volatile bool _libraryBadgeEnabled;
+    private volatile bool _homeCarouselEnabled;
+    private volatile bool _carouselShowUninstalled;
     private volatile bool _glyphsEnabled;
     private volatile bool _glyphDeliveryEnabled;
     private volatile bool _disposed;
@@ -188,8 +193,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _runtime = new SteamUiModuleRuntime(
             _bridge,
             _modules,
-            commandsEnabled: () => _enabled || _libraryBadgeEnabled,
-            publishEnabled: () => _enabled || _networkIndicatorEnabled || _libraryBadgeEnabled);
+            commandsEnabled: () => _enabled || _libraryBadgeEnabled || _homeCarouselEnabled,
+            publishEnabled: () =>
+                _enabled || _networkIndicatorEnabled || _libraryBadgeEnabled || _homeCarouselEnabled);
         _transport.GenerationChanged += OnGenerationChanged;
         LibraryBadges.Changed += OnSemanticStateChanged;
         _tdp.StateChanged += OnSemanticStateChanged;
@@ -240,7 +246,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             CancelAllInflightRequests();
             ReleasePerformanceObservation();
             SetPatchStates(
-                bootstrap: _networkIndicatorEnabled || _libraryBadgeEnabled,
+                bootstrap: _networkIndicatorEnabled || _libraryBadgeEnabled || _homeCarouselEnabled,
                 components: false);
         }
         QueueSynchronization();
@@ -264,7 +270,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             network.PostStopScanning();
         }
-        SetPatchStates(bootstrap: _enabled || enabled || _libraryBadgeEnabled, components: _enabled);
+        SetPatchStates(
+            bootstrap: _enabled || enabled || _libraryBadgeEnabled || _homeCarouselEnabled,
+            components: _enabled);
         QueueSynchronization();
         QueueStatePublication();
     }
@@ -284,7 +292,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _patches.SetGlobalEnabled(true);
         }
         SetPatchStates(
-            bootstrap: _enabled || _networkIndicatorEnabled || _libraryBadgeEnabled,
+            bootstrap: _enabled || _networkIndicatorEnabled || _libraryBadgeEnabled || _homeCarouselEnabled,
             components: _enabled);
         QueueSynchronization();
     }
@@ -308,7 +316,44 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _patches.SetGlobalEnabled(true);
         }
         SetPatchStates(
-            bootstrap: _enabled || _networkIndicatorEnabled || enabled,
+            bootstrap: _enabled || _networkIndicatorEnabled || enabled || _homeCarouselEnabled,
+            components: _enabled);
+        QueueSynchronization();
+        QueueStatePublication();
+    }
+
+    /// <summary>Claims or retracts Home's carousel, and publishes whether it lists uninstalled games.</summary>
+    /// <param name="enabled">Whether Home's carousel lists the libraries attached right now.</param>
+    /// <param name="includeUninstalled">Whether it also lists owned games that are not installed.</param>
+    /// <remarks>
+    /// Independent of native Quick Access, like the library badge. The preference alone changing is
+    /// a publication, not a patch change, so the carousel re-orders without being retracted.
+    /// </remarks>
+    internal void ApplyHomeCarousel(bool enabled, bool includeUninstalled)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        bool preferenceChanged = _carouselShowUninstalled != includeUninstalled;
+        _carouselShowUninstalled = includeUninstalled;
+        if (_homeCarouselEnabled == enabled)
+        {
+            if (preferenceChanged)
+            {
+                QueueStatePublication();
+            }
+            return;
+        }
+
+        _homeCarouselEnabled = enabled;
+        if (enabled)
+        {
+            _patches.SetGlobalEnabled(true);
+        }
+        SetPatchStates(
+            bootstrap: _enabled || _networkIndicatorEnabled || _libraryBadgeEnabled || enabled,
             components: _enabled);
         QueueSynchronization();
         QueueStatePublication();
@@ -358,6 +403,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _networkIndicatorEnabled = false;
         _downloadSortEnabled = false;
         _libraryBadgeEnabled = false;
+        _homeCarouselEnabled = false;
         _glyphsEnabled = false;
         _surfaceObservationEnabled = false;
         _patches.SetPatchEnabled(_overlayActivation.Id, false);
@@ -390,9 +436,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
         // The patch manager marks patches for every changed target role, so every role change must
         // queue synchronization.
+        // Every surface switch belongs here: a Steam restart replaces the SharedJSContext
+        // generation, and a surface that is the only thing on would otherwise never be reapplied.
         if (_enabled
             || _networkIndicatorEnabled
             || _downloadSortEnabled
+            || _libraryBadgeEnabled
+            || _homeCarouselEnabled
             || _glyphsEnabled
             || _glyphDeliveryEnabled
             || _surfaceObservationEnabled)
@@ -529,6 +579,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 () => _libraryBadgeEnabled,
                 () => new(LibraryBadges.Current),
                 _libraryBadge),
+
+            // Home's carousel, built from the same card reading as the badge so the two never
+            // disagree about which card is in the reader. Rides LibraryBadges.Changed for card moves.
+            SteamHomeCarouselSurface.Module(
+                () => _homeCarouselEnabled,
+                () => new(HomeCarousel.Build(LibraryBadges.Current, _carouselShowUninstalled)),
+                _homeCarousel),
         ];
 
         if (_resolution is { } resolution)
@@ -609,6 +666,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     ? _downloadSortEnabled
                     : patch.Id == SteamLibraryBadgeSurface.PatchId
                         ? _libraryBadgeEnabled
+                        : patch.Id == SteamHomeCarouselSurface.PatchId
+                            ? _homeCarouselEnabled
                         : patch.Id == SteamUiBridgePatch.PatchId
                             ? bootstrap
                             : patch.Id == SteamNetworkSurface.PatchId

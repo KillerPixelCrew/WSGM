@@ -40,7 +40,7 @@
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                         <StackPanel VerticalAlignment="Center" Spacing="1">
                             <TextBlock Text="SD-card library manager" Classes="setting-title" />
-                            <TextBlock Text="Per-card library tabs, the &quot;On: card&quot; game-page badges, and live library labels." Classes="caption" TextWrapping="Wrap" />
+                            <TextBlock Text="Per-card library tabs, the library badge on game tiles, and live library labels." Classes="caption" TextWrapping="Wrap" />
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefCardManager}" VerticalAlignment="Center" />
                     </Grid>
@@ -61,6 +61,24 @@
                             <TextBlock Text="Let Steam's own Format Drive dialog erase a card through WSGM's format flow. Off, the dialog is refused; eject and library registration from that page keep working." Classes="caption" TextWrapping="Wrap" />
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamStorageFormat}" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+                <Border Classes="setting-row alt" IsVisible="{Binding CefEnabled}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="Connected-library Home carousel" Classes="setting-title" />
+                            <TextBlock Text="Big Picture Home shows every game on the libraries attached right now, last played first, behind recent purchases. Games on an ejected card leave the carousel." Classes="caption" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefConnectedLibraryCarousel}" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+                <Border Classes="setting-row" IsVisible="{Binding CefConnectedLibraryCarousel}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="Show uninstalled games in the carousel" Classes="setting-title" />
+                            <TextBlock Text="Also list owned games that are not installed, greyed, after the installed ones. Selecting one opens Steam's normal install flow." Classes="caption" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefCarouselShowUninstalled}" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
 
