@@ -9,24 +9,6 @@ using WSGM.Interop;
 
 namespace WSGM.Shell;
 
-/// <summary>What Steam's registrations at one card path need doing to them.</summary>
-internal enum CardLibraryAction
-{
-    /// <summary>Steam's view already matches the card that is in the reader.</summary>
-    None,
-
-    /// <summary>Registrations exist for a library that is not on this volume any
-    /// more; remove them and add nothing.</summary>
-    Purge,
-
-    /// <summary>Registrations exist for a DIFFERENT card, and the card now in the
-    /// reader carries its own library; replace them.</summary>
-    Replace,
-
-    /// <summary>The card carries a library Steam does not know about; add it.</summary>
-    Add,
-}
-
 /// <summary>Keeps Steam's install-folder list honest about which SD card is actually
 /// in the reader, driven by volume arrival/removal instead of by the user noticing.
 /// </summary>
@@ -74,6 +56,9 @@ internal sealed class CardVolumeMonitor : IDisposable
     private readonly MessageWindow _window;
     private readonly Func<bool> _enabled;
     private readonly Func<Task> _afterReconcile;
+
+    /// <summary>The one owner of what a detection means for Steam's library list.</summary>
+    private readonly LibraryPolicy _policy;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly object _lifetimeGate = new();
@@ -89,11 +74,13 @@ internal sealed class CardVolumeMonitor : IDisposable
     private bool _disposed;
     private bool _waitingForSteamUi;
 
-    private CardVolumeMonitor(MessageWindow window, Func<bool> enabled, Func<Task> afterReconcile)
+    private CardVolumeMonitor(
+        MessageWindow window, Func<bool> enabled, Func<Task> afterReconcile, LibraryPolicy policy)
     {
         _window = window;
         _enabled = enabled;
         _afterReconcile = afterReconcile;
+        _policy = policy;
     }
 
     /// <summary>Creates the monitor and subscribes it to volume notifications.</summary>
@@ -102,11 +89,16 @@ internal sealed class CardVolumeMonitor : IDisposable
     /// every reaction, not captured once, so the master switch applies live.</param>
     /// <param name="afterReconcile">Runs after a pass that changed something — the
     /// hook that re-syncs library tabs and the in-page badge.</param>
+    /// <param name="policy">
+    /// The session's library policy, which owns every registration transition. This monitor
+    /// detects and reports; what a detection means is the policy's to decide.
+    /// </param>
     /// <returns>The started monitor, or null when the registration failed.</returns>
     internal static CardVolumeMonitor? StartNew(
-        MessageWindow window, Func<bool> enabled, Func<Task> afterReconcile)
+        MessageWindow window, Func<bool> enabled, Func<Task> afterReconcile, LibraryPolicy policy)
     {
-        var monitor = new CardVolumeMonitor(window, enabled, afterReconcile);
+        ArgumentNullException.ThrowIfNull(policy);
+        var monitor = new CardVolumeMonitor(window, enabled, afterReconcile, policy);
         if (!window.RegisterVolumeNotifications())
         {
             return null;
@@ -282,8 +274,18 @@ internal sealed class CardVolumeMonitor : IDisposable
             cancellationToken.ThrowIfCancellationRequested();
             var key = SteamLibraryVdf.NormalizePath(libraryPath);
             var ids = registered.TryGetValue(key, out var at) ? at : [];
-            var action = Decide(cardContentId, ids);
-            if (action == CardLibraryAction.None)
+
+            // A library the user ejected on purpose stays out of Steam's list even though the
+            // volume is mounted and looks exactly like a fresh insert. A media eject leaves the
+            // card in the reader and Windows remounts it in seconds, so without this the next
+            // pass puts back what the eject just removed.
+            if (_policy.IsHeldEjected(libraryPath, cardContentId))
+            {
+                continue;
+            }
+
+            var action = LibraryPolicy.Decide(cardContentId, ids);
+            if (action == LibraryTransition.None)
             {
                 continue;
             }
@@ -300,8 +302,8 @@ internal sealed class CardVolumeMonitor : IDisposable
             }
             Log.Info($"Card volumes: {libraryPath} needs {action} "
                 + $"(card {cardContentId ?? "none"}, Steam has {ids.Count} registration(s)).");
-            changed |= await ApplyAsync(action, libraryPath, cardLabel, cancellationToken)
-                .ConfigureAwait(false);
+            changed |= await LibraryPolicy.ApplyAsync(
+                action, libraryPath, cardLabel, cancellationToken).ConfigureAwait(false);
         }
 
         var here = present
@@ -388,6 +390,10 @@ internal sealed class CardVolumeMonitor : IDisposable
             {
                 continue;
             }
+            // The media is actually gone, so any standing eject for it has been served: a card
+            // that comes back is an ordinary insert and registers again.
+            _policy.ClearEjected(libraryPath);
+
             if (!registered.ContainsKey(key))
             {
                 // Gone, and Steam no longer lists it: nothing to do, and no reason to
@@ -397,7 +403,8 @@ internal sealed class CardVolumeMonitor : IDisposable
             }
             Log.Info($"Card volumes: {libraryPath} left the reader; "
                 + "removing the library Steam still holds for it.");
-            if (await ApplyAsync(CardLibraryAction.Purge, libraryPath, "", cancellationToken)
+            if (await LibraryPolicy.ApplyAsync(
+                    LibraryTransition.Purge, libraryPath, "", cancellationToken)
                 .ConfigureAwait(false))
             {
                 changed = true;
@@ -405,75 +412,6 @@ internal sealed class CardVolumeMonitor : IDisposable
             }
         }
         return changed;
-    }
-
-    /// <summary>Decides what the registrations at one card path need. Pure, so the
-    /// rule is testable without a Steam client, a card reader, or a card. The
-    /// identity that settles it is the card's own marker content id, which travels
-    /// with the card — Steam's live folder API exposes no content ids at all, so
-    /// the comparison runs against <c>config\libraryfolders.vdf</c>.</summary>
-    /// <param name="cardContentId">The content id read from the volume's own
-    /// <c>SteamLibrary\libraryfolder.vdf</c>, or null when the volume carries no
-    /// Steam library (a blank card, or one formatted by something else).</param>
-    /// <param name="registeredContentIds">The content ids Steam has registered AT
-    /// THAT PATH. Usually zero or one; more than one is the duplicate state this
-    /// whole mechanism exists to clear.</param>
-    /// <returns>The action to apply.</returns>
-    internal static CardLibraryAction Decide(
-        string? cardContentId, IReadOnlyCollection<string> registeredContentIds)
-    {
-        ArgumentNullException.ThrowIfNull(registeredContentIds);
-        var registered = registeredContentIds
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .ToList();
-
-        if (string.IsNullOrWhiteSpace(cardContentId))
-        {
-            // Nothing on the volume claims to be a Steam library, so anything Steam
-            // still lists at this path belongs to a card that has left the reader.
-            return registered.Count > 0 ? CardLibraryAction.Purge : CardLibraryAction.None;
-        }
-        if (registered.Count == 0)
-        {
-            return CardLibraryAction.Add;
-        }
-        // Exactly the one registration, and it is this card's: leave it alone. Any
-        // other shape - a different id, or this id sitting next to a stale duplicate -
-        // has to be rebuilt, because Steam offers no way to drop just one of them by
-        // identity.
-        return registered.Count == 1
-            && string.Equals(registered[0], cardContentId, StringComparison.Ordinal)
-                ? CardLibraryAction.None
-                : CardLibraryAction.Replace;
-    }
-
-    /// <param name="action">What the registrations at this path need.</param>
-    /// <param name="libraryPath">The card library, e.g. <c>E:\SteamLibrary</c>.</param>
-    /// <param name="cardLabel">The label the card's own marker carries, empty when it
-    /// has none. Passed on an add because Steam's <c>label</c> belongs to the PATH
-    /// registration, not the card: re-registering a reader path leaves the previous
-    /// card's label in place, and Steam's storage page then names this card after the
-    /// last one. An empty label is left as null so Steam keeps its own default.</param>
-    /// <param name="cancellationToken">Cancels the exchange.</param>
-    private static async Task<bool> ApplyAsync(
-        CardLibraryAction action, string libraryPath, string cardLabel,
-        CancellationToken cancellationToken)
-    {
-        if (action == CardLibraryAction.Purge)
-        {
-            var removal = await SteamCdp.RemoveLibrariesAtPathAsync(libraryPath, cancellationToken)
-                .ConfigureAwait(false);
-            return removal.Status == SteamLibraryRemoveStatus.Removed;
-        }
-        // Replace and Add both end in an add. `replaceExisting` makes the add drop
-        // whatever is registered at the path first, which is exactly Replace; for Add
-        // there is nothing there to drop, so one call covers both.
-        var add = await SteamCdp.AddLibraryAsync(
-            libraryPath,
-            label: string.IsNullOrWhiteSpace(cardLabel) ? null : cardLabel,
-            replaceExisting: action == CardLibraryAction.Replace,
-            cancellationToken).ConfigureAwait(false);
-        return add.Status is SteamLibraryAddStatus.Added or SteamLibraryAddStatus.AlreadyPresent;
     }
 
     /// <summary>Every mounted card's <c>&lt;X&gt;:\SteamLibrary</c> path, paired with

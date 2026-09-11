@@ -42,6 +42,34 @@ the media, and it cannot be attributed to the wrong card:
   the previous one's. This is what keeps Steam's own storage page honest; WSGM no longer depends on
   it.
 
+## One owner decides whether a removable library is registered
+
+`Shell\LibraryPolicy` owns every transition: adopt, eject, format, and what an arriving or departing
+volume means. `CardVolumeMonitor` detects and reports; it no longer decides. Both eject surfaces —
+the overlay's panel and Steam's revived storage page — reach it through
+`RemovableDriveManager.EjectObserver`, so an eject means the same thing whichever was pressed and
+the drive manager still knows nothing about Steam libraries.
+
+The reason is a fault rather than tidiness. The monitor treated "a library is on a mounted volume
+and Steam does not list it" as sufficient reason to register it, and a media-level eject does not
+remove the card: Windows remounts it within seconds, the volume looks exactly like a fresh insert,
+and the next pass put back the registration the user had just ejected.
+
+An eject is therefore an intent that outlives the remount. It is recorded against the volume root
+with the library identity that was on it, and only three things clear it:
+
+- the media actually leaving, which the departure pass reports;
+- a different card appearing in the same slot, since the intent was about the one that left;
+- an explicit adopt, which is the user overriding it.
+
+The identity match matters: a blank volume ejected while carrying no library holds nothing back, so
+a card that later gains one can still register it. A refused eject clears the intent too — the card
+never went anywhere, and leaving it out of Steam's list would strand a library that is still there.
+
+Unregistering happens before the media goes, not after. Ejecting first leaves Steam holding a
+library on a volume that is gone, which its own UI renders as a disconnected drive until something
+cleans up.
+
 ## Physical media discovery for Format and Eject
 
 Format and Eject discover physical disk interfaces independently of mounted drive letters.
@@ -108,8 +136,8 @@ Each card in a `CardVolumeMonitor` pass costs a CEF round trip, so by the time a
 on the scan can be seconds old, and a reader takes a new card in far less than that.
 `StillInTheReader` re-reads the marker immediately before the add or replace and abandons the
 decision when the identity no longer matches — otherwise the pass would register the card that left,
-or hand the card that arrived the previous one's label, and `Decide` would see a matching id
-afterwards and never correct it. The swap raised its own notification, so the pass it schedules
+or hand the card that arrived the previous one's label, and `LibraryPolicy.Decide` would see a
+matching id afterwards and never correct it. The swap raised its own notification, so the pass it schedules
 decides again on what is actually there.
 
 This one path cannot use a volume GUID: `AddInstallFolder` registers a path with Steam, and Steam

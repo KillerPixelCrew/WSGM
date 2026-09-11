@@ -461,6 +461,17 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
 
     private static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(500);
 
+    /// <summary>
+    /// Runs just before a row's media is ejected, and again with the outcome.
+    /// </summary>
+    /// <remarks>
+    /// The session sets this to its library policy. Every surface that ejects comes through
+    /// <see cref="EjectAsync" />, so hanging the policy here is what makes an eject mean the same
+    /// thing whether it was pressed in the overlay or on Steam's storage page, without this
+    /// manager knowing what a Steam library is.
+    /// </remarks>
+    public IRemovableDriveEjectObserver? EjectObserver { get; set; }
+
     /// <summary>Safely ejects one row's device or media, updating the row and
     /// <see cref="StatusText"/> with the outcome.</summary>
     /// <param name="entry">The row to eject.</param>
@@ -484,6 +495,14 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
             // volume with any other open handle vetoes the eject, so WSGM would
             // veto itself. Stand the watcher down first (it resumes on its own).
             CardAcfWatcher.SuspendAll();
+
+            // Before the media goes, not after: ejecting first would leave Steam holding a library
+            // on a volume that is gone, which its own UI renders as a disconnected drive until
+            // something cleans up.
+            if (EjectObserver is { } observer)
+            {
+                await observer.EjectingAsync(entry).ConfigureAwait(true);
+            }
             var devInst = entry.DevInst;
             var letter = entry.VolumeLetter;
             var name = entry.Name;
@@ -501,6 +520,13 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
             {
                 entry.ResultText = result.Message;
                 StatusText = result.Message;
+            }
+
+            // The outcome decides whether the intent stands. A refused eject must not leave the
+            // library unregistered and held out of Steam's list: the card never went anywhere.
+            if (EjectObserver is { } outcome)
+            {
+                await outcome.EjectedAsync(entry, result.Success).ConfigureAwait(true);
             }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)

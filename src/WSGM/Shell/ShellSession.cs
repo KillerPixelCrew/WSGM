@@ -34,6 +34,17 @@ public sealed class ShellSession : IAsyncDisposable
     private VolumeButtonService? _volumeButtons;
     private CardAcfWatcher? _cardAcfWatcher;
     private CardVolumeMonitor? _cardVolumes;
+
+    /// <summary>
+    /// The one owner of removable-library registration for this session, shared by the card
+    /// monitor, the overlay's eject panel and Steam's storage pages.
+    /// </summary>
+    /// <remarks>
+    /// Session-lifetime and unconditional: an eject intent has to outlive the surface that made it
+    /// and the card-monitor configuration toggle, or turning card reconciliation off and on would
+    /// silently re-register a library the user ejected.
+    /// </remarks>
+    private readonly LibraryPolicy _libraryPolicy = new();
     private KeepAwakeService? _keepAwake;
     private BootSplash? _splash;
     // Non-null from the moment the service-boot splash becomes interactive until
@@ -660,6 +671,11 @@ public sealed class ShellSession : IAsyncDisposable
             // storage pages ask what is ejectable while the overlay is closed, and an unstarted
             // manager would answer "nothing" to someone holding a card.
             _drives = new RemovableDriveManager();
+
+            // Every eject surface reaches the manager, so the policy hangs here rather than at
+            // each call site: the overlay's panel and Steam's storage page then mean the same
+            // thing by an eject without either knowing about the other.
+            _drives.EjectObserver = _libraryPolicy;
             _drives.Start();
             _formats = new SdFormatManager();
 
@@ -668,7 +684,7 @@ public sealed class ShellSession : IAsyncDisposable
             // read through the session's live config, so switching it in Settings takes effect on
             // the next press rather than the next session.
             _steamStorage = new SteamStorageBridge(
-                _drives, _formats, () => _config.SteamStorageFormatEnabled);
+                _drives, _formats, () => _config.SteamStorageFormatEnabled, _libraryPolicy);
         }
 
         _overlay = new OverlayController(
@@ -2013,7 +2029,8 @@ public sealed class ShellSession : IAsyncDisposable
                 {
                     Avalonia.Threading.Dispatcher.UIThread.Post(KickTabBootSync);
                     return Task.CompletedTask;
-                });
+                },
+                _libraryPolicy);
         }
         else
         {

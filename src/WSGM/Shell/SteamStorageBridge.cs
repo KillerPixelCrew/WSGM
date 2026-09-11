@@ -26,7 +26,7 @@ namespace WSGM.Shell;
 /// A refusal is reported rather than swallowed, so the button says why instead of doing nothing.
 /// </para>
 /// </remarks>
-public sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
+internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
 {
     private readonly RemovableDriveManager _drives;
     private readonly SdFormatManager _formats;
@@ -37,6 +37,9 @@ public sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     // a renumbered row is a row the user's selection jumps off.
     private readonly Dictionary<string, uint> _driveIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, uint> _deviceIds = new(StringComparer.Ordinal);
+
+    /// <summary>The session's library policy, or null when this session owns none.</summary>
+    private readonly LibraryPolicy? _policy;
     private string _loggedProjection = "";
 
     /// <summary>Creates the bridge over the managers that already own these operations.</summary>
@@ -52,12 +55,18 @@ public sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     /// once at construction for whatever is already inserted. That keeps this off a poll: disks are
     /// re-read when storage changed, not every time Steam asks.
     /// </remarks>
-    public SteamStorageBridge(
-        RemovableDriveManager drives, SdFormatManager formats, Func<bool> formatAllowed)
+    /// <param name="policy">
+    /// The session's library policy, or null for a session that owns none. Adopting through
+    /// Steam's page is the user overriding a standing eject, and this is what tells the policy.
+    /// </param>
+    internal SteamStorageBridge(
+        RemovableDriveManager drives, SdFormatManager formats, Func<bool> formatAllowed,
+        LibraryPolicy? policy = null)
     {
         _drives = drives ?? throw new ArgumentNullException(nameof(drives));
         _formats = formats ?? throw new ArgumentNullException(nameof(formats));
         _formatAllowed = formatAllowed ?? throw new ArgumentNullException(nameof(formatAllowed));
+        _policy = policy;
         _drives.Drives.CollectionChanged += OnDrivesChanged;
         _formats.Refresh();
     }
@@ -288,6 +297,11 @@ public sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
 
         try
         {
+            // Adopting is the user overriding a standing eject, so it is dropped before the
+            // registration rather than after: the monitor must not see the add and the intent at
+            // the same time and decide the add was a mistake.
+            _policy?.ClearEjected(path ?? "");
+
             // The manager registers the folder with the running client and reconciles Steam's own
             // library file; this only names the path.
             await _formats.AddLibraryAsync(path ?? "").ConfigureAwait(false);
