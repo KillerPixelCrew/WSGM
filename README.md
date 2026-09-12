@@ -167,10 +167,11 @@ so all of it works at once.
 
 ## How it works
 
-The full technical deep-dive — the logon service, the Explorer takeover, the Steam Input Lease, the
-Steam CEF bridge behind the library features, elevation and recovery — lives in this repository
-under **[docs](docs/README.md)**, starting with `boot-and-shell.md`. The 1.x write-up remains on the
-archived repository's [wiki](https://github.com/NightHammer1000/WSGM/wiki/How-it-Works).
+The full technical deep-dive — the logon service, the Explorer takeover, Desktop Mode, the Steam
+Input Lease, the Steam CEF bridge behind the library features, device plugins, elevation and
+recovery — lives in the wiki:
+**[How it Works](https://github.com/KillerPixelCrew/WSGM/wiki/How-it-Works)**. The in-repo
+[docs](docs/README.md) carry the exact log lines, budgets and dates it summarizes.
 
 ## Install
 
