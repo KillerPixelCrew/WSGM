@@ -133,6 +133,16 @@ public static class Program
         {
             return UacSettings.ApplyDirect(disablePrompts: false) ? 0 : 1;
         }
+        // Elevated one-shots for the Steam autostart takeover (see SteamAutostartService). Neither
+        // takes a source name from the command line: the elevated instance rescans and decides.
+        if (args.Contains(SteamAutostartService.DisableArgument, StringComparer.OrdinalIgnoreCase))
+        {
+            return SteamAutostartService.RunElevatedDisable();
+        }
+        if (args.Contains(SteamAutostartService.RestoreArgument, StringComparer.OrdinalIgnoreCase))
+        {
+            return SteamAutostartService.RestoreAll();
+        }
         if (args.Contains("--disable-lock-on-wake", StringComparer.OrdinalIgnoreCase))
         {
             return LockScreenSettings.ApplyDirect(disableSignInOnWake: true) ? 0 : 1;
@@ -690,6 +700,8 @@ public static class Program
             "--restore-uac",
             "--disable-lock-on-wake",
             "--restore-lock-on-wake",
+            SteamAutostartService.DisableArgument,
+            SteamAutostartService.RestoreArgument,
             "--apply-steam-input-shim",
             "--remove-steam-input-shim",
             "--radio-probe",

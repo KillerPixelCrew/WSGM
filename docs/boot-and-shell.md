@@ -40,6 +40,31 @@ integrations and runtime resources retire, Explorer is restored, and the interac
 The installed logon service remains available for the next sign-in; Exit does not uninstall it or
 change the configured next-logon preference. This icon is separate from Game Mode's `TrayHost`.
 
+### Steam autostart takeover
+
+WSGM starts Steam so the client inherits WSGM's integrity. A Steam that Windows started first takes
+that away without saying so, so `Core\SteamAutostart` looks for the places Windows would start it:
+`Run` values in HKCU and HKLM including the 32-bit view, shortcuts in either Startup folder resolved
+through `Interop\ShellLink`, and scheduled tasks with a logon trigger. Tasks are read as
+language-neutral XML from `schtasks /Query /XML`, because the table output is localized. Matching
+compares the resolved executable against Steam's own path, and an unquoted command is resolved the
+way Windows resolves it, by successive prefixes rather than the first space.
+
+`Core\SteamAutostartTakeover` disables an entry the way Task Manager's Startup tab does, by writing
+Windows' own `StartupApproved` bytes, or by disabling the task. Nothing is deleted. The previous
+state is recorded in `SteamAutostartDisabled` before the write, so an interrupted takeover is still
+undoable, and the write is confirmed by a readback; an unconfirmed one stays pending. Restore only
+undoes an entry that still carries WSGM's own value, so a decision the user made afterwards always
+wins. HKLM and task changes need elevation and go through the `--disable-steam-autostart` one-shot,
+which rescans and takes no name from its command line. A sign-in never prompts: an unelevated
+re-check disables user-scope entries and warns about the rest. `--restore-steam-autostart` runs from
+the elevated uninstall restore.
+
+Quick Setup (revision 2) asks the two sign-in choices and lists what it found. With entries present,
+Continue stays disabled until the takeover is allowed; Skip means off for all of it, as it does for
+the Steam integrations. The takeover itself runs after the save, outside the config lock, because it
+may prompt. Settings > System shows the state and offers "Take over again".
+
 `Program.DecideMode` picks one mode from the command line. WSGM never registers as the Windows
 shell, so no arguments means Settings.
 

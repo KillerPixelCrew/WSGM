@@ -565,6 +565,14 @@ complete. Build order follows the list.
       in flight; an explicit Close Steam sets `SessionModes.SteamClosedByUser`, and
       `Shell\SteamExitPolicy` keeps the desktop from ever popping the overlay. 117 focused managed
       tests and 5 Settings UI tests pass. No live sign-in, Steam or service validation was run.
+      Phase 2 added the Steam autostart takeover: `Core\SteamAutostart` finds Run values, Startup
+      shortcuts and logon tasks that launch Steam, `SteamAutostartTakeover` disables them through
+      Windows' own `StartupApproved` bytes with the previous state recorded before each write, and
+      the elevated `--disable-steam-autostart` and `--restore-steam-autostart` one-shots cover
+      machine scope and the uninstall restore. Quick Setup revision 2 asks the sign-in choices and
+      refuses Continue while entries are found and the takeover is not allowed. 25 scanner and
+      takeover tests pass with a fake startup surface; the live takeover on the reference PC is
+      maintainer-attended.
 - [ ] **Add editable display layouts to Windows Device Control.** Capture the current arrangement
       into an editable layout: active targets, primary, position, resolution, refresh rate and HDR,
       keyed by stable target identity. Never make a user hand-author raw `DISPLAYCONFIG_*` data.

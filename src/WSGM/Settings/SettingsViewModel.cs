@@ -155,6 +155,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         _services = services ?? SettingsServices.Windows(this);
         SaveCommand = new AsyncRelayCommand(SaveWithStatusAsync);
         OpenLogLocationCommand = new RelayCommand(OpenLogLocation);
+        TakeOverSteamAutostartCommand = new RelayCommand(TakeOverSteamAutostart);
         RemoveAppCommand = new RelayCommand<StartupAppRow>(row =>
         {
             if (row is not null)
@@ -183,6 +184,14 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         BootSplashEnabled = _config.BootSplashEnabled;
         StartAtSignIn = _config.StartAtSignIn;
         StartModeIndex = (int)_config.StartMode;
+        SteamAutostartTakeoverAccepted = _config.SteamAutostartTakeoverAccepted;
+        // Described from what was recorded, never by scanning here: reading the task scheduler is
+        // slow enough that it does not belong on the path that opens this window.
+        SteamAutostartStatusText = !_config.SteamAutostartTakeoverAccepted
+            ? "Windows may start Steam before WSGM does, which costs Steam Input its reach over elevated windows. Check and take over."
+            : _config.SteamAutostartDisabled.Count == 0
+                ? "WSGM starts Steam. No Windows startup entry for Steam was turned off."
+                : $"WSGM starts Steam. {_config.SteamAutostartDisabled.Count} Windows startup entry/entries are turned off and are restored when WSGM is uninstalled.";
         DisplayManagementModeIndex = (int)_config.DisplayManagement;
         SteamInputLeaseEnabled = _config.SteamInputLeaseEnabled;
         SteamInputManagementEnabled = _config.SteamInputManagementEnabled;
@@ -290,6 +299,11 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Gets the command that reveals wsgm.log in Explorer.</summary>
     public RelayCommand OpenLogLocationCommand { get; }
+
+    /// <summary>Gets the command that re-checks Windows' Steam startup entries and turns off any
+    /// that came back. This configures how WSGM starts Steam, which is WSGM's own behavior; the
+    /// exception for touching an external setting is recorded in <c>docs\decisions.md</c>.</summary>
+    public RelayCommand TakeOverSteamAutostartCommand { get; }
 
     /// <summary>Gets the command that removes one startup-program row.</summary>
     public RelayCommand<StartupAppRow> RemoveAppCommand { get; }
@@ -685,6 +699,47 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Gets the compact shell state for the status strip.</summary>
     public string ShellStateText => "Shell: Explorer";
 
+    private string _steamAutostartStatusText = "";
+
+    /// <summary>Gets what Windows would still start Steam from, refreshed on demand.</summary>
+    public string SteamAutostartStatusText
+    {
+        get => _steamAutostartStatusText;
+        private set { _steamAutostartStatusText = value; Raise(nameof(SteamAutostartStatusText)); }
+    }
+
+    /// <summary>Re-scans and, with the takeover accepted, disables what came back. Scanning alone
+    /// changes nothing, so the button is safe to press before the choice has been made.</summary>
+    private void TakeOverSteamAutostart()
+    {
+        try
+        {
+            var enabled = SteamAutostartService.Scan().Where(source => source.Enabled).ToArray();
+            if (enabled.Length == 0)
+            {
+                SteamAutostartStatusText = "WSGM starts Steam; Windows has no Steam startup entry of its own.";
+                return;
+            }
+            if (!SteamAutostartTakeoverAccepted)
+            {
+                SteamAutostartStatusText = $"Windows starts Steam from {enabled.Length} place(s). "
+                    + "Turn this on and save to let WSGM own that start.";
+                SteamAutostartTakeoverAccepted = true;
+                return;
+            }
+            var result = SteamAutostartService.Apply(enabled, allowElevation: true);
+            SteamAutostartStatusText = result.Complete
+                ? $"Turned off {result.Disabled.Count} Steam startup entry/entries; WSGM starts Steam."
+                : "Some Steam startup entries are still enabled: "
+                    + string.Join(", ", result.Pending.Concat(result.NeedsElevation).Select(source => source.Describe()));
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            _services.Report("Steam autostart takeover failed", ex);
+            SteamAutostartStatusText = $"Could not read Windows' startup entries: {ex.Message}";
+        }
+    }
+
     private void OpenLogLocation()
     {
         try
@@ -775,6 +830,17 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Gets or sets whether the logon service starts WSGM at sign-in.
     /// Persisted via Save; the boot manifest is rewritten there.</summary>
     public bool StartAtSignIn { get => _startAtSignIn; set { _startAtSignIn = value; Raise(nameof(StartAtSignIn)); Raise(nameof(ServiceStateText)); Raise(nameof(ShellStatusText)); } }
+
+    private bool _steamAutostartTakeoverAccepted;
+
+    /// <summary>Gets or sets whether WSGM may own how Steam starts, turning Windows' own Steam
+    /// startup entries off. Persisted via Save; the takeover itself runs after the save, outside
+    /// the config lock, because it may need an elevation prompt.</summary>
+    public bool SteamAutostartTakeoverAccepted
+    {
+        get => _steamAutostartTakeoverAccepted;
+        set { _steamAutostartTakeoverAccepted = value; Raise(nameof(SteamAutostartTakeoverAccepted)); }
+    }
 
     private int _startModeIndex = (int)SessionStartMode.Game;
 
@@ -1486,6 +1552,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.BootSplashEnabled = BootSplashEnabled;
         config.StartAtSignIn = StartAtSignIn;
         config.StartMode = (SessionStartMode)Math.Clamp(StartModeIndex, 0, 1);
+        config.SteamAutostartTakeoverAccepted = SteamAutostartTakeoverAccepted;
         DisplayManagementMode persistedDisplayManagement = config.DisplayManagement;
         var displayManagement = (DisplayManagementMode)Math.Clamp(DisplayManagementModeIndex, 0, 3);
         config.DisplayManagement = displayManagement;
@@ -1721,6 +1788,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.BootSplashEnabled = values.BootSplashEnabled;
         config.StartAtSignIn = values.StartAtSignIn;
         config.StartMode = values.StartMode;
+        config.SteamAutostartTakeoverAccepted = values.SteamAutostartTakeoverAccepted;
 
         DisplayManagementMode previousDisplayMode = config.DisplayManagement;
         config.DisplayManagement = values.DisplayManagement;
@@ -1960,6 +2028,36 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         if (!config.SteamInputManagementEnabled)
         {
             WarnAboutShimOnlyLaunchFixes(config);
+        }
+        ApplySteamAutostartAfterSave(config);
+    }
+
+    /// <summary>Turns Windows' own Steam startup entries off once the takeover has been persisted.
+    /// Like the shim deployment, it follows persisted intent and runs outside the config lock: a
+    /// machine-scope entry needs an elevation prompt, which has no business inside it.</summary>
+    /// <param name="config">The configuration that was just written.</param>
+    private static void ApplySteamAutostartAfterSave(AppConfig config)
+    {
+        if (!config.SteamAutostartTakeoverAccepted)
+        {
+            return;
+        }
+        try
+        {
+            var enabled = SteamAutostartService.Scan().Where(source => source.Enabled).ToArray();
+            if (enabled.Length == 0)
+            {
+                return;
+            }
+            var result = SteamAutostartService.Apply(enabled, allowElevation: true);
+            if (!result.Complete)
+            {
+                Log.Warn("Steam autostart takeover incomplete: Windows may still start Steam itself.");
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Steam autostart takeover failed: {ex.Message}");
         }
     }
 

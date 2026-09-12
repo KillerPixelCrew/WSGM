@@ -56,6 +56,16 @@ public static class Installer
 
         try
         {
+            // Steam has to start the way it did before WSGM took that over.
+            SteamAutostartService.RestoreAll();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Uninstall restore: Steam autostart failed: {ex.Message}");
+        }
+
+        try
+        {
             var config = ConfigStore.Load();
             if (config.PreviousLockOnWakeSnapshotCaptured && LockScreenSettings.SignInOnWakeDisabled())
             {

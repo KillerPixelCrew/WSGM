@@ -1115,6 +1115,8 @@ public sealed class ShellSession : IAsyncDisposable
             {
                 await Task.Delay(250, _shutdownCancellation.Token).ConfigureAwait(false);
             }
+            // Before the start, so a Steam autostart that reappeared cannot win the race.
+            SteamAutostartService.ReapplyAtStart();
             _modes!.EnsureSteamDesktop();
         }
         catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested) { }
@@ -3555,6 +3557,9 @@ public sealed class ShellSession : IAsyncDisposable
     private async Task LaunchAppsAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        // Before Steam, for the same reason as on the desktop path: a reappeared autostart entry
+        // must not be the one that wins the race to start Steam.
+        SteamAutostartService.ReapplyAtStart();
         var haveApps = _config.StartupApps.Exists(a => a.Enabled && !string.IsNullOrWhiteSpace(a.Path));
         if (haveApps && _config.StartupDelayMs > 0)
         {

@@ -56,6 +56,17 @@ reference desktop PC shares an HDMI switch with a TV box, and the TV is invisibl
 that switch selects the PC, so entry must be able to drive external routing and wait without a
 deadline. Work is tracked in `_plan\implementation-todo.md`.
 
+**WSGM owns how Steam starts, and Quick Setup insists on it.** Windows starting Steam first produces
+a Steam without WSGM's integrity, which silently costs Steam Input its reach over elevated windows,
+so the takeover is not optional: Quick Setup lists the Run entries, Startup shortcuts and scheduled
+tasks it found and refuses Continue until the user allows WSGM to take them over. Nothing is
+deleted. Each entry is disabled the way Task Manager's Startup tab disables it, its previous state
+is recorded before the write, every start re-checks for entries that came back, and uninstall
+restores exactly what WSGM changed and nothing a user has altered since. This is the recorded
+exception to "Settings configures WSGM itself only" (maintainer, 2026-09-12): owning how Steam
+starts is WSGM's own behavior, so Quick Setup and Settings > System may both do it. Mechanism in
+`docs\boot-and-shell.md`, "Steam autostart takeover".
+
 **The volume OSD never interrupts an exclusive game.** The physical volume command is always applied
 in game mode. The indicator is non-activating and click-through, and is suppressed only for a
 confirmed `QUNS_RUNNING_D3D_FULL_SCREEN` from `SHQueryUserNotificationState`, or an absent or locked

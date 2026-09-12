@@ -108,6 +108,41 @@ public sealed class DisplayScaleEntry
     public int Percent { get; set; }
 }
 
+/// <summary>One Steam startup entry WSGM turned off, and how to put it back.
+///
+/// An install-lifecycle recovery snapshot like the registry ones beside it: feature code never
+/// clobbers these, and the uninstaller reads them to undo exactly what WSGM changed.</summary>
+public sealed class SteamAutostartRecord
+{
+    /// <summary>What kind of startup source this was.</summary>
+    public SteamAutostartKind Kind { get; set; }
+
+    /// <summary>Whether the source is per-user or machine-wide.</summary>
+    public SteamAutostartScope Scope { get; set; }
+
+    /// <summary>Registry key, folder or task path the source lived in.</summary>
+    public string Location { get; set; } = "";
+
+    /// <summary>Value, file or task name inside that location.</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>Whether a run value lives in the 32-bit registry view.</summary>
+    public bool Wow64 { get; set; }
+
+    /// <summary>Whether Windows had stored an approval state before WSGM wrote one.</summary>
+    public bool PreviousApprovalExists { get; set; }
+
+    /// <summary>The approval bytes as they were, base64-encoded; null when there were none.</summary>
+    public string? PreviousApproval { get; set; }
+
+    /// <summary>The approval bytes WSGM wrote, base64-encoded. Restore only undoes a state that
+    /// still carries these, so a decision the user made afterwards is never overwritten.</summary>
+    public string? WrittenApproval { get; set; }
+
+    /// <summary>Whether the change was recorded but never confirmed by a readback.</summary>
+    public bool Pending { get; set; }
+}
+
 /// <summary>Which session mode WSGM starts in.</summary>
 public enum SessionStartMode
 {
@@ -760,6 +795,14 @@ public sealed class AppConfig
     /// PC wants the first without the second.</summary>
     public SessionStartMode StartMode { get; set; } = SessionStartMode.Game;
 
+    /// <summary>Whether the user allowed WSGM to own how Steam starts. Until they do, WSGM changes
+    /// no startup entry; afterwards every start re-checks for new ones.</summary>
+    public bool SteamAutostartTakeoverAccepted { get; set; }
+
+    /// <summary>The Steam startup entries WSGM turned off, with their previous state. An
+    /// install-lifecycle recovery snapshot: the uninstaller restores from it.</summary>
+    public List<SteamAutostartRecord> SteamAutostartDisabled { get; set; } = [];
+
     /// <summary>Settle delay after explorer's shell window and taskbar both exist,
     /// before the boot takeover cleanly shuts explorer down. Covers the logon prep
     /// (Run keys, Startup folder, session services) that must complete once per
@@ -927,10 +970,12 @@ public static class QuickSetup
     /// <remarks>
     /// Revision 1 introduced Steam Input Management, which writes a file into
     /// Steam's own install directory, and the Steam CEF integration master switch.
+    /// Revision 2 added the sign-in start and its mode, and the Steam autostart
+    /// takeover, which turns the user's own startup entries off.
     /// Raise this only when a NEW setting genuinely needs the user's decision -
     /// every raise interrupts every existing device once.
     /// </remarks>
-    public const int CurrentRevision = 1;
+    public const int CurrentRevision = 2;
 
     /// <summary>Whether the panel should be shown for the given configuration.</summary>
     /// <param name="config">The configuration to test.</param>

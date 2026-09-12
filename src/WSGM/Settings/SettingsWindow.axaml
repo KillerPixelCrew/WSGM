@@ -124,7 +124,40 @@
           <StackPanel Spacing="16">
             <TextBlock Text="Quick Setup" Classes="setting-title" FontSize="20" />
             <TextBlock TextWrapping="Wrap" Classes="caption"
-                       Text="WSGM can integrate with Steam in two ways. Both are recommended, and both can be changed later in Settings. Nothing is written until you choose Continue." />
+                       Text="How WSGM starts, and how it integrates with Steam. Everything here can be changed later in Settings. Nothing is written until you choose Continue." />
+
+            <Border Classes="setting-row alt">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel VerticalAlignment="Center" Spacing="1">
+                  <TextBlock Text="Start WSGM at sign-in" Classes="setting-title" />
+                  <TextBlock TextWrapping="Wrap" Classes="caption"
+                             Text="The WSGM service starts WSGM once Windows finishes signing you in." />
+                </StackPanel>
+                <ToggleSwitch Grid.Column="1" x:Name="QuickSetupStartAtSignIn" IsChecked="True" VerticalAlignment="Center" />
+              </Grid>
+            </Border>
+
+            <Border Classes="setting-row">
+              <StackPanel Spacing="6">
+                <TextBlock Text="Start in" Classes="setting-title" />
+                <TextBlock TextWrapping="Wrap" Classes="caption"
+                           Text="Game mode goes straight to Big Picture. Desktop mode keeps Windows Explorer and waits in the notification area." />
+                <ComboBox x:Name="QuickSetupStartMode" SelectedIndex="1" HorizontalAlignment="Left" MinWidth="180">
+                  <ComboBoxItem Content="Desktop mode" />
+                  <ComboBoxItem Content="Game mode" />
+                </ComboBox>
+              </StackPanel>
+            </Border>
+
+            <Border x:Name="QuickSetupAutostartRow" Classes="setting-row alt" IsVisible="False">
+              <StackPanel Spacing="6">
+                <TextBlock Text="Let WSGM start Steam" Classes="setting-title" />
+                <TextBlock TextWrapping="Wrap" Classes="caption"
+                           Text="Windows already starts Steam on its own. WSGM has to own that start, or Steam comes up without WSGM's integrity and Steam Input stops working over elevated windows. These entries are switched off, not deleted, and uninstalling WSGM puts them back:" />
+                <TextBlock x:Name="QuickSetupAutostartList" TextWrapping="Wrap" Classes="caption" />
+                <CheckBox x:Name="QuickSetupAutostart" Content="Let WSGM take these over" />
+              </StackPanel>
+            </Border>
 
             <Border Classes="setting-row alt">
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">

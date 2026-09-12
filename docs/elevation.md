@@ -182,6 +182,13 @@ and the integrity choice cannot apply to one and not the other. Every launch log
 a pasted log settles which one happened. The scheduled-task route returns no process handle, so the
 Steam Input shim startup-trace line is only logged on the integrity-matched path that has one.
 
+Turning Windows' own Steam startup entries off is what makes that ownership real, and the HKLM and
+scheduled-task parts of it need elevation. They go through the `--disable-steam-autostart` one-shot,
+the same `SelfElevation.RunElevatedAction` pattern the UAC and lock-on-wake toggles use, and it
+rescans rather than trusting a name from its command line. A sign-in never prompts; the elevated
+route is only taken from Quick Setup or the Settings button, where a prompt is expected. The
+uninstaller's existing elevated `--uninstall-restore` puts the entries back.
+
 Because WSGM owns the Steam start, `Core\ElevationPolicy` treats "WSGM starts Steam at its own
 integrity" as a reason to run elevated, alongside an already-elevated Steam, elevated startup apps
 and device integration. Both `SelfElevation` and the boot manifest's `Elevate` read that one rule,
