@@ -58,7 +58,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <param name="Identity">The plugin instance.</param>
     /// <param name="Action">The declared action.</param>
     /// <param name="Label">How to name it in a picker.</param>
-    internal sealed record PluginActionOption(
+    public sealed record PluginActionOption(
         PluginInstanceIdentity Identity, PluginAction Action, string Label)
     {
         /// <inheritdoc />
@@ -67,6 +67,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     internal sealed record SettingsServices(
         Func<DisplayArrangement> CaptureDisplays,
+        Func<DisplayTargetIdentity, DisplayCatalogFacts?> ReadDisplayFacts,
         Func<IReadOnlyList<PluginActionOption>> ReadPluginActions,
         Func<IEnumerable<(string Label, string Path, bool Elevated)>> DetectStartupApps,
         Action BeginImportSession,
@@ -80,9 +81,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             () => OperatingSystem.IsWindows()
                 ? DisplayLayouts.Observe()
                 : new([], "", DateTimeOffset.UtcNow),
-            // Settings runs in its own process and owns no plugin host, so a saved step's plugin is
-            // named but never resolved here. The rows say so rather than pretending it is missing.
-            static () => [],
+            static target => OperatingSystem.IsWindows() ? ReadWindowsDisplayFacts(target) : null,
+            SettingsPluginActions.Read,
             KnownStartupApps.Detected,
             SplashTheme.BeginImportSession, SplashTheme.EndImportSession,
             request => Task.Run(() => PersistSave(request)),
@@ -91,6 +91,18 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             // Windows' account of the last standby. Injected so a preview or a test renders a fixed
             // report instead of whatever this machine did last night.
             ModernStandbyDiagnostics.Read);
+
+        /// <summary>Asks one active display what it supports, so the answers can be remembered and
+        /// offered again after it is unplugged. Every query is optional: a display that refuses one
+        /// of them still contributes the rest.</summary>
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        private static DisplayCatalogFacts ReadWindowsDisplayFacts(DisplayTargetIdentity target)
+        {
+            IReadOnlyList<DisplayMode> modes = DisplayModes.Read(target)?.Supported ?? [];
+            bool hdr = DisplayColor.TryReadHdr(target, out _, out bool supported) && supported;
+            int maximum = DisplayScaling.TryReadRange(target, out _, out _, out int highest) ? highest : 0;
+            return new(modes, hdr, maximum);
+        }
     }
 
     private bool _isSaving;
@@ -175,8 +187,23 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         SaveCommand = new AsyncRelayCommand(SaveWithStatusAsync);
         OpenLogLocationCommand = new RelayCommand(OpenLogLocation);
         TakeOverSteamAutostartCommand = new RelayCommand(TakeOverSteamAutostart);
+        GameLayout = new DisplayLayoutEditor(RefreshLaunchSummary);
+        DesktopLayout = new DisplayLayoutEditor(RefreshLaunchSummary);
+        ActionLists =
+        [
+            new("Entering Game Mode", RefreshLaunchSummary),
+            new("Leaving Game Mode", RefreshLaunchSummary),
+            new("Desktop startup", RefreshLaunchSummary),
+            new("Desktop wake", RefreshLaunchSummary),
+        ];
+        AddActionStepCommand = new RelayCommand<PluginActionListEditor>(list => list?.Add());
+        RemoveActionStepCommand = new RelayCommand<PluginActionStepEditorRow>(RemoveActionStep);
+        MoveActionStepUpCommand = new RelayCommand<PluginActionStepEditorRow>(row => MoveActionStep(row, -1));
+        MoveActionStepDownCommand = new RelayCommand<PluginActionStepEditorRow>(row => MoveActionStep(row, +1));
         SnapshotGameLayoutCommand = new RelayCommand(() => SnapshotLayout(desktop: false));
         SnapshotDesktopLayoutCommand = new RelayCommand(() => SnapshotLayout(desktop: true));
+        ForgetDisplayCommand = new RelayCommand<DisplayLayoutEditorRow>(ForgetDisplay);
+        RebindDisplayCommand = new RelayCommand<DisplayLayoutEditorRow>(RebindDisplay);
         RemoveAppCommand = new RelayCommand<StartupAppRow>(row =>
         {
             if (row is not null)
@@ -302,6 +329,37 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Gets the command that captures the current desktop as the Desktop layout.</summary>
     public RelayCommand SnapshotDesktopLayoutCommand { get; }
 
+    /// <summary>Gets the command that removes a display from the remembered catalog.</summary>
+    public RelayCommand<DisplayLayoutEditorRow> ForgetDisplayCommand { get; }
+
+    /// <summary>Gets the command that points a migrated row at a connected display.</summary>
+    public RelayCommand<DisplayLayoutEditorRow> RebindDisplayCommand { get; }
+
+    /// <summary>Gets the command that appends the selected action to one list.</summary>
+    public RelayCommand<PluginActionListEditor> AddActionStepCommand { get; }
+
+    /// <summary>Gets the command that removes one action step.</summary>
+    public RelayCommand<PluginActionStepEditorRow> RemoveActionStepCommand { get; }
+
+    /// <summary>Gets the command that runs one step earlier.</summary>
+    public RelayCommand<PluginActionStepEditorRow> MoveActionStepUpCommand { get; }
+
+    /// <summary>Gets the command that runs one step later.</summary>
+    public RelayCommand<PluginActionStepEditorRow> MoveActionStepDownCommand { get; }
+
+    /// <summary>The connected display a rebind will use, chosen from
+    /// <see cref="RebindChoices"/>.</summary>
+    public int RebindChoiceIndex
+    {
+        get => _rebindChoiceIndex;
+        set { _rebindChoiceIndex = value; Raise(nameof(RebindChoiceIndex)); }
+    }
+
+    /// <summary>The displays a migrated row can be pointed at: the ones seen most recently.</summary>
+    public ObservableCollection<string> RebindChoices { get; } = [];
+
+    private int _rebindChoiceIndex;
+
     /// <summary>Gets the command that removes one startup-program row.</summary>
     public RelayCommand<StartupAppRow> RemoveAppCommand { get; }
 
@@ -311,23 +369,14 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Gets the command that moves one startup-program row down.</summary>
     public RelayCommand<StartupAppRow> MoveDownCommand { get; }
 
-    /// <summary>The Game Mode layout, one read-only row per display, as it will be applied.</summary>
-    public ObservableCollection<DisplayLayoutRow> GameLayoutRows { get; } = [];
+    /// <summary>Edits the Game Mode layout.</summary>
+    public DisplayLayoutEditor GameLayout { get; }
 
-    /// <summary>The Desktop layout leaving Game Mode restores, when one is configured.</summary>
-    public ObservableCollection<DisplayLayoutRow> DesktopLayoutRows { get; } = [];
+    /// <summary>Edits the Desktop layout leaving Game Mode restores.</summary>
+    public DisplayLayoutEditor DesktopLayout { get; }
 
-    /// <summary>The configured entry actions, in order.</summary>
-    public ObservableCollection<PluginActionStepRow> EnterActionRows { get; } = [];
-
-    /// <summary>The configured leave actions, in order.</summary>
-    public ObservableCollection<PluginActionStepRow> LeaveActionRows { get; } = [];
-
-    /// <summary>The configured desktop startup actions, in order.</summary>
-    public ObservableCollection<PluginActionStepRow> DesktopStartupActionRows { get; } = [];
-
-    /// <summary>The configured desktop wake actions, in order.</summary>
-    public ObservableCollection<PluginActionStepRow> DesktopWakeActionRows { get; } = [];
+    /// <summary>The four action lists, in the order the page shows them.</summary>
+    public IReadOnlyList<PluginActionListEditor> ActionLists { get; }
 
     /// <summary>Displays that can be chosen in the layout editor, present or remembered.</summary>
     public ObservableCollection<KnownDisplay> KnownDisplays { get; } = [];
@@ -1717,20 +1766,24 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
         KnownDisplays.Clear();
         foreach (KnownDisplay display in launch.KnownDisplays) { KnownDisplays.Add(display); }
+        // One observation on open, so a connected display can be configured without pressing
+        // Snapshot first and an absent one is honestly badged as absent.
+        try { MergeCatalog(_services.CaptureDisplays()); }
+        catch (Exception ex) { _services.Report("Could not read the current displays for Settings", ex); }
         RefreshLaunchRows();
     }
 
     /// <summary>Rebuilds every rendered row from the fields the editor owns.</summary>
     private void RefreshLaunchRows()
     {
-        Fill(GameLayoutRows, _gameLayout);
-        Fill(DesktopLayoutRows, _desktopLayout);
+        GameLayout.Load(KnownDisplays, _present, _gameLayout);
+        DesktopLayout.Load(KnownDisplays, _present, _desktopLayout);
 
-        PluginInstanceIdentity[] running = ReadRunningPlugins();
-        Fill(EnterActionRows, _enterActions, running);
-        Fill(LeaveActionRows, _leaveActions, running);
-        Fill(DesktopStartupActionRows, _desktopStartupActions, running);
-        Fill(DesktopWakeActionRows, _desktopWakeActions, running);
+        IReadOnlyList<PluginActionOption> options = ReadPluginActions();
+        ActionLists[0].Load(_enterActions, options);
+        ActionLists[1].Load(_leaveActions, options);
+        ActionLists[2].Load(_desktopStartupActions, options);
+        ActionLists[3].Load(_desktopWakeActions, options);
 
         WaitForDisplayChoices.Clear();
         WaitForDisplayChoices.Add("No display wait");
@@ -1742,42 +1795,118 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             : Math.Max(0, KnownDisplays.ToList().FindIndex(
                 display => display.Target?.Matches(_waitForDisplay) == true) + 1);
 
-        int unconfirmed = GameLayoutRows.Count(row => row.NeedsConfirmation)
-            + DesktopLayoutRows.Count(row => row.NeedsConfirmation);
+        RebindChoices.Clear();
+        foreach (DisplayTargetIdentity target in _present)
+        {
+            RebindChoices.Add(target.FriendlyName.Length > 0 ? target.FriendlyName : "Unnamed display");
+        }
+        RebindChoiceIndex = RebindChoices.Count > 0 ? 0 : -1;
+        RefreshLaunchSummary();
+    }
+
+    /// <summary>Restates what the two layouts describe. Called on every edit, so the page says
+    /// whether the layout can be saved while it is being changed rather than only on Save.</summary>
+    private void RefreshLaunchSummary()
+    {
+        int active = GameLayout.Rows.Count(row => row.Active);
         LaunchSummaryText = GameModeLaunchKindIndex == (int)GameModeLaunchKind.Default
             ? "Game Mode starts on the display Windows calls primary and adjusts scaling only."
-            : _gameLayout is null
-                ? "No layout is saved yet. Use Snapshot with the displays arranged the way Game Mode should use them."
-                : unconfirmed == 0
-                    ? $"{GameLayoutRows.Count} display(s) in the Game Mode layout."
-                    : $"{GameLayoutRows.Count} display(s) in the Game Mode layout; {unconfirmed} still need confirming before Game Mode can apply it.";
+            : active == 0
+                ? "No display is switched on for Game Mode yet. Use Snapshot, or switch a remembered display on below."
+                : GameLayout.ValidationText.Length > 0
+                    ? "Game Mode layout: " + GameLayout.ValidationText
+                    : DesktopLayout.ValidationText.Length > 0
+                        ? "Desktop layout: " + DesktopLayout.ValidationText
+                        : $"{active} display(s) in the Game Mode layout.";
+        Raise(nameof(CanSaveLayouts));
     }
 
-    private static void Fill(ObservableCollection<DisplayLayoutRow> rows, DisplayLayout? layout)
-    {
-        rows.Clear();
-        foreach (DisplayLayoutOutput output in layout?.Outputs ?? []) { rows.Add(new(output)); }
-    }
+    /// <summary>Whether both layouts currently describe a desktop Windows would accept.</summary>
+    public bool CanSaveLayouts =>
+        (GameModeLaunchKindIndex != (int)GameModeLaunchKind.Custom
+            || (!GameLayout.HasValidationError && !DesktopLayout.HasValidationError))
+        && !ActionLists.Any(list => list.HasValidationError);
 
-    private static void Fill(
-        ObservableCollection<PluginActionStepRow> rows,
-        IReadOnlyList<PluginActionStep> steps,
-        PluginInstanceIdentity[] running)
+    private void ForgetDisplay(DisplayLayoutEditorRow? row)
     {
-        rows.Clear();
-        foreach (PluginActionStep step in steps)
+        if (row is null) { return; }
+        GameLayout.Forget(row);
+        // The same catalog entry backs a row in each editor; forgetting it must remove both.
+        foreach (DisplayLayoutEditorRow other in DesktopLayout.Rows
+            .Where(candidate => candidate.Display == row.Display).ToList())
         {
-            rows.Add(new(step, step.Plugin is { } plugin && running.Contains(plugin)));
+            DesktopLayout.Forget(other);
         }
+        KnownDisplays.Remove(row.Display);
+        if (_waitForDisplay is { } wait && row.Target?.Matches(wait) == true) { _waitForDisplay = null; }
+        // Take the layouts from the editors before reloading them, or the reload adopts the saved
+        // output for the display that was just forgotten and puts the row straight back.
+        _gameLayout = GameLayout.Build();
+        _desktopLayout = DesktopLayout.Build();
+        RefreshLaunchRows();
     }
 
-    private PluginInstanceIdentity[] ReadRunningPlugins()
+    private void RebindDisplay(DisplayLayoutEditorRow? row)
     {
-        try { return _services.ReadPluginActions().Select(option => option.Identity).Distinct().ToArray(); }
+        if (row is null || RebindChoiceIndex < 0 || RebindChoiceIndex >= _present.Count) { return; }
+        DisplayTargetIdentity target = _present[RebindChoiceIndex];
+        if (!row.NeedsRebind)
+        {
+            StatusText = "That row already names a display.";
+            return;
+        }
+
+        // The chosen display usually already has its own catalog row, because it is connected and
+        // Settings observed it on open. Merging is what the user means: the migrated row carries
+        // the values, the real row carries the identity, and two rows for one monitor could never
+        // both be applied.
+        DisplayLayoutEditorRow? existing = GameLayout.Rows.FirstOrDefault(
+            candidate => candidate != row && candidate.Target?.Matches(target) == true);
+        if (existing is not null)
+        {
+            existing.Active = row.Active;
+            existing.Mode = existing.Modes.FirstOrDefault(mode => mode.Equals(row.Mode)) ?? row.Mode;
+            existing.X = row.X;
+            existing.Y = row.Y;
+            existing.DpiPercent = row.DpiPercent;
+            existing.HdrEnabled = row.HdrEnabled;
+            existing.IsPrimary = row.IsPrimary;
+            ForgetDisplay(row);
+        }
+        else
+        {
+            row.Rebind(target);
+            if (!KnownDisplays.Contains(row.Display)) { KnownDisplays.Add(row.Display); }
+        }
+        StatusText = $"{target.FriendlyName} bound. Save to keep it.";
+        RefreshLaunchSummary();
+    }
+
+    private IReadOnlyList<PluginActionOption> ReadPluginActions()
+    {
+        try { return _services.ReadPluginActions(); }
         catch (Exception ex)
         {
             _services.Report("Could not read the running plugin actions for Settings", ex);
             return [];
+        }
+    }
+
+    private void RemoveActionStep(PluginActionStepEditorRow? row)
+    {
+        if (row is null) { return; }
+        foreach (PluginActionListEditor list in ActionLists.Where(list => list.Rows.Contains(row)))
+        {
+            list.Remove(row);
+        }
+    }
+
+    private void MoveActionStep(PluginActionStepEditorRow? row, int delta)
+    {
+        if (row is null) { return; }
+        foreach (PluginActionListEditor list in ActionLists.Where(list => list.Rows.Contains(row)))
+        {
+            list.Move(row, delta);
         }
     }
 
@@ -1796,7 +1925,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
                 StatusText = "This desktop cannot be saved as a layout: " + refused;
                 return;
             }
-            if (desktop) { _desktopLayout = captured; } else { _gameLayout = captured; }
+            // Both editors keep whatever the other one holds, so a Snapshot for one layout never
+            // discards edits made to the other.
+            _gameLayout = desktop ? GameLayout.Build() : captured;
+            _desktopLayout = desktop ? captured : DesktopLayout.Build();
             MergeCatalog(arrangement);
             RefreshLaunchRows();
             StatusText = desktop
@@ -1814,6 +1946,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// display stays configurable after it is unplugged.</summary>
     private void MergeCatalog(DisplayArrangement arrangement)
     {
+        _present = [.. arrangement.Targets.Where(target => target.Available).Select(target => target.Target)];
         foreach (DisplayTargetObservation observed in arrangement.Targets)
         {
             if (!observed.Available) { continue; }
@@ -1827,10 +1960,25 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             existing.Target = observed.Target;
             existing.LastSeen = arrangement.CapturedAt;
             if (!observed.Active) { continue; }
-            if (observed.Current?.Hdr is not null) { existing.HdrSupported = true; }
-            if (observed.Current?.DpiPercent is { } percent)
+            // Only an active display can be asked what it supports, which is the whole reason the
+            // answers are remembered: an unplugged television has none of this to give.
+            if (_services.ReadDisplayFacts(observed.Target) is { } facts)
             {
-                existing.MaximumDpiPercent = Math.Max(existing.MaximumDpiPercent, percent);
+                if (facts.Modes.Count > 0) { existing.Modes = [.. facts.Modes]; }
+                existing.HdrSupported |= facts.HdrSupported;
+                existing.MaximumDpiPercent = Math.Max(existing.MaximumDpiPercent, facts.MaximumDpiPercent);
+            }
+            if (observed.Current?.Hdr is not null) { existing.HdrSupported = true; }
+            if (observed.Current is { } current)
+            {
+                // The mode it is running is worth keeping even when enumeration failed, so a
+                // remembered display always offers at least what it was last seen doing.
+                DisplayMode running = new(current.Width, current.Height,
+                    (int)Math.Round(current.Refresh.Hertz));
+                if (running is { Width: > 0, Height: > 0 } && !existing.Modes.Contains(running))
+                {
+                    existing.Modes.Add(running);
+                }
             }
         }
     }
@@ -1843,15 +1991,15 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     {
         launch.Kind = (GameModeLaunchKind)Math.Clamp(GameModeLaunchKindIndex, 0, 1);
         launch.Return = (GameModeReturn)Math.Clamp(GameModeReturnIndex, 0, 1);
-        launch.GameLayout = _gameLayout;
-        launch.DesktopLayout = _desktopLayout;
+        launch.GameLayout = GameLayout.Build();
+        launch.DesktopLayout = DesktopLayout.Build();
         launch.WaitForDisplay = WaitForDisplayIndex > 0 && WaitForDisplayIndex <= KnownDisplays.Count
             ? KnownDisplays[WaitForDisplayIndex - 1].Target
             : null;
-        launch.EnterActions = [.. _enterActions];
-        launch.LeaveActions = [.. _leaveActions];
-        launch.DesktopStartupActions = [.. _desktopStartupActions];
-        launch.DesktopWakeActions = [.. _desktopWakeActions];
+        launch.EnterActions = ActionLists[0].Build();
+        launch.LeaveActions = ActionLists[1].Build();
+        launch.DesktopStartupActions = ActionLists[2].Build();
+        launch.DesktopWakeActions = ActionLists[3].Build();
         foreach (KnownDisplay display in KnownDisplays)
         {
             if (display.Target is not { } target) { continue; }
@@ -1867,6 +2015,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     private DisplayLayout? _gameLayout;
     private DisplayLayout? _desktopLayout;
+    private IReadOnlyList<DisplayTargetIdentity> _present = [];
     private DisplayTargetIdentity? _waitForDisplay;
     private List<PluginActionStep> _enterActions = [];
     private List<PluginActionStep> _leaveActions = [];

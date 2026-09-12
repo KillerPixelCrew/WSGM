@@ -3,6 +3,120 @@
              xmlns:s="using:WSGM.Settings"
              x:Class="WSGM.Settings.Pages.DisplayPage"
              x:DataType="s:SettingsViewModel">
+    <UserControl.Resources>
+        <DataTemplate x:Key="DisplayRow" x:DataType="s:DisplayLayoutEditorRow">
+            <Border Classes="setting-row">
+                <StackPanel Spacing="6">
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                        <StackPanel Spacing="1">
+                            <TextBlock Text="{Binding DisplayName}" Classes="setting-title" />
+                            <TextBlock Text="{Binding PresenceText}" Classes="caption"
+                                       IsVisible="{Binding !Present}" />
+                        </StackPanel>
+                        <CheckBox Grid.Column="1" Content="Active" IsChecked="{Binding Active}" />
+                        <Button Grid.Column="2" Content="Forget"
+                                Command="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).ForgetDisplayCommand}"
+                                CommandParameter="{Binding}" />
+                    </Grid>
+                    <StackPanel Spacing="6" IsVisible="{Binding Active}">
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                            <CheckBox Content="Primary" IsChecked="{Binding IsPrimary}" VerticalAlignment="Center" />
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding Modes}" SelectedItem="{Binding Mode}"
+                                      HorizontalAlignment="Stretch" IsVisible="{Binding HasModes}" />
+                            <TextBlock Grid.Column="1" Classes="caption" VerticalAlignment="Center"
+                                       IsVisible="{Binding !HasModes}"
+                                       Text="No modes are remembered for this display yet. Connect it and press Snapshot." />
+                            <NumericUpDown Grid.Column="2" Value="{Binding DpiPercent}" Minimum="100" Maximum="500"
+                                           Increment="25" Width="120" />
+                            <CheckBox Grid.Column="3" Content="HDR" IsChecked="{Binding HdrEnabled}"
+                                      IsVisible="{Binding HdrSupported}" VerticalAlignment="Center" />
+                        </Grid>
+                        <Grid ColumnDefinitions="Auto,*,Auto,*" ColumnSpacing="8" IsVisible="{Binding !IsPrimary}">
+                            <TextBlock Text="X" VerticalAlignment="Center" Classes="caption" />
+                            <NumericUpDown Grid.Column="1" Value="{Binding X}" Minimum="-32768" Maximum="32768"
+                                           Increment="10" />
+                            <TextBlock Grid.Column="2" Text="Y" VerticalAlignment="Center" Classes="caption" />
+                            <NumericUpDown Grid.Column="3" Value="{Binding Y}" Minimum="-32768" Maximum="32768"
+                                           Increment="10" />
+                        </Grid>
+                        <Grid ColumnDefinitions="*,220,Auto" ColumnSpacing="8" IsVisible="{Binding NeedsRebind}">
+                            <TextBlock Text="{Binding RebindText}" TextWrapping="Wrap" Classes="caption"
+                                       VerticalAlignment="Center" />
+                            <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                      ItemsSource="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).RebindChoices}"
+                                      SelectedIndex="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).RebindChoiceIndex}" />
+                            <Button Grid.Column="2" Content="Use this display"
+                                    Command="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).RebindDisplayCommand}"
+                                    CommandParameter="{Binding}" />
+                        </Grid>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="PluginArgumentRow" x:DataType="s:PluginArgumentRow">
+            <Grid ColumnDefinitions="160,*" ColumnSpacing="8" Margin="0,2">
+                <TextBlock Text="{Binding Label}" Classes="caption" VerticalAlignment="Center" />
+                <CheckBox Grid.Column="1" IsChecked="{Binding BooleanValue}" IsVisible="{Binding IsBoolean}" />
+                <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" SelectedItem="{Binding TextValue}"
+                          HorizontalAlignment="Stretch" IsVisible="{Binding IsChoice}" />
+                <StackPanel Grid.Column="1" Spacing="2" IsVisible="{Binding IsText}">
+                    <TextBox Text="{Binding TextValue}" />
+                    <TextBlock Text="{Binding ValidationText}" Classes="caption" TextWrapping="Wrap"
+                               IsVisible="{Binding HasValidationError}" />
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="PluginActionStepRow" x:DataType="s:PluginActionStepEditorRow">
+            <Border Classes="setting-row alt">
+                <StackPanel Spacing="4">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="6">
+                        <TextBlock Text="{Binding Title}" Classes="setting-title" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="Up"
+                                Command="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).MoveActionStepUpCommand}"
+                                CommandParameter="{Binding}" />
+                        <Button Grid.Column="2" Content="Down"
+                                Command="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).MoveActionStepDownCommand}"
+                                CommandParameter="{Binding}" />
+                        <Button Grid.Column="3" Content="Remove"
+                                Command="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).RemoveActionStepCommand}"
+                                CommandParameter="{Binding}" />
+                    </Grid>
+                    <TextBlock Text="{Binding UnavailableText}" Classes="caption" TextWrapping="Wrap"
+                               IsVisible="{Binding !Available}" />
+                    <TextBlock Text="{Binding SavedArguments}" Classes="caption" TextWrapping="Wrap"
+                               IsVisible="{Binding !Available}" />
+                    <ItemsControl ItemsSource="{Binding Arguments}" ItemTemplate="{StaticResource PluginArgumentRow}"
+                                  IsVisible="{Binding Available}" />
+                    <Grid ColumnDefinitions="160,120" ColumnSpacing="8">
+                        <TextBlock Text="Deadline (seconds)" Classes="caption" VerticalAlignment="Center" />
+                        <NumericUpDown Grid.Column="1" Value="{Binding TimeoutSeconds}" Minimum="1" Maximum="120" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="PluginActionList" x:DataType="s:PluginActionListEditor">
+            <StackPanel>
+                <Border Classes="setting-row">
+                    <Grid ColumnDefinitions="*,260,Auto" ColumnSpacing="8">
+                        <TextBlock Text="{Binding Title}" Classes="setting-title" VerticalAlignment="Center" />
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" SelectedIndex="{Binding ChoiceIndex}"
+                                  HorizontalAlignment="Stretch" IsVisible="{Binding CanAdd}" />
+                        <Button Grid.Column="2" Content="Add step" IsVisible="{Binding CanAdd}"
+                                Command="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).AddActionStepCommand}"
+                                CommandParameter="{Binding}" />
+                    </Grid>
+                </Border>
+                <Border Classes="setting-row" IsVisible="{Binding !CanAdd}">
+                    <TextBlock Text="{Binding AddHintText}" Classes="caption" TextWrapping="Wrap" />
+                </Border>
+                <ItemsControl ItemsSource="{Binding Rows}" ItemTemplate="{StaticResource PluginActionStepRow}" />
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+
     <ScrollViewer>
         <Border Padding="16,10">
             <StackPanel>
@@ -36,20 +150,11 @@
                             <Button Grid.Column="1" Content="Snapshot" Command="{Binding SnapshotGameLayoutCommand}" />
                         </Grid>
                     </Border>
-                    <ItemsControl ItemsSource="{Binding GameLayoutRows}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="s:DisplayLayoutRow">
-                                <Border Classes="setting-row">
-                                    <StackPanel Spacing="2">
-                                        <TextBlock Text="{Binding DisplayName}" Classes="setting-title" />
-                                        <TextBlock Text="{Binding Summary}" Classes="caption" />
-                                        <TextBlock Text="{Binding ConfirmationText}" Classes="caption"
-                                                   TextWrapping="Wrap" IsVisible="{Binding NeedsConfirmation}" />
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <ItemsControl ItemsSource="{Binding GameLayout.Rows}"
+                                  ItemTemplate="{StaticResource DisplayRow}" />
+                    <Border Classes="setting-row" IsVisible="{Binding GameLayout.HasValidationError}">
+                        <TextBlock Text="{Binding GameLayout.ValidationText}" TextWrapping="Wrap" Classes="caption" />
+                    </Border>
 
                     <Border Classes="setting-row alt">
                         <Grid ColumnDefinitions="*,260" ColumnSpacing="12">
@@ -85,20 +190,11 @@
                             <Button Grid.Column="1" Content="Snapshot" Command="{Binding SnapshotDesktopLayoutCommand}" />
                         </Grid>
                     </Border>
-                    <ItemsControl ItemsSource="{Binding DesktopLayoutRows}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="s:DisplayLayoutRow">
-                                <Border Classes="setting-row">
-                                    <StackPanel Spacing="2">
-                                        <TextBlock Text="{Binding DisplayName}" Classes="setting-title" />
-                                        <TextBlock Text="{Binding Summary}" Classes="caption" />
-                                        <TextBlock Text="{Binding ConfirmationText}" Classes="caption"
-                                                   TextWrapping="Wrap" IsVisible="{Binding NeedsConfirmation}" />
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <ItemsControl ItemsSource="{Binding DesktopLayout.Rows}"
+                                  ItemTemplate="{StaticResource DisplayRow}" />
+                    <Border Classes="setting-row" IsVisible="{Binding DesktopLayout.HasValidationError}">
+                        <TextBlock Text="{Binding DesktopLayout.ValidationText}" TextWrapping="Wrap" Classes="caption" />
+                    </Border>
                 </StackPanel>
 
                 <Border Classes="section-header"><TextBlock Text="PLUGIN ACTIONS" /></Border>
@@ -106,29 +202,8 @@
                     <TextBlock TextWrapping="Wrap" Classes="caption"
                                Text="Saved plugin actions run at the four session events below. Entry stops at the first failure; the other three run every step and report what failed. Nothing is ever retried." />
                 </Border>
-                <Border Classes="setting-row"><TextBlock Text="Entering Game Mode" Classes="setting-title" /></Border>
-                <ItemsControl ItemsSource="{Binding EnterActionRows}" ItemTemplate="{StaticResource PluginActionRow}" />
-
-                <Border Classes="setting-row"><TextBlock Text="Leaving Game Mode" Classes="setting-title" /></Border>
-                <ItemsControl ItemsSource="{Binding LeaveActionRows}" ItemTemplate="{StaticResource PluginActionRow}" />
-
-                <Border Classes="setting-row"><TextBlock Text="Desktop startup" Classes="setting-title" /></Border>
-                <ItemsControl ItemsSource="{Binding DesktopStartupActionRows}" ItemTemplate="{StaticResource PluginActionRow}" />
-
-                <Border Classes="setting-row"><TextBlock Text="Desktop wake" Classes="setting-title" /></Border>
-                <ItemsControl ItemsSource="{Binding DesktopWakeActionRows}" ItemTemplate="{StaticResource PluginActionRow}" />
+                <ItemsControl ItemsSource="{Binding ActionLists}" ItemTemplate="{StaticResource PluginActionList}" />
             </StackPanel>
         </Border>
     </ScrollViewer>
-
-    <UserControl.Resources>
-        <DataTemplate x:Key="PluginActionRow" x:DataType="s:PluginActionStepRow">
-            <Border Classes="setting-row alt">
-                <StackPanel Spacing="2">
-                    <TextBlock Text="{Binding Title}" Classes="setting-title" />
-                    <TextBlock Text="{Binding Summary}" Classes="caption" TextWrapping="Wrap" />
-                </StackPanel>
-            </Border>
-        </DataTemplate>
-    </UserControl.Resources>
 </UserControl>

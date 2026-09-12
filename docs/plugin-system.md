@@ -246,9 +246,20 @@ three run every step and report what failed, because each one is independently w
 there is nothing to abort. **Nothing is ever retried**, in either mode: a `Dispatched` or
 `Unconfirmed` outcome means the command may already be on the wire.
 
-Settings > Display lists the saved steps read-only with their arguments and deadlines, and says when
-a named plugin is not running. Settings owns no plugin host, so it never resolves a step against a
-live instance.
+Settings > Display authors the four lists: add a step from a running plugin's declared actions,
+remove it, move it earlier or later, and edit its arguments and deadline. Order is the point, not a
+detail: the HDMI switch has to select this PC before the television is told to turn on, or the
+television comes up showing the wrong input. Argument values are checked against the same declared
+ranges and choices the host enforces, and a value outside them blocks the save rather than being
+sent and refused.
+
+Which actions can be added depends on where Settings was opened. Opened from the WSGM tray icon or
+the overlay it runs inside the shell session and reads the running instances through
+`Settings\SettingsPluginActions`; a standalone `--settings` process has no plugin host, so it lists
+nothing to add. A saved step whose plugin is not running keeps its values, is shown but not
+editable, and is still removable: dropping a step you no longer want must not require starting a
+plugin. Its argument schema is captured by the host before the plugin starts, so for one that is not
+there, there is nothing truthful to render.
 
 Desktop startup and wake are coalesced by `Shell\DesktopActionAdmission.cs`: one run at a time, a
 five-second cooldown, and never while Game Mode is active or a transition is in flight. The four

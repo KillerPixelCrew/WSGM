@@ -256,13 +256,23 @@ rule set (at least one display, exactly one at 0,0, no duplicates, no overlaps, 
 scaling within range); Settings and configuration normalization both use it, so a layout that could
 never describe a desktop is refused before it reaches a display.
 
-Displays WSGM has seen are remembered in `GameModeLaunch.KnownDisplays`. That is what lets a TV
+Displays WSGM has seen are remembered in `GameModeLaunch.KnownDisplays`, along with the modes,
+advanced-colour support and scaling range each reported while it was active. That is what lets a TV
 behind an HDMI switch be configured while it is unplugged, which the reference machine requires: the
-TV exposes no EDID until the switch selects this PC.
+TV exposes no EDID until the switch selects this PC. Settings > Display shows one row per remembered
+display whether or not it is connected, badges the absent ones, and offers Forget to prune the
+catalog.
+
+Choosing a primary display normalizes the whole arrangement so that display sits at 0,0, which is
+where Windows puts it. That one rule is corrected rather than reported, because making a user do the
+subtraction themselves is only a way to fail it. Everything else is `DisplayLayouts.Describe`, so
+the editor refuses exactly what the apply would.
 
 A layout migrated from the retired per-monitor profiles keeps its values but carries no resolvable
 identity, because the old shape recorded a GDI name and a registry device key. Settings marks those
-rows as needing confirmation and entry refuses them.
+rows as needing confirmation and entry refuses them. Pointing one at a connected display merges it
+into that display's row: the migrated row carries the values, the real row carries the identity, and
+one monitor cannot be two rows.
 
 The scaling snapshot recovery is unchanged: a surviving snapshot never authorizes lowering a newly
 docked display that is absent from it, and panic, uninstall and shell repair restore it. The layout

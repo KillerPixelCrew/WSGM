@@ -31,6 +31,13 @@ internal sealed class UiFixture : IDisposable
     /// machine's displays.</summary>
     internal WindowsDeviceControl.DisplayArrangement Displays { get; set; } =
         new([], "no-displays", DateTimeOffset.UnixEpoch);
+
+    /// <summary>What each display claims to support, keyed by device path.</summary>
+    internal Dictionary<string, DisplayCatalogFacts> DisplayFacts { get; } = [];
+
+    /// <summary>The actions a running plugin would declare. Empty means no plugin host, which is
+    /// what a standalone Settings process sees.</summary>
+    internal IReadOnlyList<SettingsViewModel.PluginActionOption> PluginActions { get; init; } = [];
     internal OverlayWindow.SessionState Session { get; } = new();
 
     internal UiFixture()
@@ -44,7 +51,10 @@ internal sealed class UiFixture : IDisposable
     internal SettingsWindow Settings(int width = 1280, int height = 800)
     {
         SettingsViewModel.SettingsServices services = new(
-            () => Displays, () => [], () => [],
+            () => Displays,
+            target => DisplayFacts.GetValueOrDefault(target.DevicePath),
+            () => PluginActions,
+            () => [],
             () => Calls.Add("save-import-begin"), () => Calls.Add("save-import-end"),
             async request =>
             {

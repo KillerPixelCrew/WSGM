@@ -255,6 +255,7 @@ public sealed class ShellSession : IAsyncDisposable
     private SteamControllerOwnershipAdapter? _steamControllerOwnership;
     private MessageWindow? _messageWindow;
     private DisplayChangeWindow? _displayChangeWindow;
+    private CommonPluginOverlaySource? _pluginOverlaySource;
     private readonly object _devicePowerGate = new();
     private Task _devicePowerWork = Task.CompletedTask;
     private bool _deviceSuspended;
@@ -650,6 +651,10 @@ public sealed class ShellSession : IAsyncDisposable
         if (!_overlayTestOnly)
         {
             _modes.GameModeEntryServices = new ShellGameModeEntryServices(this);
+            // Settings opened from the tray or the overlay runs in this process, so its action
+            // lists can offer what is actually running. A standalone --settings sees nothing here
+            // and shows saved steps read-only, which is the truthful rendering.
+            WSGM.Settings.SettingsPluginActions.Publish(ReadPluginActionOptions);
             _modes.GameModeEntrySettled = () => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 _holdingEntrySplash = false;
@@ -717,7 +722,7 @@ public sealed class ShellSession : IAsyncDisposable
             radios: _radios,
             powerPresets: _deviceCoordinator?.PowerPresets,
             powerAssignments: _deviceCoordinator?.PowerAssignments,
-            commonPlugins: _commonPlugins is null && _deviceCoordinator is null ? null
+            commonPlugins: _pluginOverlaySource = _commonPlugins is null && _deviceCoordinator is null ? null
                 : new CommonPluginOverlaySource(_commonPlugins, _pluginHost,
                     _deviceCoordinator is not null && _deviceOverlay is not null
                         ? new DeviceWidgetSource(_deviceCoordinator, _deviceOverlay) : null),
@@ -1838,6 +1843,25 @@ public sealed class ShellSession : IAsyncDisposable
     }
 
     private PluginActionSequence ActionSequence() => new(new PluginHostActionInvoker(_pluginHost));
+
+    /// <summary>Every action the running non-device instances declare, for the Settings lists.
+    /// Device instances are excluded: their controls belong to the Device surfaces, and a session
+    /// automation step reaching into hardware policy would be a second owner for it.</summary>
+    private IReadOnlyList<WSGM.Settings.SettingsViewModel.PluginActionOption> ReadPluginActionOptions()
+    {
+        if (_pluginOverlaySource is not { } source) { return []; }
+        WSGM.Plugin.Sdk.PluginInstanceIdentity[] devices =
+            [.. source.Device?.Snapshot().Select(instance => instance.Identity) ?? []];
+        return
+        [
+            .. source.Snapshot()
+                .Where(instance => !System.Array.Exists(devices, device => device == instance.Identity)
+                    && instance.Controls is not null)
+                .SelectMany(instance => instance.Controls!.Actions.Select(action =>
+                    new WSGM.Settings.SettingsViewModel.PluginActionOption(instance.Identity, action,
+                        $"{instance.Name} / {instance.Identity.InstanceId}: {action.Label}"))),
+        ];
+    }
 
     private DisplayArrivalWaiter CreateArrivalWaiter() => new(
         new ShellDisplayPresence(),

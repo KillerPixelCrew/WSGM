@@ -636,7 +636,7 @@ complete. Build order follows the list.
       the leave actions whenever an entry step was dispatched or left uncertain; a rejected step
       changed nothing and earns none. 12 call-order tests over a fake backend; no live transition
       was run.
-- [ ] **Game Mode launch configuration in WSGM Settings.** Default keeps today's launch on the main
+- [x] **Game Mode launch configuration in WSGM Settings.** Default keeps today's launch on the main
       display. Custom shows the launch editor: which displays are active, which is primary, each
       display's position, resolution, refresh rate, DPI and HDR, an optional display wait, and
       optional plugin actions chosen per enabled plugin with their arguments. Snapshot fills the
@@ -648,14 +648,16 @@ complete. Build order follows the list.
       Desktop wake plugin actions, so a switch that auto-selects the PC on wake can be sent back to
       its preferred source. This replaces the fixed Desktop/Game profiles in Settings > Display and
       the Overlay > Tools > Display routes editor, with migration of existing configuration.
-      Half delivered. `AppConfig.GameModeLaunch` is the model, the four retired display keys migrate
-      into it, and Settings > Display now has Default/Custom, Snapshot for both layouts, a read-only
-      layout summary that flags rows needing confirmation, the wait-display picker and the four
-      action lists. The Overlay routes editor and the fixed-profile page are gone.
-      Still open: editing a layout's fields (active, primary, position, mode, DPI, HDR) per display
-      including for an absent one, rebinding a migrated row to a real display, forgetting a
-      remembered display, and adding or reordering action steps from Settings. Until then a layout
-      comes from Snapshot only, and action steps are shown but not authored here.
+      Delivered. `AppConfig.GameModeLaunch` is the model and the four retired display keys migrate
+      into it. Settings > Display has Default/Custom, Snapshot for both layouts, and one row per
+      remembered display, present or not, with Active, Primary, position, mode, scaling, HDR where
+      supported, an absent badge, Forget and a rebind for a migrated row. Choosing a primary
+      normalizes the arrangement to 0,0 rather than reporting the rule; everything else is checked
+      by `DisplayLayouts.Describe`, the rules the apply itself enforces, so the editor cannot save
+      what Windows would refuse. The four action lists add, remove and reorder steps and edit their
+      declared arguments and deadlines; a step whose plugin is not running keeps its saved values,
+      is not editable and is still removable. The Overlay routes editor and the fixed-profile page
+      are gone. 15 headless Settings tests; no display was changed and no action was invoked.
 - [x] **Add Windows power-scheme selection to Core.** Enumerate installed schemes, identify and read
       the active scheme, select one through the locale-independent `powrprof` API, and verify with
       `PowerGetActiveScheme`. Project it on WSGM's Power/Performance surfaces independently of
