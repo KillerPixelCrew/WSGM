@@ -578,7 +578,7 @@ complete. Build order follows the list.
       free-text ids are validated against the endpoint's own catalog with one refresh on a miss.
       Old firmware, unknown ids, undeclared climate states and a busy endpoint are refusals that
       emit nothing. 28 plugin tests pass; no IR was emitted.
-- [ ] **Add editable display layouts to Windows Device Control.** Capture the current arrangement
+- [x] **Add editable display layouts to Windows Device Control.** Capture the current arrangement
       into an editable layout: active targets, primary, position, resolution, refresh rate and HDR,
       keyed by stable target identity. Never make a user hand-author raw `DISPLAYCONFIG_*` data.
       Expose verified apply with readback of paths, modes and primary, and the currently active
@@ -587,6 +587,14 @@ complete. Build order follows the list.
       retryable waiting state, not a failed transition. DPI applies after the layout establishes
       which targets exist. Include crash, cancellation and Desktop rollback coverage so a layout
       change cannot strand the session without Explorer or a usable display.
+      Phase 4 delivered the library half in `external\windows-device-control`: `DisplayLayouts`
+      observes every monitor with a stable fingerprint, captures the desktop as values, and
+      validates or applies a layout with readback and one rollback. `DisplayLayoutPlanner` holds the
+      rules (one primary at 0,0, no duplicates, no overlaps, connected) and builds the supplied
+      configuration; `DisplayScaling` and `DisplayColor` own per-display scaling and HDR by target
+      identity. An absent monitor returns `TargetsAbsent`, and an already-matching arrangement is
+      not rewritten. 13 new tests run on synthetic path arrays; 106 WDC tests pass. The display
+      catalog and WSGM's crash and rollback coverage belong to the phases that consume this.
 - [ ] **Wait for display arrival is a release-blocking Game Mode path.** Support the reference setup
       where the inactive HDMI-extractor input exposes no EDID and Windows therefore has no TV target
       to configure. A Game Mode request from Desktop keeps the complete WSGM session and Explorer
