@@ -16,7 +16,7 @@ public enum PluginActionOrigin
 {
     /// <summary>An explicit user action.</summary>
     User,
-    /// <summary>Host-owned session or display-route orchestration.</summary>
+    /// <summary>Host-owned session automation: Game Mode entry and leave, desktop startup and wake.</summary>
     SessionAutomation,
     /// <summary>Host-owned profile restoration.</summary>
     ProfileRestore,

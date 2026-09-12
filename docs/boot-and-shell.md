@@ -480,25 +480,15 @@ reboot or reported nothing (stay conservative when the bounded status file is mi
 upgrades are not marked for reboot. Silent setup always returns `False`, because `/VERYSILENT` could
 otherwise reboot automatically.
 
-## Display-route automation
+## Desktop start at sign-in
 
-A Desktop start projects DesktopResident, and the service launches --shell --desktop-resident with
-its usual user-token/elevation policy. That mode remains on Desktop even before Explorer appears and
-does not run takeover, startup apps or Game Mode display posture. GameModeBoot takes precedence when
-both flags are true. Old manifests omit DesktopResident and retain their previous behavior.
-Crash-loop manifest disabling clears both automatic launch choices.
+A Desktop start projects `DesktopResident`, and the service launches `--shell --desktop-resident`
+with its usual user-token and elevation policy. That mode stays on Desktop even before Explorer
+appears and runs no takeover, startup apps or Game Mode display posture. `GameModeBoot` takes
+precedence when both flags are true. Old manifests omit `DesktopResident` and keep their previous
+behavior. Crash-loop disabling clears both automatic launch choices.
 
-Desktop-to-Game Mode transitions prepare the configured external route and display profile before
-requesting Big Picture or removing Explorer. A splash hold prevents premature dismissal when Steam
-already has a window. Steam is placed on the configured target before takeover. Cancellation, an
-unavailable target or a failed preparation leaves Desktop available and reports the failed stage. A
-later failed takeover restores the captured pre-entry topology once. Calls that outlive cancellation
-remain tracked, and new route work is refused until they settle.
-
-Successful Desktop recovery precedes the leave binding, which applies the Desktop profile before
-sending its external action. Startup/resume bindings are coalesced and serialized with mode changes,
-and are suppressed while in or entering Game Mode. Overlay-test installs no lifecycle route hooks.
-Configuration and operating instructions are in
-[plugin-system.md](plugin-system.md#display-route-automation). Offline decision, persistence,
-sequencing and UI tests cover this implementation. No live service installation, logon, HDMI
-switching or Steam-window placement was performed for this change.
+Desktop startup and wake plugin actions are coalesced and serialized with mode changes, and are
+suppressed while in or entering Game Mode; `--overlay-test` installs none of these hooks. The action
+lists, their editor and the Game Mode entry order are in
+[plugin-system.md](plugin-system.md#session-automation).

@@ -83,10 +83,13 @@ emitted. A sequence reports that it started, and the wait argument polls the end
 `sequenceRunning` flag; cancelling that wait sends `cancel`, which is a distinct operation and never
 a retry.
 
-Core automation can call `send` with a `command` ID or `scene` with a `scene` ID. Transmission
-returns `Dispatched`: an endpoint acknowledgement proves emission, not that a TV or HDMI switch
-changed state. Uncertain operations are not retried; a failed exchange drops the connection and the
-next operation identifies the endpoint again before doing anything else. Endpoint refusals such as a
+Core automation can call `send` with a `command` ID or `scene` with a `scene` ID. WSGM authors those
+calls as ordered steps in Settings > Display, run at Game Mode entry and leave and at desktop
+startup and wake. Entry stops at the first step that did not succeed, nothing is retried, and a step
+the plugin rejected earns no leave-side compensation, so a refusal never emits. Transmission returns
+`Dispatched`: an endpoint acknowledgement proves emission, not that a TV or HDMI switch changed
+state. Uncertain operations are not retried; a failed exchange drops the connection and the next
+operation identifies the endpoint again before doing anything else. Endpoint refusals such as a
 learn timeout or an overflowing capture are shown as plain instructions in Tools. Plugin suspend
 closes the connection. Device replacement does not erase the host library.
 
@@ -126,10 +129,12 @@ act through relative requests that carry the header `X-WSGM-IR: 1`:
 - `GET remote.json` returns the remote's catalog entry.
 
 A busy endpoint answers `409`, an unknown id `404` and a refused request `422`, each with a JSON
-`status`. The required header stops another website from pressing buttons through credentials the
-browser saved. Basic authentication over plain HTTP sends the password readable on the local
-network, like the pairing token, so do not reuse a password from elsewhere. A generated climate page
-remembers the last state it sent in the browser, because IR cannot report the unit's actual state.
+`status`. A missing `X-WSGM-IR` header or unset web credentials answer `403` in plain text, and an
+absent or wrong password answers `401`. The required header stops another website from pressing
+buttons through credentials the browser saved. Basic authentication over plain HTTP sends the
+password readable on the local network, like the pairing token, so do not reuse a password from
+elsewhere. A generated climate page remembers the last state it sent in the browser, because IR
+cannot report the unit's actual state.
 
 ## Reference hardware and recovery
 

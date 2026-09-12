@@ -35,6 +35,7 @@ wsgm-device doctor    --out-dir diagnostics
 wsgm-device inventory --out-dir inventory --shareable
 
 # 2. Capture it, then read what you captured.
+wsgm-device capture    run --recipe recipe.json --out-dir captures # attended; you approve its scope
 wsgm-device inspect    capture.wsgmcap
 wsgm-device compare    before.wsgmcap after.wsgmcap
 wsgm-device correlate  capture.wsgmcap --action <id> --sources <id,id>
@@ -62,6 +63,8 @@ The split is enforced, not advisory.
 - **`validate`, `inspect`, `compare`, `correlate`, `inventory`, `doctor`, `pack`** are read-only or
   offline. `validate` never loads plugin code — it checks the manifest, the package layout and that
   the entry assembly is a managed x64 image, all statically.
+- **`test sample` and `test plugin`** are unattended but do load and run plugin code in a contained
+  worker with your authority; only `validate` is fully static.
 - **`test hardware`** writes to the device, so it demands an explicit action, a state directory you
   named, and your presence. It exists because a capability write is only proven on real hardware.
   Detection and the entire attended lifecycle run in an authenticated disposable worker process;

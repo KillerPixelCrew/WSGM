@@ -2,7 +2,9 @@
 
 The device plugin that teaches [WSGM](https://github.com/KillerPixelCrew/WSGM) an MSI Claw 8 AI+
 A2VM: power and charge limits, fan behaviour, lighting, the controller and its motion sensors, the
-OEM buttons, variable refresh, and the physical glyphs shown in Steam.
+OEM buttons, variable refresh, Intel Endurance Gaming and its target, the prebuilt shader download,
+the shared GPU memory percentage, driver frame presentation, and the physical glyphs shown in Steam.
+The display capabilities are published only when the driver answers for them.
 
 The plugin also declares four power profiles for WSGM's Device page and Steam QAM: Super Battery
 (8/9 W, Better Battery), Balanced (17/18 W, balanced Windows mode), and Extreme Performance (30/31
@@ -56,7 +58,8 @@ This one is a worked example of the parts that are easy to get wrong:
 | `WindowsMotionSource.cs`          | physical legacy-Sensor-API IMU polling, freshness, and zero-rate offset correction |
 | `LegacyPhysicalMotionSensors.cs`  | exact Intel ISS/LSM6DSO COM identity, fields, interval ownership, and cleanup      |
 | `ArcSyncTransport.cs`             | variable refresh through Intel's Graphics Control Library                          |
-| `IntelGraphicsMemoryTransport.cs` | a driver setting that is a registry value rather than an API call                  |
+| `Intel3dFeatureTransport.cs`      | the pinned IGCL 3D-feature ABI behind Endurance Gaming and prebuilt shaders        |
+| `IntelGraphicsMemoryTransport.cs` | driver settings that are registry values rather than API calls: GPU memory, VSync  |
 | `ClawRecoveryJournal.cs`          | leaving the device safe when a cycle ends badly                                    |
 
 Motion writes no per-report file. Nothing here may log at the 100 Hz sensor cadence: a CSV of every
@@ -154,8 +157,10 @@ the runtime), validates the assembled package with Device Lab from the same chec
 
 ## Installing
 
-WSGM ships this package as its built-in device component, so a normal WSGM install already has it.
-To install a build of your own, see
+WSGM ships this package as its device component, but only setup's **MSI Claw 8 AI+ A2VM** mode, or a
+Custom install that selects it, puts it on disk; that mode is also the only one that enables Device
+Integration on a fresh install. A package copied into the slot on a Minimal or Desktop install shows
+a banner on the overlay's Device page naming what is missing. To install a build of your own, see
 [the authoring guide](https://github.com/KillerPixelCrew/WSGM/blob/master/docs/device-plugin-authoring.md)
 — in short, expand the `.wsgmpkg` into a fresh directory and hand it to
 `WSGM.exe --install-device-plugin`, which validates it again before replacing the protected slot.

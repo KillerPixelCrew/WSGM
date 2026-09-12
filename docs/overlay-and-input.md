@@ -1,16 +1,5 @@
 # Overlay surfaces and the input stack
 
-Tools → Controller ownership includes controller ownership status, Release to Steam and Reacquire
-for WSGM. The session's Steam handoff coordinator owns both actions. Manual release remains active
-across native surface closure until explicit reacquisition; touch remains available while WSGM
-controller readers pause.
-
-On-Screen Keyboard, beside them, dismisses the sheet before invoking the current mode's keyboard:
-Steam in Game Mode, the existing Windows touch-keyboard integration in Desktop mode. Failed requests
-reopen the sheet with a warning. Steam invocation lives in SteamUiToolkit and uses the session's
-ownership handoff; native keyboard visibility prevents early reacquisition. Manual release takes
-precedence.
-
 How WSGM's quick access sheet is shaped, how gamepad, touch and raw input reach it, and the Avalonia
 and Windows findings its dismissal and focus handling depend on. Theme and control styling is in
 `docs\ui.md`; the lease the sheet takes while open is in `docs\steam-input.md`; the plugin
@@ -131,6 +120,19 @@ whose Description shows the current value and whose click opens the peer keyboar
 `GamepadNavigation` skips TextBoxes so the Windows touch keyboard cannot pop, so focus never lands
 on one and nothing types. When `KeyboardService.Request` returns false there is no way to type at
 all; log it rather than leaving a row that silently does nothing when pressed.
+
+## Controller ownership and the on-screen keyboard
+
+Tools → Controller ownership shows the controller ownership status and offers Release to Steam and
+Reacquire for WSGM. The session's Steam handoff coordinator owns both actions. A manual release
+stays in force across native surface closure until explicit reacquisition; touch remains available
+while WSGM's controller readers pause.
+
+On-Screen Keyboard, beside them, dismisses the sheet before invoking the current mode's keyboard:
+Steam in Game Mode, the existing Windows touch-keyboard integration in Desktop Mode. A failed
+request reopens the sheet with a warning. The Steam invocation lives in SteamUiToolkit and uses the
+session's ownership handoff; native keyboard visibility prevents early reacquisition. A manual
+release takes precedence.
 
 ## Input stack
 

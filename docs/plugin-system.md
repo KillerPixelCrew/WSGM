@@ -72,8 +72,8 @@ These are ordinary UI/status events; high-rate controller samples retain their s
 them before startup and gives each invocation a fresh operation identity, current generation, origin
 and deadline. Stale generations and invalid arguments cannot dispatch. A missing, failed or
 mismatched reply remains unconfirmed; there is no automatic retry. `Dispatched` means a command was
-sent, whereas `AppliedVerified` requires independent evidence of the declared effect. Route
-orchestration must not treat an IR endpoint acknowledgment as proof that a television changed input.
+sent, whereas `AppliedVerified` requires independent evidence of the declared effect. Session
+automation must not treat an IR endpoint acknowledgment as proof that a television changed input.
 
 `IPluginUi` supplies bounded status, button, toggle and slider descriptions. Admission checks every
 action/argument link and requires numeric bounds for sliders. WSGM owns actual controls and
@@ -300,21 +300,19 @@ no broadcast arrives.
 Desktop residency is its own setting (Settings > System, "Start WSGM at sign-in" plus "Start in"); a
 Desktop start runs `--shell --desktop-resident` and needs the installed logon service.
 
-Leave restores the configured Desktop profile before invoking the external entertainment-route
-action, after Explorer recovery succeeds. Startup and wake route work runs only on Desktop, awaits
-initial plugin admission and resume completion, and rechecks mode before dispatch. Notifications are
-coalesced while work runs and for five seconds from admission. One session semaphore serializes
-route work with mode transitions, so queued Desktop work cannot switch away during Game Mode entry.
+Leaving Game Mode restores the layout the session owes the desktop before Explorer starts, and runs
+the leave actions only after Explorer recovery succeeds. Startup and wake actions run only on
+Desktop, await initial plugin admission and resume completion, and recheck the mode before dispatch.
+One session semaphore serializes action work with mode transitions, so queued Desktop work cannot
+switch away during Game Mode entry.
 
-DisplayRouteBackend uses PluginHost with SessionAutomation origin and the currently admitted
-instance generation. Core contains no IR protocol or HDMI-device logic. Dispatched permits the next
-step without claiming external hardware readback; Unconfirmed and Rejected stop the sequence.
-Display waits and profile calls run off the UI thread. Deadline/cancellation failures name the stage
-and preserve a handle to still-running work, refusing subsequent routes until it settles. Errors and
-lifecycle reasons are logged; transition and Desktop route failures use the existing warning
-surface. The Desktop splash button cancels entry, including the wait for Steam's target window.
+The transaction reaches plugins only through `PluginHost`, with origin `SessionAutomation` and the
+currently admitted instance generation; WSGM itself contains no IR protocol or HDMI-device logic.
+Display waits and layout calls run off the UI thread. A deadline or cancellation failure names the
+stage, and `SessionModes.TransitionInProgress` refuses another transition until the transaction has
+settled on any outcome. Transition and Desktop action failures use the existing warning surface.
 
-Validation uses fake providers, source-generated config round trips, ordered route tests, admission
-checks and headless editor interactions. It does not represent a physical HDMI-switch, live logon,
-Modern Standby or Steam-window placement pass. Those remain hardware review scenarios, separate from
-#52's carrier measurement and real-remote acceptance.
+Validation uses fake providers, source-generated config round trips, ordered transaction tests,
+admission checks and headless editor interactions. It does not represent a physical HDMI-switch,
+live logon, Modern Standby or Steam-window placement pass. Those remain hardware review scenarios,
+separate from #52's carrier measurement and real-remote acceptance.

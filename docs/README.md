@@ -10,25 +10,26 @@ before you trust the change.
 
 ## Start here
 
-| Read                   | When you want to understand                                                                           |
-| ---------------------- | ----------------------------------------------------------------------------------------------------- |
-| `boot-and-shell.md`    | how WSGM boots, takes over from Explorer, switches modes, and how the installer stops and restarts it |
-| `elevation.md`         | why WSGM runs elevated, how it de-elevates, and the per-game launch wrapper                           |
-| `steam-input.md`       | how the overlay takes the controller away from Steam and gives it back                                |
-| `overlay-and-input.md` | the quick access sheet, gamepad navigation, touch edge swipes                                         |
-| `ui.md`                | Avalonia styling, headless UI tests and the splash engine                                             |
-| `decisions.md`         | standing product decisions in one page                                                                |
-| `plugin-system.md`     | common plugin contracts and the Device specialization migration                                       |
+| Read                   | When you want to understand                                                                     |
+| ---------------------- | ----------------------------------------------------------------------------------------------- |
+| `boot-and-shell.md`    | boot, Explorer takeover, Desktop Mode, Game Mode entry, Steam autostart takeover, install modes |
+| `elevation.md`         | why WSGM runs elevated, how it de-elevates, and the per-game launch wrapper                     |
+| `steam-input.md`       | how the overlay takes the controller from Steam and gives it back; the handoff for OEM buttons  |
+| `overlay-and-input.md` | the quick access sheet, gamepad navigation, touch edge swipes                                   |
+| `ui.md`                | Avalonia styling, headless UI tests and the splash engine                                       |
+| `logging.md`           | what wsgm.log must and must not contain                                                         |
+| `decisions.md`         | standing product decisions in one page                                                          |
+| `plugin-system.md`     | common plugin contracts, widgets, session automation and the Game Mode entry transaction        |
 
 ## Steam
 
-| Read                                             | When you want to understand                                                                                                               |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `steam-cef.md`                                   | the findings behind driving Steam's Chromium front-end: libraries, tabs, badges, launch options, download sorting, revived Steam surfaces |
-| `steam-cef-system.md`                            | the mechanism end to end: Steam discovery, the transport gate, the session host, patches, the native Quick Access Menu                    |
-| `steam-cef-startup-audit.md`                     | the 2026-09-05 login failure, module-loading audit, corrections and remaining live checks                                                 |
-| `..\external\steam-ui-toolkit\docs\reference.md` | the toolkit the mechanism is built on                                                                                                     |
-| `sd-cards.md`                                    | the card manager and format flow                                                                                                          |
+| Read                                             | When you want to understand                                                                                                            |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `steam-cef.md`                                   | findings from driving Steam's front-end: libraries, tabs, badges, launch options, download sorting, revived surfaces, the 2026-09 beta |
+| `steam-cef-system.md`                            | the mechanism end to end: Steam discovery, the transport gate, the session host, patches, the native Quick Access Menu                 |
+| `steam-cef-startup-audit.md`                     | the 2026-09-05 login failure, module-loading audit, corrections and remaining live checks                                              |
+| `..\external\steam-ui-toolkit\docs\reference.md` | the toolkit the mechanism is built on                                                                                                  |
+| `sd-cards.md`                                    | the card manager and format flow                                                                                                       |
 
 ## Hardware
 
@@ -40,7 +41,7 @@ before you trust the change.
 | `device-security.md`                       | the one-page boundary checklist                                                                                                     |
 | `..\src\WSGM.Device.Sdk\docs\reference.md` | the public SDK contract                                                                                                             |
 | `rtss.md`                                  | RivaTuner Statistics Server: frame limit, on-screen display, frametimes, AutoTDP                                                    |
-| `power-and-display.md`                     | display profiles, screen-off mute, keep-awake, refresh rates, variable refresh                                                      |
+| `power-and-display.md`                     | Game Mode display layouts, Windows power schemes, core preference, screen-off mute, keep-awake, standby wake, refresh rates, VRR    |
 | `radios.md`                                | what WSGM decides about Wi-Fi, Bluetooth and audio; the library that owns the Windows calls is `..\external\windows-device-control` |
 
 ## Writing conventions

@@ -13,7 +13,7 @@
   #define AppVersion "2.0.0"
 #endif
 #define AppPublisher "NightHammer1000"
-#define AppURL "https://github.com/NightHammer1000/WSGM"
+#define AppURL "https://github.com/KillerPixelCrew/WSGM"
 #define PublishRoot "..\publish"
 #define AppPublishDir "..\publish\App"
 #define DevicePackagesPublishDir "..\publish\Packages"
