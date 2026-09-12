@@ -29,11 +29,21 @@
                     <Border Classes="setting-row alt">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                             <StackPanel VerticalAlignment="Center" Spacing="1">
-                                <TextBlock Text="Start game mode at sign-in" Classes="setting-title" />
-                                <TextBlock Text="The WSGM service covers the booting desktop and switches to Big Picture once Windows finishes signing you in. Programs Windows autostarts may briefly run at sign-in." Classes="caption" />
+                                <TextBlock Text="Start WSGM at sign-in" Classes="setting-title" />
+                                <TextBlock Text="The WSGM service starts WSGM once Windows finishes signing you in. Programs Windows autostarts may briefly run first." Classes="caption" TextWrapping="Wrap" />
                             </StackPanel>
-                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding GameModeBootEnabled}" VerticalAlignment="Center" />
+                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding StartAtSignIn}" VerticalAlignment="Center" />
                         </Grid>
+                    </Border>
+                    <Border Classes="setting-row">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Start in" Classes="setting-title" />
+                            <TextBlock Text="Game mode covers the booting desktop and switches to Big Picture. Desktop mode keeps Windows Explorer, starts Steam windowed and waits in the notification area until you enter game mode." Classes="caption" TextWrapping="Wrap" />
+                            <ComboBox SelectedIndex="{Binding StartModeIndex}" HorizontalAlignment="Left" MinWidth="180">
+                                <ComboBoxItem Content="Desktop mode" />
+                                <ComboBoxItem Content="Game mode" />
+                            </ComboBox>
+                        </StackPanel>
                     </Border>
                 </StackPanel>
 
@@ -44,7 +54,7 @@
                     <Border Classes="setting-row alt">
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
                             <TextBlock Text="!" FontSize="18" FontWeight="Bold" Foreground="{StaticResource HcWarningBrush}" VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="1" Text="If game mode does not come up, press Ctrl+Alt+Del, open Task Manager, then run explorer.exe. Run WSGM.exe --restore-shell to turn off game-mode boot and bring the desktop back; re-enable it here afterwards." Classes="caption" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1" Text="If game mode does not come up, press Ctrl+Alt+Del, open Task Manager, then run explorer.exe. Run WSGM.exe --restore-shell to turn off the sign-in start and bring the desktop back; re-enable it here afterwards." Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap" />
                         </Grid>
                     </Border>
 

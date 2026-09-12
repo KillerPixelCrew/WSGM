@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 
 namespace WSGM.Core;
 
@@ -22,14 +21,15 @@ public static class BootManifestWriter
         {
             var manifest = new BootManifest
             {
-                GameModeBoot = config.GameModeBootEnabled,
-                DesktopResident = config.DisplayRoutes is { Enabled: true },
-                Elevate = config.StartupApps.Any(a => a.Enabled && a.Elevated) || Steam.RequiresElevatedShell,
+                GameModeBoot = config.StartAtSignIn && config.StartMode is SessionStartMode.Game,
+                DesktopResident = config.StartAtSignIn && config.StartMode is SessionStartMode.Desktop,
+                Elevate = ElevationPolicy.WantsElevation(config, Steam.RequiresElevatedShell),
                 // Inno is the only installer, so the installed path is the only path.
                 ExePath = Installer.InstalledExePath,
             };
             BootManifestStore.Save(ManifestPath, manifest);
-            Log.Info($"Boot manifest written: enabled={manifest.GameModeBoot} elevate={manifest.Elevate} exe={manifest.ExePath}");
+            Log.Info($"Boot manifest written: game={manifest.GameModeBoot} desktop={manifest.DesktopResident} "
+                + $"elevate={manifest.Elevate} exe={manifest.ExePath}");
         }
         catch (Exception ex)
         {
@@ -37,13 +37,13 @@ public static class BootManifestWriter
         }
     }
 
-    /// <summary>Rewrites boot.json with Game Mode boot and route residency disabled.
-    /// Used by the crash-loop breaker so the next sign-in is a plain
-    /// desktop even when config.json cannot be saved.</summary>
-    public static void WriteDisabled(AppConfig config)
+    /// <summary>Rewrites boot.json with the sign-in start disabled. Used by the crash-loop breaker
+    /// and the restore-shell escape hatch so the next sign-in is a plain Windows desktop even when
+    /// config.json cannot be saved.</summary>
+    /// <param name="config">The configuration to disarm and project.</param>
+    public static void WriteSignInDisabled(AppConfig config)
     {
-        config.GameModeBootEnabled = false;
-        if (config.DisplayRoutes is { } routes) { routes.Enabled = false; }
+        config.StartAtSignIn = false;
         WriteCurrent(config);
     }
 }

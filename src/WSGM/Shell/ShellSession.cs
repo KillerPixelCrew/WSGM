@@ -1017,11 +1017,10 @@ public sealed class ShellSession : IAsyncDisposable
 
         if (_desktopResident || ExplorerControl.IsRunningInSession())
         {
-            // A live desktop at --shell start means this is NOT a logon boot: it is
-            // the update restart (updates only run in desktop mode) or a manual
-            // start next to a desktop. Resume in desktop mode — no splash, no
-            // startup apps, no Steam, no game posture/scale — with the overlay armed
-            // so the panel is available; EnterGameMode brings everything back.
+            // A live desktop at --shell start is either the sign-in start of a Desktop session,
+            // the update restart (updates only run in desktop mode), or a manual start next to a
+            // desktop. Resume in desktop mode — no splash, no startup apps, no game posture/scale
+            // — with the overlay armed and Steam supplied; EnterGameMode brings the rest back.
             Log.Info("Shell started with a live desktop — resuming in desktop mode (overlay armed).");
             _desktopTray?.SetDesktop(true);
             // No DesktopModeStarting fires for a session that never entered game
@@ -1037,9 +1036,12 @@ public sealed class ShellSession : IAsyncDisposable
             // 2026-09-11). The policy decides what runs on the desktop; this only asks it.
             ApplyCardServices(gameModeActive: false);
             RequestSteamUiTransportGateCheck();
-            _monitor.Paused = true;
+            // Desktop mode watches Steam like game mode does; only a transition or an explicit
+            // Close Steam pauses it. That is what lets the session keep the client running.
+            _monitor.Paused = false;
             WatchStartupAppsAndConfig();
             QueueDesktopRoute(startup: true);
+            _bootWork = Task.Run(StartDesktopSteamAsync);
             return;
         }
 
@@ -1099,6 +1101,27 @@ public sealed class ShellSession : IAsyncDisposable
         _splash = new BootSplash(_config, SwitchToDesktopFromSplash);
         _overlay!.OverlayShown += () => _splash?.Dismiss("quick access opened");
         _splash.Show();
+    }
+
+    /// <summary>Supplies the windowed Steam client a desktop session is expected to have. Waits for
+    /// the input desktop first, for the same reason the boot takeover does: a sign-in start can run
+    /// while LogonUI still owns the screen, and Steam started then is audible behind it.</summary>
+    private async Task StartDesktopSteamAsync()
+    {
+        try
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            while (!InputDesktop.IsDefaultInputDesktop() && watch.Elapsed < TimeSpan.FromSeconds(60))
+            {
+                await Task.Delay(250, _shutdownCancellation.Token).ConfigureAwait(false);
+            }
+            _modes!.EnsureSteamDesktop();
+        }
+        catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Desktop Steam start failed", ex);
+        }
     }
 
     private void WatchStartupAppsAndConfig()
@@ -1412,9 +1435,9 @@ public sealed class ShellSession : IAsyncDisposable
     /// release its transition gate first.</summary>
     private void BeginDesktopModeFromSplash()
     {
-        // The boot sequence skips its Big Picture start once the monitor is paused. Windowed
-        // Steam starts only after Explorer's actual taskbar owner has been verified.
-        _modes!.EnterDesktopMode(startSteamDesktop: true);
+        // The boot sequence skips its Big Picture start once the monitor is paused. The desktop
+        // transition supplies windowed Steam itself, after Explorer's taskbar owner is verified.
+        _modes!.EnterDesktopMode();
     }
 
     /// <summary>Completes a refused boot takeover without starting another Explorer. The original
@@ -1427,9 +1450,12 @@ public sealed class ShellSession : IAsyncDisposable
         RequestSteamUiTransportGateCheck();
         if (_monitor is not null)
         {
-            _monitor.Paused = true;
+            // The session settles on the preserved desktop, which is an ordinary desktop steady
+            // state: watch Steam again rather than staying in the transition's paused state.
+            _monitor.Paused = false;
         }
         _modes!.ReportWarning(SessionModes.ExplorerTakeoverRefusedWarning);
+        _modes.EnsureSteamDesktop();
     }
 
     /// <summary>Starts the ordinary verified desktop restoration after boot crossed an uncertain

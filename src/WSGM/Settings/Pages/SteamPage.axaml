@@ -39,7 +39,7 @@
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                         <StackPanel VerticalAlignment="Center" Spacing="1">
                             <TextBlock Text="Restart Steam when it exits" Classes="setting-title" />
-                            <TextBlock Text="Automatically bring Big Picture back after Steam closes." Classes="caption" />
+                            <TextBlock Text="Brings Big Picture back in game mode, or the windowed client in desktop mode. Closing Steam from the overlay is left alone." Classes="caption" TextWrapping="Wrap" />
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamAutoRelaunch}" VerticalAlignment="Center" />
                     </Grid>

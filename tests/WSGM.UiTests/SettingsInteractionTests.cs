@@ -20,7 +20,7 @@ public sealed class SettingsInteractionTests
         ToggleSwitch toggle = UiFixture.Named<Control>(window, "PageSystem").GetVisualDescendants().OfType<ToggleSwitch>().First();
         UiFixture.Click(window, toggle);
         UiFixture.Click(window, window.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "Save changes")));
-        Assert.Equal(model.GameModeBootEnabled, fixture.Saved.GameModeBootEnabled);
+        Assert.Equal(model.StartAtSignIn, fixture.Saved.StartAtSignIn);
         Assert.Equal(1, fixture.Calls.Count(call => call == "save"));
         Assert.StartsWith("Saved", model.StatusText);
     }
@@ -54,14 +54,14 @@ public sealed class SettingsInteractionTests
         SettingsWindow window = fixture.Settings();
         var model = Assert.IsType<SettingsViewModel>(window.DataContext);
         ToggleSwitch toggle = UiFixture.Named<Control>(window, "PageSystem").GetVisualDescendants().OfType<ToggleSwitch>().First();
-        bool before = model.GameModeBootEnabled;
+        bool before = model.StartAtSignIn;
         UiFixture.Click(window, toggle);
-        Assert.Equal(!before, model.GameModeBootEnabled);
+        Assert.Equal(!before, model.StartAtSignIn);
         UiFixture.Click(window, window.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "Save changes")));
         Assert.True(model.IsSaving);
         Assert.False(UiFixture.Named<Control>(window, "SettingsRoot").IsEnabled);
         Assert.NotNull(captured);
-        Assert.Equal(!before, captured.Values.GameModeBootEnabled);
+        Assert.Equal(!before, captured.Values.StartAtSignIn);
         completion.SetResult(new(captured.Values, [], null));
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
         Assert.False(model.IsSaving);

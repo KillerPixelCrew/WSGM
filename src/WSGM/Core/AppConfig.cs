@@ -108,6 +108,15 @@ public sealed class DisplayScaleEntry
     public int Percent { get; set; }
 }
 
+/// <summary>Which session mode WSGM starts in.</summary>
+public enum SessionStartMode
+{
+    /// <summary>Stay beside Explorer as a resident desktop session.</summary>
+    Desktop,
+    /// <summary>Take the session over and run Big Picture.</summary>
+    Game,
+}
+
 /// <summary>Selects how WSGM manages display settings during session-mode transitions.</summary>
 public enum DisplayManagementMode
 {
@@ -741,10 +750,15 @@ public sealed class AppConfig
     /// <summary>UI accent color as an <c>#AARRGGBB</c>/<c>#RRGGBB</c> string, applied
     /// to the Fluent theme and the Hc accent tokens at startup and on save.</summary>
     public string AccentColor { get; set; } = Themes.AccentPalette.DefaultAccent;
-    /// <summary>Whether the logon service boots the session into game mode. Projected
-    /// into boot.json (see Core\BootManifest) because the SYSTEM service never parses
-    /// this file. False preserves Desktop; enabled route automation may still start the resident runtime.</summary>
-    public bool GameModeBootEnabled { get; set; } = true;
+    /// <summary>Whether the logon service starts WSGM at sign-in. Projected into boot.json
+    /// (see Core\BootManifest) because the SYSTEM service never parses this file. False leaves
+    /// the sign-in alone entirely; <see cref="StartMode"/> decides what a start becomes.</summary>
+    public bool StartAtSignIn { get; set; } = true;
+
+    /// <summary>Which session mode a start produces. Independent of <see cref="StartAtSignIn"/>,
+    /// because starting with Windows and taking the screen over are separate choices: a desktop
+    /// PC wants the first without the second.</summary>
+    public SessionStartMode StartMode { get; set; } = SessionStartMode.Game;
 
     /// <summary>Settle delay after explorer's shell window and taskbar both exist,
     /// before the boot takeover cleanly shuts explorer down. Covers the logon prep

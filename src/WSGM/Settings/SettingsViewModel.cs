@@ -181,7 +181,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         StartupDelayMs = _config.StartupDelayMs;
         StaggerDelayMs = _config.StaggerDelayMs;
         BootSplashEnabled = _config.BootSplashEnabled;
-        GameModeBootEnabled = _config.GameModeBootEnabled;
+        StartAtSignIn = _config.StartAtSignIn;
+        StartModeIndex = (int)_config.StartMode;
         DisplayManagementModeIndex = (int)_config.DisplayManagement;
         SteamInputLeaseEnabled = _config.SteamInputLeaseEnabled;
         SteamInputManagementEnabled = _config.SteamInputManagementEnabled;
@@ -677,9 +678,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Gets the compact logon-service state for the status strip,
     /// derived from the same flag the boot manifest is projected from.</summary>
-    public string ServiceStateText => GameModeBootEnabled
-        ? "Game-mode boot: on"
-        : "Game-mode boot: off";
+    public string ServiceStateText => StartAtSignIn
+        ? $"Sign-in start: {(StartModeIndex == (int)SessionStartMode.Desktop ? "Desktop" : "Game")}"
+        : "Sign-in start: off";
 
     /// <summary>Gets the compact shell state for the status strip.</summary>
     public string ShellStateText => "Shell: Explorer";
@@ -769,11 +770,17 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     }
 
     // --- Sign-in behavior ---
-    private bool _gameModeBootEnabled = true;
+    private bool _startAtSignIn = true;
 
-    /// <summary>Gets or sets whether the logon service boots the session into game
-    /// mode at sign-in. Persisted via Save; the boot manifest is rewritten there.</summary>
-    public bool GameModeBootEnabled { get => _gameModeBootEnabled; set { _gameModeBootEnabled = value; Raise(nameof(GameModeBootEnabled)); Raise(nameof(ServiceStateText)); } }
+    /// <summary>Gets or sets whether the logon service starts WSGM at sign-in.
+    /// Persisted via Save; the boot manifest is rewritten there.</summary>
+    public bool StartAtSignIn { get => _startAtSignIn; set { _startAtSignIn = value; Raise(nameof(StartAtSignIn)); Raise(nameof(ServiceStateText)); Raise(nameof(ShellStatusText)); } }
+
+    private int _startModeIndex = (int)SessionStartMode.Game;
+
+    /// <summary>Gets or sets the session mode a start produces, as the selector's index:
+    /// 0 = Desktop, 1 = Game. Independent of <see cref="StartAtSignIn"/>.</summary>
+    public int StartModeIndex { get => _startModeIndex; set { _startModeIndex = value; Raise(nameof(StartModeIndex)); Raise(nameof(ServiceStateText)); Raise(nameof(ShellStatusText)); } }
 
     private bool _steamInputLeaseEnabled = true;
 
@@ -1121,9 +1128,12 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Gets or sets whether the log records debug detail.</summary>
     public bool VerboseLogging { get => _verboseLogging; set { _verboseLogging = value; Raise(nameof(VerboseLogging)); } }
 
-    /// <summary>Gets a user-facing explanation of the sign-in behavior.</summary>
-    public string ShellStatusText =>
-        "Game mode starts at sign-in through the WSGM logon service. Explorer stays your Windows shell.";
+    /// <summary>Gets a user-facing explanation of the current sign-in behavior.</summary>
+    public string ShellStatusText => !StartAtSignIn
+        ? "WSGM does not start at sign-in. Start it from the Start Menu; Explorer stays your Windows shell."
+        : StartModeIndex == (int)SessionStartMode.Desktop
+            ? "WSGM starts at sign-in and stays in desktop mode until you enter game mode. Explorer stays your Windows shell."
+            : "Game mode starts at sign-in through the WSGM logon service. Explorer stays your Windows shell.";
 
     // --- UAC prompt level ---
     /// <summary>Gets whether UAC consent prompts are disabled for the machine.</summary>
@@ -1474,7 +1484,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.StartupDelayMs = StartupDelayMs;
         config.StaggerDelayMs = StaggerDelayMs;
         config.BootSplashEnabled = BootSplashEnabled;
-        config.GameModeBootEnabled = GameModeBootEnabled;
+        config.StartAtSignIn = StartAtSignIn;
+        config.StartMode = (SessionStartMode)Math.Clamp(StartModeIndex, 0, 1);
         DisplayManagementMode persistedDisplayManagement = config.DisplayManagement;
         var displayManagement = (DisplayManagementMode)Math.Clamp(DisplayManagementModeIndex, 0, 3);
         config.DisplayManagement = displayManagement;
@@ -1708,7 +1719,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.StartupDelayMs = values.StartupDelayMs;
         config.StaggerDelayMs = values.StaggerDelayMs;
         config.BootSplashEnabled = values.BootSplashEnabled;
-        config.GameModeBootEnabled = values.GameModeBootEnabled;
+        config.StartAtSignIn = values.StartAtSignIn;
+        config.StartMode = values.StartMode;
 
         DisplayManagementMode previousDisplayMode = config.DisplayManagement;
         config.DisplayManagement = values.DisplayManagement;

@@ -40,12 +40,10 @@ public static class SelfElevation
             return null;
         }
 
-        var elevatedStartupApps = config.StartupApps.Any(a => a.Enabled && a.Elevated);
-        var elevatedSteam = Steam.RequiresElevatedShell;
-        // The sole administrator-installed plugin inherits WSGM's token. Startup has
-        // already enforced package-root cardinality; the package is not opened until after elevation.
-        var wantsElevation = elevatedStartupApps || elevatedSteam || config.DeviceIntegration.Enabled;
-        if (!wantsElevation ||
+        // Startup has already enforced package-root cardinality; a device package is not opened
+        // until after elevation.
+        var reason = ElevationPolicy.ElevationReason(config, Steam.RequiresElevatedShell);
+        if (reason is null ||
             ElevationCheck.IsCurrentProcessElevated() != false)
         {
             return null;
@@ -70,7 +68,6 @@ public static class SelfElevation
             {
                 return null;
             }
-            var reason = elevatedSteam ? "Steam requires matching elevation" : "config starts elevated apps";
             Log.Info($"{reason} — handed over to elevated instance (pid {child.Id}).");
             // Stay alive while the elevated instance runs: on a service boot (--boot)
             // the logon service watchdog holds THIS pid — the parent exiting only

@@ -77,6 +77,14 @@ public static class ConfigStore
     /// </remarks>
     internal static AppConfig DeserializeConfig(string json)
     {
+        if (ConfigMigrations.MayNeedMigration(json)
+            && JsonNode.Parse(json)?.AsObject() is { } document
+            && ConfigMigrations.Apply(document))
+        {
+            // Migrated ahead of the typed pass rather than inside the catch below: a retired key is
+            // not a parse failure, and the mutation path must see the same values as a plain load.
+            json = document.ToJsonString();
+        }
         try
         {
             return JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig)
@@ -88,6 +96,7 @@ public static class ConfigStore
                 ?? throw new JsonException("Configuration root was not an object.");
             RepairEnum(root, "GlyphStyle", Defaults.GlyphStyle);
             RepairEnum(root, "DisplayManagement", Defaults.DisplayManagement);
+            RepairEnum(root, "StartMode", Defaults.StartMode);
             if (root["Splash"] is JsonObject splash)
             {
                 RepairEnum(splash, "SpinnerStyle", SplashFieldDefaults.SpinnerStyle);
@@ -317,6 +326,7 @@ public static class ConfigStore
     internal static AppConfig Normalize(AppConfig config)
     {
         config.DisplayManagement = Definite(config.DisplayManagement, Defaults.DisplayManagement);
+        config.StartMode = Definite(config.StartMode, Defaults.StartMode);
         config.StartupApps ??= [];
         config.PluginInstances ??= [];
         config.DeviceIntegration ??= new DeviceIntegrationConfig();

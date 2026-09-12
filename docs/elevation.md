@@ -174,11 +174,18 @@ is elevated, the cold start goes through the same de-elevating scheduled task Ex
 an unelevated WSGM the setting changes nothing, because the ordinary launch already produces a
 medium-integrity Steam.
 
-Both the cold start and the auto-relaunch after Steam exits pass through
-`SessionModes.StartBigPicture`, so the choice cannot apply to one and not the other. Every launch
-logs `Steam launch integrity: …`, including the case where de-elevation was requested but
-unavailable, so a pasted log settles which one happened. The scheduled-task route returns no process
-handle, so the Steam Input shim startup-trace line is only logged on the integrity-matched path that
-has one.
+Every cold start goes through one `Steam.ColdStart`, whether it asks for Big Picture
+(`LaunchBigPicture`, from game mode and the auto-relaunch) or the windowed client (`LaunchDesktop`,
+from a Desktop session's `SessionModes.EnsureSteamDesktop`), so the shim reconcile, the debug port
+and the integrity choice cannot apply to one and not the other. Every launch logs
+`Steam launch integrity: …`, including the case where de-elevation was requested but unavailable, so
+a pasted log settles which one happened. The scheduled-task route returns no process handle, so the
+Steam Input shim startup-trace line is only logged on the integrity-matched path that has one.
+
+Because WSGM owns the Steam start, `Core\ElevationPolicy` treats "WSGM starts Steam at its own
+integrity" as a reason to run elevated, alongside an already-elevated Steam, elevated startup apps
+and device integration. Both `SelfElevation` and the boot manifest's `Elevate` read that one rule,
+so a shortcut start and a sign-in start of the same configuration land at the same integrity.
+Setting `SteamLaunchUnelevated` removes that reason.
 
 `WSGM.Launch` is unaffected and keeps de-elevating individual games independently.

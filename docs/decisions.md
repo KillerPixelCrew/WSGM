@@ -46,15 +46,15 @@ Details in `docs\boot-and-shell.md`.
 capture or write `ConvertibleSlateMode` or `TouchKeyboardTapInvoke`.
 
 **Desktop Mode is a complete WSGM session, and Game Mode is launched from it.** Starting at sign-in
-and starting in Desktop or Game are separate choices. In Desktop Mode WSGM stays resident with its
-notification icon, keeps plugins, overlay and performance services, and starts Steam itself so Steam
-inherits WSGM's elevation. The overlay or the icon enters Game Mode. Its launch configuration is
-WSGM policy in Settings: Default uses the main display; Custom stores an editable display layout, an
-optional wait for a display and optional plugin actions. Leaving restores either the layout captured
-at entry or a configured Desktop layout. The reference desktop PC shares an HDMI switch with a TV
-box, and the TV is invisible to Windows until that switch selects the PC, so entry must be able to
-drive external routing and wait without a deadline. Work is tracked in
-`_plan\implementation-todo.md`.
+and starting in Desktop or Game are separate choices, held as `StartAtSignIn` and `StartMode`. In
+Desktop Mode WSGM stays resident with its notification icon, keeps plugins, overlay and performance
+services, and starts Steam itself so Steam inherits WSGM's elevation. The overlay or the icon enters
+Game Mode. Its launch configuration is WSGM policy in Settings: Default uses the main display;
+Custom stores an editable display layout, an optional wait for a display and optional plugin
+actions. Leaving restores either the layout captured at entry or a configured Desktop layout. The
+reference desktop PC shares an HDMI switch with a TV box, and the TV is invisible to Windows until
+that switch selects the PC, so entry must be able to drive external routing and wait without a
+deadline. Work is tracked in `_plan\implementation-todo.md`.
 
 **The volume OSD never interrupts an exclusive game.** The physical volume command is always applied
 in game mode. The indicator is non-activating and click-through, and is suppressed only for a

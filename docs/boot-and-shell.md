@@ -18,6 +18,21 @@ same shortcut on the Desktop. With Explorer running, this starts the resident De
 repeat launch signals the existing mutex owner to open the Overlay, including requests queued during
 startup. No arguments still open Settings. Shortcuts are updated and removed by Inno Setup.
 
+Two independent settings decide what a sign-in produces: `StartAtSignIn` and `StartMode` (`Desktop`
+or `Game`). Starting with Windows and taking the screen over are separate choices, so a desktop PC
+can have the first without the second. `BootManifestWriter` projects the pair into `GameModeBoot`
+and `DesktopResident`; both are false when the sign-in start is off. The retired
+`GameModeBootEnabled` switch, and the residency that used to follow from enabled route automation,
+are migrated by `Core\ConfigMigrations` on load: game-mode boot becomes a Game start, route
+automation without it becomes a Desktop start, and neither leaves the sign-in alone.
+
+Desktop Mode is a complete resident session, not a reduced agent. It keeps the plugins, overlay,
+hotkey, chord, application monitor, performance services, permitted Steam integration, card services
+and config watching, and it starts the windowed Steam client itself after the input-desktop barrier,
+so Steam inherits WSGM's integrity rather than the user's own autostart. Explorer stays the shell:
+no takeover, replacement tray host, Game display posture, startup-app sequence or Big Picture
+request.
+
 Desktop Mode shows a WSGM notification icon with Open WSGM, Enter Game Mode, Settings and Exit WSGM.
 Primary activation opens the Overlay; Settings focuses its existing window. The icon is hidden in
 Game Mode and disposed during shutdown. Exit uses the ordinary coordinated application shutdown:
@@ -28,18 +43,20 @@ change the configured next-logon preference. This icon is separate from Game Mod
 `Program.DecideMode` picks one mode from the command line. WSGM never registers as the Windows
 shell, so no arguments means Settings.
 
-| Flag                           | Mode                               |
-| ------------------------------ | ---------------------------------- |
-| `--boot`                       | service-launched takeover at logon |
-| `--shell`                      | resident shell session             |
-| `--settings` (or no arguments) | Settings window                    |
-| `--overlay-test`               | overlay without a shell session    |
+| Flag                           | Mode                                  |
+| ------------------------------ | ------------------------------------- |
+| `--boot`                       | service-launched takeover at logon    |
+| `--shell`                      | resident shell session                |
+| `--shell --desktop-resident`   | resident Desktop session, no takeover |
+| `--settings` (or no arguments) | Settings window                       |
+| `--overlay-test`               | overlay without a shell session       |
 
 Only shell mode holds the single-instance mutex `Local\WSGM.Shell`; the installer keys its restart
 decision off it. A crash-loop breaker counts shell starts: three inside two minutes disarms the
-service boot (`GameModeBoot=false` and `DesktopResident=false` in boot.json, the config flag off,
-shell snapshot restored, Explorer started if none runs). A clean exit resets the counter, otherwise
-two update restarts plus a sign-in inside two minutes read as a loop.
+sign-in start (`GameModeBoot=false` and `DesktopResident=false` in boot.json, `StartAtSignIn` off,
+shell snapshot restored, Explorer started if none runs). `--restore-shell` disarms it the same way.
+Both leave `StartMode` alone, so re-enabling in Settings restores the chosen mode. A clean exit
+resets the counter, otherwise two update restarts plus a sign-in inside two minutes read as a loop.
 
 `Panic()` is the in-process, best-effort recovery: restore the shell snapshot, destroy the tray
 host, hand recovery to the verified shell anchor when one exists, otherwise start Explorer if none
@@ -217,19 +234,26 @@ Steam is driven with protocol URLs, which are UIPI-proof:
 | leave Big Picture                                  | `steam://close/bigpicture` |
 | quit Steam                                         | `steam://exit`             |
 
-`Shell\SteamMonitor` polls `steam;steamwebhelper` every 5 s. Its `Paused` flag is how desktop mode
-and "Close Steam" suppress auto-relaunch and overlay-pop reactions.
+`Shell\SteamMonitor` polls `steam;steamwebhelper` every 5 s. Its `Paused` flag means a transition is
+in flight, so nothing reacts to Steam while the session owns it. A deliberate "Close Steam" sets
+`SessionModes.SteamClosedByUser` instead, because a desktop session watches Steam continuously and
+would otherwise start it straight back up. Any request that wants Steam running again clears it.
 
-Desktop mode: pause the monitor, close Big Picture, start Explorer through the anchor. Game mode
-from the desktop: request Big Picture first with the monitor still paused, then run
-`ExitExplorerAndWait` off the UI thread, so Steam's UI startup overlaps Explorer's linger and retry
-instead of showing the wait before Big Picture appears. Only when Explorer is verifiably gone does
-the UI thread apply game posture, recreate the tray host and game-mode services, and resume
-monitoring. If Explorer refuses to exit, the transition sends `steam://close/bigpicture` and keeps
-desktop mode. If desktop restoration fails before any Explorer launch was dispatched, rollback
-reopens Big Picture before recreating game-mode services; a dispatched or late shell suppresses that
-recreation so there are never two taskbars. The logon boot is stricter: Steam starts only after
-Explorer is gone.
+`Shell\SteamExitPolicy` decides what an observed exit means. Game mode needs Steam on screen, so it
+relaunches Big Picture or shows the overlay, which is the only surface left. A desktop session has
+Explorer, so it either starts the windowed client again or does nothing; it never interrupts the
+user with the overlay.
+
+Desktop mode: pause the monitor, close Big Picture, start Explorer through the anchor, then resume
+monitoring and supply the windowed client. Game mode from the desktop: request Big Picture first
+with the monitor still paused, then run `ExitExplorerAndWait` off the UI thread, so Steam's UI
+startup overlaps Explorer's linger and retry instead of showing the wait before Big Picture appears.
+Only when Explorer is verifiably gone does the UI thread apply game posture, recreate the tray host
+and game-mode services, and resume monitoring. If Explorer refuses to exit, the transition sends
+`steam://close/bigpicture` and keeps desktop mode. If desktop restoration fails before any Explorer
+launch was dispatched, rollback reopens Big Picture before recreating game-mode services; a
+dispatched or late shell suppresses that recreation so there are never two taskbars. The logon boot
+is stricter: Steam starts only after Explorer is gone.
 
 ### The CEF transport stays closed until the Big Picture window exists
 
@@ -369,12 +393,11 @@ otherwise reboot automatically.
 
 ## Display-route automation
 
-With GameModeBoot disabled, boot.json can opt into DesktopResident for enabled route automation. The
-service launches --shell --desktop-resident with its usual user-token/elevation policy. This mode
-remains on Desktop even before Explorer appears and does not run takeover, startup apps or Game Mode
-display posture. GameModeBoot takes precedence when both flags are true. Old manifests omit
-DesktopResident and retain their previous behavior. Crash-loop manifest disabling clears both
-automatic launch choices.
+A Desktop start projects DesktopResident, and the service launches --shell --desktop-resident with
+its usual user-token/elevation policy. That mode remains on Desktop even before Explorer appears and
+does not run takeover, startup apps or Game Mode display posture. GameModeBoot takes precedence when
+both flags are true. Old manifests omit DesktopResident and retain their previous behavior.
+Crash-loop manifest disabling clears both automatic launch choices.
 
 Desktop-to-Game Mode transitions prepare the configured external route and display profile before
 requesting Big Picture or removing Explorer. A splash hold prevents premature dismissal when Steam

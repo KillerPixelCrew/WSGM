@@ -249,9 +249,9 @@ current display.
 Enable route automation is an explicit opt-in. AppConfig.DisplayRoutes stores that switch, four
 independent bindings, primitive arguments, optional WDC targets/profiles and 1–120 second deadlines.
 Saving updates only the chosen binding and switch against fresh configuration, then projects the
-boot manifest. With Game Mode boot disabled, an enabled route configuration starts the resident
-Desktop runtime at sign-in through --shell --desktop-resident. The installed logon service is
-required.
+boot manifest. Desktop residency is its own setting now (Settings > System, "Start WSGM at sign-in"
+plus "Start in"), so route automation no longer decides it; a Desktop start runs --shell
+--desktop-resident and needs the installed logon service.
 
 SessionModes owns Desktop/Game Mode transitions. Entry invokes the configured action, waits for its
 display to become available (including a connected but disabled monitor), and applies the saved

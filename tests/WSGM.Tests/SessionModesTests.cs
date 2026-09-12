@@ -16,7 +16,7 @@ public sealed class SessionModesTests
         modes.GameModeEntered += () => gameModeEntered++;
         modes.SteamStartFailed += _ => warnings++;
 
-        modes.EnterDesktopMode(startSteamDesktop: true);
+        modes.EnterDesktopMode();
         modes.EnterGameMode();
 
         Assert.False(modes.TransitionInProgress);

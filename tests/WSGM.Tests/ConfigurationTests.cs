@@ -974,12 +974,23 @@ public sealed class ConfigurationTests
     }
 
     [Fact]
-    public void GameModeBootDefaultsMatchTheInstallerIntent()
+    public void SignInStartDefaultsMatchTheInstallerIntent()
     {
         var config = new AppConfig();
 
-        Assert.True(config.GameModeBootEnabled);
+        Assert.True(config.StartAtSignIn);
+        Assert.Equal(SessionStartMode.Game, config.StartMode);
         Assert.Equal(5000, config.ExplorerLogonSettleMs);
+    }
+
+    [Fact]
+    public void NormalizeRepairsAnOutOfRangeStartMode()
+    {
+        var config = new AppConfig { StartMode = (SessionStartMode)99 };
+
+        ConfigStore.Normalize(config);
+
+        Assert.Equal(SessionStartMode.Game, config.StartMode);
     }
 
     [Fact]
@@ -1051,15 +1062,21 @@ public sealed class ConfigurationTests
         => Assert.Equal(expected, DisplayScale.ShouldChange(available, current, requested));
 
     [Fact]
-    public void GameModeBootFieldsRoundTripThroughSourceGeneratedJson()
+    public void SignInStartFieldsRoundTripThroughSourceGeneratedJson()
     {
-        var original = new AppConfig { GameModeBootEnabled = false, ExplorerLogonSettleMs = 250 };
+        var original = new AppConfig
+        {
+            StartAtSignIn = false,
+            StartMode = SessionStartMode.Desktop,
+            ExplorerLogonSettleMs = 250,
+        };
 
         var json = JsonSerializer.Serialize(original, ConfigJsonContext.Default.AppConfig);
         var restored = JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig);
 
         Assert.NotNull(restored);
-        Assert.False(restored.GameModeBootEnabled);
+        Assert.False(restored.StartAtSignIn);
+        Assert.Equal(SessionStartMode.Desktop, restored.StartMode);
         Assert.Equal(250, restored.ExplorerLogonSettleMs);
     }
 

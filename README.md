@@ -17,8 +17,8 @@ Windows shell the whole time.
   source, and switching back restores those custom values. QAM has separate sustained (PL1) and
   boost (PL2) sliders that follow device readback when a profile changes.
 
-- **Boot to Big Picture** — a logon service starts game mode at sign-in behind a splash screen;
-  switching to the desktop and back is one press, any time.
+- **Boot to Big Picture** — a logon service starts WSGM at sign-in, into game mode behind a splash
+  screen or into a resident desktop session; switching modes is one press, any time.
 - **Quick access sheet** — one controller- and touch-driven surface that slides down from the top
   edge and leaves the game visible below: a home tab of rows you pin yourself, session control,
   Steam and device tools, power actions, your open programs, tray icons, Wi-Fi/Bluetooth state,
@@ -80,8 +80,8 @@ with no desktop on it. **You can always recover:**
 2. Choose **Task Manager** → **Run new task**.
 3. Type either:
    - `explorer.exe` — brings the desktop back for this session, or
-   - `%LOCALAPPDATA%\WSGM\bin\WSGM.exe --restore-shell` — turns **off** game mode at sign-in and
-     starts the desktop, so the next sign-in is an ordinary Windows one.
+   - `%LOCALAPPDATA%\WSGM\bin\WSGM.exe --restore-shell` — turns **off** the sign-in start and starts
+     the desktop, so the next sign-in is an ordinary Windows one.
 
 Safety nets also run on their own: the boot takeover keeps the desktop if it can't end Explorer
 cleanly, the service starts Explorer if WSGM crashes without one, and three failed game-mode starts
@@ -127,7 +127,8 @@ Steam CEF bridge behind the library features, elevation and recovery — lives i
    administrator rights once, to register the logon service.
 2. Open WSGM — Steam is detected automatically; add startup apps from the suggestions (Handheld
    Companion and friends are detected too).
-3. Leave **Start game mode at sign-in** on, **Save changes**, sign out and back in.
+3. Leave **Start WSGM at sign-in** on, pick **Start in** (Game mode on a handheld, Desktop mode on a
+   PC that keeps its desktop), **Save changes**, sign out and back in.
 
 **Upgrading:** run the newer setup. **Uninstall:** Windows Settings → Apps → WSGM — it restores
 every machine setting it changed and removes its files.
@@ -168,9 +169,11 @@ test projects, retain their MIT licenses under `src` and `tests`. See
 Bundled third-party components keep their own licenses; their notices ship beside the executable and
 with the installer.
 
-In Desktop Mode, the WSGM notification icon opens the Overlay, Settings or Game Mode and provides
-Exit WSGM. Start WSGM again from the Start Menu; launching it while running opens the existing
-session. Setup also offers an optional Desktop shortcut.
+Desktop Mode is a complete resident session: plugins, overlay, hotkey, controller chord and
+performance services all run, WSGM starts the windowed Steam client itself and keeps it running, and
+Windows Explorer stays the shell. The WSGM notification icon opens the Overlay, Settings or Game
+Mode and provides Exit WSGM. Start WSGM again from the Start Menu; launching it while running opens
+the existing session. Setup also offers an optional Desktop shortcut.
 
 Overlay > Tools > Display routes can bind plugin actions and captured display profiles to Game Mode
 entry/exit and Desktop startup/wake. This supports external HDMI/input routing without putting

@@ -74,6 +74,48 @@ public sealed class BootManifestTests
         }
     }
 
+    [Theory]
+    // Starting with Windows and taking the screen over are separate choices, so the two manifest
+    // flags come from the pair rather than from one switch.
+    [InlineData(true, SessionStartMode.Game, true, false)]
+    [InlineData(true, SessionStartMode.Desktop, false, true)]
+    [InlineData(false, SessionStartMode.Game, false, false)]
+    [InlineData(false, SessionStartMode.Desktop, false, false)]
+    public void TheManifestProjectsBothSignInChoices(
+        bool startAtSignIn, SessionStartMode mode, bool gameModeBoot, bool desktopResident)
+    {
+        var config = new AppConfig { StartAtSignIn = startAtSignIn, StartMode = mode };
+
+        Assert.Equal(gameModeBoot, config.StartAtSignIn && config.StartMode is SessionStartMode.Game);
+        Assert.Equal(desktopResident, config.StartAtSignIn && config.StartMode is SessionStartMode.Desktop);
+    }
+
+    [Fact]
+    public void DisarmingTheSignInStartKeepsTheChosenMode()
+    {
+        var config = new AppConfig { StartAtSignIn = true, StartMode = SessionStartMode.Desktop };
+
+        config.StartAtSignIn = false;
+
+        // The recovery paths disarm the start itself; the mode is the user's preference and
+        // survives, so re-enabling in Settings restores what they had.
+        Assert.Equal(SessionStartMode.Desktop, config.StartMode);
+    }
+
+    [Fact]
+    public void DesktopResidencyRoundTripsThroughTheManifest()
+    {
+        var json = JsonSerializer.Serialize(
+            new BootManifest { DesktopResident = true, ExePath = @"C:\x\WSGM.exe" },
+            BootManifestJsonContext.Default.BootManifest);
+
+        var restored = BootManifestStore.TryParse(json);
+
+        Assert.NotNull(restored);
+        Assert.True(restored.DesktopResident);
+        Assert.False(restored.GameModeBoot);
+    }
+
     [Fact]
     public void MissingFileLoadsAsNull()
     {

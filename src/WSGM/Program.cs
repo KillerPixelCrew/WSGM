@@ -76,7 +76,7 @@ public static class Program
         if (args.Contains("--restore-shell", StringComparer.OrdinalIgnoreCase))
         {
             ShellRegistration.Uninstall();
-            // The user is escaping game mode: also disarm the service boot so the
+            // The user is escaping game mode: also disarm the sign-in start so the
             // next sign-in is a plain desktop (re-enable in Settings). Best effort —
             // this path must survive a broken profile, and logging is not up yet.
             // boot.json is projected from a defensive load so the disarm still lands
@@ -84,8 +84,8 @@ public static class Program
             // a read-modify-write and goes through the strict mutation path, which
             // aborts rather than replacing the registry recovery snapshots with
             // defaults.
-            try { BootManifestWriter.WriteDisabled(ConfigStore.Load()); } catch { }
-            try { ConfigStore.Mutate(static c => c.GameModeBootEnabled = false); } catch { }
+            try { BootManifestWriter.WriteSignInDisabled(ConfigStore.Load()); } catch { }
+            try { ConfigStore.Mutate(static c => c.StartAtSignIn = false); } catch { }
             // Verify-and-wait: this path returns out of Main straight afterwards, so a
             // queued de-elevation check would be torn down before it ran and the user
             // would be left with an elevated Explorer (breaks UWP); see docs\elevation.md.
@@ -296,12 +296,12 @@ public static class Program
             if (CrashLoopBreaker.IsLooping())
             {
                 Log.Error("Crash loop detected (3+ shell starts within 2 minutes) — " +
-                          "game-mode boot DISABLED (re-enable in WSGM settings).");
-                // Disarm the service boot: the manifest write works even when
+                          "the sign-in start is DISABLED (re-enable in WSGM settings).");
+                // Disarm the sign-in start: the manifest write works even when
                 // config.json cannot be saved, so the next sign-in stays a desktop.
                 try
                 {
-                    BootManifestWriter.WriteDisabled(ConfigStore.Load());
+                    BootManifestWriter.WriteSignInDisabled(ConfigStore.Load());
                 }
                 catch (Exception ex)
                 {
@@ -313,11 +313,11 @@ public static class Program
                     // config.json aborts here instead of overwriting the registry
                     // recovery snapshots with defaults. boot.json above already
                     // disarmed the next sign-in either way.
-                    ConfigStore.Mutate(static c => c.GameModeBootEnabled = false);
+                    ConfigStore.Mutate(static c => c.StartAtSignIn = false);
                 }
                 catch (Exception ex)
                 {
-                    Log.Warn($"Crash-loop disarm: could not clear the game-mode boot flag: {ex.Message}");
+                    Log.Warn($"Crash-loop disarm: could not clear the sign-in start flag: {ex.Message}");
                 }
                 ShellRegistration.Uninstall();
                 if (!ExplorerControl.IsRunningInSession())

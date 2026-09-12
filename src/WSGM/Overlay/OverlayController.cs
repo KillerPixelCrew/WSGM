@@ -410,32 +410,51 @@ public sealed class OverlayController : IDisposable
 
     private void OnSteamExited()
     {
-        if (_config.SteamAutoRelaunch)
+        switch (DecideSteamExitReaction())
         {
-            Log.Info("Steam exited — auto-relaunching in 10 s.");
-            RunOnUiThreadAfter(TimeSpan.FromMilliseconds(10_000), () =>
-            {
-                // Re-checked at fire time: a config reload (_config is replaced
-                // wholesale) may have turned auto-relaunch off, or this
-                // controller may have been disposed while the delay ran.
-                if (_disposed || !_config.SteamAutoRelaunch)
-                {
-                    Log.Info("Auto-relaunch skipped: disabled or disposed meanwhile.");
-                    return;
-                }
-                // The user may have switched to desktop mode (or closed Steam
-                // deliberately) while this delay was in flight.
-                if (_monitor?.Paused == true)
-                {
-                    Log.Info("Auto-relaunch skipped: monitor paused meanwhile.");
-                    return;
-                }
-                _modes.StartOrFocusSteam();
-            });
+            case SteamExitReaction.ShowOverlay:
+                ShowOverlay();
+                return;
+            case SteamExitReaction.RelaunchBigPicture:
+            case SteamExitReaction.RelaunchDesktop:
+                Log.Info("Steam exited — auto-relaunching in 10 s.");
+                RunOnUiThreadAfter(TimeSpan.FromMilliseconds(10_000), RelaunchSteamAfterExit);
+                return;
+            default:
+                Log.Info("Steam exited — leaving it closed.");
+                return;
+        }
+    }
+
+    /// <summary>Re-decides at fire time: a config reload replaces <c>_config</c> wholesale, the
+    /// session may have changed mode, and the user may have closed Steam while the delay ran.</summary>
+    private void RelaunchSteamAfterExit()
+    {
+        if (_disposed)
+        {
             return;
         }
-        ShowOverlay();
+        switch (DecideSteamExitReaction())
+        {
+            case SteamExitReaction.RelaunchBigPicture:
+                _modes.StartOrFocusSteam();
+                return;
+            case SteamExitReaction.RelaunchDesktop:
+                _modes.EnsureSteamDesktop();
+                return;
+            default:
+                Log.Info("Auto-relaunch skipped: the session no longer wants Steam started.");
+                return;
+        }
     }
+
+    /// <summary>Reads the live session state the policy needs. Explorer's presence is the same
+    /// signal the overlay's own mode button uses to tell desktop from game mode.</summary>
+    private SteamExitReaction DecideSteamExitReaction() => SteamExitPolicy.Decide(
+        inGameMode: !ExplorerControl.IsRunningInSession(),
+        autoRelaunch: _config.SteamAutoRelaunch,
+        monitorPaused: _monitor?.Paused == true,
+        closedByUser: _modes.SteamClosedByUser);
 
     private void OnSteamInputRecoveryWarning(string warning)
     {

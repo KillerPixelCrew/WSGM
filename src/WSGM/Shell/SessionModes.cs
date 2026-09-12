@@ -16,6 +16,9 @@ public sealed class SessionModes
     /// <summary>The warning shown when Steam Big Picture could not be started.</summary>
     public const string BigPictureStartFailedWarning = "Couldn't start Steam Big Picture.";
 
+    /// <summary>The warning shown when the windowed desktop Steam client could not be started.</summary>
+    public const string SteamStartFailedWarning = "Couldn't start Steam.";
+
     private AppConfig _config;
     private readonly SteamMonitor? _monitor;
     private readonly ExplorerDesktopHost? _desktopHost;
@@ -134,6 +137,12 @@ public sealed class SessionModes
 
     private int _explorerTransition;
     private int _shutdownRequested;
+    private int _steamClosedByUser;
+
+    /// <summary>Whether the user closed Steam deliberately. The monitor's pause only covers a
+    /// transition, so this is what keeps the desktop session from starting Steam straight back up
+    /// after an explicit Close Steam. Cleared by any request that wants Steam running again.</summary>
+    public bool SteamClosedByUser => System.Threading.Volatile.Read(ref _steamClosedByUser) != 0;
 
     /// <summary>True while explorer is being brought up or down (mode switch or the
     /// boot takeover). Mode-switch requests arriving in that window are ignored —
@@ -188,9 +197,7 @@ public sealed class SessionModes
     /// explorer start run off the UI thread so the overlay never freezes; only the
     /// monitor pause (before anything can react to Steam leaving) and
     /// <see cref="DesktopModeStarting"/> stay UI-thread work.</summary>
-    /// <param name="startSteamDesktop">Whether to start windowed Steam after the verified desktop
-    /// is ready; used by boot-splash recovery because that path skips the normal boot launch.</param>
-    public void EnterDesktopMode(bool startSteamDesktop = false)
+    public void EnterDesktopMode()
     {
         ExplorerDesktopHost? desktopHost = _desktopHost;
         if (desktopHost is null)
@@ -293,10 +300,13 @@ public sealed class SessionModes
                     {
                         SteamStartFailed?.Invoke(ExplorerDesktopDegradedWarning);
                     }
-                    if (startSteamDesktop)
+                    // Desktop steady state watches Steam again: the pause covers the transition
+                    // only, so the session can keep the client running the way game mode does.
+                    if (_monitor is not null)
                     {
-                        StartSteamDesktop();
+                        _monitor.Paused = false;
                     }
+                    EnsureSteamDesktop();
                 });
             }
             catch (Exception ex)
@@ -314,31 +324,37 @@ public sealed class SessionModes
         });
     }
 
-    /// <summary>Plain desktop Steam start — no Big Picture. Used by the boot
-    /// splash's Switch-to-desktop: the boot sequence skips its Big Picture start
-    /// once the monitor is paused, but the session should still end up with Steam
-    /// available in windowed mode. No-op when Steam already runs.</summary>
-    private void StartSteamDesktop()
+    /// <summary>Starts the windowed Steam client a desktop session is expected to have, so it
+    /// inherits WSGM's integrity instead of the user's own autostart. No-op while shutting down,
+    /// when Steam already runs, or after the user closed Steam deliberately.</summary>
+    public void EnsureSteamDesktop()
     {
         if (System.Threading.Volatile.Read(ref _shutdownRequested) != 0)
         {
             Log.Info("Ignoring desktop Steam start: application shutdown is in progress.");
             return;
         }
-        if (Steam.IsRunning)
+        if (System.Threading.Volatile.Read(ref _steamClosedByUser) != 0)
         {
-            Log.Info("Skipping desktop Steam start: Steam is already running.");
+            Log.Info("Skipping desktop Steam start: Steam was closed deliberately.");
             return;
         }
-        if (Steam.ExePath is { } exe)
+        if (Steam.IsRunning)
         {
-            SteamCdp.EnsureRemoteDebuggingEnabled(_config.Cef.Enabled);
-            Log.Info("Starting Steam (desktop mode, no Big Picture).");
-            AppLauncher.Start(exe, "", elevated: false);
+            return;
+        }
+        if (!Steam.IsInstalled)
+        {
+            Log.Warn("Desktop Steam start skipped: no Steam installation was detected.");
             return;
         }
 
-        Log.Warn("Desktop Steam start skipped: no Steam installation was detected.");
+        Log.Info("Starting Steam (desktop mode, no Big Picture).");
+        // Read at start time, not captured: a config reload replaces _config wholesale.
+        if (!Steam.LaunchDesktop(_config.SteamLaunchUnelevated, _config.Cef.Enabled).Started)
+        {
+            SteamStartFailed?.Invoke(SteamStartFailedWarning);
+        }
     }
 
     /// <summary>Game mode: ask Steam to enter Big Picture immediately (the protocol
@@ -626,6 +642,7 @@ public sealed class SessionModes
     /// first so neither auto-relaunch nor the exit-overlay reaction fires.</summary>
     public void CloseSteam()
     {
+        System.Threading.Volatile.Write(ref _steamClosedByUser, 1);
         if (_monitor is not null)
         {
             _monitor.Paused = true;
@@ -645,6 +662,7 @@ public sealed class SessionModes
             Log.Info("Ignoring Steam start/focus: application shutdown is in progress.");
             return;
         }
+        System.Threading.Volatile.Write(ref _steamClosedByUser, 0);
         if (_monitor is not null)
         {
             _monitor.Paused = false;
@@ -683,6 +701,7 @@ public sealed class SessionModes
 
     private async System.Threading.Tasks.Task<string?> RequestBigPictureWhilePausedAsync()
     {
+        System.Threading.Volatile.Write(ref _steamClosedByUser, 0);
         if (PrepareSteamUiForBigPictureAsync is { } prepare)
         {
             try
@@ -706,9 +725,12 @@ public sealed class SessionModes
                 Log.Warn($"Steam UI retraction before the Big Picture request failed: {ex.Message}");
             }
         }
-        if (_monitor?.IsAlive == true)
+        // Live check, not the up-to-5 s-stale monitor poll: a desktop session leaves Steam running
+        // windowed, so the protocol has to re-activate that client into Big Picture rather than
+        // start a second cold one.
+        if (Steam.IsRunning)
         {
-            FocusSteam();
+            FocusSteam(force: true);
             return null;
         }
         return StartBigPicture();
@@ -737,14 +759,16 @@ public sealed class SessionModes
     }
 
     /// <summary>Brings Steam Big Picture to the foreground when the monitor sees it alive.</summary>
-    public void FocusSteam()
+    /// <param name="force">Whether to skip the monitor's up-to-5 s-stale liveness poll because the
+    /// caller has already established that Steam is running.</param>
+    public void FocusSteam(bool force = false)
     {
         if (System.Threading.Volatile.Read(ref _shutdownRequested) != 0)
         {
             Log.Info("Ignoring Steam focus: application shutdown is in progress.");
             return;
         }
-        if (_monitor?.IsAlive == true)
+        if (force || _monitor?.IsAlive == true)
         {
             // Protocol re-activation self-focuses even against an elevated target.
             AppLauncher.StartProtocol(Steam.OpenBigPictureUrl);

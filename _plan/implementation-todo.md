@@ -545,7 +545,7 @@ on the other input. Inventory at that date: #38/#39/#50/#51/#52 supply the notif
 shortcuts, WDC profile primitives, route bindings and the IR endpoint; none of the items below was
 complete. Build order follows the list.
 
-- [ ] **Desktop Mode is a complete resident WSGM session, not a reduced agent.** Settings offers two
+- [x] **Desktop Mode is a complete resident WSGM session, not a reduced agent.** Settings offers two
       independent choices: start WSGM at sign-in, and start in Desktop or Game. Desktop residency
       must not depend on route automation (`BootManifestWriter` currently derives it from
       `DisplayRoutes.Enabled`). Desktop Mode keeps the device/capability plugins, overlay, keyboard
@@ -556,6 +556,15 @@ complete. Build order follows the list.
       scheduled task. Explorer remains the shell and game-mode-only effects stay off: no takeover,
       replacement tray host, Game display layout, startup-app sequence or Big Picture request.
       Returning from Game Mode restores this same fully running Desktop state.
+      Implemented as phase 1. `StartAtSignIn` and `StartMode` replace `GameModeBootEnabled`, with a
+      `Core\ConfigMigrations` JSON pass ahead of typed deserialization so a load and a mutation see
+      the same values. One `Core\ElevationPolicy` now serves both `SelfElevation` and the manifest's
+      `Elevate`, and starting Steam at WSGM's integrity is one of its reasons. `Steam.ColdStart`
+      backs both `LaunchBigPicture` and the new `LaunchDesktop`, so the shim reconcile, debug port
+      and integrity choice cannot diverge. `SteamMonitor.Paused` now means only that a transition is
+      in flight; an explicit Close Steam sets `SessionModes.SteamClosedByUser`, and
+      `Shell\SteamExitPolicy` keeps the desktop from ever popping the overlay. 117 focused managed
+      tests and 5 Settings UI tests pass. No live sign-in, Steam or service validation was run.
 - [ ] **Add editable display layouts to Windows Device Control.** Capture the current arrangement
       into an editable layout: active targets, primary, position, resolution, refresh rate and HDR,
       keyed by stable target identity. Never make a user hand-author raw `DISPLAYCONFIG_*` data.

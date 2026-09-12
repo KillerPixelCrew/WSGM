@@ -5,15 +5,24 @@ import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-// Keep the desktop recovery launch wired to the configured switch before process creation.
-// The toolkit tests the flag writer against temporary directories; never launch live Steam here.
-const sessionModes = readFileSync(resolve(root, "src/WSGM/Shell/SessionModes.cs"), "utf8");
-const desktopStart = sessionModes.match(
-  /private void StartSteamDesktop\(\)([\s\S]*?)\n    \/\/\//u,
+// Keep every cold Steam start wired to the configured switch before process creation. Both the
+// Big Picture start and the desktop session's windowed client go through one helper, so the check
+// follows it there. The toolkit tests the flag writer against temporary directories; never launch
+// live Steam here.
+const steam = readFileSync(resolve(root, "src/WSGM/Core/Steam.cs"), "utf8");
+const coldStart = steam.match(
+  /private static AppLauncher\.LaunchResult ColdStart\(([\s\S]*?)\n    \}/u,
 )[1];
 assert.match(
+  coldStart,
+  /SteamInputShim\.Reconcile\("steam-cold-start"\);[\s\S]*?SteamCdp\.EnsureRemoteDebuggingEnabled\(cefEnabled\);[\s\S]*?AppLauncher\.Start\(exe, arguments,/u,
+);
+// The desktop client start must reach that helper with the user's own integrity and CEF choices.
+const sessionModes = readFileSync(resolve(root, "src/WSGM/Shell/SessionModes.cs"), "utf8");
+const desktopStart = sessionModes.match(/public void EnsureSteamDesktop\(\)([\s\S]*?)\n    \}/u)[1];
+assert.match(
   desktopStart,
-  /SteamCdp\.EnsureRemoteDebuggingEnabled\(_config\.Cef\.Enabled\);\s*Log\.Info\([^;]+;\s*AppLauncher\.Start\(exe,/u,
+  /Steam\.LaunchDesktop\(_config\.SteamLaunchUnelevated, _config\.Cef\.Enabled\)/u,
 );
 const resolver = readFileSync(
   resolve(

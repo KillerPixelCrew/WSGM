@@ -218,53 +218,79 @@ public static class Steam
     {
         if (!IsRunning && ExePath is { } exe)
         {
-            // Steam is provably not running on this branch, which makes it the one
-            // moment in a session when a stale Steam Input shim can actually be
-            // replaced - anywhere else the image is mapped and the copy fails.
-            SteamInputShim.Reconcile("steam-cold-start");
-            // Enable Steam's CEF debug port before it starts so WSGM can add
-            // libraries to the live client later without a restart. Only takes
-            // effect on a fresh Steam start, which this cold path is.
-            SteamCdp.EnsureRemoteDebuggingEnabled(cefEnabled);
-            // The de-elevating scheduled task is only meaningful from an elevated WSGM: started
-            // from a medium-integrity process, the ordinary launch already produces a
-            // medium-integrity Steam without the task-scheduler round trip.
-            bool deElevate = unelevated && ElevationCheck.IsCurrentProcessElevated() is true;
-            if (deElevate
-                && UnelevatedLauncher.TryStartViaScheduledTask(exe, OpenBigPictureUrl))
-            {
-                Log.Info("Steam launch integrity: medium (de-elevated scheduled task).");
-                return new AppLauncher.LaunchResult(null, true, false);
-            }
-
-            if (deElevate)
-            {
-                Log.Warn(
-                    "Steam launch integrity: de-elevation was requested but unavailable; "
-                    + "falling back to WSGM's own integrity.");
-            }
-
-            var result = AppLauncher.Start(exe, OpenBigPictureUrl, elevated: false);
-            Log.Info(
-                "Steam launch integrity: "
-                + (ElevationCheck.IsCurrentProcessElevated() is true ? "elevated" : "medium")
-                + " (matched to WSGM).");
-            // Only when a vector is actually deployed, and worded as the EXPECTED
-            // path. docs\steam-input.md tells the reader a missing file means the
-            // gate worker never got past the loader — so naming a path for a Steam
-            // with no shim, or for a pid Steam's bootstrapper then re-execs away
-            // from, makes that diagnostic assert the opposite of the truth.
-            if (result.Process is { } process
-                && SteamInputShim.LastStatus.State == SteamInputShimState.Deployed)
-            {
-                Log.Info(
-                    $"Steam Input shim startup trace expected for pid {process.Id}: "
-                    + SteamInputShim.StartupTracePath(process.Id)
-                    + " (absent if Steam re-execed into another pid)");
-            }
-            return result;
+            return ColdStart(exe, OpenBigPictureUrl, unelevated, cefEnabled);
         }
         return AppLauncher.StartProtocol(OpenBigPictureUrl);
+    }
+
+    /// <summary>Starts the Steam client without Big Picture, for a desktop session. WSGM owning the
+    /// client start is what gives Steam WSGM's integrity, so Steam Input and the Steam Overlay
+    /// still reach elevated windows once the user's own Steam autostart is out of the way.</summary>
+    /// <param name="unelevated">Whether to request a de-elevated launch.</param>
+    /// <param name="cefEnabled">Whether to enable remote debugging before the start.</param>
+    /// <returns>The launch result, or a started result when Steam already runs.</returns>
+    public static AppLauncher.LaunchResult LaunchDesktop(bool unelevated = false, bool cefEnabled = true)
+    {
+        if (IsRunning)
+        {
+            return new AppLauncher.LaunchResult(null, true, false);
+        }
+        if (ExePath is not { } exe)
+        {
+            return new AppLauncher.LaunchResult(null, false, false);
+        }
+        return ColdStart(exe, "", unelevated, cefEnabled);
+    }
+
+    /// <summary>The one cold Steam start: shim reconcile, debug port, integrity choice and the
+    /// startup-trace hint. Callers differ only in the arguments Steam is started with.</summary>
+    private static AppLauncher.LaunchResult ColdStart(
+        string exe, string arguments, bool unelevated, bool cefEnabled)
+    {
+        // Steam is provably not running on this branch, which makes it the one
+        // moment in a session when a stale Steam Input shim can actually be
+        // replaced - anywhere else the image is mapped and the copy fails.
+        SteamInputShim.Reconcile("steam-cold-start");
+        // Enable Steam's CEF debug port before it starts so WSGM can add
+        // libraries to the live client later without a restart. Only takes
+        // effect on a fresh Steam start, which this cold path is.
+        SteamCdp.EnsureRemoteDebuggingEnabled(cefEnabled);
+        // The de-elevating scheduled task is only meaningful from an elevated WSGM: started
+        // from a medium-integrity process, the ordinary launch already produces a
+        // medium-integrity Steam without the task-scheduler round trip.
+        bool deElevate = unelevated && ElevationCheck.IsCurrentProcessElevated() is true;
+        if (deElevate && UnelevatedLauncher.TryStartViaScheduledTask(exe, arguments))
+        {
+            Log.Info("Steam launch integrity: medium (de-elevated scheduled task).");
+            return new AppLauncher.LaunchResult(null, true, false);
+        }
+
+        if (deElevate)
+        {
+            Log.Warn(
+                "Steam launch integrity: de-elevation was requested but unavailable; "
+                + "falling back to WSGM's own integrity.");
+        }
+
+        var result = AppLauncher.Start(exe, arguments, elevated: false);
+        Log.Info(
+            "Steam launch integrity: "
+            + (ElevationCheck.IsCurrentProcessElevated() is true ? "elevated" : "medium")
+            + " (matched to WSGM).");
+        // Only when a vector is actually deployed, and worded as the EXPECTED
+        // path. docs\steam-input.md tells the reader a missing file means the
+        // gate worker never got past the loader — so naming a path for a Steam
+        // with no shim, or for a pid Steam's bootstrapper then re-execs away
+        // from, makes that diagnostic assert the opposite of the truth.
+        if (result.Process is { } process
+            && SteamInputShim.LastStatus.State == SteamInputShimState.Deployed)
+        {
+            Log.Info(
+                $"Steam Input shim startup trace expected for pid {process.Id}: "
+                + SteamInputShim.StartupTracePath(process.Id)
+                + " (absent if Steam re-execed into another pid)");
+        }
+        return result;
     }
 
     /// <summary>Sends one of Steam's own Big Picture keyboard shortcuts globally.
