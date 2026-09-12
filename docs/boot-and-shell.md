@@ -369,6 +369,36 @@ The installer (`installer\WSGM.iss`) is `PrivilegesRequired=admin` because the m
 demands it, while the app stays per-user: `{localappdata}` and HKCU belong to the elevating account.
 This is the single-user-device design.
 
+### Install modes
+
+Setup offers three modes plus Custom, named for the machine they suit rather than for the components
+they carry:
+
+| Mode                | Components               | A fresh install starts       |
+| ------------------- | ------------------------ | ---------------------------- |
+| Minimal (default)   | core                     | Game Mode, integration off   |
+| MSI Claw 8 AI+ A2VM | core, device, controller | Game Mode, integration on    |
+| Desktop first       | core                     | Desktop session, off         |
+| Custom              | chosen by hand           | the configuration's defaults |
+
+A mode decides two separate things, and they must stay separate. Which bytes install is Inno's
+`[Types]`/`[Components]`. What the first run of those bytes does is passed to `--setup` as
+`--profile=` and applied by `Core\InstallProfile.cs`, **only when the machine has no config.json**.
+Re-running setup is how people repair and upgrade, so a mode that rewrote the start mode and the
+integration switch each time would silently undo Settings; changing an installed machine's mode
+means changing it in Settings, where it is visible. Custom names no mode on purpose: the user picked
+components rather than an intent.
+
+The Claw mode is the one that switches Device Integration on, because naming a device in setup is
+the explicit choice the integration otherwise waits for, and installing the package without it would
+read as a broken install. The package still refuses any machine whose SMBIOS identity does not match
+it, so the mode cannot make a non-Claw pretend to be one. Chosen from Custom instead, the same bytes
+install and stay inert until Settings enables them.
+
+A mode seeds Quick Setup's answers rather than replacing them: the panel still appears on first run
+so the start choices are confirmed and the Steam autostart takeover is consented to rather than
+assumed.
+
 ### Order on update
 
 1. Record whether the shell is running (mutex `Local\WSGM.Shell`), so WSGM can be restarted in the

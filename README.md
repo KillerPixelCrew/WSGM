@@ -125,10 +125,21 @@ Steam CEF bridge behind the library features, elevation and recovery — lives i
 1. Download and run **`WSGM-Setup-<version>.exe`** from the
    [latest release](https://github.com/NightHammer1000/WSGM/releases/latest). It asks for
    administrator rights once, to register the logon service.
-2. Open WSGM — Steam is detected automatically; add startup apps from the suggestions (Handheld
-   Companion and friends are detected too).
-3. Leave **Start WSGM at sign-in** on, pick **Start in** (Game mode on a handheld, Desktop mode on a
-   PC that keeps its desktop), **Save changes**, sign out and back in.
+2. Pick an install mode:
+   - **Minimal** — boots into Game Mode. Nothing device-specific; the right choice on any handheld
+     or PC WSGM has no package for.
+   - **MSI Claw 8 AI+ A2VM** — Game Mode plus the device integration and the virtual controller, for
+     that exact handheld. Offers the USB/IP and HidHide driver step, which needs a reboot.
+   - **Desktop first** — WSGM starts with Windows and waits in the notification area; Game Mode is
+     one press away whenever you want it.
+
+   The mode sets where the first run starts and whether the device integration is on. Everything it
+   chooses is a normal setting afterwards, and re-running setup to repair or upgrade never changes
+   what you set. **Custom** picks components by hand and leaves the settings at their defaults.
+
+3. Open WSGM — Steam is detected automatically; add startup apps from the suggestions (Handheld
+   Companion and friends are detected too). Quick Setup shows your mode's answers for you to
+   confirm.
 
 **Upgrading:** run the newer setup. **Uninstall:** Windows Settings → Apps → WSGM — it restores
 every machine setting it changed and removes its files.

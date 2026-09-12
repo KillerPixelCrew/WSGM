@@ -15,6 +15,14 @@ input document before changing behavior.
 - Component choices must remain coherent across core, device integration, Device Lab, controller
   support, USB/IP, and HidHide tasks. A device package is installed only when the device-integration
   owner and package gate agree.
+- Setup offers three named install modes plus Custom. A mode decides two separate things: which
+  components install, and what a first run starts from. The second is passed to `--setup` as
+  `--profile=` and applied by `Core\InstallProfile.cs` only when the machine has no config.json.
+  Never let a repair, an upgrade or a silent install rewrite a start mode or an integration switch
+  the user has already chosen; changing those on an installed machine belongs in WSGM Settings.
+  Custom names no mode and must keep the configuration's own defaults.
+- A mode seeds Quick Setup's answers, it does not replace them. Do not stamp the Quick Setup
+  revision from setup: the Steam autostart takeover has to stay a consented choice.
 - Stop the service before replacing runtime files. Stage packages atomically and leave enough state
   for repair or rollback after an interrupted upgrade.
 - Setup asks running WSGM to perform its bounded Steam and launch-wrapper pre-stop, but setup itself

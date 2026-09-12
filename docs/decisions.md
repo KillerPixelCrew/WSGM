@@ -125,6 +125,13 @@ The migration keeps the values and leaves the identity empty, Settings shows tho
 confirmation, and Game Mode entry refuses them. Guessing would move the wrong display; a permanent
 compatibility field keyed on the old device key would need live enumeration to mean anything.
 
+**Setup asks which machine, not which components.** The three install modes are named Minimal, MSI
+Claw 8 AI+ A2VM and Desktop first, because a person installing WSGM knows what they are putting it
+on and does not know what a device-integration runtime or a virtual controller is for. Custom
+remains for the people who do. A mode seeds only a machine with no configuration yet: re-running
+setup is how repair and upgrade work, and a mode that rewrote the start mode each time would undo
+Settings behind the user's back. Details in `docs\boot-and-shell.md`, "Install modes".
+
 **Toolchain pins.** .NET 10 and Avalonia 12.1.1. `LoadingIndicators.Avalonia` is vendored under
 `third_party\LoadingIndicators.Avalonia` and built from source, because its published Avalonia 11
 package has precompiled XAML that fails on Avalonia 12; its Unlicense text ships from

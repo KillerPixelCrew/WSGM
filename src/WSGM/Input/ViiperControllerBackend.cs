@@ -374,12 +374,21 @@ internal sealed class ViiperControllerBackend : IHidBackend
         }
         catch (DllNotFoundException)
         {
+            // The ordinary state on an install that did not take the controller component, which
+            // two of setup's three modes do not.
             detail = "The controller backend library is not installed.";
             return false;
         }
         catch (EntryPointNotFoundException)
         {
             detail = "The installed controller backend library is the wrong version.";
+            return false;
+        }
+        catch (BadImageFormatException)
+        {
+            // A truncated or wrong-architecture copy, which an interrupted install can leave
+            // behind. Unavailable for the same reason as an absent one: there is nothing to call.
+            detail = "The installed controller backend library could not be loaded.";
             return false;
         }
 

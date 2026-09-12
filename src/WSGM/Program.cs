@@ -195,6 +195,9 @@ public static class Program
             // one and persisting defaults over every other recovery snapshot. Setup
             // itself must still complete, so the failure only logs.
             AppConfig? config = null;
+            // Read before the load, which creates the file: it is the only way to tell a first
+            // install from a repair or an upgrade, and the install mode may only seed the first.
+            bool freshInstall = !System.IO.File.Exists(ConfigStore.ConfigPath);
             try
             {
                 config = ConfigStore.LoadForMutation();
@@ -202,6 +205,15 @@ public static class Program
             catch (Exception ex)
             {
                 Log.Error("Setup: config.json is unreadable — skipping the gaming-home guard and the boot manifest", ex);
+            }
+            if (config is not null
+                && InstallProfile.TryParse(InstallProfile.Read(args), out InstallProfileKind profile)
+                && InstallProfile.Apply(config, profile, freshInstall))
+            {
+                ConfigStore.Save(config);
+                Log.Info($"Setup: seeded a fresh install from the {profile} mode "
+                    + $"(start at sign-in in {config.StartMode} mode, device integration "
+                    + $"{(config.DeviceIntegration.Enabled ? "on" : "off")}).");
             }
             Installer.InstallApp();
             // Deploy the Steam Input shim only after the payload exists in the

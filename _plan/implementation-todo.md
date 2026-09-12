@@ -174,6 +174,15 @@ stops here rather than at zero:
   now targets `SplashConfig`'s own defaults. It stays open for the brand mark, which is not mine to
   invent, and for the resolution and DPI validation the issue asks for.
 
+- Setup offers three install modes plus Custom: Minimal (core, Game Mode), MSI Claw 8 AI+ A2VM
+  (core, device integration and virtual controller, Game Mode, integration on) and Desktop first
+  (core, resident desktop session). A mode decides which components install and, separately, what a
+  first run starts from; the second goes to `--setup` as `--profile=` and `Core\InstallProfile.cs`
+  applies it only when the machine has no config.json, so repair and upgrade never rewrite what the
+  user set in Settings. Custom names no mode. A mode seeds Quick Setup's answers rather than
+  stamping it answered, so the Steam autostart takeover stays consented to. 18 focused tests; no
+  installer was built or run here, and the modes have not been installed on a machine.
+
 - #51 is implemented. `AppConfig.GameModeLaunch` binds declared plugin actions and saved display
   layouts to Game Mode entry and leave and to Desktop startup and wake; Settings > Display
   configures it and the logon manifest supports Desktop residency. Entry is one cancellable

@@ -60,17 +60,24 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "german"; MessagesFile: "compiler:Languages\German.isl"
 
 [Types]
-; Core-only is first and therefore the unattended/default choice. Installing the
-; Device Integration bytes are inert until the user explicitly enables the feature.
-Name: "core"; Description: "Core WSGM"
-Name: "full"; Description: "Core WSGM + Device Integration"
+; Three modes, named for the machine they suit rather than for the components they carry, plus the
+; component picker for anyone who wants neither. Minimal is first and is therefore the unattended
+; and default choice: it is the only one that assumes nothing about the hardware.
+; The mode also seeds the first run's start mode and integration switch, and only then — see
+; Core\InstallProfile.cs. A repair or an upgrade never rewrites what the user set in Settings.
+Name: "minimal"; Description: "Minimal — boot into Game Mode"
+Name: "claw8a2vm"; Description: "MSI Claw 8 AI+ A2VM — Game Mode, device integration and virtual controller"
+Name: "desktop"; Description: "Desktop first — WSGM waits in the notification area"
 Name: "custom"; Description: "Custom"; Flags: iscustom
 
 [Components]
-Name: "core"; Description: "Core WSGM"; Types: core full custom; Flags: fixed
-Name: "device"; Description: "Device Integration runtime and one installed device package (remains disabled until enabled in WSGM Settings)"; Types: full
+Name: "core"; Description: "Core WSGM"; Types: minimal claw8a2vm desktop custom; Flags: fixed
+; Selected by name in the Claw mode, so that mode also switches the integration on for a fresh
+; install. Chosen from Custom instead, the bytes install and stay inert until WSGM Settings enables
+; them. Either way the package refuses a machine whose SMBIOS identity does not match it.
+Name: "device"; Description: "Device Integration runtime and one installed device package"; Types: claw8a2vm
 Name: "devicelab"; Description: "Device Lab and offline device-development tools"; Types: custom
-Name: "controller"; Description: "Virtual controller support (requires the USBIP driver; remains disabled until enabled in WSGM Settings)"; Types: full
+Name: "controller"; Description: "Virtual controller support (requires the USBIP driver; remains disabled until enabled in WSGM Settings)"; Types: claw8a2vm
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a Desktop shortcut"; GroupDescription: "Shortcuts"; Flags: unchecked
@@ -143,7 +150,10 @@ Name: "{userdesktop}\{#AppName}"; Filename: "{app}\WSGM.exe"; Parameters: "--she
 ; --setup: install per-user files, migrate OFF a legacy shell registration
 ; (restores the snapshotted previous shell), apply the Xbox-FSE guard, write the
 ; boot manifest. Runs elevated (whole setup is) — same single-user profile.
-Filename: "{app}\WSGM.exe"; Parameters: "--setup"; Flags: runhidden
+; --profile names the mode the user picked, so a machine with no config.json starts in the state
+; that mode implies. It is ignored on every other install, which is what makes repair and upgrade
+; safe to re-run.
+Filename: "{app}\WSGM.exe"; Parameters: "--setup --profile={code:SetupProfile}"; Flags: runhidden
 ; Register + start the logon service (create-or-reconfigure also adopts an
 ; abandoned preview registration of the same name; PrepareToInstall already
 ; stopped it so [Files] could overwrite the binary).
@@ -421,6 +431,24 @@ begin
 
   WarnUsbipInstallOutcome(
     'The USB/IP driver returned an incomplete result (' + Detail + ').');
+end;
+
+{ The install mode, for --setup. Custom deliberately names no mode: the user picked components
+  rather than an intent, so the configuration's own defaults are the honest starting point and
+  WSGM ignores the value. A silent install with no /TYPE gets the first type, Minimal. }
+function SetupProfile(Param: String): String;
+var
+  Chosen: String;
+begin
+  Chosen := WizardSetupType(False);
+  if Chosen = 'claw8a2vm' then
+    Result := 'claw8a2vm'
+  else if Chosen = 'desktop' then
+    Result := 'desktop'
+  else if Chosen = 'minimal' then
+    Result := 'minimal'
+  else
+    Result := 'custom';
 end;
 
 function WasShellRunning(): Boolean;
