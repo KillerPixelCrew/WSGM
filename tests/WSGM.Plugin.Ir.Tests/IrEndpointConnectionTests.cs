@@ -9,6 +9,11 @@ public sealed class IrEndpointConnectionTests
 {
     private const string Identity = "\"identity\":\"e072a115ef50\",\"model\":\"xiao-ir-mate\",\"firmware\":\"0.2.0\",\"protocol\":1,\"maxTimings\":1024";
 
+    /// <summary>Builds one reply line, so a nested payload does not have to be brace-escaped.</summary>
+    private static string Frame(string request, string status, string? data = null) =>
+        "{\"v\":1,\"id\":\"" + Id(request) + "\",\"status\":\"" + status + "\""
+        + (data is null ? "" : ",\"data\":" + data) + "}\n";
+
     [Fact]
     public async Task IdentifySkipsBootNoiseAndForeignFramesAndSendsThePairingTokenOverTheNetwork()
     {
@@ -38,6 +43,74 @@ public sealed class IrEndpointConnectionTests
         Assert.False(identity.WifiConfigured);
         Assert.Null(identity.Hostname);
         Assert.DoesNotContain("token", link.Written.Single());
+    }
+
+    [Fact]
+    public async Task BuiltInRemoteOperationsCarryTheirOwnFramesAndExpectedStatuses()
+    {
+        List<string> operations = [];
+        ScriptedLink link = new(request =>
+        {
+            string operation = Op(request);
+            operations.Add(operation);
+            return operation switch
+            {
+                "identify" => Frame(request, "ok", "{" + Identity
+                    + ",\"webPort\":80,\"webConfigured\":true,\"remotes\":3,\"sequenceRunning\":true}"),
+                "remotes" => Frame(request, "ok", "{\"remotes\":["
+                    + "{\"id\":\"hdmi-switch\",\"name\":\"HDMI switch\",\"buttons\":[{\"id\":\"port-1\",\"label\":\"Port 1\"}],"
+                    + "\"sequences\":[{\"id\":\"reset\",\"label\":\"Reset\"}]},"
+                    + "{\"id\":\"ac\",\"name\":\"AC\",\"buttons\":[],\"sequences\":[],\"climate\":"
+                    + "{\"protocol\":\"MIDEA\",\"modes\":[\"cool\"],\"fans\":[\"auto\"],\"minDegrees\":17,\"maxDegrees\":30,"
+                    + "\"celsius\":true,\"swing\":\"toggle\"}}]}"),
+                // A sequence only reports that it started; press and climate report an emission.
+                "run" => Frame(request, "started"),
+                "cancel" => Frame(request, "ok"),
+                _ => Frame(request, "transmitted"),
+            };
+        });
+        IrEndpointConnection endpoint = new(_ => link);
+
+        IrEndpointIdentity identity = await endpoint.IdentifyAsync(default);
+        Assert.Equal(80, identity.WebPort);
+        Assert.True(identity.WebConfigured);
+        Assert.Equal(3, identity.Remotes);
+        Assert.True(identity.SequenceRunning);
+
+        IrRemoteCatalog catalog = await endpoint.ListRemotesAsync(default);
+        Assert.Equal(["hdmi-switch", "ac"], catalog.Remotes.Select(remote => remote.Id));
+        Assert.Equal("reset", catalog.Remotes[0].Sequences.Single().Id);
+        Assert.Equal("toggle", catalog.Remotes[1].Climate!.Swing);
+        Assert.Equal(30, catalog.Remotes[1].Climate!.MaxDegrees);
+
+        await endpoint.PressAsync("hdmi-switch", "port-1", default);
+        await endpoint.ClimateAsync("ac", new(true, "cool", 20, "auto", ToggleSwing: true), default);
+        await endpoint.RunSequenceAsync("hdmi-switch", "reset", default);
+        await endpoint.CancelAsync(default);
+
+        Assert.Equal(["identify", "remotes", "press", "climate", "run", "cancel"], operations);
+        JsonElement climate = JsonDocument.Parse(link.Written[3]).RootElement;
+        Assert.Equal("ac", climate.GetProperty("remote").GetString());
+        Assert.True(climate.GetProperty("toggleSwing").GetBoolean());
+    }
+
+    [Fact]
+    public async Task OlderFirmwareRefusesTheRemoteOperationsByName()
+    {
+        ScriptedLink link = new(request => Op(request) == "identify"
+            ? Frame(request, "ok", "{" + Identity + "}")
+            : Frame(request, "unsupported-operation"));
+        IrEndpointConnection endpoint = new(_ => link);
+        await endpoint.IdentifyAsync(default);
+
+        InvalidDataException refusal = await Assert.ThrowsAsync<InvalidDataException>(
+            () => endpoint.ListRemotesAsync(default));
+
+        Assert.Contains("0.4.0", refusal.Message);
+        Assert.Equal("The endpoint has no remote with that id. Read its built-in remotes first.",
+            IrEndpointConnection.Describe("press", "unknown-remote"));
+        Assert.StartsWith("The endpoint is still learning or running a sequence",
+            IrEndpointConnection.Describe("run", "busy"));
     }
 
     [Fact]

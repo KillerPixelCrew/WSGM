@@ -5,9 +5,28 @@ using System.Text.Json;
 
 namespace WSGM.Plugin.Ir;
 
-/// <summary>Identity reply. Network fields are absent on firmware before 0.2.0 and then read as unconfigured.</summary>
+/// <summary>Identity reply. Network fields are absent on firmware before 0.2.0, and the built-in remote
+/// fields before 0.4.0; both then read as unconfigured.</summary>
 internal sealed record IrEndpointIdentity(string Identity, string Model, string Firmware, int Protocol, int MaxTimings,
-    string? Hostname = null, int Port = 0, bool WifiConfigured = false, bool WifiConnected = false, string? Ip = null);
+    string? Hostname = null, int Port = 0, bool WifiConfigured = false, bool WifiConnected = false, string? Ip = null,
+    int WebPort = 0, bool WebConfigured = false, int Remotes = 0, bool SequenceRunning = false);
+
+/// <summary>One button of a built-in remote.</summary>
+internal sealed record IrRemoteButton(string Id, string Label);
+
+/// <summary>What a built-in remote's air conditioner accepts, as the firmware declares it.</summary>
+internal sealed record IrRemoteClimate(string Protocol, string[] Modes, string[] Fans,
+    double MinDegrees, double MaxDegrees, bool Celsius = true, string Swing = "none");
+
+/// <summary>One remote built into the endpoint firmware.</summary>
+internal sealed record IrRemote(string Id, string Name, IrRemoteButton[] Buttons, IrRemoteButton[] Sequences,
+    IrRemoteClimate? Climate = null);
+
+/// <summary>Every remote the endpoint carries.</summary>
+internal sealed record IrRemoteCatalog(IrRemote[] Remotes);
+
+/// <summary>One air-conditioner state addressed to a built-in remote's declared capabilities.</summary>
+internal sealed record IrClimateRequest(bool Power, string Mode, double Degrees, string Fan, bool ToggleSwing = false);
 
 /// <summary>Where the plugin reaches an endpoint: a USB serial port, or a paired host on the local network.</summary>
 internal sealed record IrEndpointTarget(bool Network, string Address, string? Token);
@@ -21,6 +40,16 @@ internal interface IIrEndpoint : IAsyncDisposable
     Task TransmitAsync(IrPayload payload, int repeats, int gapMs, CancellationToken token);
     /// <summary>Stores network credentials and the pairing token on the endpoint, or clears them when the SSID is empty.</summary>
     Task<IrEndpointIdentity> ConfigureNetworkAsync(string ssid, string password, string pairingToken, CancellationToken token);
+    /// <summary>Reads the remotes built into the firmware. Firmware before 0.4.0 has none.</summary>
+    Task<IrRemoteCatalog> ListRemotesAsync(CancellationToken token);
+    /// <summary>Presses one button of a built-in remote.</summary>
+    Task PressAsync(string remote, string button, CancellationToken token);
+    /// <summary>Sends one complete air-conditioner state to a built-in remote.</summary>
+    Task ClimateAsync(string remote, IrClimateRequest request, CancellationToken token);
+    /// <summary>Starts a built-in remote's sequence. The endpoint runs it in the background.</summary>
+    Task RunSequenceAsync(string remote, string sequence, CancellationToken token);
+    /// <summary>Stops a running learn or sequence. A distinct operation, never a retry.</summary>
+    Task CancelAsync(CancellationToken token);
 }
 
 /// <summary>One open line-oriented connection to an endpoint.</summary>
@@ -172,6 +201,40 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
             .ConfigureAwait(false);
     }
 
+    public async Task<IrRemoteCatalog> ListRemotesAsync(CancellationToken token)
+    {
+        using JsonDocument response = await ExchangeAsync("remotes", new { }, TimeSpan.FromSeconds(5), token)
+            .ConfigureAwait(false);
+        return response.RootElement.GetProperty("data").Deserialize<IrRemoteCatalog>(WireJson)
+            ?? throw new InvalidDataException("Missing built-in remote catalog.");
+    }
+
+    public async Task PressAsync(string remote, string button, CancellationToken token)
+    {
+        using JsonDocument response = await ExchangeAsync("press", new { remote, button },
+            TimeSpan.FromSeconds(7), token).ConfigureAwait(false);
+    }
+
+    public async Task ClimateAsync(string remote, IrClimateRequest request, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        using JsonDocument response = await ExchangeAsync("climate",
+            new { remote, request.Power, request.Mode, request.Degrees, request.Fan, request.ToggleSwing },
+            TimeSpan.FromSeconds(7), token).ConfigureAwait(false);
+    }
+
+    public async Task RunSequenceAsync(string remote, string sequence, CancellationToken token)
+    {
+        using JsonDocument response = await ExchangeAsync("run", new { remote, sequence },
+            TimeSpan.FromSeconds(7), token).ConfigureAwait(false);
+    }
+
+    public async Task CancelAsync(CancellationToken token)
+    {
+        using JsonDocument response = await ExchangeAsync("cancel", new { }, TimeSpan.FromSeconds(5), token)
+            .ConfigureAwait(false);
+    }
+
     public async Task<IrEndpointIdentity> ConfigureNetworkAsync(string ssid, string password, string pairingToken, CancellationToken token)
     {
         if (ssid.Length > 32 || password.Length > 63 || (ssid.Length != 0 && pairingToken.Length is < 16 or > 64))
@@ -254,7 +317,7 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
                     response.Dispose();
                     continue;
                 }
-                string expected = operation == "send" ? "transmitted" : operation == "learn" ? "learned" : "ok";
+                string expected = ExpectedStatus(operation);
                 if (response.RootElement.GetProperty("v").GetInt32() != 1
                     || response.RootElement.GetProperty("status").GetString() != expected)
                 {
@@ -281,9 +344,28 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
         }
     }
 
+    /// <summary>The status one operation reports on success. A sequence only reports that it
+    /// started: the endpoint runs its steps in the background.</summary>
+    internal static string ExpectedStatus(string operation) => operation switch
+    {
+        "send" or "press" or "climate" => "transmitted",
+        "learn" => "learned",
+        "run" => "started",
+        _ => "ok",
+    };
+
     /// <summary>Turns a protocol refusal into the message shown in Tools. Unknown statuses stay literal.</summary>
     internal static string Describe(string operation, string status) => status switch
     {
+        "busy" when operation is "press" or "climate" or "run" or "send" =>
+            "The endpoint is still learning or running a sequence. Wait for it or cancel first.",
+        "unknown-remote" => "The endpoint has no remote with that id. Read its built-in remotes first.",
+        "unknown-button" => "That remote has no button with that id.",
+        "unknown-sequence" => "That remote has no sequence with that id.",
+        "unknown-climate" => "That remote is not an air conditioner.",
+        "invalid-ac-state" => "The endpoint refused that air-conditioner state; check the mode, fan and temperature it declares.",
+        "unsupported-operation" when operation is "remotes" or "press" or "climate" or "run" =>
+            "This endpoint firmware has no built-in remotes; flash firmware 0.4.0 or later.",
         "timeout" => "No IR signal arrived before the learn timeout. Point the remote at the receiver and press one button briefly.",
         "busy" => "The endpoint is still learning. Wait for the timeout or cancel first.",
         "capture-overflow" => "The signal was too long to capture in one payload. Press the remote button briefly instead of holding it.",

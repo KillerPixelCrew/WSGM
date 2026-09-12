@@ -573,6 +573,11 @@ complete. Build order follows the list.
       refuses Continue while entries are found and the takeover is not allowed. 25 scanner and
       takeover tests pass with a fake startup surface; the live takeover on the reference PC is
       maintainer-attended.
+      Phase 3 gave the IR host the endpoint's built-in remotes: `remotes`, `press`, `climate`,
+      `run` and `cancel` on `IIrEndpoint`, the 0.4.0 identity fields, and four plugin actions whose
+      free-text ids are validated against the endpoint's own catalog with one refresh on a miss.
+      Old firmware, unknown ids, undeclared climate states and a busy endpoint are refusals that
+      emit nothing. 28 plugin tests pass; no IR was emitted.
 - [ ] **Add editable display layouts to Windows Device Control.** Capture the current arrangement
       into an editable layout: active targets, primary, position, resolution, refresh rate and HDR,
       keyed by stable target identity. Never make a user hand-author raw `DISPLAYCONFIG_*` data.

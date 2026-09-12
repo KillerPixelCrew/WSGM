@@ -8,6 +8,8 @@ namespace WSGM.Plugin.Ir;
 public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPluginUi
 {
     private const string UsbTransport = "usb", WifiTransport = "wifi";
+    // Half-second polls, bounded to the ten minutes a sequence's delays may add up to.
+    private const int SequencePollLimit = 1200;
     private readonly Func<IrEndpointTarget, IIrEndpoint> _createEndpoint;
 
     /// <summary>Creates an inactive plugin. Resources are acquired only by explicit connection.</summary>
@@ -19,6 +21,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     private PluginContext? _context;
     private IIrEndpoint? _endpoint;
     private IrLibrary _library = IrLibrary.Empty;
+    private IrRemoteCatalog? _remotes;
     private IrPairing? _pairing;
     private string _port = "", _transport = UsbTransport, _hostName = "";
     private string _lastCommand = "";
@@ -65,6 +68,19 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         new("delete", "Delete command", [Text("command", "Command (selected or Device / Name)", "selected")]),
         new("export", "Back up command library", []),
         new("import", "Restore command library backup", []),
+        new("remote-refresh", "Read built-in remotes", []),
+        new("remote-press", "Press a built-in remote button",
+            [Text("remote", "Remote id"), Text("button", "Button id")]),
+        new("remote-run", "Run a built-in remote sequence",
+            [Text("remote", "Remote id"), Text("sequence", "Sequence id"),
+             new("wait", "Wait for the sequence to finish", PluginSettingKind.Boolean, new(Boolean: true))]),
+        new("remote-climate", "Set a built-in air conditioner",
+            [Text("remote", "Remote id"),
+             new("power", "On", PluginSettingKind.Boolean, new(Boolean: true)),
+             Text("mode", "Mode", "cool"),
+             new("degrees", "Temperature", PluginSettingKind.Number, new(Number: 24), 10, 90),
+             Text("fan", "Fan", "auto"),
+             new("toggle-swing", "Toggle swing", PluginSettingKind.Boolean, new(Boolean: false))]),
     ];
 
     /// <inheritdoc />
@@ -101,6 +117,11 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
             StateKey: "carrier-hz", ActionId: "set-carrier", ArgumentKey: "carrier-hz"),
         new("reset-carrier", "Use captured carrier metadata", "infrared", PluginUiKind.Action, ActionId: "reset-carrier"),
         new("export", "Back up command library", "infrared", PluginUiKind.Action, ActionId: "export"),
+        new("remotes", "Built-in remotes", "remotes", PluginUiKind.Status, StateKey: "remotes"),
+        new("remote-refresh", "Read built-in remotes", "remotes", PluginUiKind.Action, ActionId: "remote-refresh"),
+        new("remote-press", "Press a built-in remote button", "remotes", PluginUiKind.Action, ActionId: "remote-press"),
+        new("remote-run", "Run a built-in remote sequence", "remotes", PluginUiKind.Action, ActionId: "remote-run"),
+        new("remote-climate", "Set a built-in air conditioner", "remotes", PluginUiKind.Action, ActionId: "remote-climate"),
     ];
 
     /// <inheritdoc />
@@ -115,6 +136,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         Publish("status", "Choose the endpoint connection in plugin preferences. Learn and send identify it on demand.");
         PublishNetwork();
         PublishLibrary();
+        PublishRemotes();
         return PluginHealth.Ready;
     }
 
@@ -325,6 +347,13 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     _library = restored;
                     _lastCommand = restored.SelectedCommandId ?? restored.Commands.LastOrDefault()?.Id ?? "";
                     break;
+                case "remote-refresh":
+                    await RefreshRemotesAsync(request.OperationId, cancellationToken).ConfigureAwait(false);
+                    break;
+                case "remote-press":
+                case "remote-run":
+                case "remote-climate":
+                    return await RemoteActionAsync(request, cancellationToken).ConfigureAwait(false);
                 default:
                     return new(request.OperationId, PluginActionOutcome.Rejected, "Unknown IR action.");
             }
@@ -355,6 +384,126 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         }
         return _endpoint;
     }
+
+    /// <summary>Reads the endpoint's built-in remotes and publishes them as the ids an action takes.
+    /// Reading is a read: nothing is emitted.</summary>
+    private async Task RefreshRemotesAsync(Guid operation, CancellationToken token)
+    {
+        IIrEndpoint endpoint = await EndpointAsync(operation, token).ConfigureAwait(false);
+        _remotes = await endpoint.ListRemotesAsync(token).ConfigureAwait(false);
+        PublishRemotes();
+    }
+
+    /// <summary>
+    /// Runs one built-in remote action. The endpoint owns the remotes, so its own catalog decides
+    /// which ids exist: an unknown one is looked up once more against a fresh read before it is
+    /// refused, because the firmware may have been reflashed since the last read.
+    /// </summary>
+    private async Task<PluginActionResult> RemoteActionAsync(PluginActionRequest request, CancellationToken token)
+    {
+        string Arg(string key) => request.Arguments[key].Text ?? "";
+        IIrEndpoint endpoint = await EndpointAsync(request.OperationId, token).ConfigureAwait(false);
+        if (endpoint.Identity is { Remotes: 0 })
+        {
+            return new(request.OperationId, PluginActionOutcome.Rejected,
+                "This endpoint firmware carries no built-in remotes; flash firmware 0.4.0 or later.");
+        }
+
+        string remoteId = Arg("remote");
+        IrRemote? remote = Find(remoteId);
+        if (remote is null)
+        {
+            await RefreshRemotesAsync(request.OperationId, token).ConfigureAwait(false);
+            remote = Find(remoteId);
+        }
+        if (remote is null)
+        {
+            return new(request.OperationId, PluginActionOutcome.Rejected,
+                $"The endpoint has no remote \"{remoteId}\". Read its built-in remotes to see the ids.");
+        }
+
+        switch (request.ActionId)
+        {
+            case "remote-press":
+                string button = Arg("button");
+                if (!remote.Buttons.Any(item => item.Id == button))
+                {
+                    return new(request.OperationId, PluginActionOutcome.Rejected,
+                        $"\"{remote.Name}\" has no button \"{button}\".");
+                }
+                await endpoint.PressAsync(remote.Id, button, token).ConfigureAwait(false);
+                break;
+            case "remote-run":
+                string sequence = Arg("sequence");
+                if (!remote.Sequences.Any(item => item.Id == sequence))
+                {
+                    return new(request.OperationId, PluginActionOutcome.Rejected,
+                        $"\"{remote.Name}\" has no sequence \"{sequence}\".");
+                }
+                await endpoint.RunSequenceAsync(remote.Id, sequence, token).ConfigureAwait(false);
+                if (request.Arguments["wait"].Boolean == true)
+                {
+                    await WaitForSequenceAsync(endpoint, token).ConfigureAwait(false);
+                }
+                break;
+            default:
+                if (remote.Climate is null)
+                {
+                    return new(request.OperationId, PluginActionOutcome.Rejected,
+                        $"\"{remote.Name}\" is not an air conditioner.");
+                }
+                double degrees = request.Arguments["degrees"].Number ?? double.NaN;
+                IrClimateRequest climate = new(
+                    request.Arguments["power"].Boolean ?? true, Arg("mode"), degrees, Arg("fan"),
+                    request.Arguments["toggle-swing"].Boolean ?? false);
+                if (!remote.Climate.Modes.Contains(climate.Mode) || !remote.Climate.Fans.Contains(climate.Fan)
+                    || !double.IsFinite(degrees) || degrees < remote.Climate.MinDegrees || degrees > remote.Climate.MaxDegrees
+                    || (climate.ToggleSwing && remote.Climate.Swing != "toggle"))
+                {
+                    return new(request.OperationId, PluginActionOutcome.Rejected,
+                        $"\"{remote.Name}\" accepts modes {string.Join("/", remote.Climate.Modes)}, "
+                        + $"fans {string.Join("/", remote.Climate.Fans)} and "
+                        + $"{remote.Climate.MinDegrees:0}-{remote.Climate.MaxDegrees:0} degrees"
+                        + (remote.Climate.Swing == "toggle" ? "." : ", and has no swing."));
+                }
+                await endpoint.ClimateAsync(remote.Id, climate, token).ConfigureAwait(false);
+                break;
+        }
+
+        Publish("status", "IR emitted; appliance state is not verified.", request.OperationId);
+        return new(request.OperationId, PluginActionOutcome.Dispatched, "IR emitted; appliance state is not verified.");
+
+        IrRemote? Find(string id) => _remotes?.Remotes.FirstOrDefault(item => item.Id == id || item.Name == id);
+    }
+
+    /// <summary>Waits for a started sequence to finish by polling the endpoint's own flag. A
+    /// cancelled wait sends the endpoint's cancel, which is a distinct operation and never a retry
+    /// of the sequence.</summary>
+    private static async Task WaitForSequenceAsync(IIrEndpoint endpoint, CancellationToken token)
+    {
+        try
+        {
+            for (int poll = 0; poll < SequencePollLimit; poll++)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(500), token).ConfigureAwait(false);
+                IrEndpointIdentity identity = await endpoint.IdentifyAsync(token).ConfigureAwait(false);
+                if (!identity.SequenceRunning) { return; }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            await endpoint.CancelAsync(CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private void PublishRemotes() => Publish("remotes", _remotes is null || _remotes.Remotes.Length == 0
+        ? "No built-in remotes were read from the endpoint."
+        : string.Join("\n", _remotes.Remotes.Select(remote =>
+            $"{remote.Id} ({remote.Name}): "
+            + string.Join(", ", remote.Buttons.Take(24).Select(button => button.Id))
+            + (remote.Sequences.Length == 0 ? "" : "; sequences " + string.Join(", ", remote.Sequences.Select(item => item.Id)))
+            + (remote.Climate is null ? "" : "; climate"))));
 
     private IrEndpointTarget Target()
     {

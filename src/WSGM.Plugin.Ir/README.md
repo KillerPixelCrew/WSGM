@@ -5,13 +5,14 @@ Mate firmware. It uses the common Plugin SDK and has no Device SDK dependency. T
 remain active alongside it. Hardware acceptance for #52 passed on the reference XIAO on 2026-09-11.
 
 Implemented: endpoint identity/version checks over USB serial or the local network, bounded raw
-learn/send, cancellation, command and scene storage, backup/restore, named actions, USB-only Wi-Fi
-pairing with a per-endpoint token, common-host lifecycle and Tools management forms. The real
-package has passed collectible host loading alongside a Device-category fixture and has paired,
-identified and refused unpaired clients on a live network. On 2026-09-11 it learned a real HDMI
-switch remote button over Wi-Fi as a 71-timing NEC frame (address 128, command 1) and replayed it
-twice; the maintainer confirmed the switch changed to input 1 each time. A COM port list is
-discovery information only; only a successful protocol identity reply establishes compatibility.
+learn/send, cancellation, command and scene storage, backup/restore, named actions, the endpoint's
+built-in remotes as host actions, USB-only Wi-Fi pairing with a per-endpoint token, common-host
+lifecycle and Tools management forms. The real package has passed collectible host loading alongside
+a Device-category fixture and has paired, identified and refused unpaired clients on a live network.
+On 2026-09-11 it learned a real HDMI switch remote button over Wi-Fi as a 71-timing NEC frame
+(address 128, command 1) and replayed it twice; the maintainer confirmed the switch changed to input
+1 each time. A COM port list is discovery information only; only a successful protocol identity
+reply establishes compatibility.
 
 ## Build and package
 
@@ -68,6 +69,19 @@ payloads, not firmware slot numbers. `library.backup.json` is an explicit backup
 directory; copy it elsewhere for protection against disk loss. Invalid replacement libraries never
 overwrite the current file. Import requires that backup to exist. Current command and scene limits
 are host validation bounds, not firmware slots.
+
+## Built-in remotes from the host
+
+Read built-in remotes asks the endpoint for the remotes its firmware carries and publishes their
+ids, so the other three actions can name them: Press a built-in remote button, Run a built-in remote
+sequence and Set a built-in air conditioner. Ids are free text validated against that catalog rather
+than a dropdown, because the SDK captures an action's choices before the plugin starts and cannot
+learn them from hardware. An id the catalog does not know triggers one fresh read before it is
+refused, so a reflashed endpoint does not need a restart. Firmware below 0.4.0, an unknown id, a
+climate state outside what the remote declares, and a busy endpoint are all refusals: nothing is
+emitted. A sequence reports that it started, and the wait argument polls the endpoint's own
+`sequenceRunning` flag; cancelling that wait sends `cancel`, which is a distinct operation and never
+a retry.
 
 Core automation can call `send` with a `command` ID or `scene` with a `scene` ID. Transmission
 returns `Dispatched`: an endpoint acknowledgement proves emission, not that a TV or HDMI switch
