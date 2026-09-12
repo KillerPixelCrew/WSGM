@@ -5,10 +5,12 @@ using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
+using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Input;
+using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 using WSGM.Themes;
 
@@ -52,8 +54,20 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private readonly AppConfig _config;
     private readonly SettingsServices _services;
 
+    /// <summary>One action a running plugin instance offers, for the action lists.</summary>
+    /// <param name="Identity">The plugin instance.</param>
+    /// <param name="Action">The declared action.</param>
+    /// <param name="Label">How to name it in a picker.</param>
+    internal sealed record PluginActionOption(
+        PluginInstanceIdentity Identity, PluginAction Action, string Label)
+    {
+        /// <inheritdoc />
+        public override string ToString() => Label;
+    }
+
     internal sealed record SettingsServices(
-        Func<IEnumerable<MonitorDisplayProfile>> ReadDisplays,
+        Func<DisplayArrangement> CaptureDisplays,
+        Func<IReadOnlyList<PluginActionOption>> ReadPluginActions,
         Func<IEnumerable<(string Label, string Path, bool Elevated)>> DetectStartupApps,
         Action BeginImportSession,
         Action EndImportSession,
@@ -63,7 +77,12 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         Func<ModernStandbyReport> ReadStandby)
     {
         internal static SettingsServices Windows(SettingsViewModel owner) => new(
-            () => OperatingSystem.IsWindows() ? Core.DisplayProfiles.ReadActiveProfiles() : [],
+            () => OperatingSystem.IsWindows()
+                ? DisplayLayouts.Observe()
+                : new([], "", DateTimeOffset.UtcNow),
+            // Settings runs in its own process and owns no plugin host, so a saved step's plugin is
+            // named but never resolved here. The rows say so rather than pretending it is missing.
+            static () => [],
             KnownStartupApps.Detected,
             SplashTheme.BeginImportSession, SplashTheme.EndImportSession,
             request => Task.Run(() => PersistSave(request)),
@@ -156,6 +175,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         SaveCommand = new AsyncRelayCommand(SaveWithStatusAsync);
         OpenLogLocationCommand = new RelayCommand(OpenLogLocation);
         TakeOverSteamAutostartCommand = new RelayCommand(TakeOverSteamAutostart);
+        SnapshotGameLayoutCommand = new RelayCommand(() => SnapshotLayout(desktop: false));
+        SnapshotDesktopLayoutCommand = new RelayCommand(() => SnapshotLayout(desktop: true));
         RemoveAppCommand = new RelayCommand<StartupAppRow>(row =>
         {
             if (row is not null)
@@ -192,7 +213,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             : _config.SteamAutostartDisabled.Count == 0
                 ? "WSGM starts Steam. No Windows startup entry for Steam was turned off."
                 : $"WSGM starts Steam. {_config.SteamAutostartDisabled.Count} Windows startup entry/entries are turned off and are restored when WSGM is uninstalled.";
-        DisplayManagementModeIndex = (int)_config.DisplayManagement;
         SteamInputLeaseEnabled = _config.SteamInputLeaseEnabled;
         SteamInputManagementEnabled = _config.SteamInputManagementEnabled;
         DeviceIntegrationEnabled = _config.DeviceIntegration.Enabled;
@@ -250,36 +270,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
                 AutoRelaunch = app.AutoRelaunch,
             });
         }
-        foreach (var profile in _config.DisplayProfiles)
-        {
-            DisplayProfiles.Add(profile);
-        }
-        {
-            try
-            {
-                foreach (var profile in _services.ReadDisplays())
-                {
-                    var existing = DisplayProfiles.FirstOrDefault(row => !string.IsNullOrEmpty(row.MonitorId)
-                        ? string.Equals(row.MonitorId, profile.MonitorId, StringComparison.OrdinalIgnoreCase)
-                        : string.Equals(row.DeviceName, profile.DeviceName, StringComparison.OrdinalIgnoreCase));
-                    if (existing is null)
-                    {
-                        DisplayProfiles.Add(profile);
-                    }
-                    else
-                    {
-                        existing.MonitorId = profile.MonitorId;
-                        existing.DeviceName = profile.DeviceName;
-                        existing.DisplayName = profile.DisplayName;
-                        existing.HdrAvailable = profile.HdrAvailable;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _services.Report("Could not enumerate display profiles for Settings", ex);
-            }
-        }
+        LoadLaunchConfiguration(_config.GameModeLaunch);
 
         BuildStartupSuggestions();
 
@@ -305,6 +296,12 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// exception for touching an external setting is recorded in <c>docs\decisions.md</c>.</summary>
     public RelayCommand TakeOverSteamAutostartCommand { get; }
 
+    /// <summary>Gets the command that captures the current desktop as the Game Mode layout.</summary>
+    public RelayCommand SnapshotGameLayoutCommand { get; }
+
+    /// <summary>Gets the command that captures the current desktop as the Desktop layout.</summary>
+    public RelayCommand SnapshotDesktopLayoutCommand { get; }
+
     /// <summary>Gets the command that removes one startup-program row.</summary>
     public RelayCommand<StartupAppRow> RemoveAppCommand { get; }
 
@@ -314,8 +311,26 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Gets the command that moves one startup-program row down.</summary>
     public RelayCommand<StartupAppRow> MoveDownCommand { get; }
 
-    /// <summary>Editable per-monitor display profiles (the config shape is bound directly).</summary>
-    public ObservableCollection<MonitorDisplayProfile> DisplayProfiles { get; } = [];
+    /// <summary>The Game Mode layout, one read-only row per display, as it will be applied.</summary>
+    public ObservableCollection<DisplayLayoutRow> GameLayoutRows { get; } = [];
+
+    /// <summary>The Desktop layout leaving Game Mode restores, when one is configured.</summary>
+    public ObservableCollection<DisplayLayoutRow> DesktopLayoutRows { get; } = [];
+
+    /// <summary>The configured entry actions, in order.</summary>
+    public ObservableCollection<PluginActionStepRow> EnterActionRows { get; } = [];
+
+    /// <summary>The configured leave actions, in order.</summary>
+    public ObservableCollection<PluginActionStepRow> LeaveActionRows { get; } = [];
+
+    /// <summary>The configured desktop startup actions, in order.</summary>
+    public ObservableCollection<PluginActionStepRow> DesktopStartupActionRows { get; } = [];
+
+    /// <summary>The configured desktop wake actions, in order.</summary>
+    public ObservableCollection<PluginActionStepRow> DesktopWakeActionRows { get; } = [];
+
+    /// <summary>Displays that can be chosen in the layout editor, present or remembered.</summary>
+    public ObservableCollection<KnownDisplay> KnownDisplays { get; } = [];
 
     /// <summary>Sections the installed plugin declares, in render order.</summary>
     public ObservableCollection<PluginSettingSectionViewModel> PluginSettingSections { get; } = [];
@@ -677,12 +692,56 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             ? (section.CustomTitle ?? section.SectionId).ToUpperInvariant()
             : section.Key.ToString().ToUpperInvariant();
 
-    private int _displayManagementModeIndex;
-    /// <summary>Selected <see cref="DisplayManagementMode"/> index.</summary>
-    public int DisplayManagementModeIndex { get => _displayManagementModeIndex; set { _displayManagementModeIndex = value; Raise(nameof(DisplayManagementModeIndex)); Raise(nameof(ShowFixedDisplayProfiles)); } }
+    private int _gameModeLaunchKindIndex;
+    /// <summary>Selected <see cref="GameModeLaunchKind"/> index.</summary>
+    public int GameModeLaunchKindIndex
+    {
+        get => _gameModeLaunchKindIndex;
+        set
+        {
+            _gameModeLaunchKindIndex = value;
+            Raise(nameof(GameModeLaunchKindIndex));
+            Raise(nameof(ShowCustomLaunch));
+        }
+    }
 
-    /// <summary>Whether fixed profile fields are relevant to the selected mode.</summary>
-    public bool ShowFixedDisplayProfiles => DisplayManagementModeIndex == (int)DisplayManagementMode.FixedProfiles;
+    /// <summary>Whether the layout and wait fields apply to the selected launch kind.</summary>
+    public bool ShowCustomLaunch => GameModeLaunchKindIndex == (int)GameModeLaunchKind.Custom;
+
+    private int _gameModeReturnIndex;
+    /// <summary>Selected <see cref="GameModeReturn"/> index.</summary>
+    public int GameModeReturnIndex
+    {
+        get => _gameModeReturnIndex;
+        set
+        {
+            _gameModeReturnIndex = value;
+            Raise(nameof(GameModeReturnIndex));
+            Raise(nameof(ShowDesktopLayout));
+        }
+    }
+
+    /// <summary>Whether a Desktop layout is configured rather than captured at entry.</summary>
+    public bool ShowDesktopLayout => GameModeReturnIndex == (int)GameModeReturn.DesktopLayout;
+
+    private string _launchSummaryText = "";
+    /// <summary>What the saved layouts describe, including anything needing confirmation.</summary>
+    public string LaunchSummaryText
+    {
+        get => _launchSummaryText;
+        private set { _launchSummaryText = value; Raise(nameof(LaunchSummaryText)); }
+    }
+
+    private int _waitForDisplayIndex;
+    /// <summary>Index into <see cref="WaitForDisplayChoices"/>; zero means no wait.</summary>
+    public int WaitForDisplayIndex
+    {
+        get => _waitForDisplayIndex;
+        set { _waitForDisplayIndex = value; Raise(nameof(WaitForDisplayIndex)); }
+    }
+
+    /// <summary>"No display wait" followed by one entry per remembered display.</summary>
+    public ObservableCollection<string> WaitForDisplayChoices { get; } = [];
 
     private string _statusText = "";
 
@@ -1553,17 +1612,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.StartAtSignIn = StartAtSignIn;
         config.StartMode = (SessionStartMode)Math.Clamp(StartModeIndex, 0, 1);
         config.SteamAutostartTakeoverAccepted = SteamAutostartTakeoverAccepted;
-        DisplayManagementMode persistedDisplayManagement = config.DisplayManagement;
-        var displayManagement = (DisplayManagementMode)Math.Clamp(DisplayManagementModeIndex, 0, 3);
-        config.DisplayManagement = displayManagement;
-        // In Automatic mode the running shell owns these snapshots. A Settings
-        // window may have been open while a transition persisted newer values;
-        // never overwrite those with the window's stale rows. The rows seed the
-        // first switch into Automatic and remain UI-owned in Fixed mode.
-        if (ShouldWriteDisplayProfiles(persistedDisplayManagement, displayManagement))
-        {
-            config.DisplayProfiles = [.. DisplayProfiles];
-        }
+        ApplyLaunchTo(config.GameModeLaunch);
         config.SteamInputLeaseEnabled = SteamInputLeaseEnabled;
         config.SteamInputManagementEnabled = SteamInputManagementEnabled;
         config.DeviceIntegration.Enabled = DeviceIntegrationEnabled;
@@ -1652,12 +1701,177 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             .ToList();
     }
 
-    internal static bool ShouldWriteDisplayProfiles(
-        DisplayManagementMode initial,
-        DisplayManagementMode selected)
-        => selected == DisplayManagementMode.FixedProfiles
-            || selected == DisplayManagementMode.AutomaticProfiles
-                && initial != DisplayManagementMode.AutomaticProfiles;
+    /// <summary>Seeds the launch fields from a stored configuration.</summary>
+    /// <param name="launch">The stored configuration.</param>
+    private void LoadLaunchConfiguration(GameModeLaunchConfiguration launch)
+    {
+        GameModeLaunchKindIndex = (int)launch.Kind;
+        GameModeReturnIndex = (int)launch.Return;
+        _gameLayout = launch.GameLayout;
+        _desktopLayout = launch.DesktopLayout;
+        _waitForDisplay = launch.WaitForDisplay;
+        _enterActions = launch.EnterActions;
+        _leaveActions = launch.LeaveActions;
+        _desktopStartupActions = launch.DesktopStartupActions;
+        _desktopWakeActions = launch.DesktopWakeActions;
+
+        KnownDisplays.Clear();
+        foreach (KnownDisplay display in launch.KnownDisplays) { KnownDisplays.Add(display); }
+        RefreshLaunchRows();
+    }
+
+    /// <summary>Rebuilds every rendered row from the fields the editor owns.</summary>
+    private void RefreshLaunchRows()
+    {
+        Fill(GameLayoutRows, _gameLayout);
+        Fill(DesktopLayoutRows, _desktopLayout);
+
+        PluginInstanceIdentity[] running = ReadRunningPlugins();
+        Fill(EnterActionRows, _enterActions, running);
+        Fill(LeaveActionRows, _leaveActions, running);
+        Fill(DesktopStartupActionRows, _desktopStartupActions, running);
+        Fill(DesktopWakeActionRows, _desktopWakeActions, running);
+
+        WaitForDisplayChoices.Clear();
+        WaitForDisplayChoices.Add("No display wait");
+        foreach (KnownDisplay display in KnownDisplays)
+        {
+            WaitForDisplayChoices.Add(display.Target?.FriendlyName ?? "Unnamed display");
+        }
+        WaitForDisplayIndex = _waitForDisplay is null ? 0
+            : Math.Max(0, KnownDisplays.ToList().FindIndex(
+                display => display.Target?.Matches(_waitForDisplay) == true) + 1);
+
+        int unconfirmed = GameLayoutRows.Count(row => row.NeedsConfirmation)
+            + DesktopLayoutRows.Count(row => row.NeedsConfirmation);
+        LaunchSummaryText = GameModeLaunchKindIndex == (int)GameModeLaunchKind.Default
+            ? "Game Mode starts on the display Windows calls primary and adjusts scaling only."
+            : _gameLayout is null
+                ? "No layout is saved yet. Use Snapshot with the displays arranged the way Game Mode should use them."
+                : unconfirmed == 0
+                    ? $"{GameLayoutRows.Count} display(s) in the Game Mode layout."
+                    : $"{GameLayoutRows.Count} display(s) in the Game Mode layout; {unconfirmed} still need confirming before Game Mode can apply it.";
+    }
+
+    private static void Fill(ObservableCollection<DisplayLayoutRow> rows, DisplayLayout? layout)
+    {
+        rows.Clear();
+        foreach (DisplayLayoutOutput output in layout?.Outputs ?? []) { rows.Add(new(output)); }
+    }
+
+    private static void Fill(
+        ObservableCollection<PluginActionStepRow> rows,
+        IReadOnlyList<PluginActionStep> steps,
+        PluginInstanceIdentity[] running)
+    {
+        rows.Clear();
+        foreach (PluginActionStep step in steps)
+        {
+            rows.Add(new(step, step.Plugin is { } plugin && running.Contains(plugin)));
+        }
+    }
+
+    private PluginInstanceIdentity[] ReadRunningPlugins()
+    {
+        try { return _services.ReadPluginActions().Select(option => option.Identity).Distinct().ToArray(); }
+        catch (Exception ex)
+        {
+            _services.Report("Could not read the running plugin actions for Settings", ex);
+            return [];
+        }
+    }
+
+    /// <summary>Captures the desktop as it is now into the layout the selected section owns.</summary>
+    /// <param name="desktop">True for the Desktop layout, false for the Game Mode layout.</param>
+    private void SnapshotLayout(bool desktop)
+    {
+        try
+        {
+            DisplayArrangement arrangement = _services.CaptureDisplays();
+            DisplayLayout captured = new([.. arrangement.Targets
+                .Where(target => target is { Active: true, Current: not null })
+                .Select(target => target.Current!)]);
+            if (DisplayLayouts.Describe(captured) is { } refused)
+            {
+                StatusText = "This desktop cannot be saved as a layout: " + refused;
+                return;
+            }
+            if (desktop) { _desktopLayout = captured; } else { _gameLayout = captured; }
+            MergeCatalog(arrangement);
+            RefreshLaunchRows();
+            StatusText = desktop
+                ? "Desktop layout captured. Save to keep it."
+                : "Game Mode layout captured. Save to keep it.";
+        }
+        catch (Exception ex)
+        {
+            _services.Report("Capturing the current display layout failed", ex);
+            StatusText = "Could not read the current display layout.";
+        }
+    }
+
+    /// <summary>Adds what this observation knows about each display to the remembered catalog, so a
+    /// display stays configurable after it is unplugged.</summary>
+    private void MergeCatalog(DisplayArrangement arrangement)
+    {
+        foreach (DisplayTargetObservation observed in arrangement.Targets)
+        {
+            if (!observed.Available) { continue; }
+            KnownDisplay? existing = KnownDisplays.FirstOrDefault(
+                display => display.Target?.Matches(observed.Target) == true);
+            if (existing is null)
+            {
+                existing = new KnownDisplay { Target = observed.Target };
+                KnownDisplays.Add(existing);
+            }
+            existing.Target = observed.Target;
+            existing.LastSeen = arrangement.CapturedAt;
+            if (!observed.Active) { continue; }
+            if (observed.Current?.Hdr is not null) { existing.HdrSupported = true; }
+            if (observed.Current?.DpiPercent is { } percent)
+            {
+                existing.MaximumDpiPercent = Math.Max(existing.MaximumDpiPercent, percent);
+            }
+        }
+    }
+
+    /// <summary>Writes the launch fields the page owns over a fresh configuration. The remembered
+    /// display catalog is merged rather than replaced: the running shell adds to it whenever a
+    /// display appears, and this window's copy may be older than that.</summary>
+    /// <param name="launch">The section to write into.</param>
+    private void ApplyLaunchTo(GameModeLaunchConfiguration launch)
+    {
+        launch.Kind = (GameModeLaunchKind)Math.Clamp(GameModeLaunchKindIndex, 0, 1);
+        launch.Return = (GameModeReturn)Math.Clamp(GameModeReturnIndex, 0, 1);
+        launch.GameLayout = _gameLayout;
+        launch.DesktopLayout = _desktopLayout;
+        launch.WaitForDisplay = WaitForDisplayIndex > 0 && WaitForDisplayIndex <= KnownDisplays.Count
+            ? KnownDisplays[WaitForDisplayIndex - 1].Target
+            : null;
+        launch.EnterActions = [.. _enterActions];
+        launch.LeaveActions = [.. _leaveActions];
+        launch.DesktopStartupActions = [.. _desktopStartupActions];
+        launch.DesktopWakeActions = [.. _desktopWakeActions];
+        foreach (KnownDisplay display in KnownDisplays)
+        {
+            if (display.Target is not { } target) { continue; }
+            KnownDisplay? stored = launch.KnownDisplays.FirstOrDefault(
+                other => other.Target?.Matches(target) == true);
+            if (stored is null) { launch.KnownDisplays.Add(display); continue; }
+            stored.Target = target;
+            stored.HdrSupported |= display.HdrSupported;
+            stored.MaximumDpiPercent = Math.Max(stored.MaximumDpiPercent, display.MaximumDpiPercent);
+            if (display.LastSeen > stored.LastSeen) { stored.LastSeen = display.LastSeen; }
+        }
+    }
+
+    private DisplayLayout? _gameLayout;
+    private DisplayLayout? _desktopLayout;
+    private DisplayTargetIdentity? _waitForDisplay;
+    private List<PluginActionStep> _enterActions = [];
+    private List<PluginActionStep> _leaveActions = [];
+    private List<PluginActionStep> _desktopStartupActions = [];
+    private List<PluginActionStep> _desktopWakeActions = [];
 
     internal sealed record SaveRequest(
         AppConfig Values,
@@ -1790,12 +2004,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.StartMode = values.StartMode;
         config.SteamAutostartTakeoverAccepted = values.SteamAutostartTakeoverAccepted;
 
-        DisplayManagementMode previousDisplayMode = config.DisplayManagement;
-        config.DisplayManagement = values.DisplayManagement;
-        if (ShouldWriteDisplayProfiles(previousDisplayMode, values.DisplayManagement))
-        {
-            config.DisplayProfiles = [.. values.DisplayProfiles];
-        }
+        // Everything except the runtime's own recovery record, which Settings must never write:
+        // a window left open across a crash would otherwise discard the layout a recovery start
+        // has to put back.
+        config.GameModeLaunch = values.GameModeLaunch;
 
         config.SteamInputLeaseEnabled = values.SteamInputLeaseEnabled;
         config.SteamInputManagementEnabled = values.SteamInputManagementEnabled;

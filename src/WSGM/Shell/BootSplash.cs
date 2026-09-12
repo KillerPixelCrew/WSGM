@@ -20,34 +20,55 @@ public sealed class BootSplash
     // below full opacity the moment BP's window exists, so: detect fast, fade
     // immediately (first fade tick lifts the occlusion), no opaque overlap.
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(250);
-    private static readonly TimeSpan HardTimeout = TimeSpan.FromSeconds(120);
     private static readonly TimeSpan FadeDuration = TimeSpan.FromMilliseconds(300);
     private static readonly TimeSpan TouchCloseGrace = TimeSpan.FromMilliseconds(150);
 
     private readonly AppConfig _config;
-    private readonly Action _switchToDesktop;
-    private readonly Func<bool>? _holdForPreparation;
+    private readonly Action _buttonAction;
     private BootSplashWindow? _window;
     private GamepadService? _gamepad;
     private GamepadNavigation? _navigation;
     private DispatcherTimer? _pollTimer;
     private IDisposable? _pendingAction;
-    private DateTime _shownUtc;
+    private DateTime _armedUtc;
+    private bool _armed;
     private bool _dismissing;
     private bool _closeScheduled;
 
-    /// <summary>Creates the startup splash coordinator.</summary>
+    /// <summary>Creates the splash coordinator.</summary>
     /// <param name="config">The shell configuration containing splash and display settings.</param>
-    /// <param name="switchToDesktop">The session-owned action that cancels any
-    /// active boot takeover and completes the desktop fallback.</param>
-    /// <param name="holdForPreparation">Optional UI-thread predicate that defers Steam detection while route preparation runs.</param>
-    public BootSplash(AppConfig config, Action switchToDesktop, Func<bool>? holdForPreparation = null)
+    /// <param name="buttonAction">What the splash's button does. At boot it is the desktop
+    /// fallback; during a Game Mode entry it cancels the entry until the transaction says
+    /// otherwise.</param>
+    /// <param name="armed">Whether Steam has already been asked for Big Picture. False for a
+    /// transition that has work to do first: see <see cref="ArmSteamDetection"/>.</param>
+    public BootSplash(AppConfig config, Action buttonAction, bool armed = true)
     {
-        ArgumentNullException.ThrowIfNull(switchToDesktop);
+        ArgumentNullException.ThrowIfNull(buttonAction);
         _config = config;
-        _switchToDesktop = switchToDesktop;
-        _holdForPreparation = holdForPreparation;
+        _buttonAction = buttonAction;
+        _armed = armed;
     }
+
+    /// <summary>Starts watching for the Big Picture window, and starts its timeout.
+    ///
+    /// Called at the moment Steam is asked. Before that there is nothing to detect and nothing to
+    /// time out: a splash covering a wait for a display that a person has to walk over and switch
+    /// has no business closing itself.</summary>
+    public void ArmSteamDetection()
+    {
+        if (_armed) { return; }
+        _armed = true;
+        _armedUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>Shows, or clears, the line describing what the transition is doing.</summary>
+    /// <param name="line">The line to show; null or blank clears it.</param>
+    public void SetStatus(string? line) => _window?.SetStatus(line);
+
+    /// <summary>Renames the splash's button.</summary>
+    /// <param name="label">The label to show.</param>
+    public void SetActionLabel(string label) => _window?.SetActionLabel(label);
 
     /// <summary>UI thread only (ShellSession.Start is).</summary>
     public void Show()
@@ -67,7 +88,7 @@ public sealed class BootSplash
             _gamepad.Start();
         };
 
-        _shownUtc = DateTime.UtcNow;
+        _armedUtc = DateTime.UtcNow;
         _pollTimer = new DispatcherTimer { Interval = PollInterval };
         _pollTimer.Tick += OnPollTick;
         _pollTimer.Start();
@@ -82,15 +103,15 @@ public sealed class BootSplash
         {
             return;
         }
-        if (DateTime.UtcNow - _shownUtc > HardTimeout)
+        if (SplashPolicy.ShouldTimeout(_armed, DateTime.UtcNow - _armedUtc))
         {
-            Log.Warn($"Boot splash timeout after {HardTimeout.TotalSeconds:0} s — closing (Big Picture window never appeared).");
+            Log.Warn($"Boot splash timeout after {SplashPolicy.SteamTimeout.TotalSeconds:0} s — closing (Big Picture window never appeared).");
             _dismissing = true;
             _pollTimer?.Stop();
             CloseAfter(TouchCloseGrace);
             return;
         }
-        if (_holdForPreparation?.Invoke() != true && Steam.IsBigPictureVisible)
+        if (_armed && Steam.IsBigPictureVisible)
         {
             OnBigPictureDetected();
         }
@@ -114,10 +135,10 @@ public sealed class BootSplash
             return;
         }
         _dismissing = true;
-        Log.Info("Boot splash: switching to desktop.");
+        Log.Info("Boot splash: button pressed.");
         _pollTimer?.Stop();
         CloseAfter(TouchCloseGrace);
-        _switchToDesktop();
+        _buttonAction();
     }
 
     /// <summary>External dismissal (quick access opened, Steam start warning).

@@ -1,7 +1,7 @@
 namespace WSGM.Shell;
 
-/// <summary>Coalesces desktop lifecycle notifications without retrying uncertain route actions.</summary>
-internal sealed class DesktopRouteAdmission
+/// <summary>Coalesces desktop lifecycle notifications without retrying uncertain plugin actions.</summary>
+internal sealed class DesktopActionAdmission
 {
     private readonly object _gate = new();
     private bool _busy;

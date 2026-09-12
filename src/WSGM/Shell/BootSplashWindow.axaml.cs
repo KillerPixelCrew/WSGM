@@ -28,6 +28,19 @@ public partial class BootSplashWindow : Window
     /// press. Nothing is focused on open, so a stray A press activates nothing.</summary>
     internal InputElement DefaultFocusTarget => DesktopButton;
 
+    /// <summary>Shows, or clears, the line describing what the transition is doing.</summary>
+    /// <param name="line">The line to show; null or blank hides the element again.</param>
+    internal void SetStatus(string? line)
+    {
+        StatusText.Text = line ?? "";
+        StatusText.IsVisible = !string.IsNullOrWhiteSpace(line);
+    }
+
+    /// <summary>Renames the button. The same control means "cancel this" before Game Mode has
+    /// taken the session and "give up on it" afterwards, and only the label can say which.</summary>
+    /// <param name="label">The label to show.</param>
+    internal void SetActionLabel(string label) => DesktopButton.Content = label;
+
     private const double SweepPeriodMs = 1600;
     private const double SweepLineThickness = 3;
 

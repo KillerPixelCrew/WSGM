@@ -20,6 +20,7 @@ public sealed class SessionModes
     public const string SteamStartFailedWarning = "Couldn't start Steam.";
 
     private AppConfig _config;
+    private System.Threading.CancellationTokenSource? _entryCancellation;
     private readonly SteamMonitor? _monitor;
     private readonly ExplorerDesktopHost? _desktopHost;
     private readonly object _homeLaunchGate = new();
@@ -31,7 +32,7 @@ public sealed class SessionModes
     // linger grace plus the respawn retry, which shares this deadline rather than
     // starting a fresh one (see docs\boot-and-shell.md). Fails open when explorer
     // is genuinely wedged.
-    private static readonly TimeSpan ExplorerExitTimeout = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan ExplorerExitTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>The warning shown when explorer refused its orderly exit and the
     /// session stayed in desktop mode (fail open, never a half game mode).</summary>
@@ -85,16 +86,14 @@ public sealed class SessionModes
     /// invoked by transitions that never fired the request.</summary>
     internal Action? SteamUiBigPictureRequestSettled { get; set; }
 
-    /// <summary>Runs configured route preparation on the transition worker; null leaves displays under legacy policy.</summary>
-    internal Func<bool, System.Threading.Tasks.Task<DisplayRouteResult?>>? PrepareDisplayRouteAsync { get; set; }
-    /// <summary>Restores pre-entry display state if route preparation succeeded but Game Mode was not committed.</summary>
-    internal Func<System.Threading.Tasks.Task>? RecoverDisplayRouteAsync { get; set; }
-    /// <summary>Places the new Big Picture window on the prepared target before removing Desktop.</summary>
-    internal Func<System.Threading.Tasks.Task<bool>>? FinishDisplayRouteAsync { get; set; }
-    /// <summary>Whether the route splash requested Desktop during the entry transaction.</summary>
-    internal Func<bool>? DisplayRouteCancelled { get; set; }
-    /// <summary>Releases route UI state after entry commits or rolls back.</summary>
-    internal Action? DisplayRouteSettled { get; set; }
+    /// <summary>The displays, plugin actions and splash half of the entry transaction. Null in
+    /// preview coordinators and in overlay-test mode, where entry runs its Default posture only.
+    /// </summary>
+    internal IGameModeEntryServices? GameModeEntryServices { get; set; }
+
+    /// <summary>Invoked once an entry transaction has settled, on every outcome, so the owner can
+    /// dismiss the splash. Idempotent by contract.</summary>
+    internal Action? GameModeEntrySettled { get; set; }
 
     /// <summary>Surfaces a shell-transition warning through the overlay's existing warning path.</summary>
     internal void ReportWarning(string warning) => SteamStartFailed?.Invoke(warning);
@@ -133,6 +132,17 @@ public sealed class SessionModes
     public void ApplyGameModePosture()
     {
         DisplayScale.ApplyGameMode(_config);
+    }
+
+    /// <summary>Brings up the game-mode surfaces and lets the Steam monitor react again. Called on
+    /// the UI thread once the entry transaction has committed.</summary>
+    internal void CommitGameMode()
+    {
+        GameModeEntered?.Invoke();
+        if (_monitor is not null)
+        {
+            _monitor.Paused = false;
+        }
     }
 
     private int _explorerTransition;
@@ -227,6 +237,23 @@ public sealed class SessionModes
                 {
                     Log.Error("Leaving Big Picture / restoring the display scale failed", ex);
                 }
+                // Before Explorer comes back, as the scaling restore above already is: Explorer
+                // sizes its taskbar and desktop icons to whatever the displays say at start.
+                if (GameModeEntryServices is { } leaveServices)
+                {
+                    try
+                    {
+                        if (await leaveServices.ApplyReturnLayoutAsync().ConfigureAwait(false) is { } warning)
+                        {
+                            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(
+                                () => SteamStartFailed?.Invoke(warning));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error("Restoring the desktop display layout failed", ex);
+                    }
+                }
                 try
                 {
                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
@@ -245,13 +272,24 @@ public sealed class SessionModes
                     desktopHost, "Explorer desktop restoration failed").ConfigureAwait(false);
 
                 string? rollbackSteamWarning = null;
-                if (result.Outcome is not ExplorerDesktopOutcome.Failed && PrepareDisplayRouteAsync is { } restoreRoute)
+                if (result.Outcome is not ExplorerDesktopOutcome.Failed && GameModeEntryServices is { } services)
                 {
-                    var route = await restoreRoute(false).ConfigureAwait(false);
-                    if (route is { Completed: false })
+                    // Every step runs and every failure is reported: each leave action is worth
+                    // attempting on its own, and there is nothing left to abort.
+                    try
                     {
-                        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                            SteamStartFailed?.Invoke($"Desktop route: {route.Stage}: {route.Detail}"));
+                        foreach (PluginActionStepResult step in
+                            await services.RunLeaveActionsAsync().ConfigureAwait(false))
+                        {
+                            if (step.Succeeded) { continue; }
+                            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(
+                                () => SteamStartFailed?.Invoke($"Leave Game Mode action: {step.Detail}"));
+                        }
+                        await services.PersistPendingReturnAsync(null).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error("Running the leave actions failed", ex);
                     }
                 }
                 if (result.Outcome is ExplorerDesktopOutcome.Failed && result.CanResumeGameModeSafely)
@@ -357,12 +395,12 @@ public sealed class SessionModes
         }
     }
 
-    /// <summary>Game mode: ask Steam to enter Big Picture immediately (the protocol
-    /// also boots it if it exited while on the desktop) while Explorer's bounded
-    /// orderly shutdown runs off the UI thread. Monitoring stays paused and
-    /// game-mode resources are not created until Explorer is verifiably gone; if
-    /// Explorer refuses to exit, Big Picture is closed again and desktop mode is
-    /// preserved. Returns immediately.</summary>
+    /// <summary>Game mode: runs the entry transaction on a worker and returns immediately.
+    ///
+    /// Monitoring stays paused and game-mode resources are not created until Explorer is verifiably
+    /// gone. Every step before that exit is undoable and cancellable; see
+    /// <see cref="GameModeEntryTransaction"/> for the order and why Big Picture now follows the
+    /// exit rather than preceding it.</summary>
     public void EnterGameMode()
     {
         ExplorerDesktopHost? desktopHost = _desktopHost;
@@ -382,167 +420,48 @@ public sealed class SessionModes
             // no Steam lifecycle edge may react until Explorer is confirmed gone.
             _monitor.Paused = true;
         }
+        var cancellation = new System.Threading.CancellationTokenSource();
+        _entryCancellation = cancellation;
         _ = System.Threading.Tasks.Task.Run(async () =>
         {
-            bool explorerWasRemoved = false;
-            bool routePrepared = false;
-            bool gameModeCommitted = false;
+            SessionModesEntryBackend backend = new(this, desktopHost);
             try
             {
-                var route = PrepareDisplayRouteAsync is { } prepareRoute
-                    ? await prepareRoute(true).ConfigureAwait(false) : null;
-                if (route is { Completed: false })
+                GameModeEntryTransaction transaction = new(backend, GameModeEntryServices?.ReadLaunch() ?? new());
+                GameModeEntryResult result = await transaction.RunAsync(cancellation.Token).ConfigureAwait(false);
+                if (result.Outcome is not GameModeEntryOutcome.Entered && backend.ExplorerWasRemoved)
                 {
-                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                        SteamStartFailed?.Invoke($"Game Mode route: {route.Stage}: {route.Detail}"));
-                    return;
+                    await RecoverDesktopAfterFailedGameModeCommitAsync(desktopHost).ConfigureAwait(false);
                 }
-                routePrepared = route is { Completed: true, ProfileApplied: true };
-                string? steamWarning;
-                try
+                if (result.Warning is { } warning)
                 {
-                    // Fire exactly once before Explorer's linger/retry work. Steam can
-                    // construct Big Picture during that wait; activating it again after
-                    // the transition would interrupt its intro and steal focus again.
-                    steamWarning = await RequestBigPictureWhilePausedAsync().ConfigureAwait(false);
+                    await Avalonia.Threading.Dispatcher.UIThread
+                        .InvokeAsync(() => SteamStartFailed?.Invoke(warning));
                 }
-                catch (Exception ex)
-                {
-                    Log.Error("Starting Steam Big Picture during game-mode transition failed", ex);
-                    steamWarning = BigPictureStartFailedWarning;
-                }
-
-                if (route is { Completed: true } && FinishDisplayRouteAsync is { } finishRoute
-                    && !await finishRoute().ConfigureAwait(false))
-                {
-                    ExitBigPicture();
-                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                        SteamStartFailed?.Invoke("Steam could not be placed on the configured display. Desktop was preserved."));
-                    return;
-                }
-
-                var exited = false;
-                // The normal desktop can be recreated only if its current taskbar owner is
-                // captured while it still exists. A contaminated/unknown shell is preserved.
-                ExplorerPreparationResult preparation = await desktopHost.PrepareForExplorerExitAsync()
-                    .ConfigureAwait(false);
-                try
-                {
-                    if (preparation.Prepared)
-                    {
-                        if (route is not null && DisplayRouteCancelled?.Invoke() == true)
-                        { throw new OperationCanceledException("Display route entry was cancelled."); }
-                        exited = ExplorerControl.ExitExplorerAndWait(ExplorerExitTimeout);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Log.Error("Explorer exit failed", ex);
-                }
-
-                // Decide once on the worker after the bounded exit finishes. Rolling
-                // Steam back and then re-checking Explorer on the UI thread could race
-                // a late process exit into committing game mode after BP was closed.
-                var preserveDesktop = !preparation.Prepared;
-                if (!exited && preparation.Prepared)
-                {
-                    try
-                    {
-                        preserveDesktop = ExplorerControl.IsRunningInSession();
-                    }
-                    catch (Exception ex)
-                    {
-                        // Failure cannot prove Explorer is absent. Preserve the usable
-                        // desktop instead of risking a tray-host collision.
-                        Log.Error("Checking Explorer state after its exit attempt failed", ex);
-                        preserveDesktop = true;
-                    }
-
-                    if (!preserveDesktop)
-                    {
-                        // Exit returned failure without a living shell. Fail open by restoring through
-                        // the already-captured anchor; never commit game mode on an unproven exit.
-                        ExplorerDesktopResult restored = await desktopHost.RestoreDesktopAsync(
-                            TimeSpan.FromSeconds(20)).ConfigureAwait(false);
-                        preserveDesktop = restored.Outcome is not ExplorerDesktopOutcome.Failed
-                            || restored.LaunchDispatched
-                            || restored.ShellSurfacePresent;
-                    }
-                }
-                if (preserveDesktop)
-                {
-                    try
-                    {
-                        // The Big Picture request was speculative until Explorer left.
-                        // Undo it before the warning overlay reopens on the desktop.
-                        ExitBigPicture();
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Error("Rolling Steam back after Explorer exit failure failed", ex);
-                    }
-                }
-                explorerWasRemoved = exited && !preserveDesktop;
-                if (route is not null && DisplayRouteCancelled?.Invoke() == true)
-                { throw new OperationCanceledException("Display route entry was cancelled."); }
-
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    if (preserveDesktop)
-                    {
-                        // Fail open (era-proven UX): a half-removed desktop with a
-                        // refused tray host is strictly worse than staying put.
-                        Log.Warn("Could not exit explorer safely — staying in desktop mode.");
-                        SteamStartFailed?.Invoke(preparation.Prepared
-                            ? ExplorerExitFailedWarning
-                            : ExplorerTakeoverRefusedWarning);
-                        return;
-                    }
-                    if (route?.ProfileApplied != true) { ApplyGameModePosture(); }
-                    GameModeEntered?.Invoke();
-                    gameModeCommitted = true;
-                    if (_monitor is not null)
-                    {
-                        _monitor.Paused = false;
-                    }
-                    if (steamWarning is not null)
-                    {
-                        SteamStartFailed?.Invoke(steamWarning);
-                    }
-                });
             }
             catch (Exception ex)
             {
                 Log.Error("Game-mode transition failed", ex);
-                if (explorerWasRemoved)
-                {
-                    await RecoverDesktopAfterFailedGameModeCommitAsync(desktopHost)
-                        .ConfigureAwait(false);
-                    return;
-                }
-                try
-                {
-                    ExitBigPicture();
-                }
-                catch (Exception rollbackEx)
-                {
-                    Log.Error("Rolling Steam back after game-mode transition failure failed", rollbackEx);
-                }
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                     SteamStartFailed?.Invoke(ExplorerExitFailedWarning));
             }
             finally
             {
-                if (routePrepared && !gameModeCommitted && RecoverDisplayRouteAsync is { } recoverRoute)
-                {
-                    try { await recoverRoute().ConfigureAwait(false); }
-                    catch (Exception ex) { Log.Error("Recovering the Desktop display route failed", ex); }
-                }
+                _entryCancellation = null;
+                cancellation.Dispose();
                 SteamUiBigPictureRequestSettled?.Invoke();
-                DisplayRouteSettled?.Invoke();
+                GameModeEntrySettled?.Invoke();
                 EndTransition();
             }
         });
+    }
+
+    /// <summary>Cancels a Game Mode entry that has not yet reached the Explorer exit. Harmless at
+    /// any other time: after the boundary the transaction stops observing the token.</summary>
+    internal void CancelGameModeEntry()
+    {
+        try { _entryCancellation?.Cancel(); }
+        catch (ObjectDisposedException) { }
     }
 
     /// <summary>Runs the verified desktop restore, converting an exception into the fail-open
@@ -699,7 +618,7 @@ public sealed class SessionModes
     /// broken CEF session can never block the mode switch itself.</summary>
     private static readonly TimeSpan SteamUiPrepareTimeout = TimeSpan.FromSeconds(5);
 
-    private async System.Threading.Tasks.Task<string?> RequestBigPictureWhilePausedAsync()
+    internal async System.Threading.Tasks.Task<string?> RequestBigPictureWhilePausedAsync()
     {
         System.Threading.Volatile.Write(ref _steamClosedByUser, 0);
         if (PrepareSteamUiForBigPictureAsync is { } prepare)

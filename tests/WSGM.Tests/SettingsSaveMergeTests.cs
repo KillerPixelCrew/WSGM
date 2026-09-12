@@ -13,9 +13,9 @@ public sealed class SettingsSaveMergeTests
         {
             SteamAutoRelaunch = true,
             AccentColor = "#123456",
-            DisplayManagement = DisplayManagementMode.AutomaticProfiles,
             StartupApps = [new StartupAppConfig { Path = "new.exe" }],
         });
+        values.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
         values.DeviceIntegration.AutoTdpEnabled = false;
         values.DeviceIntegration.ControllerTarget = ManagedControllerTarget.Xbox360;
         values.DeviceIntegration.GlyphSelection = DeviceGlyphSelection.NativeSteam;
@@ -23,9 +23,12 @@ public sealed class SettingsSaveMergeTests
         AppConfig fresh = ConfigStore.Normalize(new AppConfig
         {
             LastSelectedPowerSchemeId = Guid.NewGuid(),
-            DisplayManagement = DisplayManagementMode.AutomaticProfiles,
-            DisplayProfiles = [new MonitorDisplayProfile { MonitorId = "runtime-monitor" }],
         });
+        // Written by the running shell while the window was open: the entry it is still inside
+        // owes the desktop this layout, and a save must not drop it.
+        fresh.GameModeLaunchRecovery.PendingReturnLayout = new([
+            new(new(@"\\?\a", null, null, "A", 0, 0, 1), 0, 0, 1920, 1080,
+                WindowsDeviceControl.DisplayRefresh.FromHertz(60))]);
         fresh.DeviceIntegration.AutoTdpEnabled = true;
         fresh.DeviceIntegration.ControllerTarget = ManagedControllerTarget.DualShock4;
         fresh.DeviceIntegration.GlyphSelection = DeviceGlyphSelection.ManualReviewedProfile;
@@ -49,7 +52,8 @@ public sealed class SettingsSaveMergeTests
         Assert.True(fresh.SteamAutoRelaunch);
         Assert.Equal("#123456", fresh.AccentColor);
         Assert.Equal("new.exe", Assert.Single(fresh.StartupApps).Path);
-        Assert.Equal("runtime-monitor", Assert.Single(fresh.DisplayProfiles).MonitorId);
+        Assert.Equal(GameModeLaunchKind.Custom, fresh.GameModeLaunch.Kind);
+        Assert.NotNull(fresh.GameModeLaunchRecovery.PendingReturnLayout);
         Assert.True(fresh.DeviceIntegration.AutoTdpEnabled);
         Assert.Equal(ManagedControllerTarget.DualShock4, fresh.DeviceIntegration.ControllerTarget);
         Assert.Equal(

@@ -235,27 +235,42 @@ assignment never reapplies the active preset. Automatic application pauses AutoT
 overwriting the saved manual watt limit. Windows power-plan selection remains independent of these
 device preset assignments.
 
-## Display profiles
+## Game Mode display layouts
 
-Display management (`Core\DisplayScale.cs`, `Core\DisplayProfiles.cs`) has four mutually exclusive
-modes: Off, legacy DPI-only, automatic profiles and fixed profiles. A profile is keyed by the stable
-monitor device identity (the current GDI source name is retained for the Win32 calls) and holds
-resolution, refresh rate, DPI and an HDR flag for Desktop and for Game mode. The HDR flag exists
-only when the active target reports advanced-color support.
+`AppConfig.GameModeLaunch` says what entering and leaving Game Mode do to displays. It has two
+kinds, not four modes:
 
-- Automatic mode captures only at a Desktop/Game transition and restores the last values for the
-  mode being entered. Capturing continuously would make an exclusive-fullscreen game's temporary
-  mode the saved preference.
-- Fixed mode applies the values edited in Settings.
-- DPI-only keeps the crash-safe saved-scale recovery path. A surviving DPI-only snapshot never
-  authorizes lowering a newly docked display that is absent from it.
-- Panic and uninstall recovery apply the last known Desktop profile without capturing the possibly
-  half-torn-down current mode, and restore a pending legacy DPI snapshot even when display
-  management has since been switched Off.
-- Automatic snapshots are runtime-owned; Settings preserves a newer capture made while its window
-  was open.
-- HDR uses DisplayConfig advanced-color get/set against the path target. A persisted flag is neither
-  shown nor applied when the active target reports no HDR support.
+- **Default** is the scaling posture in `Core\DisplayScale.cs`: capture every display's scaling,
+  drop them all to 100% so DPI-unaware games render 1:1, and restore on the way back. Nothing else
+  about the desktop changes. This is what the four retired modes collapse into, including the old
+  Off, which left a handheld running desktop scaling inside Big Picture.
+- **Custom** applies a saved `DisplayLayout`: which displays are on, which is primary, where each
+  sits, its resolution, refresh rate, scaling and advanced-colour state. It is captured with
+  Snapshot from a desktop the user has already arranged, because nobody should hand-author a display
+  arrangement.
+
+A layout is keyed by `DisplayTargetIdentity`, so it survives GDI renumbering and a hotplug.
+`WindowsDeviceControl.DisplayLayouts` owns the writing: validate, capture the rollback set, apply
+with readback, and one rollback on a mismatch, never a retry. `DisplayLayouts.Describe` is the pure
+rule set (at least one display, exactly one at 0,0, no duplicates, no overlaps, all connected,
+scaling within range); Settings and configuration normalization both use it, so a layout that could
+never describe a desktop is refused before it reaches a display.
+
+Displays WSGM has seen are remembered in `GameModeLaunch.KnownDisplays`. That is what lets a TV
+behind an HDMI switch be configured while it is unplugged, which the reference machine requires: the
+TV exposes no EDID until the switch selects this PC.
+
+A layout migrated from the retired per-monitor profiles keeps its values but carries no resolvable
+identity, because the old shape recorded a GDI name and a registry device key. Settings marks those
+rows as needing confirmation and entry refuses them.
+
+The scaling snapshot recovery is unchanged: a surviving snapshot never authorizes lowering a newly
+docked display that is absent from it, and panic, uninstall and shell repair restore it. The layout
+a running Game Mode session owes the desktop is separate and lives in
+`AppConfig.GameModeLaunchRecovery`, which the runtime owns and Settings never writes.
+
+HDR uses DisplayConfig advanced-color get/set against the path target. A persisted flag is neither
+shown nor applied when the target reports no advanced-colour support.
 
 ## Mute during screen-off downloads
 

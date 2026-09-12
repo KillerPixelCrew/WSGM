@@ -144,7 +144,8 @@ public sealed class ConfigurationTests
             GamepadChord = null!,
             Gestures = null!,
             SavedDisplayScaleEntries = null!,
-            DisplayProfiles = null!,
+            GameModeLaunch = null!,
+            GameModeLaunchRecovery = null!,
             PreviousConsoleLockSchemeValues = null!,
             CardLibraries = null!,
             ForgottenInsertedCardIds = null!,
@@ -166,7 +167,8 @@ public sealed class ConfigurationTests
         Assert.NotNull(normalized.GamepadChord);
         Assert.NotNull(normalized.Gestures);
         Assert.NotNull(normalized.SavedDisplayScaleEntries);
-        Assert.NotNull(normalized.DisplayProfiles);
+        Assert.NotNull(normalized.GameModeLaunch);
+        Assert.NotNull(normalized.GameModeLaunchRecovery);
         Assert.NotNull(normalized.PreviousConsoleLockSchemeValues);
         Assert.NotNull(normalized.CardLibraries);
         Assert.NotNull(normalized.ForgottenInsertedCardIds);
@@ -191,7 +193,6 @@ public sealed class ConfigurationTests
         {
             StartupApps = [null!, new StartupAppConfig { Path = null!, Args = null! }],
             SavedDisplayScaleEntries = [null!, new DisplayScaleEntry { DeviceName = null! }],
-            DisplayProfiles = [null!, new MonitorDisplayProfile { MonitorId = null!, DeviceName = null!, DisplayName = null!, Desktop = null!, Game = null! }],
             PreviousConsoleLockSchemeValues = [null!, new PowerSchemeConsoleLock { SchemeGuid = null! }],
             SgdbLinks = [null!, new SgdbLinkConfig { Name = null! }],
         };
@@ -202,11 +203,6 @@ public sealed class ConfigurationTests
         Assert.Equal("", app.Path);
         Assert.Equal("", app.Args);
         Assert.Equal("", Assert.Single(normalized.SavedDisplayScaleEntries).DeviceName);
-        var display = Assert.Single(normalized.DisplayProfiles);
-        Assert.Equal("", display.MonitorId);
-        Assert.Equal("", display.DeviceName);
-        Assert.NotNull(display.Desktop);
-        Assert.NotNull(display.Game);
         Assert.Equal("", Assert.Single(normalized.PreviousConsoleLockSchemeValues).SchemeGuid);
         Assert.Equal("", Assert.Single(normalized.SgdbLinks).Name);
     }
@@ -994,59 +990,102 @@ public sealed class ConfigurationTests
     }
 
     [Fact]
-    public void DisplayManagementDefaultsToLegacyDpiOnlyBehavior()
-        => Assert.Equal(DisplayManagementMode.DpiOnly, new AppConfig().DisplayManagement);
-
-    [Fact]
-    public void NormalizeRepairsAnOutOfRangeDisplayManagementValue()
+    public void GameModeLaunchDefaultsToTheDefaultKindAndTheEntryArrangement()
     {
-        var config = new AppConfig { DisplayManagement = (DisplayManagementMode)99 };
+        var launch = new AppConfig().GameModeLaunch;
 
-        ConfigStore.Normalize(config);
-
-        Assert.Equal(DisplayManagementMode.DpiOnly, config.DisplayManagement);
+        Assert.Equal(GameModeLaunchKind.Default, launch.Kind);
+        Assert.Equal(GameModeReturn.EntryArrangement, launch.Return);
+        Assert.Null(launch.GameLayout);
+        Assert.Empty(launch.EnterActions);
     }
 
     [Fact]
-    public void PerMonitorDesktopAndGameProfilesRoundTrip()
+    public void NormalizeRepairsOutOfRangeLaunchEnums()
     {
-        var original = new AppConfig
-        {
-            DisplayManagement = DisplayManagementMode.FixedProfiles,
-            DisplayProfiles = [new MonitorDisplayProfile
+        var config = new AppConfig();
+        config.GameModeLaunch.Kind = (GameModeLaunchKind)99;
+        config.GameModeLaunch.Return = (GameModeReturn)99;
+
+        ConfigStore.Normalize(config);
+
+        Assert.Equal(GameModeLaunchKind.Default, config.GameModeLaunch.Kind);
+        Assert.Equal(GameModeReturn.EntryArrangement, config.GameModeLaunch.Return);
+    }
+
+    [Fact]
+    public void ALaunchLayoutAndItsActionStepsRoundTrip()
+    {
+        WindowsDeviceControl.DisplayTargetIdentity target =
+            new(@"\\?\DISPLAY#TV0001", null, null, "Living room TV", 0, 0, 3);
+        var original = new AppConfig();
+        original.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
+        original.GameModeLaunch.GameLayout = new([
+            new(target, 0, 0, 3840, 2160, WindowsDeviceControl.DisplayRefresh.FromHertz(120),
+                DpiPercent: 150, Hdr: true)]);
+        original.GameModeLaunch.WaitForDisplay = target;
+        original.GameModeLaunch.EnterActions =
+        [
+            new()
             {
-                MonitorId = "MONITOR\\AUO1234",
-                DeviceName = @"\\.\DISPLAY1",
-                DisplayName = "Internal panel",
-                HdrAvailable = true,
-                Desktop = new DisplayModeValues { Width = 1920, Height = 1080, RefreshRate = 120, DpiPercent = 150, HdrEnabled = false },
-                Game = new DisplayModeValues { Width = 1280, Height = 720, RefreshRate = 120, DpiPercent = 100, HdrEnabled = true },
-            }],
-        };
+                Plugin = new("wsgm.ir", "blaster"),
+                ActionId = "remote-press",
+                Arguments = { ["remote"] = new(Text: "hdmi-switch") },
+                TimeoutSeconds = 20,
+            },
+        ];
 
         var json = System.Text.Json.JsonSerializer.Serialize(original, ConfigJsonContext.Default.AppConfig);
         var restored = System.Text.Json.JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig)!;
 
-        Assert.Equal(DisplayManagementMode.FixedProfiles, restored.DisplayManagement);
-        var profile = Assert.Single(restored.DisplayProfiles);
-        Assert.Equal("MONITOR\\AUO1234", profile.MonitorId);
-        Assert.True(profile.HdrAvailable);
-        Assert.Equal((1920, 1080, 120, 150), (profile.Desktop.Width, profile.Desktop.Height, profile.Desktop.RefreshRate, profile.Desktop.DpiPercent));
-        Assert.Equal((1280, 720, 120, 100), (profile.Game.Width, profile.Game.Height, profile.Game.RefreshRate, profile.Game.DpiPercent));
-        Assert.False(profile.Desktop.HdrEnabled);
-        Assert.True(profile.Game.HdrEnabled);
+        var output = Assert.Single(restored.GameModeLaunch.GameLayout!.Outputs);
+        Assert.Equal((3840, 2160), (output.Width, output.Height));
+        Assert.Equal(120, output.Refresh.Hertz);
+        Assert.Equal(150, output.DpiPercent);
+        Assert.True(output.Hdr);
+        Assert.True(output.IsPrimary);
+        Assert.Equal(target, restored.GameModeLaunch.WaitForDisplay);
+        var step = Assert.Single(restored.GameModeLaunch.EnterActions);
+        Assert.Equal("remote-press", step.ActionId);
+        Assert.Equal("hdmi-switch", step.Arguments["remote"].Text);
+        Assert.Equal(20, step.TimeoutSeconds);
     }
 
-    [Theory]
-    [InlineData(DisplayManagementMode.AutomaticProfiles, DisplayManagementMode.AutomaticProfiles, false)]
-    [InlineData(DisplayManagementMode.DpiOnly, DisplayManagementMode.AutomaticProfiles, true)]
-    [InlineData(DisplayManagementMode.AutomaticProfiles, DisplayManagementMode.FixedProfiles, true)]
-    [InlineData(DisplayManagementMode.FixedProfiles, DisplayManagementMode.Off, false)]
-    public void SettingsDoesNotOverwriteRuntimeOwnedAutomaticSnapshots(
-        DisplayManagementMode initial,
-        DisplayManagementMode selected,
-        bool expected)
-        => Assert.Equal(expected, WSGM.Settings.SettingsViewModel.ShouldWriteDisplayProfiles(initial, selected));
+    [Fact]
+    public void NormalizeDropsALayoutThatCouldNeverDescribeADesktop()
+    {
+        WindowsDeviceControl.DisplayTargetIdentity first =
+            new(@"\\?\a", null, null, "A", 0, 0, 1);
+        WindowsDeviceControl.DisplayTargetIdentity second =
+            new(@"\\?\b", null, null, "B", 0, 0, 2);
+        var config = new AppConfig();
+        // Two displays both claiming the origin: no primary can be chosen, so the file was either
+        // hand-edited or written by something that did not check.
+        config.GameModeLaunch.GameLayout = new([
+            new(first, 0, 0, 1920, 1080, WindowsDeviceControl.DisplayRefresh.FromHertz(60)),
+            new(second, 0, 0, 1920, 1080, WindowsDeviceControl.DisplayRefresh.FromHertz(60))]);
+
+        ConfigStore.Normalize(config);
+
+        Assert.Null(config.GameModeLaunch.GameLayout);
+    }
+
+    [Fact]
+    public void NormalizeDropsAnActionStepThatNamesNoPluginAndClampsTheDeadline()
+    {
+        var config = new AppConfig();
+        config.GameModeLaunch.EnterActions =
+        [
+            new() { ActionId = "orphan" },
+            new() { Plugin = new("wsgm.ir", "blaster"), ActionId = "press", TimeoutSeconds = 9000 },
+        ];
+
+        ConfigStore.Normalize(config);
+
+        var step = Assert.Single(config.GameModeLaunch.EnterActions);
+        Assert.Equal("press", step.ActionId);
+        Assert.Equal(120, step.TimeoutSeconds);
+    }
 
     [Theory]
     [InlineData(false, false, true, false)]

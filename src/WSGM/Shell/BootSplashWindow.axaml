@@ -14,6 +14,12 @@
          up. (No-activate was tried and did not change the black-BP symptom.)
          The desktop button stays the last child so it is always topmost. -->
     <Panel x:Name="RootPanel">
+        <!-- Hidden until a transition has something to say. A Game Mode entry that is waiting on a
+             TV behind an HDMI switch can sit here indefinitely, and a blank cover with a button
+             gives the user nothing to judge that wait by. Bottom-left, opposite the button. -->
+        <TextBlock x:Name="StatusText" IsVisible="False" TextWrapping="Wrap" MaxWidth="520"
+                   HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                   Margin="28,0,0,32" Foreground="{StaticResource HcTextMutedBrush}" />
         <Button x:Name="DesktopButton" Content="Switch to desktop" Click="OnDesktop" Classes="on-black"
                 HorizontalAlignment="Right" VerticalAlignment="Bottom"
                 Margin="0,0,28,24" MinHeight="44" MinWidth="160" Padding="14,8" />

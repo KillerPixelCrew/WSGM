@@ -53,14 +53,11 @@ public sealed class ShellSession : IAsyncDisposable
     private BootTakeoverCancellation? _bootTakeover;
     private Task? _bootWork;
     private readonly CancellationTokenSource _shutdownCancellation = new();
-    private readonly SemaphoreSlim _displayRouteGate = new(1, 1);
-    private readonly DesktopRouteAdmission _desktopRouteAdmission = new();
-    private DisplayRouteTransition? _displayRouteTransition;
-    private WindowsDeviceControl.DisplayProfile? _displayRouteRecovery;
-    private WindowsDeviceControl.DisplayTargetIdentity? _displayRouteTarget;
-    private bool _holdingDisplayRouteSplash;
-    private volatile bool _displayRouteCancelRequested;
-    private bool _displayRouteEntryActive;
+    private readonly SemaphoreSlim _displayActionGate = new(1, 1);
+    private readonly DesktopActionAdmission _desktopActionAdmission = new();
+    private WindowsDeviceControl.DisplayLayout? _pendingReturnLayout;
+    private bool _holdingEntrySplash;
+    private bool _gameModeEntryActive;
     private volatile bool _shutdownRequested;
     // Replaced (not just cancelled) on every game-mode entry: a single cancelled
     // source would permanently kill boot syncing after the first desktop trip.
@@ -257,6 +254,7 @@ public sealed class ShellSession : IAsyncDisposable
     private SteamControllerHandoff? _steamControllerHandoff;
     private SteamControllerOwnershipAdapter? _steamControllerOwnership;
     private MessageWindow? _messageWindow;
+    private DisplayChangeWindow? _displayChangeWindow;
     private readonly object _devicePowerGate = new();
     private Task _devicePowerWork = Task.CompletedTask;
     private bool _deviceSuspended;
@@ -519,6 +517,17 @@ public sealed class ShellSession : IAsyncDisposable
             _messageWindow.SessionUnlocked += OnSessionUnlocked;
             _messageWindow.SystemSuspending += OnSystemSuspending;
             _messageWindow.SystemResumed += OnSystemResumed;
+            // A separate top-level window: WM_DISPLAYCHANGE is broadcast to top-level windows
+            // only, so the message-only window above never hears a monitor appear.
+            try
+            {
+                _displayChangeWindow = DisplayChangeWindow.Create();
+            }
+            catch (InvalidOperationException ex)
+            {
+                // The arrival wait falls back to polling, which is correct, just slower.
+                Log.Warn("Display-change window unavailable: " + ex.Message);
+            }
             if (_deviceCoordinator is { } deviceCoordinator)
             {
                 _autoTdp = new AutoTdpService(
@@ -640,15 +649,11 @@ public sealed class ShellSession : IAsyncDisposable
             : new SessionModes(_config, _monitor, _desktopHost);
         if (!_overlayTestOnly)
         {
-            _modes.PrepareDisplayRouteAsync = PrepareDisplayRouteAsync;
-            _modes.RecoverDisplayRouteAsync = RecoverDisplayRouteAsync;
-            _modes.FinishDisplayRouteAsync = FinishDisplayRouteAsync;
-            _modes.DisplayRouteCancelled = () => _displayRouteCancelRequested;
-            _modes.DisplayRouteSettled = () => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            _modes.GameModeEntryServices = new ShellGameModeEntryServices(this);
+            _modes.GameModeEntrySettled = () => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                _holdingDisplayRouteSplash = false;
-                _displayRouteCancelRequested = false;
-                _displayRouteEntryActive = false;
+                _holdingEntrySplash = false;
+                _gameModeEntryActive = false;
             });
         }
         _modes.SteamStartFailed += _ => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
@@ -1040,7 +1045,7 @@ public sealed class ShellSession : IAsyncDisposable
             // Close Steam pauses it. That is what lets the session keep the client running.
             _monitor.Paused = false;
             WatchStartupAppsAndConfig();
-            QueueDesktopRoute(startup: true);
+            QueueDesktopActions(startup: true);
             _bootWork = Task.Run(StartDesktopSteamAsync);
             return;
         }
@@ -1739,149 +1744,145 @@ public sealed class ShellSession : IAsyncDisposable
 
     private void OnSystemSuspending() => QueueDevicePowerTransition(suspend: true, "system suspending");
 
-    private async Task<DisplayRouteResult?> PrepareDisplayRouteAsync(bool enteringGameMode)
-    {
-        bool acquired = false;
-        BootSplash? routeSplash = null;
-        bool preparationActive = true;
-        using var routeCancellation = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCancellation.Token);
-        try
-        {
-            await _displayRouteGate.WaitAsync(_shutdownCancellation.Token).ConfigureAwait(false);
-            acquired = true;
-            var config = await Task.Run(ConfigStore.Load, _shutdownCancellation.Token).ConfigureAwait(false);
-            if (config.DisplayRoutes is not { Enabled: true } routes) { return null; }
-            var binding = enteringGameMode ? routes.EnterGameMode : routes.LeaveGameMode;
-            if (binding is null) { return null; }
-            await _commonPluginStartup.WaitAsync(_shutdownCancellation.Token).ConfigureAwait(false);
-            Task powerReady;
-            lock (_devicePowerGate) { powerReady = _devicePowerWork; }
-            await powerReady.WaitAsync(_shutdownCancellation.Token).ConfigureAwait(false);
-            if (enteringGameMode)
-            {
-                _displayRouteCancelRequested = false;
-                _displayRouteRecovery = binding.Profile is null ? null
-                    : await Task.Run(WindowsDeviceControl.DisplayTopology.CaptureProfile, routeCancellation.Token).ConfigureAwait(false);
-            }
-            if (enteringGameMode)
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    _holdingDisplayRouteSplash = true;
-                    _displayRouteEntryActive = true;
-                    _splash?.Dismiss("display route preparation");
-                    routeSplash = new BootSplash(config, () =>
-                    {
-                        if (!_displayRouteEntryActive) { SwitchToDesktopFromSplash(); return; }
-                        _displayRouteCancelRequested = true;
-                        if (preparationActive) { routeCancellation.Cancel(); }
-                    }, () => _holdingDisplayRouteSplash);
-                    _splash = routeSplash;
-                    routeSplash.Show();
-                });
-            }
-            var transition = _displayRouteTransition ??= new(new DisplayRouteBackend(_pluginHost));
-            var result = await transition.RunAsync(DisplayRoutePlan.FromBinding(binding), enteringGameMode,
-                routeCancellation.Token).ConfigureAwait(false);
-            if (enteringGameMode) { _displayRouteTarget = result.Completed ? binding.Target : null; }
-            if (!result.Completed && routeSplash is not null)
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => routeSplash.Dismiss("route preparation failed"));
-            }
-            Log.Info($"Display route {(enteringGameMode ? "enter" : "leave")} {binding.Plugin?.PluginId}/{binding.Plugin?.InstanceId}:{binding.ActionId ?? "(profile only)"}: {result.Stage}: {result.Detail}");
-            return result;
-        }
-        catch (Exception ex)
-        {
-            if (routeSplash is not null)
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => routeSplash.Dismiss("route preparation error"));
-            }
-            Log.Error("Display route preparation failed", ex);
-            return new(false, "configuration", ex.Message);
-        }
-        finally
-        {
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                preparationActive = false;
-            });
-            if (acquired) { _displayRouteGate.Release(); }
-        }
-    }
-
     private void OnSystemResumed()
     {
         QueueDevicePowerTransition(suspend: false, "system resumed");
-        QueueDesktopRoute(startup: false);
+        QueueDesktopActions(startup: false);
     }
 
-    private async Task RecoverDisplayRouteAsync()
+    /// <summary>The session's half of the Game Mode entry transaction. Everything here needs state
+    /// the session owns — the splash, the plugin host, the config lock and the shutdown token — so
+    /// it is a view onto the session rather than a free-standing service.</summary>
+    private sealed class ShellGameModeEntryServices(ShellSession session) : IGameModeEntryServices
     {
-        await _displayRouteGate.WaitAsync(_shutdownCancellation.Token).ConfigureAwait(false);
-        try
-        {
-            var profile = _displayRouteRecovery;
-            _displayRouteRecovery = null;
-            if (profile is null) { return; }
-            var transition = _displayRouteTransition ??= new(new DisplayRouteBackend(_pluginHost));
-            var result = await transition.RunAsync(new(null, null, profile, TimeSpan.FromSeconds(15)), false,
-                _shutdownCancellation.Token).ConfigureAwait(false);
-            Log.Info($"Display route recovery: {result.Stage}: {result.Detail}");
-            if (!result.Completed)
+        public GameModeLaunchConfiguration ReadLaunch() => ConfigStore.Load().GameModeLaunch;
+
+        public void SetStatus(string line) =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => session.EnsureEntrySplash().SetStatus(line));
+
+        public void SetCancellable(bool cancellable) =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                    _modes?.ReportWarning($"Desktop display recovery: {result.Detail}"));
-            }
+                session._gameModeEntryActive = cancellable;
+                session.EnsureEntrySplash().SetActionLabel(
+                    cancellable ? "Cancel" : "Switch to desktop");
+            });
+
+        public Task<WindowsDeviceControl.DisplayArrangement> ObserveAsync() =>
+            Task.Run(WindowsDeviceControl.DisplayLayouts.Observe, session._shutdownCancellation.Token);
+
+        public Task<WindowsDeviceControl.DisplayArrangement> WaitForDisplaysAsync(
+            IReadOnlyList<WindowsDeviceControl.DisplayTargetIdentity> targets,
+            CancellationToken cancellationToken) =>
+            session.CreateArrivalWaiter().WaitAsync(targets, cancellationToken);
+
+        public Task<WindowsDeviceControl.DisplayLayoutResult> ApplyLayoutAsync(
+            WindowsDeviceControl.DisplayLayout layout, CancellationToken cancellationToken) =>
+            Task.Run(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return WindowsDeviceControl.DisplayLayouts.Apply(layout);
+            }, CancellationToken.None);
+
+        public Task PersistPendingReturnAsync(WindowsDeviceControl.DisplayLayout? layout) => Task.Run(() =>
+        {
+            session._pendingReturnLayout = layout;
+            ConfigStore.Mutate(fresh =>
+            {
+                fresh.GameModeLaunchRecovery.PendingReturnLayout = layout;
+                fresh.GameModeLaunchRecovery.EnteredAt = layout is null ? null : DateTimeOffset.UtcNow;
+            });
+        });
+
+        public async Task<IReadOnlyList<PluginActionStepResult>> RunEnterActionsAsync(
+            CancellationToken cancellationToken)
+        {
+            GameModeLaunchConfiguration launch = ReadLaunch();
+            await session._commonPluginStartup.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return await session.ActionSequence()
+                .RunUntilFailureAsync(launch.EnterActions, cancellationToken).ConfigureAwait(false);
         }
-        finally { _displayRouteGate.Release(); }
+
+        public Task<IReadOnlyList<PluginActionStepResult>> RunLeaveActionsAsync() =>
+            session.ActionSequence().RunAllAsync(ReadLaunch().LeaveActions, CancellationToken.None);
+
+        public async Task<string?> ApplyReturnLayoutAsync()
+        {
+            GameModeLaunchConfiguration launch = ReadLaunch();
+            WindowsDeviceControl.DisplayLayout? layout = session._pendingReturnLayout
+                ?? ConfigStore.Load().GameModeLaunchRecovery.PendingReturnLayout
+                ?? (launch.Return == GameModeReturn.DesktopLayout ? launch.DesktopLayout : null);
+            if (layout is null) { return null; }
+            WindowsDeviceControl.DisplayLayoutResult result =
+                await ApplyLayoutAsync(layout, CancellationToken.None).ConfigureAwait(false);
+            return result.Applied ? null : "Desktop display layout: " + result.Detail;
+        }
     }
 
-    private async Task<bool> FinishDisplayRouteAsync()
+    /// <summary>The splash the entry transaction writes its status into, created on demand so an
+    /// entry that starts from the desktop still gets a cover.</summary>
+    private BootSplash EnsureEntrySplash()
     {
-        try
+        if (_splash is not null && _holdingEntrySplash) { return _splash; }
+        _splash?.Dismiss("Game Mode entry starting");
+        _holdingEntrySplash = true;
+        // Unarmed: Big Picture has not been asked for yet, and the wait ahead has no deadline.
+        BootSplash splash = new(_config, () =>
         {
-            var target = _displayRouteTarget;
-            return !_displayRouteCancelRequested && (target is null || await Task.Run(() => DisplayRouteSteamWindow.PlaceAsync(target,
-                () => _displayRouteCancelRequested, _shutdownCancellation.Token), _shutdownCancellation.Token).ConfigureAwait(false));
-        }
-        finally
-        {
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => _holdingDisplayRouteSplash = false);
-        }
+            if (_gameModeEntryActive) { _modes?.CancelGameModeEntry(); return; }
+            SwitchToDesktopFromSplash();
+        }, armed: false);
+        _splash = splash;
+        splash.Show();
+        return splash;
     }
 
-    private void QueueDesktopRoute(bool startup) => Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+    private PluginActionSequence ActionSequence() => new(new PluginHostActionInvoker(_pluginHost));
+
+    private DisplayArrivalWaiter CreateArrivalWaiter() => new(
+        new ShellDisplayPresence(),
+        new ShellDisplayChangeSignal(_displayChangeWindow),
+        (wait, token) => Task.Delay(wait, token));
+
+    /// <summary>Runs the desktop startup or wake action list, coalesced.</summary>
+    /// <param name="startup">True for the startup list, false for the wake list.</param>
+    private void QueueDesktopActions(bool startup) => Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
     {
-        if (_shutdownRequested || _overlayTestOnly || !_desktopRouteAdmission.TryBegin(
+        if (_shutdownRequested || _overlayTestOnly || !_desktopActionAdmission.TryBegin(
             _inGameMode, _modes?.TransitionInProgress != false, Environment.TickCount64)) { return; }
         bool acquired = false;
         try
         {
-            await _displayRouteGate.WaitAsync(_shutdownCancellation.Token);
+            await _displayActionGate.WaitAsync(_shutdownCancellation.Token);
             acquired = true;
             var config = await Task.Run(ConfigStore.Load, _shutdownCancellation.Token);
+            var steps = startup
+                ? config.GameModeLaunch.DesktopStartupActions
+                : config.GameModeLaunch.DesktopWakeActions;
             if (_shutdownRequested || _inGameMode || _modes?.TransitionInProgress != false
-                || config.DisplayRoutes is not { Enabled: true } routes) { return; }
-            var binding = startup ? routes.DesktopStartup : routes.DesktopWake;
-            if (binding is null) { return; }
+                || steps.Count == 0) { return; }
             await _commonPluginStartup.WaitAsync(_shutdownCancellation.Token);
             Task powerReady;
             lock (_devicePowerGate) { powerReady = _devicePowerWork; }
             await powerReady.WaitAsync(_shutdownCancellation.Token);
+            // Re-checked after both waits: a Game Mode entry can have started meanwhile, and a
+            // desktop action list must never fire into a session that is leaving the desktop.
             if (_shutdownRequested || _inGameMode || _modes?.TransitionInProgress != false) { return; }
-            var transition = _displayRouteTransition ??= new(new DisplayRouteBackend(_pluginHost));
-            var result = await transition.RunAsync(
-                DisplayRoutePlan.FromBinding(binding), false, _shutdownCancellation.Token);
-            Log.Info($"Display route {(startup ? "startup" : "wake")} {binding.Plugin?.PluginId}/{binding.Plugin?.InstanceId}:{binding.ActionId ?? "(profile only)"}: {result.Stage}: {result.Detail}");
-            if (!result.Completed) { _modes?.ReportWarning($"Desktop route: {result.Detail}"); }
+            foreach (PluginActionStepResult step in await new PluginActionSequence(
+                new PluginHostActionInvoker(_pluginHost)).RunAllAsync(steps, _shutdownCancellation.Token))
+            {
+                Log.Info($"Desktop {(startup ? "startup" : "wake")} action "
+                    + $"{step.Step.Plugin?.PluginId}/{step.Step.Plugin?.InstanceId}:{step.Step.ActionId}: "
+                    + $"{step.Outcome}: {step.Detail}");
+                if (!step.Succeeded) { _modes?.ReportWarning($"Desktop action: {step.Detail}"); }
+            }
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { Log.Error("Desktop lifecycle route failed", ex); }
+        catch (Exception ex) { Log.Error("Desktop lifecycle actions failed", ex); }
         finally
         {
-            if (acquired) { _displayRouteGate.Release(); }
-            _desktopRouteAdmission.End();
+            if (acquired) { _displayActionGate.Release(); }
+            _desktopActionAdmission.End();
         }
     });
 

@@ -507,9 +507,6 @@
                     <StackPanel x:Name="PanelSystemDisplay" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
                         <TextBlock Text="DISPLAY" Classes="eyebrow" Margin="2,0,2,2" />
                         <StackPanel x:Name="DisplayBrightnessHost" />
-                        <Expander Header="Display routes" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                            <StackPanel x:Name="DisplayRouteEditorHost" />
-                        </Expander>
                     </StackPanel>
 
                     <StackPanel x:Name="PanelSystemPlugins" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">

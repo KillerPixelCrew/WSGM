@@ -232,34 +232,62 @@ Controller confirmation opens widget editors and choice popups. While a selector
 navigation keeps D-pad selection with its owning ComboBox despite popup-item focus. Confirmation
 closes the popup and restores selector focus; the separate Apply action dispatches the draft.
 
-### Display-route automation
+### Session automation
 
-Overlay > Tools > Display routes edits WSGM lifecycle bindings. Choose Enter Game Mode, Leave Game
-Mode, Desktop startup or Desktop wake, then choose a declared action from a resident common plugin.
-The editor renders its primitive arguments, including controller-accessible text/number entry.
-Unavailable saved providers retain their identities and arguments. Reload refreshes the action list.
+`AppConfig.GameModeLaunch` holds four ordered lists of plugin action steps, run at four session
+events: entering Game Mode, leaving it, desktop startup and desktop wake. A step names a plugin
+instance, a declared action, its primitive arguments and a 1–120 second deadline. They run with
+origin `SessionAutomation`, and the step's generation is resolved at the moment it runs, so a plugin
+that restarted between two steps is never addressed with a stale one.
 
-Capture current display profile records the active WDC topology without changing it. Capture the TV
-layout for entry and the Desktop layout for leave/startup/wake as needed. Entry can additionally
-wait for a captured display identity. Configure the layouts through Windows or Overlay display
-controls before capture. Save each event separately; changing the event replaces the unsaved draft.
-Clear event binding removes only that event. Saving does not invoke a plugin action or change the
-current display.
+`Shell\PluginActionSequence.cs` runs them. Entry stops at the first step that did not succeed;
+sending the rest after the TV failed to come on only makes the failure harder to read. The other
+three run every step and report what failed, because each one is independently worth attempting and
+there is nothing to abort. **Nothing is ever retried**, in either mode: a `Dispatched` or
+`Unconfirmed` outcome means the command may already be on the wire.
 
-Enable route automation is an explicit opt-in. AppConfig.DisplayRoutes stores that switch, four
-independent bindings, primitive arguments, optional WDC targets/profiles and 1–120 second deadlines.
-Saving updates only the chosen binding and switch against fresh configuration, then projects the
-boot manifest. Desktop residency is its own setting now (Settings > System, "Start WSGM at sign-in"
-plus "Start in"), so route automation no longer decides it; a Desktop start runs --shell
---desktop-resident and needs the installed logon service.
+Settings > Display lists the saved steps read-only with their arguments and deadlines, and says when
+a named plugin is not running. Settings owns no plugin host, so it never resolves a step against a
+live instance.
 
-SessionModes owns Desktop/Game Mode transitions. Entry invokes the configured action, waits for its
-display to become available (including a connected but disabled monitor), and applies the saved
-profile before requesting Big Picture or removing Explorer. The transition splash stays visible
-through route preparation and Steam placement. Steam's process-owned Big Picture window is placed on
-the selected monitor using its freshly rematched GDI route, with window-bounds readback. Failed
-preparation or placement preserves Desktop. If a later takeover fails after applying the profile,
-the pre-entry Desktop topology is restored once; an uncertain write is never automatically retried.
+Desktop startup and wake are coalesced by `Shell\DesktopActionAdmission.cs`: one run at a time, a
+five-second cooldown, and never while Game Mode is active or a transition is in flight. The four
+notifications around a sleep overlap, and an action list must not fire twice for one wake.
+
+### Game Mode entry
+
+`Shell\GameModeEntryTransaction.cs` owns the order and the compensation; the backend owns the
+effects. Everything before Explorer leaves is undoable, so the splash offers Cancel and a failure
+puts the desktop back exactly as it was. Once Explorer is gone there is no cheap desktop to return
+to, so that exit is the boundary: after it the splash button becomes "Switch to desktop" and later
+failures compensate forwards.
+
+The order is: record what to return to, run the entry actions, wait for every required display,
+persist the pending return layout, prepare the Explorer anchor, re-check the displays, exit
+Explorer, apply the layout, request Big Picture, commit.
+
+Big Picture is requested **after** Explorer leaves and after the layout is applied. The desktop-only
+shell did the opposite as a latency optimisation, which was worth having when Steam was not already
+running. Here Steam is already up on the desktop, the splash covers the whole transaction, and a Big
+Picture window created before the layout would be built on the wrong display at the wrong scaling.
+
+Compensation before the boundary runs the leave actions whenever an entry step was dispatched or
+left uncertain, re-applies the return layout and clears the pending record. A step that was
+_rejected_ changed nothing, so it earns no compensation: an IR burst there would move a switch the
+user never asked to move.
+
+The display wait has **no deadline**, only cancellation. The reference setup puts a TV behind an
+HDMI switch, so how long the display takes is up to a person and a piece of consumer hardware; a
+timeout would only ever fire on the honest case. `Shell\DisplayArrivalWaiter.cs` requires two
+identical observations a settle apart before it believes a display has arrived, because a monitor
+coming up behind a switch enumerates, disappears and re-enumerates while the sink negotiates.
+`Interop\DisplayChangeWindow.cs` supplies the hint: a hidden top-level window, because
+`WM_DISPLAYCHANGE` is broadcast to top-level windows only and the message-only window never hears
+it. The hint only shortens a wait; a five-second backstop poll is what makes the wait correct when
+no broadcast arrives.
+
+Desktop residency is its own setting (Settings > System, "Start WSGM at sign-in" plus "Start in"); a
+Desktop start runs `--shell --desktop-resident` and needs the installed logon service.
 
 Leave restores the configured Desktop profile before invoking the external entertainment-route
 action, after Explorer recovery succeeds. Startup and wake route work runs only on Desktop, awaits

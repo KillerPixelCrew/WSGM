@@ -269,16 +269,31 @@ relaunches Big Picture or shows the overlay, which is the only surface left. A d
 Explorer, so it either starts the windowed client again or does nothing; it never interrupts the
 user with the overlay.
 
-Desktop mode: pause the monitor, close Big Picture, start Explorer through the anchor, then resume
-monitoring and supply the windowed client. Game mode from the desktop: request Big Picture first
-with the monitor still paused, then run `ExitExplorerAndWait` off the UI thread, so Steam's UI
-startup overlaps Explorer's linger and retry instead of showing the wait before Big Picture appears.
-Only when Explorer is verifiably gone does the UI thread apply game posture, recreate the tray host
-and game-mode services, and resume monitoring. If Explorer refuses to exit, the transition sends
-`steam://close/bigpicture` and keeps desktop mode. If desktop restoration fails before any Explorer
-launch was dispatched, rollback reopens Big Picture before recreating game-mode services; a
-dispatched or late shell suppresses that recreation so there are never two taskbars. The logon boot
-is stricter: Steam starts only after Explorer is gone.
+Desktop mode: pause the monitor, close Big Picture, restore the layout the Game Mode session owed
+the desktop, start Explorer through the anchor, run the configured leave actions, then resume
+monitoring and supply the windowed client. The layout goes back before Explorer does, as the scaling
+restore always has, because Explorer sizes its taskbar and desktop icons to whatever the displays
+say when it starts.
+
+Game mode from the desktop is one cancellable transaction, `Shell\GameModeEntryTransaction.cs`.
+Everything before the Explorer exit is undoable, so the splash offers Cancel and a failure puts the
+desktop back exactly as it was; the exit is the boundary, and after it the button becomes "Switch to
+desktop" and later failures compensate forwards. Only when Explorer is verifiably gone does the
+transaction apply the layout, request Big Picture and commit the tray host, game-mode services and
+monitoring. If Explorer refuses to exit, desktop mode is kept. If desktop restoration fails before
+any Explorer launch was dispatched, rollback reopens Big Picture before recreating game-mode
+services; a dispatched or late shell suppresses that recreation so there are never two taskbars.
+
+Big Picture is requested after the exit and after the layout, which reverses the old order. That
+order was a latency optimisation, worth having when Steam was not already running. In a resident
+desktop session Steam is already up, the splash covers the whole transaction, and a Big Picture
+window created before the layout would be built on the wrong display at the wrong scaling. The
+occlusion rules below are unchanged: detection is armed at the request, the fade starts on window
+detection, and nothing re-activates Steam afterwards. The logon boot is stricter still: Steam starts
+only after Explorer is gone.
+
+The entry order, the display wait that has no deadline, and what compensation runs when are in
+`docs\plugin-system.md`, "Game Mode entry".
 
 ### The CEF transport stays closed until the Big Picture window exists
 

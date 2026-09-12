@@ -2,12 +2,12 @@ using WSGM.Shell;
 
 namespace WSGM.Tests;
 
-public sealed class DesktopRouteAdmissionTests
+public sealed class DesktopActionAdmissionTests
 {
     [Fact]
     public void DuplicateEventsStaySuppressedDuringWorkAndCooldown()
     {
-        DesktopRouteAdmission admission = new();
+        DesktopActionAdmission admission = new();
         Assert.True(admission.TryBegin(false, false, 100));
         Assert.False(admission.TryBegin(false, false, 10000));
         admission.End();
@@ -18,9 +18,9 @@ public sealed class DesktopRouteAdmissionTests
     [Theory]
     [InlineData(true, false)]
     [InlineData(false, true)]
-    public void GameModeAndTransitionsSuppressDesktopRoute(bool gameMode, bool transitioning)
+    public void GameModeAndTransitionsSuppressDesktopActions(bool gameMode, bool transitioning)
     {
-        DesktopRouteAdmission admission = new();
+        DesktopActionAdmission admission = new();
         Assert.False(admission.TryBegin(gameMode, transitioning, 100));
         Assert.True(admission.TryBegin(false, false, 101));
     }

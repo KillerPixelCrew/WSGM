@@ -8,7 +8,7 @@ public sealed class CommonPluginActionTests
     private static DateTimeOffset Deadline => DateTimeOffset.UtcNow.AddSeconds(5);
 
     [Fact]
-    public async Task DisplayRouteAdapterUsesSessionAutomationAndAdmittedInstance()
+    public async Task SessionAutomationInvokerUsesTheAdmittedInstanceAndItsCurrentGeneration()
     {
         PluginHost host = new(action => action());
         Provider plugin = new();
@@ -16,8 +16,9 @@ public sealed class CommonPluginActionTests
         await registration.StartAsync(Deadline, default);
         try
         {
-            var result = await new DisplayRouteBackend(host).InvokeAsync(
-                new(registration.Identity, "send", new Dictionary<string, PluginValue>()), Deadline, default);
+            var result = await new PluginHostActionInvoker(host).InvokeAsync(
+                new WSGM.Core.PluginActionStep { Plugin = registration.Identity, ActionId = "send" },
+                Deadline, default);
             Assert.Equal(PluginActionOutcome.Dispatched, result.Outcome);
             Assert.Equal(PluginActionOrigin.SessionAutomation, plugin.Request!.Origin);
             Assert.Equal(1, plugin.Dispatches);

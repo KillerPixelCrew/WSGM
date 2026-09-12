@@ -175,7 +175,10 @@ Windows Explorer stays the shell. The WSGM notification icon opens the Overlay, 
 Mode and provides Exit WSGM. Start WSGM again from the Start Menu; launching it while running opens
 the existing session. Setup also offers an optional Desktop shortcut.
 
-Overlay > Tools > Display routes can bind plugin actions and captured display profiles to Game Mode
-entry/exit and Desktop startup/wake. This supports external HDMI/input routing without putting
-device protocols in Core. See
-[configuration and behavior](docs/plugin-system.md#display-route-automation).
+Settings > Display configures what entering Game Mode does: Default adjusts scaling only, Custom
+applies a saved display layout, optionally after waiting for a display and running plugin actions.
+Plugin actions can also run when leaving Game Mode and at desktop startup and wake, which is how
+external HDMI and input routing works without putting device protocols in Core. The wait for a
+display has no time limit, for a TV that only appears once an HDMI switch selects this PC. See
+[session automation](docs/plugin-system.md#session-automation) and
+[Game Mode display layouts](docs/power-and-display.md#game-mode-display-layouts).

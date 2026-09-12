@@ -26,6 +26,11 @@ internal sealed class UiFixture : IDisposable
     internal List<string> Calls { get; } = [];
     internal AppConfig Saved { get; private set; } = new() { AccentColor = "#4CC2FF", QuickSetupRevision = QuickSetup.CurrentRevision };
     internal Func<SettingsViewModel.SaveRequest, Task<SettingsViewModel.SaveResult>>? Persist { get; set; }
+
+    /// <summary>What a Snapshot in Settings observes. Synthetic: these tests never read this
+    /// machine's displays.</summary>
+    internal WindowsDeviceControl.DisplayArrangement Displays { get; set; } =
+        new([], "no-displays", DateTimeOffset.UnixEpoch);
     internal OverlayWindow.SessionState Session { get; } = new();
 
     internal UiFixture()
@@ -39,7 +44,7 @@ internal sealed class UiFixture : IDisposable
     internal SettingsWindow Settings(int width = 1280, int height = 800)
     {
         SettingsViewModel.SettingsServices services = new(
-            () => [], () => [],
+            () => Displays, () => [], () => [],
             () => Calls.Add("save-import-begin"), () => Calls.Add("save-import-end"),
             async request =>
             {

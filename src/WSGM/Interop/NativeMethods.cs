@@ -693,6 +693,16 @@ internal static partial class NativeMethods
     /// <summary>DBT_DEVICEARRIVAL: the device named by lParam is now available.</summary>
     internal const nint DbtDeviceArrival = 0x8000;
 
+    /// <summary>DBT_DEVNODES_CHANGED: the device tree changed. Carries no payload and needs no
+    /// registration, which is exactly what makes it useful for a monitor appearing behind an HDMI
+    /// switch: Windows sends it before the display is usable, so it is a hint to re-enumerate.
+    /// </summary>
+    internal const nint DbtDevnodesChanged = 0x0007;
+
+    /// <summary>WM_DISPLAYCHANGE — the desktop resolution or monitor set changed. Broadcast to
+    /// top-level windows only, so a message-only window never receives it.</summary>
+    internal const uint WmDisplayChange = 0x007E;
+
     /// <summary>DBT_DEVICEREMOVECOMPLETE: the device named by lParam is gone.</summary>
     internal const nint DbtDeviceRemoveComplete = 0x8004;
 

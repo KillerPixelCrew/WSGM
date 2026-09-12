@@ -13,8 +13,10 @@ namespace WSGM.Core;
 /// persistence is why the pre-game values are stored in WSGM's config and restored on desktop
 /// mode, clean exit, panic, and recovery. Game mode runs at 100% so DPI-unaware games render
 /// 1:1 on the panel. HDR is queried and set on the path TARGET, never the GDI source; see
-/// docs\power-and-display.md. This class also dispatches the Game/Desktop display modes;
-/// profile-based modes delegate to <see cref="DisplayProfiles"/>.</summary>
+/// docs\power-and-display.md. A configured Game Mode layout owns resolution, position, refresh,
+/// per-display scaling and HDR instead, through <see cref="WindowsDeviceControl.DisplayLayouts"/>;
+/// this class remains the scaling posture Default entry applies and the snapshot recovery
+/// restores.</summary>
 public static unsafe class DisplayScale
 {
     // Index 0 = 100%. Recommended = DpiVals[abs(MinScaleRel)].
@@ -27,15 +29,6 @@ public static unsafe class DisplayScale
     /// scaling is left untouched.</summary>
     public static void ApplyGameMode(AppConfig config)
     {
-        if (config.DisplayManagement == DisplayManagementMode.Off)
-        {
-            return;
-        }
-        if (config.DisplayManagement is DisplayManagementMode.AutomaticProfiles or DisplayManagementMode.FixedProfiles)
-        {
-            DisplayProfiles.Transition(config, enteringGameMode: true);
-            return;
-        }
         var sources = GetActiveSources();
         if (sources.Count == 0)
         {
@@ -98,39 +91,13 @@ public static unsafe class DisplayScale
         }
     }
 
-    /// <summary>Recovery path for clean exit, panic, uninstall and shell repair.
-    /// Full-profile modes apply the last known Desktop profile without capturing;
-    /// any pending DPI snapshot is restored regardless of the current mode.</summary>
-    public static void RestoreSaved(AppConfig config)
-    {
-        // Consume a DPI-only snapshot first when the user changed modes while game
-        // mode was active. A configured Desktop profile then wins as the final
-        // state rather than being overwritten by that cleanup.
-        RestoreDpiSnapshot(config);
-        if (config.DisplayManagement is DisplayManagementMode.AutomaticProfiles or DisplayManagementMode.FixedProfiles)
-        {
-            // Recovery must never capture the possibly half-torn-down mode as a
-            // new preference. Apply the last known desktop profile directly.
-            DisplayProfiles.ApplySaved(config.DisplayProfiles, game: false);
-        }
-    }
+    /// <summary>Recovery path for clean exit, panic, uninstall and shell repair. Restores any
+    /// pending scaling snapshot; the layout a Game Mode session owes the desktop is separate and
+    /// belongs to <see cref="GameModeLaunchRecovery"/>.</summary>
+    public static void RestoreSaved(AppConfig config) => RestoreDpiSnapshot(config);
 
-    /// <summary>Handles an intentional transition into desktop mode. Automatic
-    /// profiles capture the game values being left; Off performs no new display
-    /// changes, while still leaving crash recovery to <see cref="RestoreSaved"/>.</summary>
-    public static void ApplyDesktopMode(AppConfig config)
-    {
-        if (config.DisplayManagement == DisplayManagementMode.Off)
-        {
-            return;
-        }
-        if (config.DisplayManagement is DisplayManagementMode.AutomaticProfiles or DisplayManagementMode.FixedProfiles)
-        {
-            DisplayProfiles.Transition(config, enteringGameMode: false);
-            return;
-        }
-        RestoreDpiSnapshot(config);
-    }
+    /// <summary>Handles an intentional transition into desktop mode.</summary>
+    public static void ApplyDesktopMode(AppConfig config) => RestoreDpiSnapshot(config);
 
     private static void RestoreDpiSnapshot(AppConfig config)
     {
@@ -223,15 +190,6 @@ public static unsafe class DisplayScale
             foreach (var source in sources)
             {
                 var name = GetSourceDeviceName(source.Adapter, source.SourceId);
-                if (config.DisplayManagement is DisplayManagementMode.AutomaticProfiles or DisplayManagementMode.FixedProfiles)
-                {
-                    var desktop = config.DisplayProfiles.Find(
-                        profile => string.Equals(profile.DeviceName, name, StringComparison.OrdinalIgnoreCase))?.Desktop.DpiPercent;
-                    if (desktop is >= 100 and <= 500)
-                    {
-                        return (uint)NormalizeConfiguredPercent(desktop.Value);
-                    }
-                }
                 var saved = config.SavedDisplayScaleEntries.Find(
                     e => string.Equals(e.DeviceName, name, StringComparison.OrdinalIgnoreCase));
                 if (saved is { Percent: >= 100 and <= 500 })
@@ -288,24 +246,6 @@ public static unsafe class DisplayScale
             }
         }
         return result;
-    }
-
-    internal static void ApplyPercentages(IEnumerable<MonitorDisplayProfile> profiles, bool game)
-    {
-        foreach (var source in GetActiveSources())
-        {
-            var name = GetSourceDeviceName(source.Adapter, source.SourceId);
-            var profile = profiles.FirstOrDefault(p => string.Equals(p.DeviceName, name, StringComparison.OrdinalIgnoreCase));
-            if (profile is null)
-            {
-                continue;
-            }
-            var percent = NormalizeConfiguredPercent(game ? profile.Game.DpiPercent : profile.Desktop.DpiPercent);
-            if (TrySetScale(source, (uint)percent))
-            {
-                Log.Info($"Display profile: {name} DPI -> {percent}%.");
-            }
-        }
     }
 
     internal static int NormalizeConfiguredPercent(int percent)
@@ -417,52 +357,6 @@ public static unsafe class DisplayScale
             result.TryAdd(target.DeviceName, (target.Supported, target.Enabled));
         }
         return result;
-    }
-
-    /// <summary>Applies the selected profile's HDR flag only to monitors that currently support HDR.</summary>
-    internal static void ApplyHdr(IEnumerable<MonitorDisplayProfile> profiles, bool game)
-    {
-        foreach (var target in EnumerateHdrTargets())
-        {
-            MonitorDisplayProfile? profile = null;
-            foreach (var candidate in profiles)
-            {
-                if (string.Equals(candidate.DeviceName, target.DeviceName, StringComparison.OrdinalIgnoreCase))
-                {
-                    profile = candidate;
-                    break;
-                }
-            }
-            if (profile is null)
-            {
-                continue;
-            }
-            var enabled = game ? profile.Game.HdrEnabled : profile.Desktop.HdrEnabled;
-            if (!ShouldChange(target.Supported, target.Enabled, enabled))
-            {
-                continue;
-            }
-            var packet = new AdvancedColorState
-            {
-                Header =
-                {
-                    Type = SetAdvancedColorStateType,
-                    Size = (uint)sizeof(AdvancedColorState),
-                    AdapterId = target.AdapterId,
-                    Id = target.TargetId,
-                },
-                EnableAdvancedColor = enabled ? 1u : 0u,
-            };
-            var status = DisplayConfigSetDeviceInfo(ref packet);
-            if (status == 0)
-            {
-                Log.Info($"Display profile: {target.DeviceName} HDR -> {(enabled ? "on" : "off")}.");
-            }
-            else
-            {
-                Log.Warn($"Display profile: {target.DeviceName} HDR {(enabled ? "enable" : "disable")} failed ({status}).");
-            }
-        }
     }
 
     internal static bool ShouldChange(bool available, bool current, bool requested)

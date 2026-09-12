@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
+using WindowsDeviceControl;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 
@@ -95,8 +96,12 @@ public static class ConfigStore
             var root = JsonNode.Parse(json)?.AsObject()
                 ?? throw new JsonException("Configuration root was not an object.");
             RepairEnum(root, "GlyphStyle", Defaults.GlyphStyle);
-            RepairEnum(root, "DisplayManagement", Defaults.DisplayManagement);
             RepairEnum(root, "StartMode", Defaults.StartMode);
+            if (root["GameModeLaunch"] is JsonObject launch)
+            {
+                RepairEnum(launch, "Kind", Defaults.GameModeLaunch.Kind);
+                RepairEnum(launch, "Return", Defaults.GameModeLaunch.Return);
+            }
             if (root["Splash"] is JsonObject splash)
             {
                 RepairEnum(splash, "SpinnerStyle", SplashFieldDefaults.SpinnerStyle);
@@ -325,7 +330,6 @@ public static class ConfigStore
     /// handler runs). New nested object/list members belong in this list too.</summary>
     internal static AppConfig Normalize(AppConfig config)
     {
-        config.DisplayManagement = Definite(config.DisplayManagement, Defaults.DisplayManagement);
         config.StartMode = Definite(config.StartMode, Defaults.StartMode);
         config.StartupApps ??= [];
         config.PluginInstances ??= [];
@@ -342,7 +346,9 @@ public static class ConfigStore
         config.QuickAccessPins = config.QuickAccessPins
             .Where(static id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
         config.SavedDisplayScaleEntries ??= [];
-        config.DisplayProfiles ??= [];
+        config.GameModeLaunch ??= new GameModeLaunchConfiguration();
+        NormalizeGameModeLaunch(config.GameModeLaunch);
+        config.GameModeLaunchRecovery ??= new GameModeLaunchRecovery();
         config.PreviousConsoleLockSchemeValues ??= [];
         config.CardLibraries ??= [];
         config.ForgottenInsertedCardIds ??= [];
@@ -407,17 +413,6 @@ public static class ConfigStore
         foreach (var entry in config.SavedDisplayScaleEntries)
         {
             entry.DeviceName ??= "";
-        }
-        config.DisplayProfiles.RemoveAll(static profile => profile is null);
-        foreach (var profile in config.DisplayProfiles)
-        {
-            profile.MonitorId ??= "";
-            profile.DeviceName ??= "";
-            profile.DisplayName ??= "";
-            profile.Desktop ??= new DisplayModeValues();
-            profile.Game ??= new DisplayModeValues();
-            NormalizeDisplayMode(profile.Desktop);
-            NormalizeDisplayMode(profile.Game);
         }
         config.PreviousConsoleLockSchemeValues.RemoveAll(static scheme => scheme is null);
         foreach (var scheme in config.PreviousConsoleLockSchemeValues)
@@ -699,12 +694,55 @@ public static class ConfigStore
         return reference;
     }
 
-    private static void NormalizeDisplayMode(DisplayModeValues mode)
+    private static void NormalizeGameModeLaunch(GameModeLaunchConfiguration launch)
     {
-        mode.Width = Math.Clamp(mode.Width, 0, 16384);
-        mode.Height = Math.Clamp(mode.Height, 0, 16384);
-        mode.RefreshRate = Math.Clamp(mode.RefreshRate, 0, 1000);
-        mode.DpiPercent = DisplayScale.NormalizeConfiguredPercent(Math.Clamp(mode.DpiPercent, 100, 500));
+        launch.Kind = Definite(launch.Kind, Defaults.GameModeLaunch.Kind);
+        launch.Return = Definite(launch.Return, Defaults.GameModeLaunch.Return);
+        launch.GameLayout = NormalizeLayout(launch.GameLayout);
+        launch.DesktopLayout = NormalizeLayout(launch.DesktopLayout);
+        launch.EnterActions = NormalizeSteps(launch.EnterActions);
+        launch.LeaveActions = NormalizeSteps(launch.LeaveActions);
+        launch.DesktopStartupActions = NormalizeSteps(launch.DesktopStartupActions);
+        launch.DesktopWakeActions = NormalizeSteps(launch.DesktopWakeActions);
+        launch.KnownDisplays ??= [];
+        launch.KnownDisplays.RemoveAll(static display => display?.Target is null);
+        foreach (var display in launch.KnownDisplays)
+        {
+            display.Modes = (display.Modes ?? [])
+                .Where(static mode => mode is { Width: > 0 and <= 16384, Height: > 0 and <= 16384 })
+                .Distinct().Take(512).ToList();
+            display.MaximumDpiPercent = Math.Clamp(display.MaximumDpiPercent, 0, 500);
+        }
+    }
+
+    /// <summary>Drops a layout that could never be applied rather than editing it into something
+    /// the user did not choose. An empty or duplicated layout means the file was hand-edited or a
+    /// migration could not resolve it, and silently repairing it would move somebody's displays.</summary>
+    private static DisplayLayout? NormalizeLayout(DisplayLayout? layout)
+    {
+        if (layout?.Outputs is not { Count: > 0 and <= 32 } outputs
+            || outputs.Any(static output => output?.Target is null
+                || output.Width is <= 0 or > 16384 || output.Height is <= 0 or > 16384))
+        {
+            return null;
+        }
+        return DisplayLayouts.Describe(layout) is null ? layout : null;
+    }
+
+    private static List<PluginActionStep> NormalizeSteps(List<PluginActionStep>? steps)
+    {
+        steps ??= [];
+        steps.RemoveAll(static step => step is null
+            || step.Plugin is not { } plugin
+            || string.IsNullOrWhiteSpace(plugin.PluginId)
+            || string.IsNullOrWhiteSpace(plugin.InstanceId)
+            || string.IsNullOrWhiteSpace(step.ActionId));
+        foreach (var step in steps)
+        {
+            step.Arguments ??= [];
+            step.TimeoutSeconds = Math.Clamp(step.TimeoutSeconds, 1, 120);
+        }
+        return steps.Take(32).ToList();
     }
 
     private static void NormalizeFilter(FilterNode node)

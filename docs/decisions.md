@@ -105,6 +105,26 @@ that source restores those custom values. Per-game changes override only that ga
 source and global defaults remain unchanged. The assignment mechanism and validation boundaries are
 in `docs\power-and-display.md`.
 
+**Four display modes became two, and the old Off became Default.** Off, DPI-only and automatic
+profiles all collapse into Default, which is the DPI-only posture. Off was never a neutral choice:
+it left a handheld running the desktop's scaling inside Big Picture, so DPI-unaware games did not
+render 1:1 on the panel, and the setting existed mostly because automatic capture was untrustworthy.
+Automatic profiles captured behind the user's back and could learn an exclusive-fullscreen game's
+temporary mode as the saved preference. What is left is Default and Custom, and Custom is a layout a
+person captured from a desktop they arranged. See `docs\power-and-display.md`.
+
+**The splash is always shown on Game Mode entry, and its wait has no deadline.** The splash is the
+cancel surface, so an entry that has anything to wait for must show it. Its Big Picture timeout
+starts when Steam is actually asked, not when the cover goes up: the reference machine waits for a
+TV behind an HDMI switch, and a timeout measured from the cover would fire in the middle of exactly
+the wait the cover exists for. `Shell\SplashPolicy.cs` is that rule.
+
+**A migrated display layout is not silently rebound.** The retired per-monitor profiles recorded a
+GDI source name and a registry device key, neither of which Windows can resolve back to a monitor.
+The migration keeps the values and leaves the identity empty, Settings shows those rows as needing
+confirmation, and Game Mode entry refuses them. Guessing would move the wrong display; a permanent
+compatibility field keyed on the old device key would need live enumeration to mean anything.
+
 **Toolchain pins.** .NET 10 and Avalonia 12.1.1. `LoadingIndicators.Avalonia` is vendored under
 `third_party\LoadingIndicators.Avalonia` and built from source, because its published Avalonia 11
 package has precompiled XAML that fails on Avalonia 12; its Unlicense text ships from

@@ -174,16 +174,17 @@ stops here rather than at zero:
   now targets `SplashConfig`'s own defaults. It stays open for the brand mark, which is not mine to
   invent, and for the resolution and DPI validation the issue asks for.
 
-- #51 is implemented. Overlay > Tools > Display routes binds declared plugin actions, arguments,
-  display targets and captured profiles to entry, exit, Desktop startup and Desktop wake. Saves are
-  explicit and update only their owned policy. The logon manifest supports Desktop residency.
-  Entry switches route, waits for an available target, applies its profile and places Steam there
-  under a cancellable splash. Exit restores the Desktop profile before its external action.
-  Failed takeover restores the pre-entry topology; still-running native work blocks subsequent
-  route dispatch. Wake/startup requests wait for plugin readiness, recheck mode and coalesce duplicates.
-  Release application/service builds are warning-clean. Focused route/session/logon checks, headless
-  editor checks and WDC wait validation pass. Live HDMI, Steam placement and sign-in review is not
-  claimed; the maintainer requested implementation closure with review later.
+- #51 is implemented. `AppConfig.GameModeLaunch` binds declared plugin actions and saved display
+  layouts to Game Mode entry and leave and to Desktop startup and wake; Settings > Display
+  configures it and the logon manifest supports Desktop residency. Entry is one cancellable
+  transaction whose Explorer exit is the boundary, and the wait for a display has no deadline, for
+  a TV that appears only once an HDMI switch selects this PC. Leaving restores the arrangement
+  captured at entry or a configured Desktop layout, before Explorer returns, then runs the leave
+  actions. Wake and startup requests wait for plugin readiness, recheck the mode and coalesce
+  duplicates. Nothing is retried anywhere. Release application and service builds are warning-clean;
+  focused transaction, waiter, migration, session and headless Settings checks pass. Live HDMI,
+  display switching and sign-in review is not claimed; the maintainer requested implementation
+  closure with review later.
 
 - #53 is implemented. The common SDK supplies structured widgets with stable identities, state
   predicates, icons and category navigation. Device and IR use the shared renderer. Source-page
@@ -595,7 +596,7 @@ complete. Build order follows the list.
       identity. An absent monitor returns `TargetsAbsent`, and an already-matching arrangement is
       not rewritten. 13 new tests run on synthetic path arrays; 106 WDC tests pass. The display
       catalog and WSGM's crash and rollback coverage belong to the phases that consume this.
-- [ ] **Wait for display arrival is a release-blocking Game Mode path.** Support the reference setup
+- [x] **Wait for display arrival is a release-blocking Game Mode path.** Support the reference setup
       where the inactive HDMI-extractor input exposes no EDID and Windows therefore has no TV target
       to configure. A Game Mode request from Desktop keeps the complete WSGM session and Explorer
       running, leaves the Desktop layout untouched, and shows an actionable waiting line on the
@@ -609,7 +610,14 @@ complete. Build order follows the list.
       waiting without partially entering Game Mode; disappearance after Game Mode is established is
       non-fatal. Cover the state machine with synthetic tests. Live observation on the exact
       extractor/TV path is optional maintainer-directed diagnosis, not a completion gate.
-- [ ] **Make on-demand Game Mode one cancellable, fail-open transaction.** The overlay and the
+      `Shell\DisplayArrivalWaiter.cs` waits with no deadline, only cancellation, and requires two
+      identical fingerprints 500 ms apart. `Interop\DisplayChangeWindow.cs` supplies the hint: a
+      hidden top-level window, because `WM_DISPLAYCHANGE` is broadcast to top-level windows only
+      and `MessageWindow` is `HWND_MESSAGE`, so it never received one. A 5 s backstop poll keeps
+      the wait correct when no broadcast arrives, and a query that throws counts as not settled
+      rather than as a failure. A target that disappears again before the Explorer exit returns to
+      waiting. 9 synthetic tests; no display was changed.
+- [x] **Make on-demand Game Mode one cancellable, fail-open transaction.** The overlay and the
       notification icon begin it from Desktop Mode. Show the WSGM splash over the live desktop, run
       the configured plugin actions, display every prerequisite that is still waiting, and allow
       cancellation before Explorer exit without changing WSGM's shell or display state. After the
@@ -620,6 +628,14 @@ complete. Build order follows the list.
       restores the Desktop layout and Explorer. External actions such as IR or Home Assistant calls
       are best-effort/compensated; they cannot truthfully promise that no external side effect
       occurred.
+      `Shell\GameModeEntryTransaction.cs` owns the order; the backend owns the effects. The Explorer
+      exit is the boundary: before it every step is undoable and the splash offers Cancel, after it
+      the button becomes "Switch to desktop" and failures compensate forwards. Big Picture now
+      follows the exit and the layout, because Steam is already running on the desktop and a window
+      created earlier would be built on the wrong display at the wrong scaling. Compensation runs
+      the leave actions whenever an entry step was dispatched or left uncertain; a rejected step
+      changed nothing and earns none. 12 call-order tests over a fake backend; no live transition
+      was run.
 - [ ] **Game Mode launch configuration in WSGM Settings.** Default keeps today's launch on the main
       display. Custom shows the launch editor: which displays are active, which is primary, each
       display's position, resolution, refresh rate, DPI and HDR, an optional display wait, and
@@ -632,6 +648,14 @@ complete. Build order follows the list.
       Desktop wake plugin actions, so a switch that auto-selects the PC on wake can be sent back to
       its preferred source. This replaces the fixed Desktop/Game profiles in Settings > Display and
       the Overlay > Tools > Display routes editor, with migration of existing configuration.
+      Half delivered. `AppConfig.GameModeLaunch` is the model, the four retired display keys migrate
+      into it, and Settings > Display now has Default/Custom, Snapshot for both layouts, a read-only
+      layout summary that flags rows needing confirmation, the wait-display picker and the four
+      action lists. The Overlay routes editor and the fixed-profile page are gone.
+      Still open: editing a layout's fields (active, primary, position, mode, DPI, HDR) per display
+      including for an absent one, rebinding a migrated row to a real display, forgetting a
+      remembered display, and adding or reordering action steps from Settings. Until then a layout
+      comes from Snapshot only, and action steps are shown but not authored here.
 - [x] **Add Windows power-scheme selection to Core.** Enumerate installed schemes, identify and read
       the active scheme, select one through the locale-independent `powrprof` API, and verify with
       `PowerGetActiveScheme`. Project it on WSGM's Power/Performance surfaces independently of

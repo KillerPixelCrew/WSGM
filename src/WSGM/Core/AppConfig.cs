@@ -152,53 +152,6 @@ public enum SessionStartMode
     Game,
 }
 
-/// <summary>Selects how WSGM manages display settings during session-mode transitions.</summary>
-public enum DisplayManagementMode
-{
-    /// <summary>Never change display settings.</summary>
-    Off,
-    /// <summary>Force game mode to 100% DPI and restore desktop DPI.</summary>
-    DpiOnly,
-    /// <summary>Capture the mode being left and restore the last profile for the mode entered.</summary>
-    AutomaticProfiles,
-    /// <summary>Apply the user-configured desktop and game profiles.</summary>
-    FixedProfiles,
-}
-
-/// <summary>Resolution, refresh rate and DPI for one monitor in one session mode.</summary>
-public sealed class DisplayModeValues
-{
-    /// <summary>Horizontal resolution in pixels.</summary>
-    public int Width { get; set; }
-    /// <summary>Vertical resolution in pixels.</summary>
-    public int Height { get; set; }
-    /// <summary>Refresh rate in hertz.</summary>
-    public int RefreshRate { get; set; }
-    /// <summary>Windows display scaling percentage.</summary>
-    public int DpiPercent { get; set; } = 100;
-
-    /// <summary>Whether HDR/advanced color is enabled when the monitor supports it.</summary>
-    public bool HdrEnabled { get; set; }
-}
-
-/// <summary>Desktop and game-mode values for one GDI display source.</summary>
-public sealed class MonitorDisplayProfile
-{
-    /// <summary>Stable monitor device identity used across topology reorderings.</summary>
-    public string MonitorId { get; set; } = "";
-
-    /// <summary>GDI source name, such as <c>\\.\DISPLAY1</c>.</summary>
-    public string DeviceName { get; set; } = "";
-    /// <summary>Friendly monitor label captured for the settings UI.</summary>
-    public string DisplayName { get; set; } = "";
-    /// <summary>Whether Windows reports HDR/advanced-color support for this monitor.</summary>
-    public bool HdrAvailable { get; set; }
-    /// <summary>Values applied or captured in desktop mode.</summary>
-    public DisplayModeValues Desktop { get; set; } = new();
-    /// <summary>Values applied or captured in game mode.</summary>
-    public DisplayModeValues Game { get; set; } = new();
-}
-
 /// <summary>One power scheme's CONSOLELOCK values as they were before WSGM wrote
 /// them. -1 = value absent (Windows default applies).</summary>
 public sealed class PowerSchemeConsoleLock
@@ -889,13 +842,13 @@ public sealed class AppConfig
     /// scaling back, matched per display via the GDI source device name.</summary>
     public List<DisplayScaleEntry> SavedDisplayScaleEntries { get; set; } = [];
 
-    /// <summary>Controls whether WSGM leaves displays alone, changes DPI only, or manages full profiles.</summary>
-    public DisplayManagementMode DisplayManagement { get; set; } = DisplayManagementMode.DpiOnly;
+    /// <summary>What Game Mode entry and leave do to displays, and the automation around them.</summary>
+    public GameModeLaunchConfiguration GameModeLaunch { get; set; } = new();
 
-    /// <summary>Per-monitor desktop and game-mode display profiles.</summary>
-    public List<MonitorDisplayProfile> DisplayProfiles { get; set; } = [];
-    /// <summary>Optional lifecycle bindings for external route and display-profile automation.</summary>
-    public DisplayRouteConfiguration? DisplayRoutes { get; set; }
+    /// <summary>Runtime-owned record of a Game Mode session that has not returned yet. Settings
+    /// never writes this, so an editor open across a crash cannot discard the layout a recovery
+    /// start has to restore.</summary>
+    public GameModeLaunchRecovery GameModeLaunchRecovery { get; set; } = new();
     /// <summary>The Winlogon Shell snapshot that existed before WSGM installed itself.
     /// Presence is separate from the string so an empty value remains distinguishable
     /// from an absent value; kind preserves REG_EXPAND_SZ as well as REG_SZ.</summary>
@@ -1071,6 +1024,11 @@ public sealed class CefConfig
 [JsonSerializable(typeof(PerformanceApplicationConfig))]
 [JsonSerializable(typeof(FilterNode))]
 [JsonSerializable(typeof(DeviceCoordinatorDiagnosticsSnapshot))]
+// Retired shapes, registered only so ConfigMigrations can read a stored document that still uses
+// them. Nothing current serializes these.
+[JsonSerializable(typeof(GameModeLaunchConfiguration))]
+[JsonSerializable(typeof(LegacyDisplayRoutes))]
+[JsonSerializable(typeof(LegacyMonitorDisplayProfile))]
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]
 internal partial class ConfigJsonContext : JsonSerializerContext
 {
