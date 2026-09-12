@@ -60,6 +60,7 @@ public sealed class OverlayController : IDisposable
     private readonly DevicePowerPresets? _powerPresets;
     private readonly DevicePowerAssignments? _powerAssignments;
     private readonly CommonPluginOverlaySource? _commonPlugins;
+    private readonly Shell.DevicePrerequisiteSource? _devicePrerequisites;
 
     /// <summary>
     /// The session's audio manager, shared with the sheet's status pills rather than owned.
@@ -156,8 +157,10 @@ public sealed class OverlayController : IDisposable
         CommonPluginOverlaySource? commonPlugins = null,
         Shell.RemovableDriveManager? drives = null,
         Shell.SdFormatManager? formats = null,
-        Shell.DisplayTimeouts? displayTimeouts = null)
+        Shell.DisplayTimeouts? displayTimeouts = null,
+        Shell.DevicePrerequisiteSource? devicePrerequisites = null)
     {
+        _devicePrerequisites = devicePrerequisites;
         _commonPlugins = commonPlugins;
         _displayTimeouts = displayTimeouts;
         if (_displayTimeouts is not null)
@@ -936,6 +939,7 @@ public sealed class OverlayController : IDisposable
         };
         long constructDone = System.Diagnostics.Stopwatch.GetTimestamp();
         _overlay.AttachDeviceBridge(_device);
+        _overlay.AttachDevicePrerequisites(_devicePrerequisites);
         _overlay.AttachCommonPlugins(_commonPlugins);
         _overlay.AttachPerformanceSource(_performance);
         _overlay.SetPins(_config.QuickAccessPins);

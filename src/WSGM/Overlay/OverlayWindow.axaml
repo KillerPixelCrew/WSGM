@@ -403,6 +403,20 @@
                                    Classes="caption"
                                    TextWrapping="Wrap"
                                    Margin="2,0,2,6" />
+                        <!-- A device package can arrive on an install that has no controller
+                             support, because the protected slot is a directory an administrator
+                             can copy into. Without this the package simply does nothing and
+                             nothing says why. Lives on the Device page because that is where a
+                             person goes when their device is not working. -->
+                        <Border x:Name="DevicePrerequisiteBanner" Classes="device-group"
+                                IsVisible="False" Margin="2,0,2,8">
+                            <StackPanel Spacing="8">
+                                <TextBlock x:Name="DevicePrerequisiteDetail" TextWrapping="Wrap" />
+                                <Button x:Name="DevicePrerequisiteEnable" Content="Enable Device Integration"
+                                        IsVisible="False" HorizontalAlignment="Left"
+                                        Click="OnEnableDeviceIntegration" />
+                            </StackPanel>
+                        </Border>
                         <Grid x:Name="DevicePowerOverview" ColumnDefinitions="*,*" ColumnSpacing="16" IsVisible="False">
                             <StackPanel x:Name="DevicePowerPresetContainer">
                                 <ov:DevicePowerPresetView x:Name="DevicePowerPresetHost" IsVisible="False" />

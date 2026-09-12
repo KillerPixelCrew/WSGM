@@ -180,8 +180,17 @@ stops here rather than at zero:
   first run starts from; the second goes to `--setup` as `--profile=` and `Core\InstallProfile.cs`
   applies it only when the machine has no config.json, so repair and upgrade never rewrite what the
   user set in Settings. Custom names no mode. A mode seeds Quick Setup's answers rather than
-  stamping it answered, so the Steam autostart takeover stays consented to. 18 focused tests; no
-  installer was built or run here, and the modes have not been installed on a machine.
+  stamping it answered, so the Steam autostart takeover stays consented to.
+  A device package can still arrive afterwards, because the protected slot is a directory an
+  administrator can copy into. `Core\DevicePrerequisites` reads the machine rather than the package
+  manifest, which declares no prerequisites, and the overlay's Device page carries a banner naming
+  what is missing. It offers Enable Device Integration and only points at setup for the driver
+  half: INV-020 keeps driver installation in setup, because the USB/IP install restarts every USB
+  3.0 hub and would take the pad, the touch digitiser and the keyboard away mid-session. Two of the
+  three modes ship no `libviiper.dll`, so the backend's missing-library path is now ordinary; a
+  truncated or wrong-architecture copy reports unavailable instead of throwing. 32 focused tests; no
+  installer was built or run here, the modes have not been installed on a machine, and the banner
+  has not been seen on a real overlay.
 
 - #51 is implemented. `AppConfig.GameModeLaunch` binds declared plugin actions and saved display
   layouts to Game Mode entry and leave and to Desktop startup and wake; Settings > Display

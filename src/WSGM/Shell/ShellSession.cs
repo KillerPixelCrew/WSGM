@@ -728,7 +728,9 @@ public sealed class ShellSession : IAsyncDisposable
                         ? new DeviceWidgetSource(_deviceCoordinator, _deviceOverlay) : null),
             drives: _drives,
             formats: _formats,
-            displayTimeouts: _displayTimeouts);
+            displayTimeouts: _displayTimeouts,
+            devicePrerequisites: _overlayTestOnly ? null : new DevicePrerequisiteSource(
+                ReadDevicePrerequisiteState, EnableDeviceIntegrationAsync));
         _overlay.ShowOnScreenKeyboard = ShowOnScreenKeyboardAsync;
         _overlay.ManualTdp = _deviceCoordinator;
         if (!_overlayTestOnly)
@@ -1841,6 +1843,39 @@ public sealed class ShellSession : IAsyncDisposable
         splash.Show();
         return splash;
     }
+
+    /// <summary>What this install has, of the things a device package needs.
+    ///
+    /// Read live rather than cached: the protected slot is a directory an administrator can copy
+    /// into while WSGM is running, which is the whole case this exists for.</summary>
+    private Core.DevicePrerequisiteState ReadDevicePrerequisiteState()
+    {
+        bool package;
+        try
+        {
+            package = Core.DevicePackageStager.InventoryEffectiveInstalledPackage(
+                Core.DeviceInstallationPaths.InstalledPackageRoot).PackageRoots.Count > 0;
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException
+            or System.IO.DirectoryNotFoundException or ArgumentException)
+        {
+            // An unreadable slot is not evidence of a package, and a banner must not guess.
+            Log.Warn("Reading the device package slot for the overlay banner failed: " + ex.Message);
+            package = false;
+        }
+        return new(
+            package,
+            _config.DeviceIntegration.Enabled,
+            DevicePrerequisiteSource.ControllerLibraryInstalled(AppContext.BaseDirectory),
+            DevicePrerequisiteSource.HidHideInstalled());
+    }
+
+    private Task EnableDeviceIntegrationAsync() => Task.Run(() =>
+    {
+        ConfigStore.Mutate(fresh => fresh.DeviceIntegration.Enabled = true);
+        _config.DeviceIntegration.Enabled = true;
+        Log.Info("Device Integration enabled from the overlay's prerequisites banner.");
+    });
 
     private PluginActionSequence ActionSequence() => new(new PluginHostActionInvoker(_pluginHost));
 

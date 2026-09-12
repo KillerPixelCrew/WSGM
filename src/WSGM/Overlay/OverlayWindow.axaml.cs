@@ -198,6 +198,7 @@ public partial class OverlayWindow : Window
         internal OverlayDestination Destination { get; set; } = OverlayDestination.QuickAccess;
     }
     private IDeviceOverlaySource? _deviceBridge;
+    private Shell.DevicePrerequisiteSource? _devicePrerequisites;
 
     /// <summary>Preview tiles by control, rebuilt with the Glyphs page and empty elsewhere.</summary>
     /// <remarks>
@@ -376,6 +377,14 @@ public partial class OverlayWindow : Window
         }
     }
 
+    /// <summary>Supplies the reader behind the Device page's missing-prerequisites banner.</summary>
+    /// <param name="prerequisites">The reader, or null in a preview with no session behind it.</param>
+    internal void AttachDevicePrerequisites(Shell.DevicePrerequisiteSource? prerequisites)
+    {
+        _devicePrerequisites = prerequisites;
+        RefreshDevicePrerequisites();
+    }
+
     internal void AttachDeviceBridge(IDeviceOverlaySource? bridge)
     {
         if (ReferenceEquals(_deviceBridge, bridge))
@@ -493,6 +502,41 @@ public partial class OverlayWindow : Window
     /// where the input actually reaching WSGM is not the managed handheld's — because a hint showing
     /// a Claw button while the user holds an Xbox pad is worse than the letter it replaced.
     /// </remarks>
+    /// <summary>Renders what a device package on this install is missing, if anything.</summary>
+    private void RefreshDevicePrerequisites()
+    {
+        WSGM.Core.DevicePrerequisiteAdvice advice = _devicePrerequisites?.Read()
+            ?? new WSGM.Core.DevicePrerequisiteAdvice("", false, false);
+        // No page check: the banner is a child of PanelDevice, so that panel's own visibility is
+        // the gate. It stays up on the Device sub-pages too, which is where someone hunting a dead
+        // device most likely ends up.
+        DevicePrerequisiteBanner.IsVisible = advice.HasAdvice;
+        DevicePrerequisiteDetail.Text = advice.Detail;
+        // The driver half is deliberately not offered here: INV-020 keeps driver installation in
+        // setup, because the USB/IP install restarts every USB 3.0 hub and would take the pad, the
+        // touch digitiser and the keyboard away from whoever is holding the machine.
+        DevicePrerequisiteEnable.IsVisible = advice.CanEnableIntegration;
+    }
+
+    private async void OnEnableDeviceIntegration(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (_devicePrerequisites is not { } prerequisites) { return; }
+        DevicePrerequisiteEnable.IsEnabled = false;
+        try
+        {
+            await prerequisites.EnableAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Enabling Device Integration from the overlay failed", ex);
+        }
+        finally
+        {
+            DevicePrerequisiteEnable.IsEnabled = true;
+            RefreshDevicePrerequisites();
+        }
+    }
+
     private void RefreshNavigationHints()
     {
         // FaceSouth rather than "A": the glyph vocabulary is positional, so a device whose bottom
@@ -622,6 +666,7 @@ public partial class OverlayWindow : Window
         DeviceStatusTitle.IsVisible = DeviceStatusDetail.IsVisible = _navigation.Page == OverlayPage.Device;
         DeviceStatusTitle.Text = snapshot.Status;
         DeviceStatusDetail.Text = snapshot.Detail;
+        RefreshDevicePrerequisites();
 
         // Do not tear the list down while the user is operating a value control on it. Read-only
         // telemetry (fan RPM, temperature) streams several samples a second and each one posts a
