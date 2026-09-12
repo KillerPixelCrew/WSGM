@@ -12,7 +12,12 @@ namespace WSGM.Device.Tests;
 /// the reference unit on 2026-09-10: <c>GMM\GpuSystemMemoryPinninglimit</c> as the only value the
 /// driver reads, an unreadable sibling adapter subkey alongside the Intel one, and Intel Graphics
 /// Software writing 44 into exactly that value and nothing else.
+///
+/// The transport traces its writes, and <c>PluginTrace</c> has one process-wide sink, so these
+/// tests share the collection that installs it. Without that, a write here lands in whichever
+/// trace host another class installed and fails that class's assertion instead.
 /// </remarks>
+[Collection("plugin-trace")]
 public sealed class IntelGraphicsMemoryTests : IDisposable
 {
     private const string ClassPath = @"Software\WSGM.Tests\intel-memory";
