@@ -8,13 +8,15 @@ submodule changes, without feature branches or pull requests.
 
 Open apps game return now waits for deferred sheet closure and input-lease release, asks Steam to
 raise only an existing overlay's exact PID association, and restores the selected HWND instead of
-Steam's preferred console or launcher window. The activation path remains experimental until an
-attended switch-away/return check confirms overlay rendering and input recovery, including modded
-Balatro. All 72 focused WSGM tests and 319 toolkit tests passed. The Release solution build was
+Steam's preferred console or launcher window. After deployment of 694cfba to the reference Claw,
+the maintainer reported that the Balatro switch-away/return test appeared to fix the overlay issue.
+This is a successful manual report for that scenario, not a broad compatibility pass or proof of
+which activation step repaired it. All 72 focused WSGM tests and 319 toolkit tests passed before
+deployment. The Release solution build was
 warning-clean, and the solution tests and 2,569-test coverage run passed.
 `eng/verify.ps1 -SkipPrettier` passed; the default gate remains blocked by pre-existing formatting in
-`docs/boot-and-shell.md` and `docs/elevation.md`. Changed documentation passes formatting. No live
-recovery pass is claimed.
+`docs/boot-and-shell.md` and `docs/elevation.md`. Changed documentation passes formatting.
+The documentation-only acceptance update reuses those results without rerunning suites.
 
 For deferred [#48](https://github.com/KillerPixelCrew/WSGM/issues/48), manual loading of Steam's
 overlay DLLs remains a fallback research option for Xbox/UWP/MSIX games outside the wrapper's

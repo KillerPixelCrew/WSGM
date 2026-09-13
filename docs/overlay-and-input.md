@@ -252,9 +252,10 @@ or Steam's preferred main window. Multiple games do not authorize a fallback to 
 disabled, unavailable or incompatible leaves ordinary exact-window activation available.
 
 `Game return:` logs distinguish completion of the Steam call from verified Windows foreground.
-Neither proves overlay rendering or controller routing recovered. Balatro with its mod-loader
-console, switching away and back, and comparison with keyboard Shift+Tab remain attended checks. The
-implementation does not reinject DLLs or continuously force foreground focus.
+Neither proves overlay rendering or controller routing recovered. The maintainer's successful
+Balatro return test is recorded in `steam-cef.md`; other games and comparison with keyboard
+Shift+Tab remain unverified. The implementation does not reinject DLLs or continuously force
+foreground focus.
 
 On close the sheet refocuses the window that was foreground when it opened (`_restoreFocusTo`,
 captured in `ShowOverlay`): exclusive-fullscreen games sit minimized after the sheet took focus. The

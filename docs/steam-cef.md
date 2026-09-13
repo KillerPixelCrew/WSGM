@@ -14,6 +14,20 @@ Related:
 - `docs\sd-cards.md` — the card manager and format UI that call into library registration.
 - `docs\elevation.md` — the launch wrapper and the non-Steam shortcut rules.
 
+## Balatro overlay after task switching, 2026-09-13
+
+The maintainer reported that Steam's overlay became unusable after switching away from a game and
+back: Steam UI sounds remained audible, with input apparently reaching background Big Picture.
+Balatro's mod loader also exposes a console that Steam's own Return to game can focus instead of the
+game window.
+
+WSGM change `694cfba` waits for the switcher's deferred close and input-lease release, requests
+Steam activation for the selected process's existing overlay, then focuses the exact selected HWND.
+After deployment to the reference Claw, the maintainer tested Balatro and reported that the change
+appeared to fix the issue. This records the user's manual result; no independent rendering capture,
+keyboard/controller comparison or isolation of the repairing step was performed. Broader game
+compatibility remains unverified. No DLL reinjection was needed in this reported scenario.
+
 ## September 2026 client beta audit, 2026-09-11
 
 The Steam Client Beta of 2026-09-09 renumbered the webpack registry. On the first start with it
