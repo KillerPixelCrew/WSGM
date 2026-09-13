@@ -39,6 +39,14 @@ internal sealed class Options
 
     internal bool PassSteamEnvironment { get; private set; } = true;
 
+    /// How long to let the game initialise before its environment block is edited.
+    ///
+    /// Not zero, and the difference is the whole game: patching 30ms after the process
+    /// appeared killed it 1.1s later, every single time, while the identical patch at 8s
+    /// left it running happily. The process is still being initialised by the loader and
+    /// the packaged-app runtime in that window.
+    internal TimeSpan EnvironmentDelay { get; private set; } = TimeSpan.FromSeconds(8);
+
     /// The Steam launch variables this wrapper received, in name=value form, ready to be
     /// handed to the packaged title that the broker would otherwise start with none.
     internal List<string> SteamEnvironment { get; } = [];
@@ -139,6 +147,9 @@ internal sealed class Options
                 case "--no-steam-env":
                     options.PassSteamEnvironment = false;
                     break;
+                case "--env-delay":
+                    options.EnvironmentDelay = Seconds(Next(argument), options.EnvironmentDelay, ref failure);
+                    break;
                 case "--observe":
                     options.Observe = Next(argument);
                     break;
@@ -172,6 +183,14 @@ internal sealed class Options
                     failure ??= $"Unknown argument '{argument}'.";
                     break;
             }
+        }
+
+        // The renderer reads the Steam session variables when it loads, so it must never be
+        // injected before the environment carrying them is in place.
+        if (options.Inject.Count > 0 && options.PassSteamEnvironment
+            && options.InjectDelay < options.EnvironmentDelay + TimeSpan.FromSeconds(2))
+        {
+            options.InjectDelay = options.EnvironmentDelay + TimeSpan.FromSeconds(2);
         }
 
         if (!options.HelpRequested && failure is null && options.Observe is null)
@@ -285,6 +304,9 @@ internal sealed class Options
           --inject-delay <secs>  Wait this long after the game appears before injecting.
           --allow-suspend        Leave the package under normal PLM suspension.
           --no-steam-env         Do not pass Steam's launch variables to the package.
+          --env-delay <secs>     Wait before editing the game's environment (default 8).
+                                 Patching during startup kills the game about a second in;
+                                 injection is held until 2s after this.
           --observe <name|pid>   Report on an already-running process and exit. Use it on a
                                  game where the Steam overlay works, as the control case.
           --log <path>           Transcript path (default %LOCALAPPDATA%\WSGM\uwp-spike).

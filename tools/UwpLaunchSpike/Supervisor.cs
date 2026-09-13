@@ -12,6 +12,7 @@ namespace Wsgm.UwpSpike;
 internal sealed class Supervisor(Options options, SpikeLog log, GameContainment? containment, ForegroundProxy? proxy, Injection? injection)
 {
     private readonly Dictionary<int, TimeSpan> injectAt = [];
+    private readonly Dictionary<int, TimeSpan> envAt = [];
     private readonly Dictionary<int, ProcessReport> tracked = [];
     private readonly Dictionary<int, HashSet<string>> reportedModules = [];
     private readonly Dictionary<int, string> reportedWindows = [];
@@ -47,11 +48,12 @@ internal sealed class Supervisor(Options options, SpikeLog log, GameContainment?
                     containment?.Contain(report.Pid, report.Name);
                     proxy?.SetTarget(report.Pid);
 
-                    // Before any injection: the renderer reads these at load, so the
-                    // environment has to be in place first.
-                    if (options.PassSteamEnvironment)
+                    // Scheduled, not immediate: the renderer reads these at load so the
+                    // environment must land before injection, but editing the block while
+                    // the process was still starting killed the game about a second in.
+                    if (options.PassSteamEnvironment && options.SteamEnvironment.Count > 0)
                     {
-                        EnvironmentPatch.Apply(report.Pid, options.SteamEnvironment, log);
+                        envAt[report.Pid] = clock.Elapsed + options.EnvironmentDelay;
                     }
 
                     if (injection is not null && options.Inject.Count > 0)
@@ -84,6 +86,12 @@ internal sealed class Supervisor(Options options, SpikeLog log, GameContainment?
                 tracked[pid] = refreshed;
                 NoteModules(refreshed);
                 NoteWindows(refreshed);
+
+                if (envAt.TryGetValue(pid, out var envDue) && clock.Elapsed >= envDue)
+                {
+                    envAt.Remove(pid);
+                    EnvironmentPatch.Apply(pid, options.SteamEnvironment, log);
+                }
 
                 if (injectAt.TryGetValue(pid, out var due) && clock.Elapsed >= due)
                 {

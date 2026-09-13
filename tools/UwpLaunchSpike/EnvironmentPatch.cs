@@ -139,6 +139,10 @@ internal static class EnvironmentPatch
             .ToList();
     }
 
+    /// Existing entries keep their original order and position. Nothing is sorted: Windows
+    /// looks variables up by linear scan, so reordering gains nothing, and the block opens
+    /// with the loader's own `=C:`-style drive entries which are not ordinary variables.
+    /// An earlier version sorted the whole block and the game died about a second later.
     private static List<string> Merge(List<string> existing, IReadOnlyList<string> additions, SpikeLog log)
     {
         var merged = new List<string>(existing);
@@ -151,15 +155,19 @@ internal static class EnvironmentPatch
             }
 
             var name = addition[..separator];
-            merged.RemoveAll(entry => entry.StartsWith(name + "=", StringComparison.OrdinalIgnoreCase));
-            merged.Add(addition);
+            var at = merged.FindIndex(entry => entry.StartsWith(name + "=", StringComparison.OrdinalIgnoreCase));
+            if (at >= 0)
+            {
+                merged[at] = addition;
+            }
+            else
+            {
+                merged.Add(addition);
+            }
+
             log.Line($"            + {addition}");
         }
 
-        // The block has to stay sorted by name for the loader's own lookups to behave.
-        merged.Sort((left, right) => string.CompareOrdinal(
-            left[..left.IndexOf('=')].ToUpperInvariant(),
-            right[..right.IndexOf('=')].ToUpperInvariant()));
         return merged;
     }
 

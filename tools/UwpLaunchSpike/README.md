@@ -195,6 +195,20 @@ PEB. `GetEnvironmentVariableW` reads `ProcessParameters->Environment` on every c
 it changes what code loaded afterwards sees - and the renderer is injected after. Verified
 mechanically against a live game: a 5892-byte block read, merged, and replaced with 44 variables.
 
+Patching that block has a timing rule that has to be respected, found the hard way:
+
+| Environment patch | Game |
+| --- | --- |
+| none | runs normally |
+| ~30ms after the process appears | dies 1.1s later, every time |
+| 8s after the process appears | runs on, 27s+ observed, with the variables in place |
+
+Same bytes in every case, so it is a startup race rather than anything wrong with the block: the
+loader and the packaged-app runtime are still bringing the process up in that window. Hence
+`--env-delay`, defaulting to 8s, with injection held until 2s after it so the renderer never loads
+before the variables it reads exist. The suspension exemption is not implicated - a run with
+`EnableDebugging` active and no patch ran 50s untouched.
+
 Still open: whether the renderer, injected into a process that now carries Steam's session
 variables, actually registers and draws - and whether Steam Input follows it or needs its own
 association.
