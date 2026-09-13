@@ -572,6 +572,15 @@ supplied the bytes.
 
 ## 9. Configuration
 
+The Open apps return path borrows the existing transport for `SteamGameWindowActivation.RaiseAsync`.
+It checks a ready SharedJSContext generation and resolves one existing overlay by the selected
+window's PID before calling `SteamClient.Apps.RaiseWindowForGame`. The request has a one-second
+budget and an in-page expiry check; there is no launch, subscription, retry or Big Picture fallback.
+WSGM subsequently restores the exact selected HWND. This experimental activation is governed by
+`Cef.Enabled`; its timing and evidence boundary are documented in `overlay-and-input.md`. A
+timed-out or cancelled native call may already have reached Steam and cannot be recalled; no later
+WSGM focus action runs after cancellation.
+
 | Key                                                                 | Default | Meaning                                                                              |
 | ------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------ |
 | `Cef.Enabled`                                                       | true    | Master switch. Off means the flag is never written and nothing is injected.          |

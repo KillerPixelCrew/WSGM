@@ -4,6 +4,26 @@ Status: the previous implementation baseline is on `master`; the current open wo
 15 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
 submodule changes, without feature branches or pull requests.
 
+## Experimental game return (2026-09-13)
+
+Open apps game return now waits for deferred sheet closure and input-lease release, asks Steam to
+raise only an existing overlay's exact PID association, and restores the selected HWND instead of
+Steam's preferred console or launcher window. The activation path remains experimental until an
+attended switch-away/return check confirms overlay rendering and input recovery, including modded
+Balatro. All 72 focused WSGM tests and 319 toolkit tests passed. The Release solution build was
+warning-clean, and the solution tests and 2,569-test coverage run passed.
+`eng/verify.ps1 -SkipPrettier` passed; the default gate remains blocked by pre-existing formatting in
+`docs/boot-and-shell.md` and `docs/elevation.md`. Changed documentation passes formatting. No live
+recovery pass is claimed.
+
+For deferred [#48](https://github.com/KillerPixelCrew/WSGM/issues/48), manual loading of Steam's
+overlay DLLs remains a fallback research option for Xbox/UWP/MSIX games outside the wrapper's
+process tree, after investigating native Steam handoff. The public
+[C++ loading example](https://gist.github.com/Andon13/d439d5334d8173e5b959f383f1c49b03) and
+[startup injection example](https://gist.github.com/bburky/9abb40556bba56e745a5e78e47797733)
+are research leads, not current-client or packaged-game validation. This return-to-game change
+does not implement injection, wrapper lifetime tracking or packaged-game handoff.
+
 ## Display and Device usability follow-up (2026-09-13)
 
 The approved design is implemented: manual display arrangement with per-display inspection,

@@ -24,6 +24,8 @@ public sealed class OverlayController : IDisposable
     internal NativeQamBrightnessService? Brightness { get; set; }
     internal DeviceCoordinator? ManualTdp { get; set; }
     internal Func<CancellationToken, Task<bool>>? ShowOnScreenKeyboard { get; set; }
+    internal GameWindowReturn? GameReturn { get; set; }
+    private CancellationTokenSource? _windowReturnCancellation;
     private bool _keyboardRequestPending;
 
     private async Task RequestOnScreenKeyboardAsync()
@@ -692,16 +694,45 @@ public sealed class OverlayController : IDisposable
     /// <c>docs\overlay-and-input.md</c>.</summary>
     private void PickWindow(AppSwitcherEntry entry)
     {
+        if (_disposed || _overlay is not { } window) { return; }
+        _windowReturnCancellation?.Cancel();
+        var cancellation = new CancellationTokenSource();
+        _windowReturnCancellation = cancellation;
         Log.Info($"Open apps: focusing '{entry.Title}'.");
         _suppressFocusRestore = true;
-        CloseOverlay();
-        if (entry.IsSteam)
+        Log.Observe(PickWindowAsync(entry, window, cancellation), "Open apps activation");
+        CloseOverlay(preserveWindowReturn: true);
+    }
+
+    private async Task PickWindowAsync(AppSwitcherEntry entry, OverlayWindow window,
+        CancellationTokenSource cancellation)
+    {
+        TaskCompletionSource closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnClosed(object? sender, EventArgs args) => closed.TrySetResult();
+        window.Closed += OnClosed;
+        try
         {
-            _modes.FocusSteam();
+            await closed.Task.WaitAsync(cancellation.Token);
+            if (_leaseReleaseTask is { } release) { await release.WaitAsync(cancellation.Token); }
+            cancellation.Token.ThrowIfCancellationRequested();
+            if (_disposed) { return; }
+            if (entry.IsSteam) { _modes.FocusSteam(); }
+            else if (GameReturn is { } gameReturn)
+            {
+                await gameReturn.ReturnAsync(entry.Hwnd, entry.ProcessId, cancellation.Token);
+            }
+            else
+            {
+                NativeMethods.GetWindowThreadProcessId(entry.Hwnd, out uint pid);
+                if (pid == entry.ProcessId) { WindowFinder.BringToForeground(entry.Hwnd); }
+            }
         }
-        else
+        catch (OperationCanceledException) { } // A reopened sheet or session shutdown ends the return.
+        finally
         {
-            WindowFinder.BringToForeground(entry.Hwnd);
+            window.Closed -= OnClosed;
+            if (ReferenceEquals(_windowReturnCancellation, cancellation)) { _windowReturnCancellation = null; }
+            cancellation.Dispose();
         }
     }
 
@@ -805,6 +836,7 @@ public sealed class OverlayController : IDisposable
         {
             return;
         }
+        _windowReturnCancellation?.Cancel();
         OverlayShown?.Invoke();
         // A trim mid-open would just soft-fault everything straight back.
         _pendingTrim?.Dispose();
@@ -2046,7 +2078,8 @@ public sealed class OverlayController : IDisposable
             window.Hwnd,
             window.Title,
             steamPids.Contains(window.ProcessId),
-            icon);
+            icon)
+        { ProcessId = window.ProcessId };
     }
 
     /// <summary>Places a background-resolved icon on its chip, if that chip is still on
@@ -2142,7 +2175,11 @@ public sealed class OverlayController : IDisposable
         => Avalonia.Threading.DispatcherTimer.RunOnce(action, delay);
 
     private void CloseOverlay()
+        => CloseOverlay(preserveWindowReturn: false);
+
+    private void CloseOverlay(bool preserveWindowReturn)
     {
+        if (!preserveWindowReturn) { _windowReturnCancellation?.Cancel(); }
         _pendingWarning = "";
         _reopenOverlayForWarning = false;
         if (_overlay is null || _closePending)
@@ -2187,6 +2224,7 @@ public sealed class OverlayController : IDisposable
             return;
         }
         _disposed = true;
+        _windowReturnCancellation?.Cancel();
         CloseKeyboardNow();
         // Deliberately NOT retracting the injected Steam UI (tabs, badge, Wi-Fi AP)
         // here: the only caller of this Dispose is the Settings preview controller,

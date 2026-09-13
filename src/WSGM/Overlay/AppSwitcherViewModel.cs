@@ -32,6 +32,9 @@ public sealed class AppSwitcherEntry : INotifyPropertyChanged
     /// <summary>Gets the native window handle to activate.</summary>
     public nint Hwnd { get; }
 
+    /// <summary>Gets the process that owned this exact window when it was enumerated.</summary>
+    public uint ProcessId { get; init; }
+
     /// <summary>Gets whether the window belongs to Steam.</summary>
     public bool IsSteam { get; }
 
@@ -186,8 +189,10 @@ public sealed class AppSwitcherViewModel : INotifyPropertyChanged
         for (var i = Entries.Count - 1; i >= 0; i--)
         {
             var entry = Entries[i];
-            if (byHwnd.Remove(entry.Hwnd, out var window))
+            if (byHwnd.TryGetValue(entry.Hwnd, out var window)
+                && (entry.ProcessId == 0 || entry.ProcessId == window.ProcessId))
             {
+                byHwnd.Remove(entry.Hwnd);
                 entry.Title = window.Title;
                 entry.IsMinimized = window.IsMinimized;
                 entry.IsActive = entry.Hwnd == activeHwnd;

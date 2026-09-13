@@ -760,6 +760,14 @@ public sealed class ShellSession : IAsyncDisposable
             devicePrerequisites: _overlayTestOnly ? null : new DevicePrerequisiteSource(
                 ReadDevicePrerequisiteState, EnableDeviceIntegrationAsync));
         _overlay.ShowOnScreenKeyboard = ShowOnScreenKeyboardAsync;
+        if (!_overlayTestOnly)
+        {
+            _overlay.GameReturn = new GameWindowReturn(async (processId, token) =>
+            {
+                return _config.Cef.Enabled && _steamUiTransport is { } transport
+                    && await SteamGameWindowActivation.RaiseAsync(transport, processId, token);
+            }, _shutdownCancellation.Token);
+        }
         _overlay.ManualTdp = _deviceCoordinator;
         if (!_overlayTestOnly)
         {

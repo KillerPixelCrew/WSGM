@@ -238,6 +238,24 @@ constructor, `Tick +=` and an explicit `Start()` wherever `IsEnabled` is consult
 
 ### The focus-restore target and its suppression must not outlive an abandoned close
 
+Picking an Open apps chip waits for the sheet's 150 ms deferred close and its Steam Input lease
+release before activating the destination. The chip retains both HWND and owning PID; a reused
+handle replaces the chip, and activation refuses a changed owner. Reopening the sheet, selecting
+another chip or shutting down cancels the pending return.
+
+For a non-console destination, the resident session makes one experimental Steam activation attempt
+through `SteamGameWindowActivation`. Steam must already expose exactly one game-overlay window for
+that PID. Its full GameID string supplies `RaiseWindowForGame`; WSGM then restores and focuses the
+exact selected HWND, even if Steam chose a mod loader's console. This uses the selected window and
+Steam's own overlay association directly, rather than guessing an HWND from RTSS's process identity
+or Steam's preferred main window. Multiple games do not authorize a fallback to another process. CEF
+disabled, unavailable or incompatible leaves ordinary exact-window activation available.
+
+`Game return:` logs distinguish completion of the Steam call from verified Windows foreground.
+Neither proves overlay rendering or controller routing recovered. Balatro with its mod-loader
+console, switching away and back, and comparison with keyboard Shift+Tab remain attended checks. The
+implementation does not reinject DLLs or continuously force foreground focus.
+
 On close the sheet refocuses the window that was foreground when it opened (`_restoreFocusTo`,
 captured in `ShowOverlay`): exclusive-fullscreen games sit minimized after the sheet took focus. The
 refocus fires only in game mode (no Explorer in the session) and only when no overlay action

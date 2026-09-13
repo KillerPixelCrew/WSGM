@@ -17,6 +17,9 @@ docs/ui.md before changing behavior.
   report intent; they do not mutate ConfigStore or acquire leases directly.
 - Capture, focus, cursor, and input-lease transitions are paired operations. Every close,
   cancellation, failure, and superseded open must release what it acquired.
+- Open apps activation waits for deferred closure and input-lease release. Preserve the selected
+  HWND and PID through Steam activation; Steam may raise a launcher console. Cancel pending returns
+  when another action takes over, the sheet reopens or the session shuts down.
 - Preserve the 150 ms deferred close and synthesized-mouse filtering after touch input so a gesture
   cannot activate a control behind the sheet.
 - The sheet leaves a game strip visible as its tap-outside dismissal target. Do not make it
