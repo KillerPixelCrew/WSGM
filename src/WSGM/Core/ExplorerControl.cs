@@ -140,7 +140,7 @@ public static class ExplorerControl
     private static readonly TimeSpan StableAbsence = TimeSpan.FromMilliseconds(500);
 
     // How long a snapshotted remnant may outlive the destroyed taskbar before it
-    // is terminated. Never shortened to fit the remaining budget; the derivation
+    // is reported as lingering. The bounded wait never terminates Explorer; the derivation
     // and device evidence live in docs\boot-and-shell.md.
     private static readonly TimeSpan LingerGrace = TimeSpan.FromMilliseconds(8000);
 
@@ -163,7 +163,7 @@ public static class ExplorerControl
     /// Fails OPEN: on refusal, timeout, or a Winlogon respawn the caller must
     /// preserve desktop mode — a replacement explorer is never killed (fighting
     /// AutoRestartShell just loops). Lingering snapshotted processes are
-    /// terminated only after explorer already destroyed its taskbar (a shell
+    /// left alive even after Explorer destroyed its taskbar (a shell
     /// extension can hold the process open — device-observed). Serialized so the
     /// boot takeover and an overlay mode switch can never race two exits.</summary>
     /// <param name="timeout">Total budget for the exit and the stability check.</param>
@@ -296,7 +296,7 @@ public static class ExplorerControl
         var taskbarStillPresent = IsWindowOwnedByProcess(taskbar, taskbarProcessId);
         var afterTaskbar = ExplorerProcessIdsInSession();
         var replacementAfterTaskbar = FindReplacementProcessId(initialProcessIds, afterTaskbar);
-        // Lingering originals may be terminated only when the orderly exit was
+        // Continue waiting only when the orderly exit was
         // acknowledged (taskbar destroyed) and Winlogon has not respawned a shell.
         if (taskbarStillPresent || replacementAfterTaskbar != 0)
         {
@@ -314,8 +314,8 @@ public static class ExplorerControl
         // Explorer acknowledged the orderly exit and is winding the shell down, but
         // a shell extension or open folder window can keep the ORIGINAL process
         // alive a moment. Let it leave on its own first: killing it mid-shutdown is
-        // what Winlogon respawns (the "two tries" symptom). Only terminate a remnant
-        // still present after the grace period. A replacement is never killed.
+        // what Winlogon respawns (the "two tries" symptom). Report a remnant
+        // still present after the grace period; no Explorer process is killed here.
         var graceStart = DateTime.UtcNow;
         var graceDeadline = graceStart + LingerGrace;
         // The caller's budget can expire first — then the grace was NOT served
@@ -355,21 +355,8 @@ public static class ExplorerControl
         if (afterTaskbar.Count > 0)
         {
             var lingered = DateTime.UtcNow - graceStart;
-            if (lingered < LingerGrace)
-            {
-                // The budget ran out before the full grace was served. Killing a
-                // remnant that never got its grace is exactly what Winlogon
-                // respawns, so fail open and let the stability check report it.
-                Log.Warn($"Explorer taskbar exited but original process(es) {string.Join(", ", afterTaskbar)} " +
-                         $"were still present after {lingered.TotalMilliseconds:F0} ms and the budget ran out " +
-                         $"before the {LingerGrace.TotalMilliseconds:F0} ms grace; not terminating them.");
-            }
-            else
-            {
-                Log.Warn($"Explorer taskbar exited but original process(es) {string.Join(", ", afterTaskbar)} " +
-                         $"lingered past {lingered.TotalMilliseconds:F0} ms; terminating them.");
-                TerminateOriginalExplorerProcesses(initialProcessIds);
-            }
+            Log.Warn($"Explorer taskbar exited but original process(es) {string.Join(", ", afterTaskbar)} " +
+                     $"remain after {lingered.TotalMilliseconds:F0} ms; waiting without terminating them.");
         }
         return WaitForStableExplorerAbsence(initialProcessIds, deadline);
     }
@@ -407,32 +394,6 @@ public static class ExplorerControl
         }
         Log.Warn("Explorer processes did not exit cleanly before timeout.");
         return false;
-    }
-
-    private static void TerminateOriginalExplorerProcesses(IEnumerable<int> originalProcessIds)
-    {
-        foreach (var processId in originalProcessIds)
-        {
-            try
-            {
-                using var process = Process.GetProcessById(processId);
-                if (process.SessionId != WindowFinder.CurrentSessionId ||
-                    !process.ProcessName.Equals("explorer", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-                Log.Info($"Terminating lingering explorer.exe (pid {processId}) after orderly shell exit.");
-                process.Kill();
-            }
-            catch (ArgumentException)
-            {
-                // Exited between enumeration and open.
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Could not terminate lingering explorer pid {processId}: {ex.Message}");
-            }
-        }
     }
 
     /// <summary>Explorer pids of the CURRENT session only (other RDP/FUS sessions

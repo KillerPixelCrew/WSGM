@@ -174,14 +174,13 @@ attempts share one deadline: a fresh budget for the retry let a 15 s caller sit 
 for more than twice that. If the replacement persists, the exit fails open: desktop mode is
 preserved and the user sees `Couldn't exit Windows Explorer safely`.
 
-### A lingering remnant gets a full grace window or is left alone
+### A lingering remnant is reported and left alive
 
-A shell extension can hold the Explorer process open after the taskbar is gone. Snapshotted pids
-that linger are terminated only after the taskbar was destroyed and only after `LingerGrace` (8 s).
-Killing a remnant mid-shutdown is itself what Winlogon respawns; on the device that showed up as
-"game mode needs two tries" (2026-08-08). A clean run has the remnant leave about 830 ms after the
-taskbar. The grace is never shortened to fit the remaining budget: a remnant that did not get the
-full window is left alone and the exit fails open. Success requires 500 ms of stable absence.
+A shell extension can hold the Explorer process open after the taskbar is gone. After eight seconds,
+WSGM logs the remaining process IDs and continues waiting within the original deadline. It never
+terminates those processes. Killing a remnant caused the reported restart loop; the maintainer
+confirmed that stopping DisplayFusion allowed the orderly exit on 2026-09-13. Success requires
+500 ms of stable absence. An expired deadline fails open to desktop recovery.
 
 ## How Explorer is restored
 
@@ -190,7 +189,7 @@ full window is left alone and the exit fails open. Success requires 500 ms of st
 Explorer started by the de-elevating scheduled task inherits the Task Scheduler's job, and desktop
 launchers such as Mod Organizer 2 then fail `CREATE_BREAKAWAY_FROM_JOB` with error 5 (see
 `docs\elevation.md`). So immediately before each orderly exit WSGM resolves the current
-`Shell_TrayWnd` owner and accepts it only if `GetShellWindow` names the same owner, its image is
+`Shell_TrayWnd` owner. The normal parent route accepts it only if `GetShellWindow` names the same owner, its image is
 `%WINDIR%\explorer.exe`, it is in the current session, at medium integrity and not in a job. WSGM
 keeps that process as the `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` and starts one fixed-purpose
 medium, jobless anchor under it before the old shell exits (`Core\ExplorerShellAnchor.cs`; installed
@@ -224,8 +223,11 @@ that late shell may still publish `Shell_TrayWnd`.
 The scheduled-task route (`Core\UnelevatedLauncher.cs`) is last-resort recovery when no anchor
 request was dispatched. Its result is always reported as degraded, even when the Explorer it
 produced happens to be jobless; its deadline rules are in `docs\elevation.md`. An older-build
-job-bound taskbar is never ended without a verified repair owner: takeover stays in desktop mode and
-the UI asks for one sign-out or reboot.
+job-bound taskbar is never ended without a verified repair owner. For a canonical, ready,
+current-session medium Explorer, WSGM can duplicate that shell's primary token and create the fixed
+anchor through `CreateProcessWithTokenW`, without using the job-bound shell as the process parent.
+The anchor must still pass the same image, session, medium-integrity and jobless checks before
+Explorer receives an exit request. Failed creation or verification preserves the existing desktop.
 
 ### Shutdown keeps the anchor alive until the desktop is verified
 

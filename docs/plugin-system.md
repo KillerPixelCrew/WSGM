@@ -313,6 +313,11 @@ Display waits and layout calls run off the UI thread. A deadline or cancellation
 stage, and `SessionModes.TransitionInProgress` refuses another transition until the transaction has
 settled on any outcome. Transition and Desktop action failures use the existing warning surface.
 
+Normal-level diagnostics record entry stages, required display identities and wait completion.
+Each layout operation logs its requested values, elapsed time, native result code, warnings,
+rollback outcome and observed arrangement under one operation identifier. A failed diagnostic
+readback cannot change the apply result or dispatch another write.
+
 Validation uses fake providers, source-generated config round trips, ordered transaction tests,
 admission checks and headless editor interactions. It does not represent a physical HDMI-switch,
 live logon, Modern Standby or Steam-window placement pass. Those remain hardware review scenarios,

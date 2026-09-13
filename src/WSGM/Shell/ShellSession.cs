@@ -1769,8 +1769,11 @@ public sealed class ShellSession : IAsyncDisposable
     {
         public GameModeLaunchConfiguration ReadLaunch() => ConfigStore.Load().GameModeLaunch;
 
-        public void SetStatus(string line) =>
+        public void SetStatus(string line)
+        {
+            Log.Info($"Game Mode entry: {line}.");
             Avalonia.Threading.Dispatcher.UIThread.Post(() => session.EnsureEntrySplash().SetStatus(line));
+        }
 
         public void SetCancellable(bool cancellable) =>
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
@@ -1783,17 +1786,25 @@ public sealed class ShellSession : IAsyncDisposable
         public Task<WindowsDeviceControl.DisplayArrangement> ObserveAsync() =>
             Task.Run(WindowsDeviceControl.DisplayLayouts.Observe, session._shutdownCancellation.Token);
 
-        public Task<WindowsDeviceControl.DisplayArrangement> WaitForDisplaysAsync(
+        public async Task<WindowsDeviceControl.DisplayArrangement> WaitForDisplaysAsync(
             IReadOnlyList<WindowsDeviceControl.DisplayTargetIdentity> targets,
-            CancellationToken cancellationToken) =>
-            session.CreateArrivalWaiter().WaitAsync(targets, cancellationToken);
+            CancellationToken cancellationToken)
+        {
+            Log.Info($"Display wait requested: {System.Text.Json.JsonSerializer.Serialize(targets)}");
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+            WindowsDeviceControl.DisplayArrangement observed =
+                await session.CreateArrivalWaiter().WaitAsync(targets, cancellationToken).ConfigureAwait(false);
+            Log.Info($"Display wait settled after {elapsed.ElapsedMilliseconds} ms: {observed.Fingerprint}");
+            return observed;
+        }
 
         public Task<WindowsDeviceControl.DisplayLayoutResult> ApplyLayoutAsync(
             WindowsDeviceControl.DisplayLayout layout, CancellationToken cancellationToken) =>
             Task.Run(() =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                return WindowsDeviceControl.DisplayLayouts.Apply(layout);
+                return DisplayLayoutDiagnostics.Apply(layout, WindowsDeviceControl.DisplayLayouts.Apply,
+                    WindowsDeviceControl.DisplayLayouts.Observe, Log.Info, Log.Warn);
             }, CancellationToken.None);
 
         public Task PersistPendingReturnAsync(WindowsDeviceControl.DisplayLayout? layout) => Task.Run(() =>

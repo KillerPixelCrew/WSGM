@@ -117,16 +117,21 @@ internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
             ownerProcessId.ToString(CultureInfo.InvariantCulture),
             sessionId.ToString(CultureInfo.InvariantCulture));
 
-        if (!NativeShellProcess.TryStartWithParent(
-                parent,
-                executable,
-                commandLine,
-                Path.GetDirectoryName(executable)!,
-                out NativeShellChildProcess? process,
-                out int launchError))
+        bool repairJob = NativeShellProcess.Inspect(parent.ProcessId).JobMembership
+            is NativeJobMembership.InJob;
+        NativeShellChildProcess? process;
+        int launchError;
+        bool created = repairJob
+            ? NativeShellProcess.TryStartWithShellToken(parent, executable, commandLine,
+                Path.GetDirectoryName(executable)!, out process, out launchError)
+            : NativeShellProcess.TryStartWithParent(parent, executable, commandLine,
+                Path.GetDirectoryName(executable)!, out process, out launchError);
+        if (!created)
         {
-            return new(null, $"CreateProcessW failed with error {launchError}.");
+            return new(null, $"{(repairJob ? "CreateProcessWithTokenW" : "CreateProcessW")} failed with error {launchError}.");
         }
+        Log.Info($"Shell anchor creation: route={(repairJob ? "verified-shell-token" : "shell-parent")}, "
+            + $"source={parent.ProcessId}, created={process!.ProcessId}.");
 
         NamedPipeClientStream pipe = new(
             ".",

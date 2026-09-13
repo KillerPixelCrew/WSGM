@@ -23,10 +23,9 @@ anchor. Early `--restore-shell` runs before normal composition and calls
 `ExplorerControl.StartExplorerAndVerify`, including its scheduled-task de-elevation repair when
 needed.
 
-Explorer exit starts with its orderly `0x05B4` command. The only bounded kill exceptions are an
-original Explorer remnant after taskbar acknowledgement plus the full eight-second linger grace, and
-terminal elevation repair of an elevated Explorer before scheduled-task restart. Never kill a
-replacement Explorer or substitute generic process killing for orderly exit/recovery.
+Explorer exit uses its orderly `0x05B4` command and leaves lingering processes alive when its deadline
+expires. The separate terminal elevation repair can still remove an elevated Explorer before
+scheduled-task restart. Never kill a lingering or replacement Explorer during Game Mode takeover.
 
 During service-boot takeover, the splash's Desktop action sets sticky `BootTakeoverCancellation`,
 pauses the Steam monitor, and lets the boot worker release the `SessionModes` transition gate before

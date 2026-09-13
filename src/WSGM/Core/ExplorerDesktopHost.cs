@@ -61,7 +61,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
 
         ExplorerDesktopObservation shell = ObserveCurrentDesktop(_sessionId);
         LogObservation("Explorer capture", shell);
-        if (!shell.Acceptance.Accepted)
+        if (!CanCaptureShell(shell))
         {
             string detail = $"current-shell-{shell.Acceptance.Rejection}";
             Log.Warn($"Explorer takeover refused before orderly exit: {shell.Acceptance.Rejection}. "
@@ -75,7 +75,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         {
             await Task.Delay(PollInterval, cancellationToken).ConfigureAwait(false);
             shell = ObserveCurrentDesktop(_sessionId);
-            if (!shell.Acceptance.Accepted || shell.Process.ProcessId != capturedProcessId)
+            if (!CanCaptureShell(shell) || shell.Process.ProcessId != capturedProcessId)
             {
                 LogObservation("Explorer capture changed before anchor creation", shell);
                 Log.Warn("Explorer takeover refused: the canonical taskbar owner did not remain "
@@ -164,6 +164,11 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             + $"parent pid {shell.Process.ProcessId}).");
         return new(true, ExplorerShellRejection.None, "ready");
     }
+
+    // A job-bound shell may supply its verified medium token, but may not supply the new
+    // anchor's job. The anchor still has to pass every normal acceptance check before exit.
+    private static bool CanCaptureShell(ExplorerDesktopObservation shell) =>
+        shell.Acceptance.Accepted || shell.Acceptance.Rejection is ExplorerShellRejection.JobBound;
 
     /// <summary>Adopts an already-normal taskbar owner or restores Explorer through the captured
     /// jobless anchor, waiting for the resulting taskbar owner rather than trusting the created PID.</summary>
