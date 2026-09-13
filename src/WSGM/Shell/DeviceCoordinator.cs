@@ -1717,23 +1717,18 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     internal PhysicalGlyphSelectionResult PhysicalControlSelectionSnapshot() =>
         _physicalGlyphs.SelectProfile(_config.DeviceIntegration.Enabled, DeviceGlyphSelection.Automatic, null);
 
-    /// <summary>Cycles the physical presentation policy and persists it without changing device ownership.</summary>
-    internal async Task CyclePhysicalGlyphSelectionAsync(
+    /// <summary>Sets the physical presentation policy without changing device ownership.</summary>
+    internal async Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection,
         CancellationToken cancellationToken = default)
     {
+        if (!Enum.IsDefined(selection)) { throw new ArgumentOutOfRangeException(nameof(selection)); }
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            DeviceGlyphSelection next = _config.DeviceIntegration.GlyphSelection switch
-            {
-                DeviceGlyphSelection.Automatic => DeviceGlyphSelection.NativeSteam,
-                DeviceGlyphSelection.NativeSteam => DeviceGlyphSelection.ManualReviewedProfile,
-                _ => DeviceGlyphSelection.Automatic,
-            };
             await PersistConfigurationAsync(
-                config => config.DeviceIntegration.GlyphSelection = next,
+                config => config.DeviceIntegration.GlyphSelection = selection,
                 cancellationToken).ConfigureAwait(false);
-            Log.Info($"Physical glyph presentation changed: {next}.");
+            Log.Info($"Physical glyph presentation changed: {selection}.");
         }
         finally
         {

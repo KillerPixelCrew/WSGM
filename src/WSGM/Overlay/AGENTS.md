@@ -7,7 +7,7 @@ docs/ui.md before changing behavior.
 - Keep stable page IDs and route semantics. Back, close, and repeated-open behavior must be
   deterministic across keyboard, controller, and touch input.
 - Device includes Core Windows controls even with Device Integration off. Windows power profiles
-  belong on Device > Power, not in WSGM Settings, which configures WSGM itself only.
+  belong on the Device overview and Device > Power, not in WSGM Settings, which configures WSGM itself only.
 - Use the SDK's shared Power, RGB, Controller and Info IDs for host and plugin controls.
   Power stays reachable without integration. The session owns AC/battery preset assignments;
   overlay controls report intent and never run a second automatic profile loop.

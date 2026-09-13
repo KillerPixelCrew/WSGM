@@ -53,6 +53,8 @@ public partial class OverlayWindow : Window
     private PowerSchemeSelection? _powerSchemeSelection;
     private HybridCoreSelection? _hybridCoreSelection;
     private bool _performanceDetailsExpanded;
+    private OverlayPage? _renderedDevicePage;
+    private string? _renderedDeviceSection;
 
     private readonly Dictionary<string, (string Title, Func<Control> Create)> _controlPinFactories = [];
 
@@ -76,7 +78,12 @@ public partial class OverlayWindow : Window
         Control Create() => new ManualTdpModeView(() => coordinator.ManualTdpMode, coordinator.SetManualTdpModeAsync);
         ManualTdpHost.Tag = "section.device.manual-tdp";
         ManualTdpHost.Children.Add(CreateSectionHeader("section.device.manual-tdp", "Manual power mode"));
-        ManualTdpHost.Children.Add(Create());
+        Control view = Create();
+        view.PropertyChanged += (_, change) =>
+        {
+            if (change.Property == IsVisibleProperty) { ManualTdpHost.IsVisible = view.IsVisible; }
+        };
+        ManualTdpHost.Children.Add(view);
         _controlPinFactories["section.device.manual-tdp"] = ("Manual power mode", Create);
         RenderPins();
     }
@@ -130,7 +137,8 @@ public partial class OverlayWindow : Window
         _powerSchemeSelection = selection;
         DevicePowerSchemeHost.Attach(selection);
         DevicePowerSchemeHost.Tag = "section.system.power-profile";
-        DeviceWindowsPower.Header = CreateSectionHeader("section.system.power-profile", "Windows energy plan");
+        DevicePowerSchemeHeading.Children.Clear();
+        DevicePowerSchemeHeading.Children.Add(CreateSectionHeader("section.system.power-profile", "Windows energy plan"));
         _controlPinFactories["section.system.power-profile"] = ("Windows energy plan", () =>
         {
             PowerSchemeView view = new();
@@ -409,7 +417,6 @@ public partial class OverlayWindow : Window
     {
         CommonPluginRows.Children.Clear();
         DeviceWidgetPinsHost.Children.Clear();
-        DeviceWidgetsExpander.IsVisible = false;
         PinnedPluginWidgetsHost.Children.Clear();
         SystemPluginsTile.IsVisible = source is not null;
         if (source is not null)
@@ -417,7 +424,7 @@ public partial class OverlayWindow : Window
             CommonPluginPanel panel = new(source, readPins: PluginWidgetPreferences.Default.Read);
             CommonPluginRows.Children.Add(panel);
             if (source.Device is { } device)
-            { DeviceWidgetPinsHost.Children.Add(new CommonPluginPanel(device, pinsOnly: true, readPins: PluginWidgetPreferences.Default.Read)); DeviceWidgetsExpander.IsVisible = true; }
+            { DeviceWidgetPinsHost.Children.Add(new CommonPluginPanel(device, pinsOnly: true, readPins: PluginWidgetPreferences.Default.Read)); }
             PinnedPluginWidgetsHost.Children.Add(new PinnedPluginWidgets(source, (pin, category) =>
             {
                 // The rows moved a level down when Tools became a menu, so the jump has to open the
@@ -688,8 +695,6 @@ public partial class OverlayWindow : Window
         }
     }
 
-    private bool? _previousDeviceIntegrationVisible;
-
     private void RefreshDevicePanel()
     {
         if (_closed)
@@ -702,22 +707,21 @@ public partial class OverlayWindow : Window
         PerformanceOverlaySnapshot? performance = _performanceSource?.Snapshot();
         RefreshNavigationHints();
         ConfigureTabs(snapshot.Visible);
-        bool powerPage = _navigation.Page == OverlayPage.DevicePowerAndThermals
+        bool powerPage = _navigation.Page is OverlayPage.Device or OverlayPage.DevicePowerAndThermals
             || (_navigation.Page == OverlayPage.DevicePluginSection
                 && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, _navigation.SectionId ?? string.Empty)
                     == DeviceOverlaySection.PowerAndThermals);
         DevicePowerSchemeHost.IsVisible = powerPage;
-        DevicePowerPresetContainer.IsVisible = powerPage;
+        DeviceWindowsPower.IsVisible = _powerSchemeSelection is not null;
+        DevicePowerPresetContainer.IsVisible = powerPage && _navigation.Page != OverlayPage.Device && snapshot.Visible && DevicePowerPresetHost.IsVisible;
+        ManualTdpHost.IsVisible = snapshot.Visible && ManualTdpHost.Children.OfType<ManualTdpModeView>().Any(view => view.IsVisible);
         DevicePowerOverview.IsVisible = powerPage;
-        if (powerPage && !snapshot.Visible
-            && (!DeviceWindowsPower.IsVisible || _previousDeviceIntegrationVisible is true))
-        { DeviceWindowsPower.IsExpanded = true; }
-        DeviceWindowsPower.IsVisible = powerPage;
+        DeviceWidgetsExpander.IsVisible = _navigation.Page == OverlayPage.Device;
+        RefreshDeviceSectionPins(snapshot);
         // Only on a hybrid CPU whose active scheme exposes the policy. Everywhere else the section
         // would open on a control that has nothing to offer.
         DeviceHybridCores.IsVisible = powerPage && _hybridCoreSelection?.Status.Supported is true;
-        _previousDeviceIntegrationVisible = snapshot.Visible;
-        DeviceStatusTitle.IsVisible = DeviceStatusDetail.IsVisible = _navigation.Page == OverlayPage.Device;
+        DeviceStatusTitle.IsVisible = DeviceStatusDetail.IsVisible = _navigation.Page == OverlayPage.Device && snapshot.Visible;
         DeviceStatusTitle.Text = snapshot.Status;
         DeviceStatusDetail.Text = snapshot.Detail;
         RefreshDevicePrerequisites();
@@ -728,7 +732,8 @@ public partial class OverlayWindow : Window
         // cannot hold Left/Right across it, and the row's debounced write timer would die with the
         // row before it commits. Refresh existing sliders in place; their pending user edits take
         // precedence over readback. The next change after focus moves on rebuilds as normal.
-        if (IsEditingValueIn(DeviceCapabilityList))
+        if (_renderedDevicePage == _navigation.Page && _renderedDeviceSection == _navigation.SectionId
+            && IsEditingValueIn(DeviceCapabilityList))
         {
             foreach (DeviceSliderRow row in DeviceCapabilityList.GetLogicalDescendants().OfType<DeviceSliderRow>())
             {
@@ -754,6 +759,8 @@ public partial class OverlayWindow : Window
             ? focused.Tag as string
             : null;
         DeviceCapabilityList.Children.Clear();
+        _renderedDevicePage = _navigation.Page;
+        _renderedDeviceSection = _navigation.SectionId;
 
         // The tiles belong to the tree that was just cleared. Dropping the references here, before
         // anything can rebuild them, is what stops the input test writing to detached controls.
@@ -805,7 +812,7 @@ public partial class OverlayWindow : Window
     }
 
     /// <summary>
-    /// Renders the Device root: one card per section that currently has something in it.
+    /// Renders the additional Device sections below the Power and Performance overview.
     /// </summary>
     /// <remarks>
     /// A menu rather than one long list. The whole surface is a few rows tall on a handheld, and a
@@ -846,6 +853,8 @@ public partial class OverlayWindow : Window
             snapshot,
             performance))
         {
+            if (!snapshot.Visible && (entry.Section == DeviceOverlaySection.PowerAndThermals
+                || entry.PluginSectionId == DeviceSections.PowerId)) { continue; }
             string key = DeviceOverlaySectionPages.FocusKey(entry);
             DescriptorStatusRow row = new();
             row.Classes.Add("tile");
@@ -892,6 +901,8 @@ public partial class OverlayWindow : Window
         string sectionId,
         string? focusedKey)
     {
+        if (DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, sectionId) == DeviceOverlaySection.ControllerAndMotion)
+        { return RenderControllerPage(snapshot, focusedKey, "section.device.plugin." + sectionId + ".configuration"); }
         DeviceOverlayPluginSection? pluginSection = snapshot.PluginSections
             .FirstOrDefault(candidate => string.Equals(
                 candidate.SectionId,
@@ -950,6 +961,8 @@ public partial class OverlayWindow : Window
         DeviceOverlaySection section,
         string? focusedKey)
     {
+        if (section == DeviceOverlaySection.ControllerAndMotion)
+        { return RenderControllerPage(snapshot, focusedKey, "section.device.controller-and-motion"); }
         var definition = DevicePinSections(snapshot).FirstOrDefault(candidate => candidate.Id == DeviceOverlaySectionPages.FocusKey(section).Replace("device.section.", "section.device.", StringComparison.Ordinal));
         if (definition is null) { return null; }
         var content = CreateSection(definition.Id, definition.Title);
@@ -1097,13 +1110,7 @@ public partial class OverlayWindow : Window
         if (section is DeviceOverlaySection.ControllerAndMotion
             && snapshot.GlyphSelection is { } glyphSelection)
         {
-            string glyphFocusKey = glyphSelection.Id;
-            DescriptorStatusRow button = CreateGlyphSelectionRow(glyphSelection);
-            target.Children.Add(button);
-            if (string.Equals(glyphFocusKey, focusedKey, StringComparison.Ordinal))
-            {
-                restoreFocus = button;
-            }
+            target.Children.Add(CreateGlyphSelectionRow(glyphSelection, snapshot.GlyphMode));
         }
 
         // After the selection row it is the result of, so changing the selection and seeing what it
@@ -1300,7 +1307,8 @@ public partial class OverlayWindow : Window
         RefreshDevicePanel();
         RefreshPerformancePanel();
         SyncBackAffordance();
-        FocusFirstControl(DeviceCapabilityList);
+        ContentScroller.Offset = default;
+        FocusFirstControl(DevicePowerOverview.IsVisible ? DevicePowerOverview : DeviceCapabilityList);
     }
 
     private void EnterDeviceSection(DeviceOverlaySection section)
@@ -1321,7 +1329,8 @@ public partial class OverlayWindow : Window
         // changes whether they are on screen.
         RefreshPerformancePanel();
         SyncBackAffordance();
-        FocusFirstControl(DeviceCapabilityList);
+        ContentScroller.Offset = default;
+        FocusFirstControl(DevicePowerOverview.IsVisible ? DevicePowerOverview : DeviceCapabilityList);
     }
 
     private void LeaveDeviceSection(DeviceOverlaySection section)
@@ -1678,39 +1687,29 @@ public partial class OverlayWindow : Window
         return button;
     }
 
-    private DescriptorStatusRow CreateGlyphSelectionRow(DescriptorRow glyphSelection)
+    private Control CreateGlyphSelectionRow(DescriptorRow descriptor, DeviceGlyphSelection selected)
     {
-        DescriptorStatusRow button = new();
-        button.Apply(glyphSelection);
-        button.Click += async (_, _) =>
+        var choice = new ComboBox
         {
-            IDeviceOverlaySource? bridge = _deviceBridge;
-            if (bridge is null || _closed)
-            {
-                return;
-            }
-
-            button.IsEnabled = false;
-            try
-            {
-                await bridge.CyclePhysicalGlyphSelectionAsync(_deviceLifetime.Token);
-            }
-            catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
-            {
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Physical glyph selection command failed: {ex.Message}");
-            }
-            finally
-            {
-                if (!_closed)
-                {
-                    button.IsEnabled = glyphSelection.CanInvoke;
-                }
-            }
+            ItemsSource = new[] { "Automatic", "Steam native", "Reviewed device profile" },
+            SelectedIndex = (int)selected,
+            IsEnabled = descriptor.CanInvoke,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+            Tag = descriptor.Id,
         };
-        return button;
+        Avalonia.Automation.AutomationProperties.SetName(choice, "Button glyph style");
+        var detail = new TextBlock { Text = descriptor.Description, Classes = { "caption" }, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+        var panel = new StackPanel { Spacing = 8, Children = { choice, detail } };
+        choice.SelectionChanged += async (_, _) =>
+        {
+            if (choice.SelectedIndex < 0 || _deviceBridge is not { } bridge || _closed) { return; }
+            choice.IsEnabled = false;
+            try { await bridge.SetPhysicalGlyphSelectionAsync((DeviceGlyphSelection)choice.SelectedIndex, _deviceLifetime.Token); }
+            catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested) { }
+            catch (Exception ex) { detail.Text = "Glyph selection could not be saved: " + ex.Message; }
+            finally { if (!_closed) { choice.IsEnabled = descriptor.CanInvoke; } }
+        };
+        return panel;
     }
 
     private void RefreshPerformancePanel()
@@ -1940,17 +1939,8 @@ public partial class OverlayWindow : Window
 
     /// <summary>Puts the shared performance rows where the user will look for them.</summary>
     /// <param name="deviceVisible">Whether the Device destination exists in this session.</param>
-    /// <remarks>
-    /// With no Device destination the rows live on System, which is where they have always been.
-    /// With one, they belong on Device → Power and thermals, beside the power limit and AutoTDP:
-    /// a frame limit and a power limit are one decision, and splitting them across two destinations
-    /// makes the user reason about them separately.
-    /// <para>
-    /// The section is parented to Device but rendered only while that page is open, because Device
-    /// is a menu of pages now. Leaving it parented and visible put it above the section cards on
-    /// the root and kept it on screen inside every unrelated sub-page.
-    /// </para>
-    /// </remarks>
+    /// <remarks>Without Device, the rows live on Tools. With Device, one shared control tree
+    /// serves its overview and Power page, beside the Windows and device power controls.</remarks>
     private void PlacePerformanceSection(bool deviceVisible)
     {
         StackPanel target = deviceVisible ? DevicePerformanceColumn : PanelSystemPerformance;
@@ -1963,12 +1953,8 @@ public partial class OverlayWindow : Window
     }
 
     /// <summary>Whether the performance rows belong on the page currently showing.</summary>
-    /// <remarks>
-    /// Always, when they live on System. On Device they belong to one page, so that everything on
-    /// Power is what moves the same thing and nothing else carries them. That page is the plugin's
-    /// declared Power section when the device declares one, which is why this asks where the power
-    /// rows were absorbed to rather than comparing against the WSGM section alone.
-    /// </remarks>
+    /// <remarks>Device shows performance on its overview and the shared or plugin-declared Power
+    /// page. Unrelated Device pages do not retain these controls.</remarks>
     private bool PerformanceBelongsOnCurrentPage()
     {
         if (!_navigation.IsVisible(OverlayDestination.Device))
@@ -1976,7 +1962,7 @@ public partial class OverlayWindow : Window
             return true;
         }
 
-        if (DeviceOverlaySectionPages.SectionFor(_navigation.Page)
+        if (_navigation.Page == OverlayPage.Device || DeviceOverlaySectionPages.SectionFor(_navigation.Page)
             is DeviceOverlaySection.PowerAndThermals)
         {
             return true;

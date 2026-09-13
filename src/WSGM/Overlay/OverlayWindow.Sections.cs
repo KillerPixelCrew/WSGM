@@ -53,11 +53,12 @@ public partial class OverlayWindow
 
     private static IEnumerable<DevicePinSection> DevicePinSections(DeviceOverlaySnapshot snapshot)
     {
-        if (!snapshot.Visible) { yield break; }
         foreach (var section in snapshot.PluginSections)
         {
-            var capabilities = DeviceOverlaySectionPages.CapabilitiesInPluginSection(snapshot, section.SectionId);
+            var capabilities = snapshot.Visible
+                ? DeviceOverlaySectionPages.CapabilitiesInPluginSection(snapshot, section.SectionId) : [];
             var owned = DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, section.SectionId);
+            if (!snapshot.Visible && owned != DeviceOverlaySection.ControllerAndMotion) { owned = null; }
             bool power = owned == DeviceOverlaySection.PowerAndThermals;
             string prefix = "section.device.plugin." + section.SectionId;
             var lead = capabilities.Where(capability => capability.CategoryId is null
@@ -89,10 +90,11 @@ public partial class OverlayWindow
                     section.SectionId, [], host);
             }
         }
-        foreach (var section in DeviceOverlaySectionPages.Build(snapshot).Where(section => section.PluginSectionId is null))
+        foreach (var section in DeviceOverlaySectionPages.Build(snapshot).Where(section => section.PluginSectionId is null
+            && (snapshot.Visible || section.Section == DeviceOverlaySection.ControllerAndMotion)))
         {
             yield return new(DeviceOverlaySectionPages.FocusKey(section.Section).Replace("device.section.", "section.device.", StringComparison.Ordinal), section.Title, null,
-                DeviceOverlaySectionPages.CapabilitiesIn(snapshot, section.Section), section.Section);
+                snapshot.Visible ? DeviceOverlaySectionPages.CapabilitiesIn(snapshot, section.Section) : [], section.Section);
         }
     }
 

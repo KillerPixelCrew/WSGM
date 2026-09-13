@@ -93,7 +93,7 @@
 
         <Border Grid.Row="2" Classes="hc-footer">
             <Grid Margin="12,5" ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="16">
-                <Button Classes="primary" Content="Save changes" Command="{Binding SaveCommand}" MinWidth="120" />
+                <Button Classes="primary" Content="Save changes" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSaveLayouts}" MinWidth="120" />
                 <TextBlock Grid.Column="1" Text="{Binding ServiceStateText}" Classes="caption" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="2" Text="{Binding ShellStateText}" Classes="caption" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="3" Text="{Binding StatusText}" Classes="caption"

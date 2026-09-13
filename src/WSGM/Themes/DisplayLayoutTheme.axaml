@@ -1,0 +1,49 @@
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Style Selector="Border.layout-surface">
+        <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource HcControlBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="6" />
+    </Style>
+    <Style Selector="TextBlock.layout-warning">
+        <Setter Property="Foreground" Value="{StaticResource HcWarningBrush}" />
+        <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style Selector="TextBlock.display-number">
+        <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.display-monitor">
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="FontSize" Value="20" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.display-monitor.selected">
+        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />
+    </Style>
+    <Style Selector="ListBox.display-list">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+    </Style>
+    <Style Selector="ListBox.display-list > ListBoxItem">
+        <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource HcControlBorderBrush}" />
+        <Setter Property="BorderThickness" Value="2" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Padding" Value="12,10" />
+        <Setter Property="Margin" Value="0,0,0,7" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="FocusAdorner" Value="{x:Null}" />
+    </Style>
+    <Style Selector="ListBox.display-list > ListBoxItem:selected">
+        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+    </Style>
+    <Style Selector="ListBox.display-list > ListBoxItem:focus-visible">
+        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+    </Style>
+</Styles>

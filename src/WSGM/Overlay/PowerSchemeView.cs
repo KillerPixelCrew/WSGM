@@ -28,11 +28,8 @@ public sealed class PowerSchemeView : UserControl
     public PowerSchemeView()
     {
         AutomationProperties.SetName(_profiles, "Windows power profile");
-        var choices = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), ColumnSpacing = 8 };
-        choices.Children.Add(_profiles);
-        Grid.SetColumn(_apply, 1);
+        var choices = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 8 };
         choices.Children.Add(_apply);
-        Grid.SetColumn(_refresh, 2);
         choices.Children.Add(_refresh);
         Content = new Border
         {
@@ -43,6 +40,7 @@ public sealed class PowerSchemeView : UserControl
                 Children =
                 {
                     new TextBlock { Text = "Windows power profile", Classes = { "setting-title" } },
+                    _profiles,
                     choices,
                     _status,
                 },

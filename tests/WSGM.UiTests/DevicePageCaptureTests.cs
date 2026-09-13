@@ -107,7 +107,8 @@ public sealed class DevicePageCaptureTests
         Dispatcher.UIThread.RunJobs();
         if (page == "Power")
         {
-            Assert.False(UiFixture.Named<Expander>(window, "DeviceWindowsPower").IsExpanded);
+            Assert.Equal(0, UiFixture.Named<ScrollViewer>(window, "ContentScroller").Offset.Y);
+            Assert.True(UiFixture.Named<StackPanel>(window, "DeviceWindowsPower").IsEffectivelyVisible);
             var cards = window.GetVisualDescendants().OfType<Border>()
                 .Where(border => border.Classes.Contains("device-group") && border.IsEffectivelyVisible).ToArray();
             Assert.True(cards.Length >= 5);

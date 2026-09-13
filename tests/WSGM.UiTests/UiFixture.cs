@@ -37,6 +37,7 @@ internal sealed class UiFixture : IDisposable
     /// machine's displays.</summary>
     internal WindowsDeviceControl.DisplayArrangement Displays { get; set; } =
         new([], "no-displays", DateTimeOffset.UnixEpoch);
+    internal Func<WindowsDeviceControl.DisplayArrangement>? ReadDisplays { get; set; }
 
     /// <summary>What each display claims to support, keyed by device path.</summary>
     internal Dictionary<string, DisplayCatalogFacts> DisplayFacts { get; } = [];
@@ -57,7 +58,7 @@ internal sealed class UiFixture : IDisposable
     internal SettingsWindow Settings(int width = 1280, int height = 800, bool gameModeSurface = false)
     {
         SettingsViewModel.SettingsServices services = new(
-            () => Displays,
+            () => ReadDisplays?.Invoke() ?? Displays,
             target => DisplayFacts.GetValueOrDefault(target.DevicePath),
             () => PluginActions,
             () => [],

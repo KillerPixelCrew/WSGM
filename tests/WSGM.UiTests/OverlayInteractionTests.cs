@@ -81,7 +81,7 @@ public sealed class OverlayInteractionTests
     }
 
     [AvaloniaFact]
-    public void LosingIntegrationExpandsWindowsPlansOnTheOpenPowerPage()
+    public void LosingIntegrationKeepsWindowsPlansOnTheOpenPowerPage()
     {
         using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()),
             _ => throw new InvalidOperationException("Unexpected power scheme write"));
@@ -98,14 +98,13 @@ public sealed class OverlayInteractionTests
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
             .Single(card => card.IsEffectivelyVisible && card.Title == "Power"));
-        Expander plans = UiFixture.Named<Expander>(window, "DeviceWindowsPower");
+        StackPanel plans = UiFixture.Named<StackPanel>(window, "DeviceWindowsPower");
         Assert.True(plans.IsVisible);
-        plans.IsExpanded = false;
         device.State = device.State with { Visible = false };
         device.Notify();
         Dispatcher.UIThread.RunJobs();
         Assert.True(plans.IsVisible);
-        Assert.True(plans.IsExpanded);
+        Assert.True(UiFixture.Named<PowerSchemeView>(window, "DevicePowerSchemeHost").IsEffectivelyVisible);
     }
 
     [AvaloniaFact]
@@ -435,9 +434,6 @@ public sealed class OverlayInteractionTests
         OverlayWindow window = fixture.Overlay();
         window.AttachPowerSchemes(selection);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        Dispatcher.UIThread.RunJobs();
-        UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
-            .Single(card => card.IsEffectivelyVisible && card.Title == "Power"));
         Dispatcher.UIThread.RunJobs();
         var combo = window.GetVisualDescendants().OfType<ComboBox>().Single(control => Equals(control.Tag, "system.power-profile.choice"));
         combo.Focus();

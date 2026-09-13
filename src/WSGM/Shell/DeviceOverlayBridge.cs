@@ -178,6 +178,9 @@ internal sealed record DeviceOverlaySnapshot(
     DeviceOverlayGlyphPreview? GlyphPreview = null,
     DescriptorRow? AuthoredProfile = null)
 {
+    /// <summary>The selected physical button presentation policy.</summary>
+    public DeviceGlyphSelection GlyphMode { get; init; }
+
     /// <summary>Plugin-declared overlay sections in presentation order.</summary>
     public IReadOnlyList<DeviceOverlayPluginSection> PluginSections { get; init; } =
         DeviceOverlayBridge.ProjectSections(DeviceSections.All);
@@ -220,7 +223,7 @@ internal interface IDeviceOverlaySource : IDisposable
         DeviceOverlayCapability capability,
         CancellationToken cancellationToken = default);
 
-    Task CyclePhysicalGlyphSelectionAsync(CancellationToken cancellationToken = default);
+    Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection, CancellationToken cancellationToken = default);
 
     /// <summary>Turns AutoTDP on or off and persists the choice.</summary>
     /// <param name="cancellationToken">Cancels the change.</param>
@@ -230,11 +233,6 @@ internal interface IDeviceOverlaySource : IDisposable
     /// <summary>Moves the global default controller target to the next one and persists it.</summary>
     /// <param name="cancellationToken">Cancels the change.</param>
     /// <returns>A task completing once the new target is persisted and applied.</returns>
-    /// <remarks>
-    /// Cycling rather than a picker, matching the glyph-selection row beside it. There are three
-    /// targets and a controller has one button; a menu would cost a page for a choice a user makes
-    /// once.
-    /// </remarks>
     Task CycleControllerTargetAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Retries a faulted device cycle now instead of waiting for the automatic retry.</summary>
@@ -409,6 +407,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     selection.ApplicationScoped)
                 : null)
         {
+            GlyphMode = _coordinator.PhysicalGlyphSelection,
             PluginSections = ProjectSections(declaredSections),
         };
     }
@@ -820,8 +819,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             cancellationToken).ConfigureAwait(false);
     }
 
-    public Task CyclePhysicalGlyphSelectionAsync(CancellationToken cancellationToken = default) =>
-        _coordinator.CyclePhysicalGlyphSelectionAsync(cancellationToken);
+    public Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection, CancellationToken cancellationToken = default) =>
+        _coordinator.SetPhysicalGlyphSelectionAsync(selection, cancellationToken);
 
     public Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default) =>
         _coordinator.ToggleAutoTdpAsync(cancellationToken);
@@ -1673,6 +1672,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 },
             ])
         {
+            GlyphMode = (DeviceGlyphSelection)_glyphSelection,
             PluginSections = PreviewSections,
         };
     }
@@ -1718,10 +1718,11 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
         return Task.CompletedTask;
     }
 
-    public Task CyclePhysicalGlyphSelectionAsync(CancellationToken cancellationToken = default)
+    public Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        _glyphSelection = (_glyphSelection + 1) % 3;
+        if (!Enum.IsDefined(selection)) { throw new ArgumentOutOfRangeException(nameof(selection)); }
+        _glyphSelection = (int)selection;
         Changed?.Invoke();
         return Task.CompletedTask;
     }

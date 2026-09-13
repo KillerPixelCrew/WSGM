@@ -124,11 +124,11 @@ public partial class SettingsWindow : Window
         // window — a second ConfigStore.Load here takes the cross-process
         // mutex again on the UI thread for a value that is already in memory.
         _leaseEnabled = _viewModel.SteamInputLeaseEnabled;
-        Activated += (_, _) => UpdateLeaseDesired();
-        Deactivated += (_, _) => UpdateLeaseDesired();
         PropertyChanged += (_, e) =>
         {
-            if (e.Property == WindowStateProperty)
+            // Activated fires before Avalonia sets IsActive. Observe the committed state so
+            // the first foreground activation acquires a lease without a second Activate call.
+            if (e.Property == IsActiveProperty || e.Property == WindowStateProperty)
             {
                 UpdateLeaseDesired();
             }
@@ -165,12 +165,14 @@ public partial class SettingsWindow : Window
             // Opened (not the constructor) so a window that is built but never shown
             // cannot leave a session — and therefore a pinned directory — behind.
             _services.BeginImportSession();
+            _viewModel.StartDisplayDiscovery();
             _ = _services.RefreshDeviceOwner();
             MaybeShowQuickSetup();
         };
         Closed += (_, _) =>
         {
             _closed = true;
+            _viewModel.StopDisplayDiscovery();
             _handoffFallback?.Dispose();
             _handoffFallback = null;
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;

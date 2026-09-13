@@ -15,30 +15,32 @@ sheet with no extra code; a fullscreen window would have needed a second dismiss
 The header carries the wordmark, the active-destination eyebrow and the status pills, bound to a
 per-open `SystemStatus`. The radio, audio and eject panels hang from the header's measured bottom
 edge (`HeaderBottomScreenY` → `StatusPanel.DockBelowHeader`). A `TabStrip` sits over the
-always-alive destination roots: Quick access, Steam, Device, Tools and Power. Every root that groups
-controls is a menu of large category tiles rather than the controls themselves: Steam offers Library
-and Per-game launch fixes; Tools offers System, Performance, Storage, Display, Plugins and
-Controller ownership; Power offers Wake, Idle timeouts, Power and Session. Device includes shared
-Power, RGB, Controller and Info pages.
+always-alive destination roots: Quick access, Steam, Device, Tools and Power. Steam, Tools and Power
+group controls into category tiles: Steam offers Library and Per-game launch fixes; Tools offers
+System, Performance, Storage, Display, Plugins and Controller ownership; Power offers Wake, Idle
+timeouts, Power and Session. Device includes shared Power, RGB, Controller and Info pages, with
+Windows energy plans and Performance directly on its root.
 
 The tab-by-tab audit behind that, so a later addition is measured against the same rule:
 
-| Tab          | Status                    | Why                                                                                                                                     |
-| ------------ | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Quick access | Intentional direct layout | It contains pinned actions, grouped sections and plugin widgets. Its whole purpose is one-step reach; a category layer would defeat it. |
-| Steam        | Converted                 | Library, Per-game launch fixes.                                                                                                         |
-| Device       | Converted                 | Category tiles from the plugin's declared sections, plus the shared Power, RGB, Controller and Info pages.                              |
-| Tools        | Converted                 | System, Performance, Storage, Display, Plugins, Controller ownership.                                                                   |
-| Power        | Converted                 | Wake, Idle timeouts, Power, Session.                                                                                                    |
-| Session      | Absorbed into Power       | Four buttons never justified a root tab (2026-09-11). They are lifecycle transitions, which is what Power is.                           |
+| Tab          | Status                    | Why                                                                                                                                                                        |
+| ------------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Quick access | Intentional direct layout | It contains pinned actions, grouped sections and plugin widgets. Its whole purpose is one-step reach; a category layer would defeat it.                                    |
+| Steam        | Converted                 | Library, Per-game launch fixes.                                                                                                                                            |
+| Device       | Direct overview           | Category tiles from the plugin's declared sections, plus the shared Power, RGB, Controller and Info pages, with Windows energy plans and Performance directly on its root. |
+| Tools        | Converted                 | System, Performance, Storage, Display, Plugins, Controller ownership.                                                                                                      |
+| Power        | Converted                 | Wake, Idle timeouts, Power, Session.                                                                                                                                       |
+| Session      | Absorbed into Power       | Four buttons never justified a root tab (2026-09-11). They are lifecycle transitions, which is what Power is.                                                              |
 
-A new control belongs on the category page that names its group, never on a root. A control with no
-group is a reason to add a category, not to put it on the root.
+New controls belong on the category page that names their group. The approved Device overview
+(2026-09-13) exposes Windows power and Performance directly; Quick Access remains a direct layout.
 
-Device's Power page contains the Core Windows power-profile picker even without a device plugin,
-plus device presets and AC/battery assignments when available. LB/RB cycle with wrap; the sheet
-reopens on its last destination; focus lands on the first row after a switch; the warning `InfoBar`
-stays above the tabs.
+Device's overview and Power page contain the Core Windows power-profile picker even without a device
+plugin, with device presets and AC/battery assignments on Power when available. Controller stays
+reachable without integration for button glyph selection and explains why controller output is
+unavailable. The root's Quick Access pins expander lists available section and widget pin actions.
+LB/RB cycle with wrap; the sheet reopens on its last destination; focus lands on the first row after
+a switch; the warning `InfoBar` stays above the tabs.
 
 Quick access is the home root and the Back target of every other root. `AppConfig.QuickAccessPins`
 holds action and section IDs. Static action cards render live mirrors of their source rows and press

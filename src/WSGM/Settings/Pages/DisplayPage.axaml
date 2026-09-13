@@ -1,78 +1,10 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:s="using:WSGM.Settings"
-             xmlns:wd="using:WindowsDeviceControl"
+             xmlns:p="using:WSGM.Settings.Pages"
              x:Class="WSGM.Settings.Pages.DisplayPage"
              x:DataType="s:SettingsViewModel">
     <UserControl.Resources>
-        <DataTemplate x:Key="DisplayRow" x:DataType="s:DisplayLayoutEditorRow">
-            <Border Classes="setting-row">
-                <StackPanel Spacing="6">
-                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                        <StackPanel Spacing="1">
-                            <TextBlock Text="{Binding DisplayName}" Classes="setting-title" />
-                            <TextBlock Text="{Binding PresenceText}" Classes="caption"
-                                       IsVisible="{Binding !Present}" />
-                        </StackPanel>
-                        <CheckBox Grid.Column="1" Content="Active" IsChecked="{Binding Active}" />
-                        <Button Grid.Column="2" Content="Forget"
-                                Command="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).ForgetDisplayCommand}"
-                                CommandParameter="{Binding}" />
-                    </Grid>
-                    <StackPanel Spacing="6" IsVisible="{Binding Active}">
-                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
-                            <CheckBox Content="Primary" IsChecked="{Binding IsPrimary}" VerticalAlignment="Center" />
-                            <ComboBox Grid.Column="1" ItemsSource="{Binding Modes}" SelectedItem="{Binding Mode}"
-                                      HorizontalAlignment="Stretch" IsVisible="{Binding HasModes}">
-                                <ComboBox.ItemTemplate>
-                                    <DataTemplate x:DataType="wd:DisplayMode">
-                                        <TextBlock>
-                                            <TextBlock.Text>
-                                                <MultiBinding StringFormat="{}{0} x {1} at {2} Hz">
-                                                    <Binding Path="Width" />
-                                                    <Binding Path="Height" />
-                                                    <Binding Path="RefreshHz" />
-                                                </MultiBinding>
-                                            </TextBlock.Text>
-                                        </TextBlock>
-                                    </DataTemplate>
-                                </ComboBox.ItemTemplate>
-                            </ComboBox>
-                            <TextBlock Grid.Column="1" Classes="caption" VerticalAlignment="Center"
-                                       IsVisible="{Binding !HasModes}"
-                                       Text="No modes are remembered for this display yet. Connect it and press Snapshot." />
-                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
-                                <TextBlock Text="Scale (%)" Classes="caption" VerticalAlignment="Center" />
-                                <NumericUpDown Value="{Binding DpiPercent}" Minimum="100" Maximum="500" Increment="25" Width="130" />
-                            </StackPanel>
-                            <CheckBox Grid.Column="3" Content="HDR" IsChecked="{Binding HdrEnabled}"
-                                      IsVisible="{Binding HdrSupported}" VerticalAlignment="Center" />
-                        </Grid>
-                        <Expander Header="Display position" IsVisible="{Binding !IsPrimary}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                            <Grid ColumnDefinitions="Auto,*,Auto,*" ColumnSpacing="8">
-                                <TextBlock Text="Horizontal (px)" VerticalAlignment="Center" Classes="caption" />
-                                <NumericUpDown Grid.Column="1" Value="{Binding X}" Minimum="-32768" Maximum="32768"
-                                               Increment="10" />
-                                <TextBlock Grid.Column="2" Text="Vertical (px)" VerticalAlignment="Center" Classes="caption" />
-                                <NumericUpDown Grid.Column="3" Value="{Binding Y}" Minimum="-32768" Maximum="32768"
-                                               Increment="10" />
-                            </Grid>
-                        </Expander>
-                        <Grid ColumnDefinitions="*,220,Auto" ColumnSpacing="8" IsVisible="{Binding NeedsRebind}">
-                            <TextBlock Text="{Binding RebindText}" TextWrapping="Wrap" Classes="caption"
-                                       VerticalAlignment="Center" />
-                            <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
-                                      ItemsSource="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).RebindChoices}"
-                                      SelectedIndex="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).RebindChoiceIndex}" />
-                            <Button Grid.Column="2" Content="Use this display"
-                                    Command="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).RebindDisplayCommand}"
-                                    CommandParameter="{Binding}" />
-                        </Grid>
-                    </StackPanel>
-                </StackPanel>
-            </Border>
-        </DataTemplate>
-
         <DataTemplate x:Key="PluginArgumentRow" x:DataType="s:PluginArgumentRow">
             <Grid ColumnDefinitions="160,*" ColumnSpacing="8" Margin="0,2">
                 <TextBlock Text="{Binding Label}" Classes="caption" VerticalAlignment="Center" />
@@ -132,99 +64,78 @@
             </StackPanel>
         </DataTemplate>
     </UserControl.Resources>
-
     <ScrollViewer>
-        <Border Padding="16,10">
-            <StackPanel>
-                <Border Classes="section-header"><TextBlock Text="GAME MODE DISPLAY" /></Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,220" ColumnSpacing="12">
-                        <StackPanel Spacing="1">
-                            <TextBlock Text="Entering Game Mode" Classes="setting-title" />
-                            <TextBlock Text="Default starts on the display Windows already calls primary and adjusts scaling only. Custom applies a saved layout, after optionally waiting for a display and running plugin actions."
-                                       Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ComboBox Grid.Column="1" SelectedIndex="{Binding GameModeLaunchKindIndex}">
-                            <ComboBoxItem Content="Default" />
-                            <ComboBoxItem Content="Custom" />
-                        </ComboBox>
-                    </Grid>
-                </Border>
-
-                <Border Classes="setting-row">
-                    <TextBlock Text="{Binding LaunchSummaryText}" TextWrapping="Wrap" Classes="caption" />
-                </Border>
-
-                <StackPanel IsVisible="{Binding ShowCustomLaunch}">
-                    <Border Classes="setting-row alt">
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                            <StackPanel Spacing="1">
-                                <TextBlock Text="Game Mode layout" Classes="setting-title" />
-                                <TextBlock Text="Arrange the displays the way Game Mode should use them, then capture."
-                                           Classes="caption" TextWrapping="Wrap" />
-                            </StackPanel>
-                            <Button Grid.Column="1" Content="Snapshot" Command="{Binding SnapshotGameLayoutCommand}" />
-                        </Grid>
-                    </Border>
-                    <ItemsControl ItemsSource="{Binding GameLayout.Rows}"
-                                  ItemTemplate="{StaticResource DisplayRow}" />
-                    <Border Classes="setting-row" IsVisible="{Binding GameLayout.HasValidationError}">
-                        <TextBlock Text="{Binding GameLayout.ValidationText}" TextWrapping="Wrap" Classes="caption" />
-                    </Border>
-
-                    <Border Classes="setting-row alt">
-                        <Grid ColumnDefinitions="*,260" ColumnSpacing="12">
-                            <StackPanel Spacing="1">
-                                <TextBlock Text="Wait for a display" Classes="setting-title" />
-                                <TextBlock Text="Game Mode waits for this display without a time limit. The splash offers Cancel while it waits."
-                                           Classes="caption" TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ComboBox Grid.Column="1" ItemsSource="{Binding WaitForDisplayChoices}"
-                                      SelectedIndex="{Binding WaitForDisplayIndex}" HorizontalAlignment="Stretch" />
-                        </Grid>
-                    </Border>
+        <StackPanel Margin="20,16" Spacing="16">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Display layouts" FontSize="22" FontWeight="SemiBold" />
+                    <TextBlock Text="Choose how your screens work when you switch modes." Classes="caption" />
                 </StackPanel>
-
-                <Border Classes="section-header"><TextBlock Text="LEAVING GAME MODE" /></Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,220" ColumnSpacing="12">
-                        <StackPanel Spacing="1">
-                            <TextBlock Text="Restore" Classes="setting-title" />
-                            <TextBlock Text="Either whatever was on screen when Game Mode started, or a saved Desktop layout."
-                                       Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ComboBox Grid.Column="1" SelectedIndex="{Binding GameModeReturnIndex}">
-                            <ComboBoxItem Content="Previous layout" />
-                            <ComboBoxItem Content="Saved Desktop layout" />
-                        </ComboBox>
-                    </Grid>
-                </Border>
-                <StackPanel IsVisible="{Binding ShowDesktopLayout}">
-                    <Border Classes="setting-row">
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                            <TextBlock Text="Desktop layout" Classes="setting-title" VerticalAlignment="Center" />
-                            <Button Grid.Column="1" Content="Snapshot" Command="{Binding SnapshotDesktopLayoutCommand}" />
-                        </Grid>
-                    </Border>
-                    <ItemsControl ItemsSource="{Binding DesktopLayout.Rows}"
-                                  ItemTemplate="{StaticResource DisplayRow}" />
-                    <Border Classes="setting-row" IsVisible="{Binding DesktopLayout.HasValidationError}">
-                        <TextBlock Text="{Binding DesktopLayout.ValidationText}" TextWrapping="Wrap" Classes="caption" />
-                    </Border>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Button Content="Game Mode" Command="{Binding EditGameLayoutCommand}" Classes.primary="{Binding !EditingDesktopLayout}" Padding="16,8" />
+                    <Button Content="Desktop" Command="{Binding EditDesktopLayoutCommand}" Classes.primary="{Binding EditingDesktopLayout}" Padding="16,8" />
                 </StackPanel>
-
-                <Expander Header="Session actions" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Margin="0,12,0,0">
-                    <StackPanel>
-                    <Border Classes="setting-row alt">
-                        <TextBlock TextWrapping="Wrap" Classes="caption"
-                                   Text="Choose optional plugin actions to run when entering or leaving Game Mode, starting the desktop, or waking it." />
-                    </Border>
-                    <TextBlock Text="{Binding ActionLists[0].AddHintText}" IsVisible="{Binding !ActionLists[0].CanAdd}"
-                               Classes="caption" TextWrapping="Wrap" Margin="12,8" />
-                    <ItemsControl ItemsSource="{Binding ActionLists}" ItemTemplate="{StaticResource PluginActionList}" />
+            </Grid>
+            <Border BorderBrush="{StaticResource HcControlBorderBrush}" BorderThickness="0,1" Padding="0,12">
+                <Grid ColumnDefinitions="*,270" ColumnSpacing="16">
+                    <StackPanel Spacing="3" IsVisible="{Binding !EditingDesktopLayout}">
+                        <TextBlock Text="When entering Game Mode" Classes="setting-title" />
+                        <TextBlock Text="Apply this layout before opening Big Picture." Classes="caption" />
+                    </StackPanel>
+                    <StackPanel Spacing="3" IsVisible="{Binding EditingDesktopLayout}">
+                        <TextBlock Text="When returning to Desktop" Classes="setting-title" />
+                        <TextBlock Text="Restore the previous arrangement or use your saved Desktop layout." Classes="caption" />
+                    </StackPanel>
+                    <ComboBox Grid.Column="1" SelectedIndex="{Binding GameModeLaunchKindIndex}" IsVisible="{Binding !EditingDesktopLayout}" HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                        <ComboBoxItem Content="Keep layout, use 100% scaling" />
+                        <ComboBoxItem Content="Use a custom layout" />
+                    </ComboBox>
+                    <ComboBox Grid.Column="1" SelectedIndex="{Binding GameModeReturnIndex}" IsVisible="{Binding EditingDesktopLayout}" HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                        <ComboBoxItem Content="Restore the previous layout" />
+                        <ComboBoxItem Content="Use a saved Desktop layout" />
+                    </ComboBox>
+                </Grid>
+            </Border>
+            <TextBlock Text="{Binding DisplayPolicySummary}" Classes="caption" IsVisible="{Binding !ShowLayoutEditor}" />
+            <StackPanel Spacing="12" IsVisible="{Binding ShowLayoutEditor}" IsEnabled="{Binding !ReadingDisplays}">
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                    <TextBlock Text="Display arrangement" Classes="setting-title" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Content="Refresh display list" Command="{Binding RefreshDisplaysCommand}" IsEnabled="{Binding !ReadingDisplays}" />
+                    <Button Grid.Column="2" Content="Copy current desktop" Command="{Binding CopyCurrentLayoutCommand}" IsEnabled="{Binding !ReadingDisplays}" />
+                </Grid>
+                <TextBlock Text="{Binding DisplayDiscoveryText}" Classes="layout-warning" TextWrapping="Wrap" IsVisible="{Binding HasDisplayDiscoveryMessage}" />
+                <p:DisplayLayoutView DataContext="{Binding CurrentDisplayLayout}" />
+                <StackPanel Spacing="8" IsVisible="{Binding CurrentDisplayLayout.SelectedNeedsRebind}">
+                    <TextBlock Text="Confirm which display this is before the layout can be saved." Classes="layout-warning" />
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <ComboBox ItemsSource="{Binding RebindChoices}" SelectedIndex="{Binding RebindChoiceIndex}" HorizontalAlignment="Stretch" />
+                        <Button Grid.Column="1" Content="Use this display" Command="{Binding RebindDisplayCommand}" CommandParameter="{Binding CurrentDisplayLayout.Selected}" />
+                    </Grid>
+                </StackPanel>
+                <Expander Header="Manage remembered displays" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Forgetting a display removes it from both saved layouts." Classes="caption" />
+                        <Button Content="Forget selected display" Command="{Binding ForgetDisplayCommand}" CommandParameter="{Binding CurrentDisplayLayout.Selected}" HorizontalAlignment="Left" IsEnabled="{Binding CurrentDisplayLayout.HasSelection}" />
                     </StackPanel>
                 </Expander>
+                <Border BorderThickness="0,1,0,0" BorderBrush="{StaticResource HcControlBorderBrush}" Padding="0,12,0,0" IsVisible="{Binding !EditingDesktopLayout}">
+                    <Grid ColumnDefinitions="*,270" ColumnSpacing="16">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="Wait for a display" Classes="setting-title" />
+                            <TextBlock Text="If disconnected, wait on the switch screen with Cancel available." Classes="caption" />
+                        </StackPanel>
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding WaitForDisplayChoices}" SelectedIndex="{Binding WaitForDisplayIndex}" HorizontalAlignment="Stretch" />
+                    </Grid>
+                </Border>
             </StackPanel>
-        </Border>
+            <Expander Header="Session actions" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Optional plugin actions for entering or leaving Game Mode, desktop startup and wake." Classes="caption" />
+                    <TextBlock Text="{Binding ActionLists[0].AddHintText}" IsVisible="{Binding !ActionLists[0].CanAdd}" Classes="caption" />
+                    <ItemsControl ItemsSource="{Binding ActionLists}" ItemTemplate="{StaticResource PluginActionList}" />
+                </StackPanel>
+            </Expander>
+            <TextBlock Text="Save changes to apply these layouts on the next switch. Your current desktop stays as it is." Classes="caption" />
+        </StackPanel>
     </ScrollViewer>
 </UserControl>

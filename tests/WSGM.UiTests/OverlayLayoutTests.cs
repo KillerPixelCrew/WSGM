@@ -192,7 +192,7 @@ public sealed class OverlayLayoutTests
         UiFixture.Click(window, UiFixture.Tab(window, 6));
         var model = Assert.IsType<SettingsViewModel>(window.DataContext);
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
-        model.SnapshotGameLayoutCommand.Execute(null);
+        model.CopyCurrentLayoutCommand.Execute(null);
         Dispatcher.UIThread.RunJobs();
         var text = window.GetVisualDescendants().OfType<TextBlock>().Where(control => control.IsEffectivelyVisible).ToArray();
         Assert.DoesNotContain(text, control => control.Text?.Contains("DisplayMode {") == true);

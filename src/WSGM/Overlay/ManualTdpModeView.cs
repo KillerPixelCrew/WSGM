@@ -21,6 +21,7 @@ internal sealed class ManualTdpModeView : StackPanel
             if (writing || closed) { return; }
             var state = read();
             rendering = true;
+            IsVisible = state.Available;
             choice.IsEnabled = state.Available;
             choice.SelectedIndex = state.Unified ? 1 : 0;
             rendering = false;
@@ -36,7 +37,7 @@ internal sealed class ManualTdpModeView : StackPanel
         };
         DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
         timer.Tick += (_, _) => Refresh();
-        AttachedToVisualTree += (_, _) => { Refresh(); timer.Start(); };
+        AttachedToVisualTree += (_, _) => { closed = false; Refresh(); timer.Start(); };
         DetachedFromVisualTree += (_, _) => { closed = true; timer.Stop(); };
     }
 }

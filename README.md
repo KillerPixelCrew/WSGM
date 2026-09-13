@@ -45,8 +45,8 @@ Windows shell the whole time.
   P-core/E-core preference, keep the display awake while a game runs, mute while the screen is off
   during downloads, display-off timeouts, and a report of what woke the machine from standby.
 - **Game Mode display layouts** — Default drops every display to 100% scaling so DPI-unaware games
-  render 1:1; Custom applies a display arrangement you captured from your desktop, optionally after
-  waiting for a TV to appear and after running plugin actions such as switching an HDMI input.
+  render 1:1; Custom applies a layout you edit in Settings, optionally after waiting for a TV to
+  appear and after running plugin actions such as switching an HDMI input.
 - **Common plugins** — packages beyond the device slot, explicitly enabled. The first is an IR
   plugin for the XIAO IR Mate that learns and sends remote codes over USB or Wi-Fi and drives an
   HDMI switch or TV as part of entering Game Mode. It is under development; see its
@@ -118,13 +118,15 @@ Desktop shortcut. It opens Settings directly without starting a resident session
 
 Settings > Display configures what entering Game Mode does. Default adjusts scaling only. Custom
 applies a saved display layout, optionally after waiting for a display and running plugin actions.
-Snapshot captures the desktop as it is arranged now, and every display WSGM has seen stays editable
-afterwards, including one that is currently unplugged. Plugin actions can also run when leaving Game
-Mode and at desktop startup and wake, which is how external HDMI and input routing works without
-putting device protocols in WSGM itself. The wait for a display has no time limit, for a TV that
-only appears once an HDMI switch selects this PC. Entering Game Mode is one cancellable transaction:
-until Explorer leaves, Cancel on the splash puts the desktop back exactly as it was. See
-[session automation](docs/plugin-system.md#session-automation) and
+Edit Game Mode and Desktop layouts independently: drag screens, choose a primary display, and set
+resolution, refresh rate, scaling, HDR and exact positions. Copy current desktop is optional;
+refreshing the display list preserves unfinished edits, and Undo reverses the last edit. Remembered
+displays remain editable while unplugged. Saving applies the layout on the next mode switch. Plugin
+actions can also run when leaving Game Mode and at desktop startup and wake, which is how external
+HDMI and input routing works without putting device protocols in WSGM itself. The wait for a display
+has no time limit, for a TV that only appears once an HDMI switch selects this PC. Entering Game
+Mode is one cancellable transaction: until Explorer leaves, Cancel on the splash puts the desktop
+back exactly as it was. See [session automation](docs/plugin-system.md#session-automation) and
 [Game Mode display layouts](docs/power-and-display.md#game-mode-display-layouts).
 
 ## ⚠ Recovery — read this FIRST

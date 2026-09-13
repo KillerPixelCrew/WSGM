@@ -31,7 +31,6 @@ public sealed class SettingsInputLeaseTests
         SettingsWindow window = fixture.Settings(gameModeSurface: handoff);
         try
         {
-            window.Activate();
             await acquiring.Task.WaitAsync(TimeSpan.FromSeconds(5));
             UiFixture.Click(window, UiFixture.Tab(window, 5));
             Assert.True(UiFixture.Named<Control>(window, "PageQuickAccess").IsVisible);

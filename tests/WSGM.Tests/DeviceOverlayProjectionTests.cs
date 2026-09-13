@@ -136,7 +136,7 @@ public sealed class DeviceOverlayProjectionTests
 
         DescriptorRow before = Assert.IsType<DescriptorRow>(
             source.Snapshot().GlyphSelection);
-        await source.CyclePhysicalGlyphSelectionAsync();
+        await source.SetPhysicalGlyphSelectionAsync(WSGM.Core.DeviceGlyphSelection.NativeSteam);
         DescriptorRow after = Assert.IsType<DescriptorRow>(
             source.Snapshot().GlyphSelection);
 

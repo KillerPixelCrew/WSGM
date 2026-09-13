@@ -1,5 +1,9 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WindowsDeviceControl;
 using WSGM.Core;
@@ -10,6 +14,102 @@ namespace WSGM.UiTests;
 
 public sealed class GameModeDisplayPageTests
 {
+    [AvaloniaFact]
+    public void FreshCustomLayoutCanBeEditedWithoutCopyingAndDisabledDisplaysKeepTheirInspector()
+    {
+        using UiFixture fixture = new() { Displays = Desktop(Tv) };
+        fixture.DisplayFacts[Tv.DevicePath] = new([new(3840, 2160, 120), new(1920, 1080, 60)], true, 225);
+        SettingsWindow window = Open(fixture);
+        SettingsViewModel model = Model(window);
+        model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
+        Dispatcher.UIThread.RunJobs();
+        DisplayLayoutEditorRow row = Assert.Single(model.GameLayout.Rows);
+        Assert.True(row.Active);
+        Assert.Equal(100, row.DpiPercent);
+        ComboBox resolution = window.GetVisualDescendants().OfType<ComboBox>().Single(control => control.Name == "ResolutionChoice");
+        Assert.True(resolution.IsEffectivelyEnabled);
+        Assert.Equal(2, resolution.ItemCount);
+        var enabled = window.GetVisualDescendants().OfType<CheckBox>().Single(control => Equals(control.Content, "Use in this layout"));
+        UiFixture.Click(window, enabled);
+        Assert.False(row.Active);
+        Assert.True(resolution.IsEffectivelyVisible);
+        Assert.True(resolution.IsEffectivelyEnabled);
+        Assert.False(model.CanSaveLayouts);
+        row.Resolution = new DisplayResolution(1920, 1080);
+        Assert.Equal(60, row.RefreshHz);
+        UiFixture.Click(window, enabled);
+        Assert.Equal(new DisplayMode(1920, 1080, 60), Assert.Single(model.GameLayout.Rows).Mode);
+        Assert.True(model.CanSaveLayouts);
+    }
+
+    [AvaloniaFact]
+    public void RefreshKeepsBothDraftsSelectionAndUndoIncludingInvalidEdits()
+    {
+        using UiFixture fixture = new() { Displays = Desktop(Desk, Tv) };
+        SettingsViewModel model = Model(Open(fixture));
+        model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
+        model.GameModeReturnIndex = (int)GameModeReturn.DesktopLayout;
+        DisplayLayoutEditorRow tv = model.GameLayout.Rows[1];
+        model.GameLayout.Selected = tv;
+        tv.X = 100;
+        model.DesktopLayout.Rows[0].DpiPercent = 175;
+        fixture.Displays = Desktop(Desk);
+        model.RefreshDisplaysCommand.Execute(null);
+        Assert.Same(tv, model.GameLayout.Selected);
+        Assert.False(tv.Present);
+        Assert.Equal(100, tv.X);
+        Assert.True(model.GameLayout.HasValidationError);
+        Assert.Equal(175, model.DesktopLayout.Rows[0].DpiPercent);
+        model.GameLayout.Undo();
+        Assert.Equal(3840, tv.X);
+        Assert.False(model.GameLayout.HasValidationError);
+        fixture.ReadDisplays = () => throw new InvalidOperationException("fixture discovery failure");
+        model.RefreshDisplaysCommand.Execute(null);
+        Assert.Equal(2, model.GameLayout.Rows.Count);
+        Assert.Contains("drafts are kept", model.DisplayDiscoveryText, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public void CopyAndUndoAffectOnlyTheSelectedDesktopDraft()
+    {
+        using UiFixture fixture = new() { Displays = Desktop(Desk, Tv) };
+        SettingsViewModel model = Model(Open(fixture));
+        model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
+        model.GameModeReturnIndex = (int)GameModeReturn.DesktopLayout;
+        model.DesktopLayout.Rows[1].Active = false;
+        model.EditingDesktopLayout = true;
+        model.CopyCurrentLayoutCommand.Execute(null);
+        Assert.True(model.DesktopLayout.Rows[1].Active);
+        Assert.Equal(100, model.GameLayout.Rows[0].DpiPercent);
+        model.DesktopLayout.Undo();
+        Assert.False(model.DesktopLayout.Rows[1].Active);
+        Assert.Equal(150, model.DesktopLayout.Rows[1].DpiPercent);
+    }
+
+    [AvaloniaFact]
+    public void DraggingAnArrangementScreenRecordsOneUndoStep()
+    {
+        using UiFixture fixture = new() { Displays = Desktop(Desk, Tv) };
+        SettingsWindow window = Open(fixture);
+        SettingsViewModel model = Model(window);
+        model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
+        Dispatcher.UIThread.RunJobs();
+        DisplayLayoutEditorRow tv = model.GameLayout.Rows[1];
+        var screen = window.GetVisualDescendants().OfType<Button>().Single(button => button.Classes.Contains("display-monitor") && ReferenceEquals(button.Tag, tv));
+        screen.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+        Avalonia.Point start = screen.TranslatePoint(new(screen.Bounds.Width / 2, screen.Bounds.Height / 2), window)!.Value;
+        Avalonia.Point end = start + new Avalonia.Vector(0, 45);
+        window.MouseDown(start, MouseButton.Left);
+        window.MouseMove(end);
+        window.MouseUp(end, MouseButton.Left);
+        Assert.NotEqual(0, tv.Y);
+        Assert.Same(tv, model.GameLayout.Selected);
+        model.GameLayout.Undo();
+        Assert.Equal(0, tv.Y);
+        Assert.Equal(3840, tv.X);
+    }
+
     private static readonly DisplayTargetIdentity Tv =
         new(@"\\?\DISPLAY#TV0001", null, null, "Living room TV", 0, 0, 3);
 
@@ -49,14 +149,14 @@ public sealed class GameModeDisplayPageTests
     }
 
     [AvaloniaFact]
-    public void SnapshotCapturesTheDesktopAndRemembersWhatEachDisplaySupports()
+    public void CopyCapturesTheDesktopAndRemembersWhatEachDisplaySupports()
     {
         using UiFixture fixture = new() { Displays = Desktop(Tv) };
         fixture.DisplayFacts[Tv.DevicePath] = new([new(3840, 2160, 120), new(1920, 1080, 60)], true, 225);
         SettingsViewModel model = Model(Open(fixture));
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
 
-        model.SnapshotGameLayoutCommand.Execute(null);
+        model.CopyCurrentLayoutCommand.Execute(null);
 
         DisplayLayoutEditorRow row = Assert.Single(model.GameLayout.Rows);
         Assert.Equal("Living room TV", row.DisplayName);
@@ -102,7 +202,7 @@ public sealed class GameModeDisplayPageTests
         using UiFixture fixture = new() { Displays = Desktop(Desk, Tv) };
         SettingsViewModel model = Model(Open(fixture));
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
-        model.SnapshotGameLayoutCommand.Execute(null);
+        model.CopyCurrentLayoutCommand.Execute(null);
 
         DisplayLayoutEditorRow desk = model.GameLayout.Rows.Single(row => row.DisplayName == "Desk monitor");
         DisplayLayoutEditorRow tv = model.GameLayout.Rows.Single(row => row.DisplayName == "Living room TV");
@@ -125,7 +225,7 @@ public sealed class GameModeDisplayPageTests
         using UiFixture fixture = new() { Displays = Desktop(Desk, Tv) };
         SettingsViewModel model = Model(Open(fixture));
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
-        model.SnapshotGameLayoutCommand.Execute(null);
+        model.CopyCurrentLayoutCommand.Execute(null);
 
         model.GameLayout.Rows.Single(row => row.DisplayName == "Living room TV").X = 100;
 
@@ -170,7 +270,7 @@ public sealed class GameModeDisplayPageTests
         SettingsViewModel model = Model(Open(fixture));
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
         model.GameModeReturnIndex = (int)GameModeReturn.DesktopLayout;
-        model.SnapshotGameLayoutCommand.Execute(null);
+        model.CopyCurrentLayoutCommand.Execute(null);
         model.WaitForDisplayIndex = 1;
 
         model.ForgetDisplayCommand.Execute(model.GameLayout.Rows[0]);
@@ -183,13 +283,27 @@ public sealed class GameModeDisplayPageTests
     }
 
     [AvaloniaFact]
+    public void SavingForgetPreservesASeparateDisplayDiscoveredByTheRunningSession()
+    {
+        using UiFixture fixture = new();
+        fixture.Saved.GameModeLaunch.KnownDisplays = [new() { Target = Tv, Modes = [new(3840, 2160, 120)] }];
+        SettingsWindow window = Open(fixture);
+        SettingsViewModel model = Model(window);
+        model.ForgetDisplayCommand.Execute(model.GameLayout.Rows[0]);
+        fixture.Saved.GameModeLaunch.KnownDisplays.Add(new() { Target = Desk, Modes = [new(1920, 1080, 60)] });
+        UiFixture.Click(window, window.GetVisualDescendants().OfType<Button>()
+            .Single(button => Equals(button.Content, "Save changes")));
+        Assert.Equal("Desk monitor", Assert.Single(fixture.Saved.GameModeLaunch.KnownDisplays).Target!.FriendlyName);
+    }
+
+    [AvaloniaFact]
     public void ASavedLayoutAndItsWaitTargetSurviveASave()
     {
         using UiFixture fixture = new() { Displays = Desktop(Tv) };
         SettingsWindow window = Open(fixture);
         SettingsViewModel model = Model(window);
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
-        model.SnapshotGameLayoutCommand.Execute(null);
+        model.CopyCurrentLayoutCommand.Execute(null);
         model.WaitForDisplayIndex = 1;
 
         UiFixture.Click(window, window.GetVisualDescendants().OfType<Button>()

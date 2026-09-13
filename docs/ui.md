@@ -117,12 +117,14 @@ single open-handle decode API shared by every call site.
 
 ### Complete Device-page captures
 
-The Device root uses two columns of section cards. Power places assignments and performance side by
-side, followed by category headings and individual row cards for manual power/display, fans,
-charging and automatic control. Windows energy plans and profile details/reset are collapsible;
-Windows plans start expanded with integration disabled. Normal capability persistence/readback
-details are tooltips; faults remain visible in their rows. Groups share spacing and headings; their
-controls use the same card backgrounds and focus borders as the rest of the overlay.
+The Device root uses a bounded two-column Power and Performance overview, then navigation to
+available device sections and Quick Access pin choices. Windows energy plans are directly visible,
+including with integration disabled. Power adds assignments and device-specific groups for manual
+power/display, fans, charging and automatic control. Profile details/reset remain collapsible.
+Controller places button glyph selection beside controller output and explains unavailable output.
+Normal capability persistence/readback details are tooltips; faults remain visible in their rows.
+Groups share spacing and headings; their controls use the same card backgrounds and focus borders as
+the rest of the overlay.
 
 `DevicePageCaptureTests` renders the actual Claw descriptor/state publication with simulated WSGM
 services at 1280 × 800 and, for Power, 1920 × 1200. It writes viewport and full-content PNGs under

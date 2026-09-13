@@ -9,7 +9,7 @@ using WSGM.Core;
 
 namespace WSGM.Settings;
 
-/// <summary>What a Snapshot learned about one display beyond its current placement.</summary>
+/// <summary>What discovery learned about one display beyond its current placement.</summary>
 /// <param name="Modes">Modes the driver advertised.</param>
 /// <param name="HdrSupported">Whether the display reported advanced-colour support.</param>
 /// <param name="MaximumDpiPercent">Highest scaling percentage it offered, or zero when unknown.</param>
@@ -32,6 +32,7 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
         Display = display;
         Present = present;
         Modes = [.. display.Modes];
+        _mode = Modes.FirstOrDefault();
     }
 
     /// <inheritdoc />
@@ -51,7 +52,7 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
         : "Unnamed display";
 
     /// <summary>Gets whether the display is connected right now.</summary>
-    public bool Present { get; }
+    public bool Present { get; private set; }
 
     /// <summary>Gets the badge shown for a display that is configured but not plugged in.</summary>
     public string PresenceText => Present ? "" : "Not connected right now";
@@ -74,10 +75,74 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
     public bool HdrSupported => Display.HdrSupported;
 
     /// <summary>Gets the modes the driver advertised the last time the display was active.</summary>
-    public IReadOnlyList<DisplayMode> Modes { get; }
+    public IReadOnlyList<DisplayMode> Modes { get; private set; }
+
+    internal void Refresh(bool present)
+    {
+        Present = present;
+        Modes = [.. Display.Modes];
+        _mode ??= Modes.FirstOrDefault();
+        RaiseAll();
+        foreach (string name in new[] { nameof(Present), nameof(PresenceText), nameof(Modes), nameof(HasModes), nameof(HdrSupported), nameof(HdrHint) })
+        { PropertyChanged?.Invoke(this, new(name)); }
+    }
 
     /// <summary>Gets whether any mode is known, so the picker has something to offer.</summary>
-    public bool HasModes => Modes.Count > 0;
+    public bool HasModes => Modes.Count > 0 || Mode is not null;
+
+    /// <summary>Gets the resolutions remembered for this display, including a saved mode.</summary>
+    public IReadOnlyList<DisplayResolution> Resolutions => [.. AvailableModes
+        .Select(mode => new DisplayResolution(mode.Width, mode.Height)).Distinct()];
+
+    private IEnumerable<DisplayMode> AvailableModes => Mode is { } mode ? Modes.Append(mode) : Modes;
+
+    /// <summary>Gets or sets the resolution while retaining a supported refresh rate.</summary>
+    public DisplayResolution? Resolution
+    {
+        get => Mode is { } mode ? new(mode.Width, mode.Height) : null;
+        set
+        {
+            if (value is not { } resolution || Resolution == resolution) { return; }
+            var matches = AvailableModes.Where(mode => mode.Width == resolution.Width && mode.Height == resolution.Height).ToArray();
+            Mode = matches.FirstOrDefault(mode => mode.RefreshHz == Mode?.RefreshHz) ?? matches.FirstOrDefault();
+        }
+    }
+
+    /// <summary>Gets refresh rates belonging to the selected resolution.</summary>
+    public IReadOnlyList<int> RefreshRates => [.. AvailableModes.Where(mode =>
+        mode.Width == Mode?.Width && mode.Height == Mode?.Height).Select(mode => mode.RefreshHz).Distinct().OrderDescending()];
+
+    /// <summary>Gets or sets a refresh rate from the selected resolution's supported modes.</summary>
+    public int? RefreshHz
+    {
+        get => Mode?.RefreshHz;
+        set
+        {
+            if (value is null || value == RefreshHz) { return; }
+            Mode = AvailableModes.FirstOrDefault(mode => mode.Width == Mode?.Width && mode.Height == Mode?.Height
+                && mode.RefreshHz == value) ?? Mode;
+        }
+    }
+
+    /// <summary>Gets scaling choices within the remembered display range.</summary>
+    public IReadOnlyList<int> Scales => [.. Enumerable.Range(4, Math.Max(1,
+        Math.Min(500, Display.MaximumDpiPercent > 0 ? Display.MaximumDpiPercent : 500) / 25 - 3))
+        .Select(step => step * 25).Append(DpiPercent).Distinct().Order()];
+
+    /// <summary>Gets the numbered display label used by the diagram and list.</summary>
+    public int Number { get; internal set; }
+
+    /// <summary>Gets the state of this display in the draft.</summary>
+    public string LayoutState => !Active ? "Off in this layout" : IsPrimary ? "Primary" : "Enabled";
+
+    /// <summary>Gets the display connection state without hiding disconnected entries.</summary>
+    public string ConnectionText => Present ? "Connected" : "Disconnected · Remembered display";
+
+    /// <summary>Gets the heading of the selected-display inspector.</summary>
+    public string InspectorTitle => $"{Number} · {DisplayName}";
+
+    /// <summary>Gets the reason HDR is unavailable, when applicable.</summary>
+    public string HdrHint => HdrSupported ? "" : "HDR is not supported by the remembered display capabilities.";
 
     /// <summary>Gets or sets whether this display is part of the layout.</summary>
     public bool Active
@@ -99,6 +164,7 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
             if (_isPrimary == value) { return; }
             _isPrimary = value;
             PropertyChanged?.Invoke(this, new(nameof(IsPrimary)));
+            PropertyChanged?.Invoke(this, new(nameof(LayoutState)));
             if (value) { PrimaryRequested?.Invoke(this); }
             Edited?.Invoke();
         }
@@ -139,6 +205,9 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
         set => Set(ref _hdrEnabled, value, nameof(HdrEnabled));
     }
 
+    /// <summary>Gets or sets the HDR choice as Off or On.</summary>
+    public int HdrIndex { get => HdrEnabled ? 1 : 0; set => HdrEnabled = value == 1; }
+
     /// <summary>Fills the row from a saved output.</summary>
     internal void Load(DisplayLayoutOutput output)
     {
@@ -177,6 +246,13 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
         if (EqualityComparer<T>.Default.Equals(field, value)) { return; }
         field = value;
         PropertyChanged?.Invoke(this, new(name));
+        if (name == nameof(HdrEnabled)) { PropertyChanged?.Invoke(this, new(nameof(HdrIndex))); }
+        if (name == nameof(Mode))
+        {
+            foreach (string related in new[] { nameof(Resolution), nameof(Resolutions), nameof(RefreshRates), nameof(RefreshHz) })
+            { PropertyChanged?.Invoke(this, new(related)); }
+        }
+        PropertyChanged?.Invoke(this, new(nameof(LayoutState)));
         Edited?.Invoke();
     }
 
@@ -187,6 +263,8 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
             nameof(Active), nameof(IsPrimary), nameof(X), nameof(Y), nameof(Mode),
             nameof(DpiPercent), nameof(HdrEnabled), nameof(DisplayName), nameof(NeedsRebind),
             nameof(RebindText),
+            nameof(Resolution), nameof(Resolutions), nameof(RefreshRates), nameof(RefreshHz), nameof(Scales),
+            nameof(LayoutState), nameof(InspectorTitle), nameof(ConnectionText), nameof(HdrIndex), nameof(HasModes),
         })
         {
             PropertyChanged?.Invoke(this, new(name));
@@ -210,6 +288,12 @@ public sealed class DisplayLayoutEditor : INotifyPropertyChanged
     private DisplayLayoutEditorRow? _requestedPrimary;
     private bool _loading;
     private string _validationText = "";
+    private DisplayLayoutEditorRow? _selected;
+    private readonly Stack<RowState[]> _undo = new();
+    private RowState[] _previous = [];
+
+    private sealed record RowState(DisplayLayoutEditorRow Row, bool Active, bool Primary,
+        int X, int Y, DisplayMode? Mode, int Scale, bool Hdr);
 
     internal DisplayLayoutEditor(Action changed) => _changed = changed;
 
@@ -218,6 +302,33 @@ public sealed class DisplayLayoutEditor : INotifyPropertyChanged
 
     /// <summary>Gets one row per remembered display.</summary>
     public ObservableCollection<DisplayLayoutEditorRow> Rows { get; } = [];
+
+    /// <summary>Gets or sets the display whose settings are being edited.</summary>
+    public DisplayLayoutEditorRow? Selected
+    {
+        get => _selected;
+        set
+        {
+            if (_selected == value) { return; }
+            _selected = value;
+            PropertyChanged?.Invoke(this, new(nameof(Selected)));
+            PropertyChanged?.Invoke(this, new(nameof(HasSelection)));
+            PropertyChanged?.Invoke(this, new(nameof(SelectedNeedsRebind)));
+        }
+    }
+
+    /// <summary>Gets whether the inspector has a display.</summary>
+    public bool HasSelection => Selected is not null;
+    /// <summary>Gets whether the selected saved identity needs confirmation.</summary>
+    public bool SelectedNeedsRebind => Selected?.NeedsRebind is true;
+    /// <summary>Gets whether discovery or saved state supplied any display.</summary>
+    public bool HasDisplays => Rows.Count > 0;
+    /// <summary>Gets whether the layout has an enabled output.</summary>
+    public bool HasActiveDisplays => Rows.Any(row => row.Active);
+    /// <summary>Gets whether this draft has an undo step.</summary>
+    public bool CanUndo => _undo.Count > 0;
+    /// <summary>Gets whether an enabled display is currently disconnected.</summary>
+    public bool HasDisconnectedDisplay => Rows.Any(row => row.Active && !row.Present);
 
     /// <summary>Gets why this layout cannot be saved, or an empty string when it can.</summary>
     public string ValidationText
@@ -247,6 +358,7 @@ public sealed class DisplayLayoutEditor : INotifyPropertyChanged
         IReadOnlyList<DisplayTargetIdentity> present,
         DisplayLayout? layout)
     {
+        DisplayTargetIdentity? selected = Selected?.Target;
         _loading = true;
         try
         {
@@ -274,7 +386,14 @@ public sealed class DisplayLayoutEditor : INotifyPropertyChanged
             }
         }
         finally { _loading = false; }
+        for (int i = 0; i < Rows.Count; i++) { Rows[i].Number = i + 1; }
+        Selected = Rows.FirstOrDefault(row => selected is not null && row.Target?.Matches(selected) == true)
+            ?? Rows.FirstOrDefault(row => row.IsPrimary) ?? Rows.FirstOrDefault();
+        _undo.Clear();
         Revalidate();
+        _previous = CaptureRows();
+        PropertyChanged?.Invoke(this, new(nameof(HasDisplays)));
+        PropertyChanged?.Invoke(this, new(nameof(CanUndo)));
     }
 
     /// <summary>Builds the layout the rows describe, or null when none is active.</summary>
@@ -290,7 +409,13 @@ public sealed class DisplayLayoutEditor : INotifyPropertyChanged
     {
         Detach(row);
         Rows.Remove(row);
+        if (Selected == row) { Selected = Rows.FirstOrDefault(); }
+        for (int i = 0; i < Rows.Count; i++) { Rows[i].Number = i + 1; }
+        _undo.Clear();
         Revalidate();
+        _previous = CaptureRows();
+        PropertyChanged?.Invoke(this, new(nameof(HasDisplays)));
+        PropertyChanged?.Invoke(this, new(nameof(CanUndo)));
     }
 
     private void Attach(DisplayLayoutEditorRow row)
@@ -327,8 +452,105 @@ public sealed class DisplayLayoutEditor : INotifyPropertyChanged
     private void OnRowEdited()
     {
         if (_loading) { return; }
+        _undo.Push(_previous);
         Revalidate();
+        _previous = CaptureRows();
+        PropertyChanged?.Invoke(this, new(nameof(CanUndo)));
         _changed();
+    }
+
+    private RowState[] CaptureRows() => [.. Rows.Select(row => new RowState(row, row.Active, row.IsPrimary,
+        row.X, row.Y, row.Mode, row.DpiPercent, row.HdrEnabled))];
+
+    /// <summary>Refreshes discovery facts without replacing rows or losing draft edits.</summary>
+    internal void RefreshCatalog(IReadOnlyList<KnownDisplay> catalog, IReadOnlyList<DisplayTargetIdentity> present)
+    {
+        _loading = true;
+        try
+        {
+            foreach (KnownDisplay display in catalog)
+            {
+                bool connected = display.Target is { } target && present.Any(other => other.Matches(target));
+                DisplayLayoutEditorRow? existing = Rows.FirstOrDefault(row => row.Display == display
+                    || (display.Target is { } identity && row.Target?.Matches(identity) == true));
+                if (existing is not null) { existing.Refresh(connected); }
+                else { Attach(new(display, connected) { Number = Rows.Count + 1 }); }
+            }
+        }
+        finally { _loading = false; }
+        Selected ??= Rows.FirstOrDefault();
+        Revalidate();
+        _previous = CaptureRows();
+        PropertyChanged?.Invoke(this, new(nameof(HasDisplays)));
+    }
+
+    /// <summary>Undoes one completed edit to this layout.</summary>
+    public void Undo()
+    {
+        if (!_undo.TryPop(out RowState[]? previous)) { return; }
+        _loading = true;
+        try
+        {
+            foreach (RowState state in previous)
+            {
+                state.Row.Active = state.Active;
+                state.Row.IsPrimary = state.Primary;
+                state.Row.X = state.X;
+                state.Row.Y = state.Y;
+                state.Row.Mode = state.Mode;
+                state.Row.DpiPercent = state.Scale;
+                state.Row.HdrEnabled = state.Hdr;
+            }
+        }
+        finally { _loading = false; }
+        _requestedPrimary = null;
+        Revalidate();
+        _previous = CaptureRows();
+        PropertyChanged?.Invoke(this, new(nameof(CanUndo)));
+        _changed();
+    }
+
+    /// <summary>Copies observed values into the draft as one undoable edit.</summary>
+    internal void CopyFrom(DisplayLayout layout)
+    {
+        _loading = true;
+        try
+        {
+            foreach (DisplayLayoutEditorRow row in Rows)
+            {
+                if (layout.Outputs.FirstOrDefault(output => row.Target?.Matches(output.Target) == true) is { } output)
+                { row.Load(output); }
+                else { row.Active = false; row.IsPrimary = false; }
+            }
+        }
+        finally { _loading = false; }
+        OnRowEdited();
+    }
+
+    /// <summary>Moves a display, preserving the primary origin and recording a single undo step.</summary>
+    public void Move(DisplayLayoutEditorRow row, int x, int y)
+    {
+        if (!Rows.Contains(row) || (row.X == x && row.Y == y)) { return; }
+        _loading = true;
+        try { row.X = Math.Clamp(x, -32768, 32768); row.Y = Math.Clamp(y, -32768, 32768); }
+        finally { _loading = false; }
+        OnRowEdited();
+    }
+
+    /// <summary>Places a display beside the primary without requiring pixel arithmetic.</summary>
+    public void PlaceSelected(int position)
+    {
+        if (Selected is not { IsPrimary: false, Mode: { } mode } row
+            || Rows.FirstOrDefault(item => item.Active && item.IsPrimary)?.Mode is not { } primary) { return; }
+        (int x, int y) = position switch
+        {
+            1 => (primary.Width, 0),
+            2 => (-mode.Width, 0),
+            3 => (0, -mode.Height),
+            4 => (0, primary.Height),
+            _ => (row.X, row.Y),
+        };
+        Move(row, x, y);
     }
 
     /// <summary>Applies the one rule the editor enforces itself, then asks the library for the
@@ -367,6 +589,10 @@ public sealed class DisplayLayoutEditor : INotifyPropertyChanged
         }
 
         PropertyChanged?.Invoke(this, new(nameof(HasUnboundRow)));
+        PropertyChanged?.Invoke(this, new(nameof(SelectedNeedsRebind)));
+        PropertyChanged?.Invoke(this, new(nameof(HasActiveDisplays)));
+        PropertyChanged?.Invoke(this, new(nameof(HasDisconnectedDisplay)));
+        PropertyChanged?.Invoke(this, new(nameof(Rows)));
         if (active.Length == 0)
         {
             ValidationText = "";
@@ -374,7 +600,7 @@ public sealed class DisplayLayoutEditor : INotifyPropertyChanged
         }
         if (active.Any(row => row.Mode is null))
         {
-            ValidationText = "Every active display needs a resolution. Use Snapshot with it connected.";
+            ValidationText = "Choose a resolution for every enabled display. Connect an unknown display and refresh the display list.";
             return;
         }
         if (HasUnboundRow)

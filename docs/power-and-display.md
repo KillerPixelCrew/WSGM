@@ -245,9 +245,8 @@ kinds, not four modes:
   about the desktop changes. This is what the four retired modes collapse into, including the old
   Off, which left a handheld running desktop scaling inside Big Picture.
 - **Custom** applies a saved `DisplayLayout`: which displays are on, which is primary, where each
-  sits, its resolution, refresh rate, scaling and advanced-colour state. It is captured with
-  Snapshot from a desktop the user has already arranged, because nobody should hand-author a display
-  arrangement.
+  sits, its resolution, refresh rate, scaling and advanced-colour state. Settings edits these values
+  directly. Copy current desktop is an optional starting point, not a prerequisite.
 
 A layout is keyed by `DisplayTargetIdentity`, so it survives GDI renumbering and a hotplug.
 `WindowsDeviceControl.DisplayLayouts` owns the writing: validate, capture the rollback set, apply
@@ -261,7 +260,20 @@ advanced-colour support and scaling range each reported while it was active. Tha
 behind an HDMI switch be configured while it is unplugged, which the reference machine requires: the
 TV exposes no EDID until the switch selects this PC. Settings > Display shows one row per remembered
 display whether or not it is connected, badges the absent ones, and offers Forget to prune the
-catalog.
+catalog. Discovery runs on a worker and refreshes rows in place without discarding either draft. New
+custom layouts start from the observed arrangement; Game Mode starts at 100% scaling.
+
+The Game Mode and Desktop selectors choose independent drafts. A numbered arrangement supports
+selection and drag positioning; the inspector separates resolution, refresh rate, scale, HDR,
+primary selection and placement. It stays editable when a display is disabled. Disabled values
+remain in the open draft; the saved runtime layout contains enabled outputs. Undo restores one edit
+or copy operation. Saving stages the next transition and never changes the current desktop. Invalid
+enabled layouts block saving. Disconnected displays use their remembered modes.
+
+CCD discovery bounds possible routes separately from the number of monitors. A read-only check on
+2026-09-13 found 284 possible routes, 568 mode records and three active displays on the desktop,
+exceeding the former 256-route bound. The library now admits up to 4,096 routes and 8,192 modes; the
+updated observation returned Odyssey G7, HP X32 and Odyssey G93SC. No layout was applied.
 
 Choosing a primary display normalizes the whole arrangement so that display sits at 0,0, which is
 where Windows puts it. That one rule is corrected rather than reported, because making a user do the

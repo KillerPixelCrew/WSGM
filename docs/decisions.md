@@ -110,8 +110,9 @@ profiles all collapse into Default, which is the DPI-only posture. Off was never
 it left a handheld running the desktop's scaling inside Big Picture, so DPI-unaware games did not
 render 1:1 on the panel, and the setting existed mostly because automatic capture was untrustworthy.
 Automatic profiles captured behind the user's back and could learn an exclusive-fullscreen game's
-temporary mode as the saved preference. What is left is Default and Custom, and Custom is a layout a
-person captured from a desktop they arranged. See `docs\power-and-display.md`.
+temporary mode as the saved preference. What is left is Default and Custom, and Custom is an
+editable saved layout. The 2026-09-13 Display editor provides manual arrangement and per-display
+settings, with copying the current desktop optional. See `docs\power-and-display.md`.
 
 **The splash is always shown on Game Mode entry, and its wait has no deadline.** The splash is the
 cancel surface, so an entry that has anything to wait for must show it. Its Big Picture timeout

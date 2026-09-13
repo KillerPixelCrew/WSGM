@@ -146,6 +146,13 @@
     <Style Selector="Border.device-group">
         <Setter Property="Padding" Value="0" />
     </Style>
+    <Style Selector="Border.device-overview-card">
+        <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource HcControlBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="16" />
+    </Style>
     <Style Selector=":is(StackPanel).overlay-control">
         <Setter Property="Margin" Value="0,8" />
         <Setter Property="Spacing" Value="8" />

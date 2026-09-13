@@ -4,6 +4,18 @@ Status: the previous implementation baseline is on `master`; the current open wo
 15 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
 submodule changes, without feature branches or pull requests.
 
+## Display and Device usability follow-up (2026-09-13)
+
+The approved design is implemented: manual display arrangement with per-display inspection,
+independent Game Mode/Desktop drafts, optional desktop copy, refresh that preserves edits, and undo.
+Device has a compact Power/Performance overview, working Controller navigation with integration off,
+and section pin choices. The Settings first-activation lease bug and the 256-route display discovery
+limit are corrected. Automated UI and library checks cover these paths; the live display check was
+read-only. The warning-free Release solution build and all 3,518 tests passed, including 113 headless UI tests;
+coverage also passed. The full gate remains blocked at the unchanged TypeScript 7.0.2 native
+compiler, which exits with 0xC0000005 even for --version. Subsequent gate checks were run separately.
+Deployment and physical controller acceptance are separate from these automated checks.
+
 ## Current issue workoff
 
 After delivery of #38/#39, #51/#53, #58/#59, #61, #65–#68, #22/#26/#35/#36 and, on 2026-09-11,
@@ -23,7 +35,8 @@ stops here rather than at zero:
 - #20 is delivered (2026-09-11, `804df0d`). The reopen named Session: four buttons on a root tab
   of their own. It is a Power category now, beside Wake, Idle timeouts and Power, with rows, tags
   and handlers unchanged so pins survive. The tab-by-tab audit the issue asked for is in
-  `docs\overlay-and-input.md`, Quick access recorded as the one intentional direct layout. Nine
+  `docs\overlay-and-input.md`, Quick access recorded as the intentional direct layout at that time; the approved Device overview
+  was added on 2026-09-13. Nine
   overlay baselines re-promoted for the shorter strip; the UI tests that click tabs by index are
   renumbered.
 - #28 is delivered (2026-09-11). The badge is a toolkit surface now, `SteamLibraryBadgeSurface`:

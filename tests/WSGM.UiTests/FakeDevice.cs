@@ -1,4 +1,5 @@
 using WSGM.Controls;
+using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Input;
 using WSGM.Overlay;
@@ -31,7 +32,9 @@ internal sealed class FakeDevice : IDeviceOverlaySource
     internal Func<DeviceOverlayCapability, CancellationToken, Task>? Invoke { get; set; }
     public Task InvokeAsync(DeviceOverlayCapability capability, CancellationToken cancellationToken = default) =>
         Invoke?.Invoke(capability, cancellationToken) ?? throw new InvalidOperationException("Unexpected device write");
-    public Task CyclePhysicalGlyphSelectionAsync(CancellationToken cancellationToken = default) => throw new InvalidOperationException("Unexpected glyph write");
+    internal Func<DeviceGlyphSelection, Task>? SelectGlyphs { get; set; }
+    public Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection, CancellationToken cancellationToken = default) =>
+        SelectGlyphs?.Invoke(selection) ?? throw new InvalidOperationException("Unexpected glyph write");
     public Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default) => throw new InvalidOperationException("Unexpected AutoTDP write");
     public Task CycleControllerTargetAsync(CancellationToken cancellationToken = default) => throw new InvalidOperationException("Unexpected controller write");
     public Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default) => throw new InvalidOperationException("Unexpected device retry");
