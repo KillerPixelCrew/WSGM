@@ -141,8 +141,12 @@ once the gate closes. `PrepareSteamUiForBigPictureAsync` marks the request pendi
 session host (which retracts the library badge and the Home carousel with every other patch) and the
 library tabs, and closes the transport, under a 5 s budget; on timeout it logs
 `Steam UI retraction did not finish before the Big Picture request; continuing with the transition.`
-When the transition settles, the hold is released, the gate is re-checked and the surfaces are
-re-applied. The transition sequence itself is in `docs\boot-and-shell.md`.
+When the transition settles, the hold is released and the gate is re-checked. Surface restoration
+waits for the retraction to finish, including when it outlives the transition's budget, then
+re-applies the current configuration on the UI dispatcher. It explicitly restores the device glyph
+profile and absent-control hiding because disabling the host clears that profile. CEF master-switch
+re-enabling also restores it after retraction; neither path relies on another device publication.
+The transition sequence itself is in `docs\boot-and-shell.md`.
 
 Mode events: `DesktopModeStarting` clears game mode, cancels the tab boot sync and retracts the
 tabs; `GameModeEntered` sets game mode, re-checks the gate and starts the tab boot sync. The header
@@ -586,8 +590,8 @@ supplied the bytes.
 | `ScreenscraperUser`, `ScreenscraperUserPassword`                    | empty   | Optional Screenscraper account, which only raises the request quota.                 |
 | `LeftEdgeSteamMenu`, `RightEdgeSteamQuickAccess`                    | true    | Edge swipes send Ctrl+1 and Ctrl+2.                                                  |
 
-Glyph delivery requires `Cef.Enabled`, Device Integration on and a glyph selection other than native
-Steam.
+Glyph delivery requires `Cef.Enabled`, Device Integration on and a resolved device profile. Native
+Steam artwork selection retains absent-control hiding while omitting artwork overrides.
 
 ## 10. Logging
 

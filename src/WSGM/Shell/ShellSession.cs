@@ -404,14 +404,38 @@ public sealed class ShellSession : IAsyncDisposable
         }
         _gameModeCefTransitionPending = false;
         RequestSteamUiTransportGateCheck();
-        _steamUi?.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
-        _steamUi?.ApplySurfaceObservation(_config.Cef.Enabled);
-        _steamUi?.ApplyNetworkIndicator(_wifiIndicatorEnabled);
-        _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
-        _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
-        _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
-        _steamUi?.ApplyScreensaverTimeouts(_screensaverTimeoutsEnabled);
-        KickTabBootSync();
+        Log.Observe(RestoreSteamUiAfterBigPictureAsync(), "Steam UI transition restore");
+    }
+
+    /// <summary>Restores the configured surfaces after even a timed-out retraction has finished.</summary>
+    private async Task RestoreSteamUiAfterBigPictureAsync()
+    {
+        await _cefMasterGate.WaitAsync(_shutdownCancellation.Token).ConfigureAwait(false);
+        try
+        {
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (_disposed || !_cefMasterEnabled || _gameModeCefTransitionPending)
+                {
+                    return;
+                }
+                _steamUi?.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
+                _steamUi?.ApplySurfaceObservation(_config.Cef.Enabled);
+                _steamUi?.ApplyNetworkIndicator(_wifiIndicatorEnabled);
+                _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
+                _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
+                _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
+                _steamUi?.ApplyScreensaverTimeouts(_screensaverTimeoutsEnabled);
+                // DisableAsync clears the profile. Restore it explicitly instead of depending on
+                // a device publication that may have already arrived during the retraction.
+                ApplyGlyphConfig(_config);
+                KickTabBootSync();
+            }, Avalonia.Threading.DispatcherPriority.Normal, _shutdownCancellation.Token);
+        }
+        finally
+        {
+            _cefMasterGate.Release();
+        }
     }
 
     /// <summary>Owns the transport gate for the session: re-decides it on every signal and at
@@ -1651,12 +1675,17 @@ public sealed class ShellSession : IAsyncDisposable
                 // other caller.
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
+                    if (_disposed || !_cefMasterEnabled || _gameModeCefTransitionPending)
+                    {
+                        return;
+                    }
                     ApplyCardServices(_inGameMode);
                     KickTabBootSync();
                     _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
                     _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
                     _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
                     _steamUi?.ApplyScreensaverTimeouts(_screensaverTimeoutsEnabled);
+                    ApplyGlyphConfig(_config);
                 });
             });
             return;

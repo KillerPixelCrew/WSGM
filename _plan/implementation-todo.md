@@ -398,6 +398,9 @@ validation will be handled by reopening them. Hardware checks are not a closure 
 - #29: native artwork preserves active-plugin control filtering. Individual viewer rows are hidden
   without removing shared rear-button sections, and stale profile CSS is reapplied. Two new focused
   glyph tests pass; installed Steam selector presence was checked offline, not through live CEF.
+  Mode-transition restoration now waits for retraction and explicitly restores the active glyph
+  profile; CEF re-enabling also restores it. This removes reliance on a later device publication
+  to hide absent controls. Live restart and mode-switch verification remains unperformed.
 
 - #25: Windows power policy, lifecycle actions, source/status reads, wake-request ownership and
   decoding, wake sign-in primitives and notification registration moved to Windows Device Control.
