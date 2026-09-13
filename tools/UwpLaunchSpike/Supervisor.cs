@@ -9,10 +9,12 @@ namespace Wsgm.UwpSpike;
 
 /// Stays alive for the whole game session so Steam keeps the shortcut in a running
 /// state, while tracking the processes the activation actually produced.
-internal sealed class Supervisor(Options options, SpikeLog log, GameContainment? containment)
+internal sealed class Supervisor(Options options, SpikeLog log, GameContainment? containment, ForegroundProxy? proxy, Injection? injection)
 {
+    private readonly Dictionary<int, TimeSpan> injectAt = [];
     private readonly Dictionary<int, ProcessReport> tracked = [];
-    private readonly HashSet<int> overlayReported = [];
+    private readonly Dictionary<int, HashSet<string>> reportedModules = [];
+    private readonly Dictionary<int, string> reportedWindows = [];
     private readonly Stopwatch clock = Stopwatch.StartNew();
 
     /// <summary>Runs until the tracked game has exited, or until nothing ever appeared.</summary>
@@ -35,13 +37,19 @@ internal sealed class Supervisor(Options options, SpikeLog log, GameContainment?
                 var parentName = byPid.TryGetValue(entry.ParentPid, out var parent) ? parent.Name : "<gone>";
                 var report = ProcessProbe.Describe(entry, parentName, options.ProbeRights);
                 tracked[pid] = report;
-                sawGame = true;
-                goneSince = null;
                 ProcessProbe.WriteReport(log, $"+{clock.Elapsed.TotalSeconds:F1}s appeared", report);
-                NoteOverlay(report);
+                NoteModules(report);
+                NoteWindows(report);
                 if (IsGameBinary(report))
                 {
+                    sawGame = true;
+                    goneSince = null;
                     containment?.Contain(report.Pid, report.Name);
+                    proxy?.SetTarget(report.Pid);
+                    if (injection is not null && options.Inject.Count > 0)
+                    {
+                        injectAt[report.Pid] = clock.Elapsed + options.InjectDelay;
+                    }
                 }
             }
 
@@ -49,12 +57,14 @@ internal sealed class Supervisor(Options options, SpikeLog log, GameContainment?
             {
                 log.Info($"+{clock.Elapsed.TotalSeconds:F1}s exited: pid {pid} \"{tracked[pid].Name}\"");
                 tracked.Remove(pid);
-                overlayReported.Remove(pid);
+                reportedModules.Remove(pid);
+                reportedWindows.Remove(pid);
             }
 
-            // Overlay injection usually lands well after the process starts, so rescan
-            // the survivors instead of trusting the first snapshot.
-            foreach (var pid in tracked.Keys.Where(pid => !overlayReported.Contains(pid)).ToList())
+            // Injection lands well after a process starts, and an overlay that hooks on the
+            // first present call can be seconds in. Rescan every survivor on every poll
+            // rather than trusting the snapshot taken when it appeared.
+            foreach (var pid in tracked.Keys.ToList())
             {
                 if (!current.TryGetValue(pid, out var entry))
                 {
@@ -64,10 +74,21 @@ internal sealed class Supervisor(Options options, SpikeLog log, GameContainment?
                 var parentName = byPid.TryGetValue(entry.ParentPid, out var parent) ? parent.Name : "<gone>";
                 var refreshed = ProcessProbe.Describe(entry, parentName, probeRights: false);
                 tracked[pid] = refreshed;
-                NoteOverlay(refreshed);
+                NoteModules(refreshed);
+                NoteWindows(refreshed);
+
+                if (injectAt.TryGetValue(pid, out var due) && clock.Elapsed >= due)
+                {
+                    injectAt.Remove(pid);
+                    injection?.InjectAll(options.Inject, refreshed);
+                }
             }
 
-            if (tracked.Count == 0)
+            // Only the title's own binaries hold the session open. A packaged app's
+            // RuntimeBroker outlived Moonlighter by half a minute in a recorded run, which
+            // would have kept Steam showing the shortcut as running long after the game
+            // was gone.
+            if (tracked.Values.Count(IsGameBinary) == 0)
             {
                 goneSince ??= clock.Elapsed;
                 if (sawGame && clock.Elapsed - goneSince.Value >= options.ExitGrace)
@@ -114,21 +135,50 @@ internal sealed class Supervisor(Options options, SpikeLog log, GameContainment?
             || !report.ImagePath.StartsWith(windows, StringComparison.OrdinalIgnoreCase);
     }
 
-    private void NoteOverlay(ProcessReport report)
+    /// Reports each foreign overlay/instrumentation module the first time it shows up in a
+    /// tracked process. Steam's renderer is called out by name because it is the answer to
+    /// the issue's main question; RTSS and the rest are the control, since a third-party
+    /// overlay getting in where Steam's does not says the obstacle is Steam's, not Windows'.
+    /// A UWP title's window does not exist when the process does, and for the frame case it
+    /// never belongs to the process at all, so the window set is reported whenever it
+    /// changes rather than once at discovery.
+    private void NoteWindows(ProcessReport report)
     {
-        var overlay = report.InterestingModules
-            .Where(path => path.Contains("gameoverlayrenderer", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        if (overlay.Count == 0)
+        var description = report.Windows.Count == 0
+            ? "none"
+            : string.Join(", ", report.Windows
+                .Select(window => $"0x{window.Handle.ToInt64():X} [{window.ClassName}] visible={window.Visible} \"{window.Title}\""));
+
+        if (reportedWindows.TryGetValue(report.Pid, out var previous) && previous == description)
         {
             return;
         }
 
-        overlayReported.Add(report.Pid);
-        log.Info($"OVERLAY: Steam injected into pid {report.Pid} \"{report.Name}\" after {clock.Elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture)}s");
-        foreach (var path in overlay)
+        reportedWindows[report.Pid] = description;
+        var elapsed = clock.Elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture);
+        log.Info($"windows: pid {report.Pid} \"{report.Name}\" after {elapsed}s -> {description}");
+    }
+
+    private void NoteModules(ProcessReport report)
+    {
+        if (!reportedModules.TryGetValue(report.Pid, out var seen))
         {
-            log.Line($"            * {path}");
+            seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            reportedModules[report.Pid] = seen;
+        }
+
+        foreach (var path in report.InterestingModules)
+        {
+            if (!seen.Add(path))
+            {
+                continue;
+            }
+
+            var elapsed = clock.Elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture);
+            var label = path.Contains("gameoverlayrenderer", StringComparison.OrdinalIgnoreCase)
+                ? "STEAM OVERLAY"
+                : "INJECTED";
+            log.Info($"{label}: pid {report.Pid} \"{report.Name}\" loaded {path} after {elapsed}s");
         }
     }
 

@@ -31,7 +31,25 @@ internal sealed class Options
 
     internal bool Contain { get; private set; } = true;
 
+    internal bool Proxy { get; private set; } = true;
+
+    internal List<string> Inject { get; } = [];
+
+    internal bool NoSuspend { get; private set; } = true;
+
+    internal bool PassSteamEnvironment { get; private set; } = true;
+
+    /// The Steam launch variables this wrapper received, in name=value form, ready to be
+    /// handed to the packaged title that the broker would otherwise start with none.
+    internal List<string> SteamEnvironment { get; } = [];
+
+    internal TimeSpan InjectDelay { get; private set; } = TimeSpan.Zero;
+
     internal bool HelpRequested { get; private set; }
+
+    /// Name or pid of an already-running process to report on and exit. The control case:
+    /// what a process the Steam overlay actually works in looks like from outside.
+    internal string? Observe { get; private set; }
 
     internal string LogPath { get; private set; } = string.Empty;
 
@@ -109,6 +127,27 @@ internal sealed class Options
                 case "--no-contain":
                     options.Contain = false;
                     break;
+                case "--no-proxy":
+                    options.Proxy = false;
+                    break;
+                case "--allow-suspend":
+                    options.NoSuspend = false;
+                    break;
+                case "--no-steam-env":
+                    options.PassSteamEnvironment = false;
+                    break;
+                case "--observe":
+                    options.Observe = Next(argument);
+                    break;
+                case "--inject":
+                    if (Next(argument) is { } dll) { options.Inject.Add(dll); }
+                    break;
+                case "--inject-steam-overlay":
+                    options.Inject.Add(SteamOverlayPath());
+                    break;
+                case "--inject-delay":
+                    options.InjectDelay = Seconds(Next(argument), options.InjectDelay, ref failure);
+                    break;
                 case "--log":
                     logPath = Next(argument);
                     break;
@@ -118,7 +157,7 @@ internal sealed class Options
             }
         }
 
-        if (!options.HelpRequested && failure is null)
+        if (!options.HelpRequested && failure is null && options.Observe is null)
         {
             if (options.Mode == LaunchMode.Exe)
             {
@@ -152,6 +191,16 @@ internal sealed class Options
             var separator = Aumid.IndexOf('!');
             return separator < 0 ? Aumid : Aumid[..separator];
         }
+    }
+
+    /// Steam's 64-bit overlay renderer, from the install path Steam records for itself.
+    internal static string SteamOverlayPath()
+    {
+        var steam = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null) as string;
+        var root = string.IsNullOrEmpty(steam)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam")
+            : steam.Replace('/', '\\');
+        return Path.Combine(root, "GameOverlayRenderer64.dll");
     }
 
     private static TimeSpan Seconds(string? value, TimeSpan fallback, ref string? error)
@@ -209,6 +258,14 @@ internal sealed class Options
           --hide-console         Hide the console window and stop writing to it.
           --no-contain           Do not put the game in a kill-on-close job, so it
                                  survives the wrapper being stopped from Steam.
+          --no-proxy             Do not create the window Steam activates to raise the game.
+          --inject <dll>         Remote-load a DLL into the game. Repeatable.
+          --inject-steam-overlay Remote-load Steam's GameOverlayRenderer64.dll.
+          --inject-delay <secs>  Wait this long after the game appears before injecting.
+          --allow-suspend        Leave the package under normal PLM suspension.
+          --no-steam-env         Do not pass Steam's launch variables to the package.
+          --observe <name|pid>   Report on an already-running process and exit. Use it on a
+                                 game where the Steam overlay works, as the control case.
           --log <path>           Transcript path (default %LOCALAPPDATA%\WSGM\uwp-spike).
           --help                 Show this text.
         """;

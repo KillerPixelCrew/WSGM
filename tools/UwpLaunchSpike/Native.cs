@@ -28,6 +28,37 @@ internal static class Native
 
     internal const uint ProcessSetQuota = 0x0100;
 
+    // ---- Remote DLL load ----
+    internal const uint MemCommit = 0x1000;
+    internal const uint MemReserve = 0x2000;
+    internal const uint MemRelease = 0x8000;
+    internal const uint PageReadWrite = 0x04;
+    internal const uint InfiniteWait = 0xFFFF_FFFF;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern IntPtr VirtualAllocEx(IntPtr hProcess, IntPtr lpAddress, UIntPtr dwSize, uint flAllocationType, uint flProtect);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool VirtualFreeEx(IntPtr hProcess, IntPtr lpAddress, UIntPtr dwSize, uint dwFreeType);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool WriteProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, UIntPtr nSize, out UIntPtr lpNumberOfBytesWritten);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern IntPtr CreateRemoteThread(IntPtr hProcess, IntPtr lpThreadAttributes, UIntPtr dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool GetExitCodeThread(IntPtr hThread, out uint lpExitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi)]
+    internal static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
+
     // ---- Job objects ----
     internal const int JobObjectExtendedLimitInformation = 9;
     internal const uint JobObjectLimitKillOnJobClose = 0x2000;
@@ -141,6 +172,56 @@ internal static class Native
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     internal static extern int GetApplicationUserModelId(IntPtr hProcess, ref uint applicationUserModelIdLength, StringBuilder? applicationUserModelId);
 
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    internal static extern int GetPackageFullName(IntPtr hProcess, ref uint packageFullNameLength, StringBuilder? packageFullName);
+
+    internal const uint PackageFilterHead = 0x0000_0010;
+    internal const uint PackageFilterDirect = 0x0000_0020;
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    internal static extern int FindPackagesByPackageFamily(
+        string packageFamilyName,
+        uint packageFilters,
+        ref uint count,
+        IntPtr packageFullNames,
+        ref uint bufferLength,
+        IntPtr buffer,
+        IntPtr packageProperties);
+
+    // ---- Process Lifetime Management ----
+    // The interface a debugger uses to take a packaged app out of PLM's hands. With
+    // debugging enabled for the package, Windows stops suspending it when it loses the
+    // foreground, which is the only reason a UWP game freezes behind an overlay.
+    [ComImport]
+    [Guid("F27C3930-8029-4AD1-94E3-3DBA417810C1")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IPackageDebugSettings
+    {
+        [PreserveSig]
+        int EnableDebugging(
+            [MarshalAs(UnmanagedType.LPWStr)] string packageFullName,
+            [MarshalAs(UnmanagedType.LPWStr)] string? debuggerCommandLine,
+            IntPtr environment);
+
+        [PreserveSig]
+        int DisableDebugging([MarshalAs(UnmanagedType.LPWStr)] string packageFullName);
+
+        [PreserveSig]
+        int Suspend([MarshalAs(UnmanagedType.LPWStr)] string packageFullName);
+
+        [PreserveSig]
+        int Resume([MarshalAs(UnmanagedType.LPWStr)] string packageFullName);
+
+        [PreserveSig]
+        int TerminateAllProcesses([MarshalAs(UnmanagedType.LPWStr)] string packageFullName);
+    }
+
+    [ComImport]
+    [Guid("B1AEC16F-2383-4852-B0E9-8F0B1DC66B4D")]
+    internal class PackageDebugSettings
+    {
+    }
+
     // ---- Token ----
     internal const uint TokenQuery = 0x0008;
     internal const int TokenElevation = 20;
@@ -207,6 +288,10 @@ internal static class Native
     internal static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
 
     [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool EnumChildWindows(IntPtr hWndParent, EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
     internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
@@ -230,6 +315,103 @@ internal static class Native
     internal static extern IntPtr GetConsoleWindow();
 
     internal const int SwHide = 0;
+    internal const int SwShowNa = 8;
+    internal const int SwRestore = 9;
+
+    // ---- Proxy window ----
+    internal delegate IntPtr WindowProc(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
+
+    internal const uint WmActivate = 0x0006;
+    internal const uint WmSetFocus = 0x0007;
+    internal const uint WmActivateApp = 0x001C;
+    internal const uint WmNcActivate = 0x0086;
+    internal const uint WmClose = 0x0010;
+    internal const uint WmDestroy = 0x0002;
+
+    internal const uint WsPopup = 0x8000_0000;
+    internal const uint WsExLayered = 0x0008_0000;
+    internal const uint WsExToolWindow = 0x0000_0080;
+    internal const uint Lwa_Alpha = 0x0000_0002;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct WndClassExW
+    {
+        internal uint cbSize;
+        internal uint style;
+        internal IntPtr lpfnWndProc;
+        internal int cbClsExtra;
+        internal int cbWndExtra;
+        internal IntPtr hInstance;
+        internal IntPtr hIcon;
+        internal IntPtr hCursor;
+        internal IntPtr hbrBackground;
+        internal IntPtr lpszMenuName;
+        internal IntPtr lpszClassName;
+        internal IntPtr hIconSm;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct Msg
+    {
+        internal IntPtr hwnd;
+        internal uint message;
+        internal IntPtr wParam;
+        internal IntPtr lParam;
+        internal uint time;
+        internal int ptX;
+        internal int ptY;
+    }
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    internal static extern ushort RegisterClassExW(ref WndClassExW lpwcx);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    internal static extern IntPtr CreateWindowExW(
+        uint dwExStyle, IntPtr lpClassName, string? lpWindowName, uint dwStyle,
+        int x, int y, int nWidth, int nHeight, IntPtr hWndParent, IntPtr hMenu, IntPtr hInstance, IntPtr lpParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern IntPtr DefWindowProcW(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    internal static extern int GetMessageW(out Msg lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern IntPtr DispatchMessageW(ref Msg lpMsg);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool TranslateMessage(ref Msg lpMsg);
+
+    [DllImport("user32.dll")]
+    internal static extern void PostQuitMessage(int nExitCode);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool PostMessageW(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool DestroyWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetLayeredWindowAttributes(IntPtr hWnd, uint crKey, byte bAlpha, uint dwFlags);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool AllowSetForegroundWindow(uint dwProcessId);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    internal static extern IntPtr GetModuleHandleW(string? lpModuleName);
 
     // ---- COM / package activation ----
     [DllImport("ole32.dll")]

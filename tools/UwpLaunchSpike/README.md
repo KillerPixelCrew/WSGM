@@ -108,9 +108,9 @@ started from a terminal rather than from Steam, so this says nothing yet about o
 - The game's parent was `svchost.exe`, not the wrapper. Direct package activation with no
   PowerShell in the chain still leaves the game out of the wrapper's process tree, so removing the
   script interpreter alone does not restore lineage.
-- The game runs at **low integrity inside an AppContainer** with the **`StoreSignedOnly` binary
-  signature mitigation** set. A process under that policy refuses to load a DLL that is not Store
-  signed, which is a second, independent obstacle to Steam's overlay regardless of lineage.
+- The game runs at **low integrity inside an AppContainer** with `signature=StoreSignedOnly`
+  (raw `0x2`, no audit bits). That policy reads like a hard block on any DLL that is not Store
+  signed. **It is not one in practice** — see the RTSS result below, which falsifies that reading.
 - The injector-grade `OpenProcess` masks all succeeded, but that run's wrapper was itself at high
   integrity. The rights probe only means something from a medium-integrity wrapper, which is what
   a Steam-launched run gives.
@@ -129,9 +129,31 @@ fixed):
   the wrapper dies however it dies. Nested assignment succeeds even though a packaged app already
   sits in a system-managed job. `--no-contain` turns it off.
 
-The open question for the next Steam-launched run is what the transcript shows from inside a
-medium-integrity wrapper: the real handle rights on the game, and whether
-`gameoverlayrenderer64.dll` shows up anywhere at all, including in the wrapper itself.
+Injection and lifetime results, same title, wrapper started from a terminal:
+
+- **The signature policy is not the wall.** RTSS loaded its own unsigned-by-Store
+  `RTSSHooks64.dll` into the game 1.1s after launch, in the AppContainer, with
+  `StoreSignedOnly` set. Whatever that policy gates, it is not third-party DLL loading here.
+- **Steam's overlay renderer loads into the game.** A remote `LoadLibraryW` of
+  `GameOverlayRenderer64.dll` from Steam's own install path returned a module base. No ACL work
+  was needed: Steam's directory already carries an inherited `ALL APPLICATION PACKAGES (RX)` ACE,
+  which is the permission the ReShade UWP route has to add by hand. Loading it is not sufficient
+  on its own - the overlay did not become usable - so the renderer DLL is necessary but not the
+  whole overlay.
+- **Windows suspends the title whenever it loses the foreground.** All 66 threads sat in
+  Suspended wait while another window had focus. That is ordinary PLM behaviour for a packaged
+  app, and it explains why the game has no enumerable window from a background probe and why
+  Steam's Resume cannot raise it: `SetForegroundWindow` does not wake a suspended package. It
+  does not explain overlay or input failing during play, when the game does have focus.
+- **A packaged process inherits nothing from the wrapper**, so none of Steam's launch variables
+  reach it. `IPackageDebugSettings::EnableDebugging` takes both the suspension exemption and an
+  environment block for the package's next launch, which is the one supported route for handing
+  `SteamAppId` / `SteamGameId` / `SteamOverlayGameId` to a broker-started title. The wrapper now
+  does both before activating, and `--observe` dumps a working overlay process for comparison.
+
+The open questions for the next Steam-launched run: which variables Steam actually hands the
+wrapper, what a game where the overlay works has loaded that the injected case does not, and
+whether the environment block closes that gap.
 
 ## Caveats
 

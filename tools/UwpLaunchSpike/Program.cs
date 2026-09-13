@@ -50,11 +50,36 @@ internal static class Program
 
         WriteContext(options, log, consoleWindow, redirected, useConsole);
 
+        if (options.Observe is { } observed)
+        {
+            var found = Observe(observed, log);
+            log.Info($"Transcript: {log.Path}");
+            return found ? 0 : 1;
+        }
+
         if (options.HideConsole && consoleWindow != IntPtr.Zero)
         {
             log.Info("hiding the console window");
             Native.ShowWindow(consoleWindow, Native.SwHide);
             log.Info("console window hidden");
+        }
+
+        // Both of these have to happen before activation: PLM decides suspension policy and
+        // the broker builds the process environment at launch, so a later call reaches a
+        // process that is already running with neither.
+        using var suspension = new SuspensionControl(log);
+        if (options.PackageFamily is { } family && (options.NoSuspend || options.SteamEnvironment.Count > 0))
+        {
+            log.Section("Package lifetime");
+            var fullName = SuspensionControl.ResolveFullName(family);
+            if (fullName is null)
+            {
+                log.Warn($"suspension: could not resolve a package full name for {family}.");
+            }
+            else
+            {
+                suspension.ExemptFromSuspension(fullName, options.SteamEnvironment);
+            }
         }
 
         log.Section("Activation");
@@ -69,13 +94,60 @@ internal static class Program
 
         log.Section("Supervision");
         using var containment = options.Contain ? new GameContainment(log) : null;
-        var supervisor = new Supervisor(options, log, containment);
+        using var proxy = options.Proxy ? new ForegroundProxy(log) : null;
+        var injection = options.Inject.Count > 0 ? new Injection(log) : null;
+        if (injection is not null)
+        {
+            foreach (var dll in options.Inject)
+            {
+                log.Info($"injection queued: {dll}");
+            }
+        }
+
+        var supervisor = new Supervisor(options, log, containment, proxy, injection);
         var completed = supervisor.Run(result.SeedPid, cancellation.Token);
 
         log.Section("Result");
         log.Info(completed ? "Game session ended; wrapper exiting with 0." : "Wrapper exiting without a completed game session.");
         log.Info($"Transcript: {log.Path}");
         return completed ? 0 : 1;
+    }
+
+    /// Reports on a process that is already running. The point is the control case: a game
+    /// where the Steam overlay demonstrably works, so its full module list says what an
+    /// injected renderer DLL is missing.
+    private static bool Observe(string nameOrPid, SpikeLog log)
+    {
+        var snapshot = ProcessProbe.Snapshot();
+        var byPid = snapshot.ToDictionary(entry => entry.Pid);
+        var matches = int.TryParse(nameOrPid, out var pid)
+            ? snapshot.Where(entry => entry.Pid == pid).ToList()
+            : snapshot.Where(entry => entry.Name.Contains(nameOrPid, StringComparison.OrdinalIgnoreCase)).ToList();
+
+        if (matches.Count == 0)
+        {
+            log.Error($"observe: nothing running matches \"{nameOrPid}\".");
+            return false;
+        }
+
+        foreach (var entry in matches)
+        {
+            log.Section($"Observed: pid {entry.Pid} \"{entry.Name}\"");
+            var parentName = byPid.TryGetValue(entry.ParentPid, out var parent) ? parent.Name : "<gone>";
+            ProcessProbe.WriteReport(log, "process", ProcessProbe.Describe(entry, parentName, probeRights: true));
+
+            log.Info("ancestors       : " + string.Join(" <- ", ProcessProbe.AncestorChain(snapshot, entry.Pid)
+                .Select(ancestor => $"{ancestor.Pid} {ancestor.Name}")));
+
+            var modules = ProcessProbe.AllModules(entry.Pid);
+            log.Info($"all modules     : {modules.Count}");
+            foreach (var module in modules.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                log.Line("            " + module);
+            }
+        }
+
+        return true;
     }
 
     /// The launch context is half the experiment: whether Steam is our parent, which
@@ -110,11 +182,19 @@ internal static class Program
         foreach (DictionaryEntry variable in Environment.GetEnvironmentVariables())
         {
             var name = variable.Key as string ?? string.Empty;
-            if (name.StartsWith("Steam", StringComparison.OrdinalIgnoreCase)
-                || name.StartsWith("SDL_", StringComparison.OrdinalIgnoreCase)
-                || name.Equals("ENABLE_VK_LAYER_VALVE_steam_overlay_1", StringComparison.OrdinalIgnoreCase))
+            var isSteam = name.StartsWith("Steam", StringComparison.OrdinalIgnoreCase)
+                || name.Equals("ENABLE_VK_LAYER_VALVE_steam_overlay_1", StringComparison.OrdinalIgnoreCase);
+
+            if (isSteam || name.StartsWith("SDL_", StringComparison.OrdinalIgnoreCase))
             {
                 steam.Add($"{name}={variable.Value}");
+            }
+
+            // SDL_* is deliberately not forwarded: Steam sets SDL_GAMECONTROLLER_IGNORE_DEVICES
+            // for its own purposes and handing it to the game hides controllers from it.
+            if (isSteam && options.PassSteamEnvironment)
+            {
+                options.SteamEnvironment.Add($"{name}={variable.Value}");
             }
         }
 

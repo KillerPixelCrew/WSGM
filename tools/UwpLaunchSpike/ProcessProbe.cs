@@ -177,7 +177,7 @@ internal static class ProcessProbe
                 modules,
                 moduleCount,
                 note,
-                Windows(entry.Pid));
+                WindowsOf(entry.Pid));
         }
         finally
         {
@@ -442,12 +442,18 @@ internal static class ProcessProbe
     private static string Mitigations(IntPtr process)
     {
         var parts = new List<string>();
+        // The audit bits matter as much as the enforcing ones: a policy in audit mode logs a
+        // blocked image load but still allows it, which is the difference between "the
+        // overlay cannot load here" and "it can".
         parts.Add(Policy(process, Native.ProcessSignaturePolicy, "signature", value =>
         {
             var flags = new List<string>();
             if ((value & 0x1) != 0) { flags.Add("MicrosoftSignedOnly"); }
             if ((value & 0x2) != 0) { flags.Add("StoreSignedOnly"); }
             if ((value & 0x4) != 0) { flags.Add("MitigationOptIn"); }
+            if ((value & 0x8) != 0) { flags.Add("AuditMicrosoftSignedOnly"); }
+            if ((value & 0x10) != 0) { flags.Add("AuditStoreSignedOnly"); }
+            if (flags.Count > 0) { flags.Add($"raw=0x{value:X}"); }
             return flags;
         }));
         parts.Add(Policy(process, Native.ProcessDynamicCodePolicy, "dynamic-code", value =>
@@ -481,6 +487,44 @@ internal static class ProcessProbe
 
         var flags = decode(value);
         return flags.Count == 0 ? $"{label}=none" : $"{label}={string.Join(",", flags)}";
+    }
+
+    /// Every module mapped into a process, for the control case where the question is
+    /// "what else is present besides the renderer DLL".
+    internal static IReadOnlyList<string> AllModules(int pid)
+    {
+        var process = Native.OpenProcess(Native.ProcessQueryInformation | Native.ProcessVmRead, false, (uint)pid);
+        if (process == IntPtr.Zero)
+        {
+            return [];
+        }
+
+        try
+        {
+            var handles = new IntPtr[4096];
+            if (!Native.K32EnumProcessModulesEx(process, handles, (uint)(handles.Length * IntPtr.Size), out var needed, Native.ListModulesAll))
+            {
+                return [];
+            }
+
+            var count = Math.Min(handles.Length, (int)(needed / IntPtr.Size));
+            var paths = new List<string>(count);
+            var buffer = new StringBuilder(Native.MaxPath * 4);
+            for (var index = 0; index < count; index++)
+            {
+                buffer.Clear();
+                if (Native.K32GetModuleFileNameExW(process, handles[index], buffer, (uint)buffer.Capacity) != 0)
+                {
+                    paths.Add(buffer.ToString());
+                }
+            }
+
+            return paths;
+        }
+        finally
+        {
+            Native.CloseHandle(process);
+        }
     }
 
     private static (IReadOnlyList<string> Interesting, int Count, string Note) Modules(IntPtr process)
@@ -556,24 +600,72 @@ internal static class ProcessProbe
         return string.Join(" ", results);
     }
 
-    private static IReadOnlyList<WindowEntry> Windows(int pid)
+    /// Top-level windows that belong to a process, including the one Windows puts in
+    /// front of a packaged app.
+    ///
+    /// A UWP app does not own its visible frame: the window on screen is an
+    /// <c>ApplicationFrameWindow</c> owned by <c>ApplicationFrameHost.exe</c>, and only the
+    /// <c>Windows.UI.Core.CoreWindow</c> hosted inside it belongs to the app. Matching on
+    /// process id alone therefore finds nothing for exactly the titles this spike exists
+    /// for, so a frame whose CoreWindow belongs to the target counts as the target's window
+    /// and is reported as the handle to activate.
+    internal static IReadOnlyList<WindowEntry> WindowsOf(int pid)
     {
         var found = new List<WindowEntry>();
         Native.EnumWindows((handle, _) =>
         {
             Native.GetWindowThreadProcessId(handle, out var owner);
-            if (owner != (uint)pid)
+            var className = ClassNameOf(handle);
+            var owned = owner == (uint)pid;
+
+            if (!owned && className.Equals("ApplicationFrameWindow", StringComparison.Ordinal))
+            {
+                owned = HostsCoreWindowOf(handle, pid);
+                if (owned)
+                {
+                    className += " (frame)";
+                }
+            }
+
+            if (!owned)
             {
                 return true;
             }
 
-            var className = new StringBuilder(256);
-            Native.GetClassNameW(handle, className, className.Capacity);
             var title = new StringBuilder(512);
             Native.GetWindowTextW(handle, title, title.Capacity);
-            found.Add(new WindowEntry(handle, className.ToString(), title.ToString(), Native.IsWindowVisible(handle)));
+            found.Add(new WindowEntry(handle, className, title.ToString(), Native.IsWindowVisible(handle)));
             return true;
         }, IntPtr.Zero);
         return found;
+    }
+
+    private static string ClassNameOf(IntPtr handle)
+    {
+        var className = new StringBuilder(256);
+        Native.GetClassNameW(handle, className, className.Capacity);
+        return className.ToString();
+    }
+
+    private static bool HostsCoreWindowOf(IntPtr frame, int pid)
+    {
+        var match = false;
+        Native.EnumChildWindows(frame, (child, _) =>
+        {
+            if (!ClassNameOf(child).Equals("Windows.UI.Core.CoreWindow", StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            Native.GetWindowThreadProcessId(child, out var owner);
+            if (owner == (uint)pid)
+            {
+                match = true;
+                return false;
+            }
+
+            return true;
+        }, IntPtr.Zero);
+        return match;
     }
 }
