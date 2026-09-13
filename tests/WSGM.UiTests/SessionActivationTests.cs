@@ -7,6 +7,43 @@ namespace WSGM.UiTests;
 public sealed class SessionActivationTests
 {
     [AvaloniaFact]
+    public async Task SettingsShortcutReachesTheResidentUiOwnerAndStopsAfterDisposal()
+    {
+        using UiFixture fixture = new();
+        string name = "WSGM.Test.Settings." + Guid.NewGuid().ToString("N");
+        Assert.False(SettingsActivation.TryRequest(name));
+        int requests = 0;
+        using (SettingsActivation owner = new(() =>
+        {
+            Assert.True(Dispatcher.UIThread.CheckAccess());
+            requests++;
+        }, name))
+        {
+            Assert.True(SettingsActivation.TryRequest(name));
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+            Assert.Equal(1, requests);
+            Assert.True(SettingsActivation.TryRequest(name));
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+            Assert.Equal(2, requests);
+        }
+        Assert.False(SettingsActivation.TryRequest(name));
+    }
+
+    [AvaloniaFact]
+    public async Task SettingsRequestQueuedBeforeShutdownDoesNotOpenAfterDisposal()
+    {
+        using UiFixture fixture = new();
+        string name = "WSGM.Test.Settings." + Guid.NewGuid().ToString("N");
+        int requests = 0;
+        using (SettingsActivation owner = new(() => requests++, name))
+        {
+            Assert.True(SettingsActivation.TryRequest(name));
+        }
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+        Assert.Equal(0, requests);
+    }
+
+    [AvaloniaFact]
     public async Task ActivationQueuedDuringStartupReachesTheUiOwner()
     {
         using UiFixture fixture = new();

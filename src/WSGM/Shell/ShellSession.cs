@@ -196,6 +196,7 @@ public sealed class ShellSession : IAsyncDisposable
     private NativeQamBrightnessService? _brightness;
     private DesktopTray? _desktopTray;
     private SessionActivation? _activation;
+    private SettingsActivation? _settingsActivation;
     private Task<bool> ShowOnScreenKeyboardAsync(CancellationToken cancellationToken)
     {
         Log.Info($"On-screen keyboard requested: {(_inGameMode ? "Steam" : "Windows")}.");
@@ -742,6 +743,10 @@ public sealed class ShellSession : IAsyncDisposable
             _activation = new SessionActivation(() =>
             {
                 if (!_shutdownRequested) { _overlay.ShowOverlay(); }
+            });
+            _settingsActivation = new SettingsActivation(() =>
+            {
+                if (!_shutdownRequested) { _desktopTray?.OpenSettings(); }
             });
         }
         if (!_overlayTestOnly)
@@ -2786,6 +2791,8 @@ public sealed class ShellSession : IAsyncDisposable
 
     private void RetireTrayHostForShutdown()
     {
+        _settingsActivation?.Dispose();
+        _settingsActivation = null;
         _desktopTray?.Dispose();
         _desktopTray = null;
         _activation?.Dispose();

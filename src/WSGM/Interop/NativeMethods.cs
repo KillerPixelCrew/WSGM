@@ -18,6 +18,9 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll", EntryPoint = "FindWindowW", StringMarshalling = StringMarshalling.Utf16)]
     internal static partial nint FindWindowW(string lpClassName, string? lpWindowName);
 
+    [LibraryImport("user32.dll", EntryPoint = "FindWindowExW", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial nint FindWindowExW(nint parent, nint after, string className, string? windowName);
+
     [LibraryImport("user32.dll", EntryPoint = "PostMessageW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool PostMessageW(nint hWnd, uint msg, nint wParam, nint lParam);

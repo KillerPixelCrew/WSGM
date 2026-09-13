@@ -114,7 +114,8 @@ from the Start Menu; launching it while running opens the existing session. Setu
 optional Desktop shortcut.
 
 **WSGM Settings** has its own Start menu shortcut and, when Desktop shortcuts are selected, its own
-Desktop shortcut. It opens Settings directly without starting a resident session.
+Desktop shortcut. It opens Settings in the running resident session, sharing its controller input
+owner. With no resident session, it opens standalone Settings without starting one.
 
 Settings > Display configures what entering Game Mode does. Default adjusts scaling only. Custom
 applies a saved display layout, optionally after waiting for a display and running plugin actions.

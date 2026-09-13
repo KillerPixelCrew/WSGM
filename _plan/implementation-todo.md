@@ -16,6 +16,11 @@ coverage also passed. The full gate remains blocked at the unchanged TypeScript 
 compiler, which exits with 0xC0000005 even for --version. Subsequent gate checks were run separately.
 Deployment and physical controller acceptance are separate from these automated checks.
 
+The first deployment exposed a second Settings integration issue: the desktop shortcut created a
+separate process that could not acquire from elevated Steam. Settings launches now reuse the
+resident session and its existing input owner; the lease library and deployed shim are unchanged.
+Focused activation and Settings lifecycle checks cover delivery, repeated requests and disposal.
+
 ## Current issue workoff
 
 After delivery of #38/#39, #51/#53, #58/#59, #61, #65–#68, #22/#26/#35/#36 and, on 2026-09-11,

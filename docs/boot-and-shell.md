@@ -80,6 +80,12 @@ shell, so no arguments means Settings.
 | `--settings` (or no arguments) | Settings window                       |
 | `--overlay-test`               | overlay without a shell session       |
 
+Settings mode first asks an existing resident session to open its Settings window. An accepted
+request exits the launcher before Avalonia starts; otherwise Settings runs standalone. The resident
+activation endpoint accepts only the fixed, payload-free Settings request, including from desktop
+shortcuts at medium integrity. This keeps Settings on the resident's controller input owner without
+starting or elevating a second shell session.
+
 Only shell mode holds the single-instance mutex `Local\WSGM.Shell`; the installer keys its restart
 decision off it. A crash-loop breaker counts shell starts: three inside two minutes disarms the
 sign-in start (`GameModeBoot=false` and `DesktopResident=false` in boot.json, `StartAtSignIn` off,

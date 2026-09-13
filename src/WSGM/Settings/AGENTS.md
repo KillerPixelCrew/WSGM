@@ -34,6 +34,9 @@ manually changing the external system's current state is not.
   wait for the native-operation lock. A game-mode window registers its claim before acquisition and releases the claim
   even if native acquisition failed. During overlay handoff, claim before the overlay's deferred
   release and acknowledge close before ending the temporary deactivation exemption.
+- Desktop Settings launches reuse the resident session's Settings window when it is available, so
+  Settings and the overlay acquire through the same process owner and integrity level. Only a
+  launch with no resident receiver creates a standalone Settings runtime.
 - Required text credentials need a controller-accessible OnScreenKeyboard path; gamepad navigation
   deliberately skips ordinary TextBox controls.
 - The production parameterless SettingsViewModel intentionally loads the real ConfigStore and

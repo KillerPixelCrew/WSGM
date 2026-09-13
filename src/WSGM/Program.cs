@@ -279,6 +279,11 @@ public static class Program
         ServiceBoot = IsServiceBoot(args);
         DesktopResident = args.Contains("--desktop-resident", StringComparer.OrdinalIgnoreCase);
         Mode = DecideMode(args);
+        if (Mode == RunMode.Settings && SettingsActivation.TryRequest())
+        {
+            Log.Info("Settings launch handed to the resident WSGM input owner.");
+            return 0;
+        }
         if (ServiceBoot)
         {
             Log.Info($"Run mode: {Mode} (service boot, elevated={ElevationCheck.IsCurrentProcessElevated()}, " +

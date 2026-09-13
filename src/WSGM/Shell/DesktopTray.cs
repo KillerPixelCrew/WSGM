@@ -1,6 +1,7 @@
 using System;
 using Avalonia.Controls;
 using Avalonia.Platform;
+using WSGM.Core;
 using WSGM.Settings;
 
 namespace WSGM.Shell;
@@ -39,13 +40,14 @@ internal sealed class DesktopTray : IDisposable
         menu.Items.Add(item);
     }
 
-    private void OpenSettings()
+    internal void OpenSettings()
     {
         if (_settings is null)
         {
             _settings = new SettingsWindow();
             _settings.Closed += (_, _) => _settings = null;
             _settings.Show();
+            Log.Info($"Settings opened in resident process {Environment.ProcessId}.");
         }
         _settings.WindowState = WindowState.Normal;
         _settings.Activate();
