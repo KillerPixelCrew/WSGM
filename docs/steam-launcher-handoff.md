@@ -83,6 +83,13 @@ been separately confirmed. These results support targeted repairs, not periodic 
 
 ## Remaining limits
 
+The working PowerWash route is not only launch ordering. The spike forwards remote environment
+variables and loads Valve DLLs through `CreateRemoteThread`/`LoadLibraryW` in the helper. Its
+delayed descendant setup also performs remote environment writes and DLL loads in the game, even
+when Steam already loaded the renderer. No custom AppContainer bridge is used, but Valve signatures
+alone do not establish acceptance of this external loading path by every anti-cheat. A helper-only
+comparison with no later custom game-process writes is the next simplification to validate.
+
 The PowerWash trial used both Steam-client preloading and early renderer injection. It does not
 establish that every preloaded component is necessary. The supervisor also retained delayed
 environment/injection checks for descendants; removing those needs a separate comparison. Minimum
