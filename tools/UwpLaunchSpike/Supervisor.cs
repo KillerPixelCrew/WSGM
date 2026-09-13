@@ -9,7 +9,7 @@ namespace Wsgm.UwpSpike;
 
 /// Stays alive for the whole game session so Steam keeps the shortcut in a running
 /// state, while tracking the processes the activation actually produced.
-internal sealed class Supervisor(Options options, SpikeLog log)
+internal sealed class Supervisor(Options options, SpikeLog log, GameContainment? containment)
 {
     private readonly Dictionary<int, ProcessReport> tracked = [];
     private readonly HashSet<int> overlayReported = [];
@@ -39,6 +39,10 @@ internal sealed class Supervisor(Options options, SpikeLog log)
                 goneSince = null;
                 ProcessProbe.WriteReport(log, $"+{clock.Elapsed.TotalSeconds:F1}s appeared", report);
                 NoteOverlay(report);
+                if (IsGameBinary(report))
+                {
+                    containment?.Contain(report.Pid, report.Name);
+                }
             }
 
             foreach (var pid in tracked.Keys.Where(pid => !current.ContainsKey(pid)).ToList())
@@ -93,6 +97,21 @@ internal sealed class Supervisor(Options options, SpikeLog log)
 
         log.Warn("Cancelled; leaving the game running and exiting the wrapper.");
         return false;
+    }
+
+    /// Only the title's own binaries get contained. A packaged app's helpers under
+    /// System32 — RuntimeBroker above all — are shared Windows infrastructure, and killing
+    /// one when the wrapper stops would reach well outside this game session.
+    private static bool IsGameBinary(ProcessReport report)
+    {
+        if (report.ImagePath.Length == 0 || report.ImagePath.StartsWith('<'))
+        {
+            return false;
+        }
+
+        var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        return windows.Length == 0
+            || !report.ImagePath.StartsWith(windows, StringComparison.OrdinalIgnoreCase);
     }
 
     private void NoteOverlay(ProcessReport report)

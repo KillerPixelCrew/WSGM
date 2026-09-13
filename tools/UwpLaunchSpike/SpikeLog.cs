@@ -11,10 +11,12 @@ internal sealed class SpikeLog : IDisposable
 {
     private readonly object gate = new();
     private readonly StreamWriter? writer;
+    private bool console;
 
-    internal SpikeLog(string path)
+    internal SpikeLog(string path, bool useConsole)
     {
         Path = path;
+        console = useConsole;
         try
         {
             Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
@@ -52,8 +54,24 @@ internal sealed class SpikeLog : IDisposable
         var line = message.Length == 0 ? string.Empty : $"{stamp} [{level}] {message}";
         lock (gate)
         {
-            Console.WriteLine(line);
+            // The file comes first and is never gated on the console. A Steam-launched run
+            // produced a zero-byte transcript because the process stalled on its very first
+            // console write, which cost a whole session's evidence; the console is a
+            // convenience, the transcript is the point.
             writer?.WriteLine(line);
+            if (!console)
+            {
+                return;
+            }
+
+            try
+            {
+                Console.WriteLine(line);
+            }
+            catch
+            {
+                console = false;
+            }
         }
     }
 

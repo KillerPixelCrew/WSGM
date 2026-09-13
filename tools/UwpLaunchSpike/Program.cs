@@ -27,24 +27,35 @@ internal static class Program
             return 2;
         }
 
-        using var log = new SpikeLog(options.LogPath);
-        using var cancellation = new CancellationTokenSource();
-        Console.CancelKeyPress += (_, eventArgs) =>
-        {
-            eventArgs.Cancel = true;
-            cancellation.Cancel();
-        };
+        // Facts about the console are gathered before anything writes to it, because a
+        // Steam-launched run stalled on its first console write and produced nothing.
+        var consoleWindow = Native.GetConsoleWindow();
+        var redirected = Console.IsOutputRedirected;
+        var useConsole = !options.HideConsole && !redirected;
 
-        if (options.HideConsole)
+        using var log = new SpikeLog(options.LogPath, useConsole);
+
+        // Hiding happens after the transcript is open and only once the context block has
+        // been written, so a stall anywhere in this startup path leaves a file saying how
+        // far the wrapper got instead of a zero-byte one.
+        using var cancellation = new CancellationTokenSource();
+        if (useConsole)
         {
-            var console = Native.GetConsoleWindow();
-            if (console != IntPtr.Zero)
+            Console.CancelKeyPress += (_, eventArgs) =>
             {
-                Native.ShowWindow(console, Native.SwHide);
-            }
+                eventArgs.Cancel = true;
+                cancellation.Cancel();
+            };
         }
 
-        WriteContext(options, log);
+        WriteContext(options, log, consoleWindow, redirected, useConsole);
+
+        if (options.HideConsole && consoleWindow != IntPtr.Zero)
+        {
+            log.Info("hiding the console window");
+            Native.ShowWindow(consoleWindow, Native.SwHide);
+            log.Info("console window hidden");
+        }
 
         log.Section("Activation");
         log.Info($"mode: {options.Mode.ToString().ToLowerInvariant()}   target: {options.Aumid ?? options.Target}");
@@ -57,7 +68,8 @@ internal static class Program
         }
 
         log.Section("Supervision");
-        var supervisor = new Supervisor(options, log);
+        using var containment = options.Contain ? new GameContainment(log) : null;
+        var supervisor = new Supervisor(options, log, containment);
         var completed = supervisor.Run(result.SeedPid, cancellation.Token);
 
         log.Section("Result");
@@ -69,12 +81,14 @@ internal static class Program
     /// The launch context is half the experiment: whether Steam is our parent, which
     /// Steam environment variables reached us, and whether Steam injected its overlay
     /// into the wrapper itself rather than into the game.
-    private static void WriteContext(Options options, SpikeLog log)
+    private static void WriteContext(Options options, SpikeLog log, IntPtr consoleWindow, bool redirected, bool useConsole)
     {
         log.Section("Wrapper context");
         log.Info($"transcript      : {log.Path}");
         log.Info($"command line    : {Environment.CommandLine}");
         log.Info($"wrapper pid     : {Environment.ProcessId}");
+        log.Info($"console         : window={(consoleWindow == IntPtr.Zero ? "none" : "0x" + consoleWindow.ToInt64().ToString("X", CultureInfo.InvariantCulture))} "
+            + $"stdout-redirected={redirected} writing-to-console={useConsole}");
         log.Info($"working dir     : {Environment.CurrentDirectory}");
         log.Info($"os              : {Environment.OSVersion.VersionString} ({(Environment.Is64BitProcess ? "64-bit process" : "32-bit process")})");
         log.Info($"started at      : {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)}");

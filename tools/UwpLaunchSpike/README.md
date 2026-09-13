@@ -49,8 +49,13 @@ Modes, which are the experiment matrix from the issue:
 | `exe` | A conventional Win32 child via `--target`, the control case for intact lineage |
 
 Other flags worth knowing: `--probe-rights` performs the injector-grade `OpenProcess` probe,
-`--hide-console` hides the window once the wrapper is up, `--match` adds an image-name hint when
-package identity alone does not find the game, and `--log` redirects the transcript.
+`--hide-console` hides the window and stops writing to it, `--no-contain` lets the game outlive
+the wrapper, `--match` adds an image-name hint when package identity alone does not find the game,
+and `--log` redirects the transcript.
+
+The transcript never depends on the console. A Steam-launched run stalled on its first console
+write and produced nothing at all, so the file is written first and console output is skipped
+entirely when the console is hidden or stdout is redirected.
 
 Transcripts default to `%LOCALAPPDATA%\WSGM\uwp-spike\<timestamp>-<mode>.log`.
 
@@ -110,8 +115,23 @@ started from a terminal rather than from Steam, so this says nothing yet about o
   integrity. The rights probe only means something from a medium-integrity wrapper, which is what
   a Steam-launched run gives.
 
-The open question the Steam-launched run answers: whether Steam holds the shortcut in a running
-state for the wrapper's lifetime, and whether `gameoverlayrenderer64.dll` appears anywhere.
+First Steam-launched run, same title and mode, observed from the client rather than from a
+transcript (the wrapper stalled on its first console write and left a zero-byte file, since
+fixed):
+
+- **The wrapper works as Steam's lifetime anchor.** Steam launched it, held the shortcut in a
+  running state for as long as the wrapper lived, and offered Stop. That is the part of the
+  architecture the issue was least sure about, and it holds.
+- **No Steam Overlay and no Steam Input reached the game.** Consistent with both obstacles above.
+- **Stopping the shortcut in Steam did not stop the game.** Steam terminated the wrapper, and
+  Moonlighter kept running out of tree with Steam showing the shortcut as stopped. The wrapper now
+  puts the title's own binaries in a kill-on-close job object, so the kernel ends the game when
+  the wrapper dies however it dies. Nested assignment succeeds even though a packaged app already
+  sits in a system-managed job. `--no-contain` turns it off.
+
+The open question for the next Steam-launched run is what the transcript shows from inside a
+medium-integrity wrapper: the real handle rights on the game, and whether
+`gameoverlayrenderer64.dll` shows up anywhere at all, including in the wrapper itself.
 
 ## Caveats
 

@@ -26,6 +26,59 @@ internal static class Native
     internal const uint InjectorAccess =
         ProcessCreateThread | ProcessVmOperation | ProcessVmRead | ProcessVmWrite | ProcessQueryInformation;
 
+    internal const uint ProcessSetQuota = 0x0100;
+
+    // ---- Job objects ----
+    internal const int JobObjectExtendedLimitInformation = 9;
+    internal const uint JobObjectLimitKillOnJobClose = 0x2000;
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct IoCounters
+    {
+        internal ulong ReadOperationCount;
+        internal ulong WriteOperationCount;
+        internal ulong OtherOperationCount;
+        internal ulong ReadTransferCount;
+        internal ulong WriteTransferCount;
+        internal ulong OtherTransferCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct JobObjectBasicLimitInformation
+    {
+        internal long PerProcessUserTimeLimit;
+        internal long PerJobUserTimeLimit;
+        internal uint LimitFlags;
+        internal UIntPtr MinimumWorkingSetSize;
+        internal UIntPtr MaximumWorkingSetSize;
+        internal uint ActiveProcessLimit;
+        internal UIntPtr Affinity;
+        internal uint PriorityClass;
+        internal uint SchedulingClass;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct JobObjectExtendedLimitInformationData
+    {
+        internal JobObjectBasicLimitInformation BasicLimitInformation;
+        internal IoCounters IoInfo;
+        internal UIntPtr ProcessMemoryLimit;
+        internal UIntPtr JobMemoryLimit;
+        internal UIntPtr PeakProcessMemoryUsed;
+        internal UIntPtr PeakJobMemoryUsed;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    internal static extern IntPtr CreateJobObjectW(IntPtr lpJobAttributes, string? lpName);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetInformationJobObject(IntPtr hJob, int jobObjectInformationClass, IntPtr lpJobObjectInformation, uint cbJobObjectInformationLength);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
+
     // ---- Toolhelp ----
     internal const uint Th32CsSnapProcess = 0x0000_0002;
 

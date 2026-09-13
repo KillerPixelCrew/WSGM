@@ -29,6 +29,8 @@ internal sealed class Options
 
     internal bool HideConsole { get; private set; }
 
+    internal bool Contain { get; private set; } = true;
+
     internal bool HelpRequested { get; private set; }
 
     internal string LogPath { get; private set; } = string.Empty;
@@ -103,6 +105,9 @@ internal sealed class Options
                     break;
                 case "--hide-console":
                     options.HideConsole = true;
+                    break;
+                case "--no-contain":
+                    options.Contain = false;
                     break;
                 case "--log":
                     logPath = Next(argument);
@@ -201,7 +206,9 @@ internal sealed class Options
           --poll <ms>            Poll interval (default 1000).
           --heartbeat <seconds>  Idle status line interval (default 30).
           --probe-rights         Test injector-grade OpenProcess masks on the game.
-          --hide-console         Hide the console window after startup.
+          --hide-console         Hide the console window and stop writing to it.
+          --no-contain           Do not put the game in a kill-on-close job, so it
+                                 survives the wrapper being stopped from Steam.
           --log <path>           Transcript path (default %LOCALAPPDATA%\WSGM\uwp-spike).
           --help                 Show this text.
         """;
