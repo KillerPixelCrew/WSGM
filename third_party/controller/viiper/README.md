@@ -8,7 +8,7 @@ move the pin. The reasoning for choosing VIIPER over HIDMaestro is in the parent
 ## Pinned revision
 
 - Repository: [`KillerPixelCrew/VIIPER`](https://github.com/KillerPixelCrew/VIIPER), branch `wsgm`
-- Commit: `fe726ce80bd2995a8b149440d977a561850d9e89`
+- Commit: `4d2bd5298c08350dd62700779ee137f08abe97ca`
 - Baseline: `corando98/VIIPER@024aef3a5659fb54d9675929d05f155f47049c4c` (`viiper-controller`)
 
 The downstream changes used to live here as `.patch` files applied at build time. They are commits
@@ -46,6 +46,13 @@ Listed oldest first, which is the order they sit on the baseline.
 | `1ee755c` | `steamdeck`: report credible attributes so Steam sends trigger rumble |
 | `935eacb` | `clib`: `viiper_device_add_ex` no longer attaches either |
 | `fe726ce` | `windows`: guard the device-interface size query |
+| `e9da7e2` | `usb`: stop recurring timeout attempts on unused Steam Deck keyboard/mouse endpoints |
+| `4d2bd52` | Trim the downstream README ending |
+
+`e9da7e2` keeps the placeholder endpoints pending without repeatedly creating keepalive deadlines.
+Automatic idle mode now accepts a per-endpoint declaration, so the real controller endpoint keeps
+its continuous reports. Explicit idle-mode overrides still win. The DLL and regression-test
+binaries compile; execution and live CPU/controller validation await the maintainer's manual check.
 
 The first commit carries two fixes that are merged in `Valkirie/VIIPER` but not on this branch. A
 third, the SDL3 `ucLength` fix, is already present here and needed nothing.

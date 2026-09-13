@@ -41,6 +41,11 @@ running, the session keeps its sensor until both workers finish and refuses anot
 failures remain visible. Truncated power/fan responses fail before decoding; unknown fan modes are
 rejected before transport access. These paths are covered with fakes, without a new hardware pass.
 
+Motion acquisition runs on one dedicated worker, with a cancellable 2 ms wait after each synchronous
+sensor read. It no longer schedules a shared thread-pool continuation every 2 ms or catches up after
+a slow read. The bounded publication channel, sensor counter checks, calibration and resampling
+remain in place. CPU and gyro responsiveness of this scheduling change still need a manual check.
+
 ## What a plugin actually does
 
 WSGM owns the session and the UI; the plugin owns the hardware. It publishes _semantic capabilities_

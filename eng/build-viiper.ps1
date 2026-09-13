@@ -45,7 +45,7 @@ $staging = Join-Path $root "src\WSGM\Native\Viiper"
 # KillerPixelCrew fork's wsgm branch, which carries the downstream patch set as
 # reviewable commits on top of the corando98/VIIPER viiper-controller baseline.
 $repository = "https://github.com/KillerPixelCrew/VIIPER.git"
-$revision = "fe726ce80bd2995a8b149440d977a561850d9e89"
+$revision = "4d2bd5298c08350dd62700779ee137f08abe97ca"
 
 if (-not $SourceRoot) {
     $SourceRoot = Join-Path (Split-Path -Parent $root) "wsgm-viiper"

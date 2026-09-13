@@ -101,8 +101,9 @@ The reference A2VM uses the ST LSM6DSO behind Intel ISS `VID_8087&PID_0AC2`:
 - Gyro units are degrees/second; acceleration units are g.
 - Gyro field 34 is a `VT_UI4` hardware-report counter that advances even at rest. Publish only when
   it changes.
-- Gyro minimum interval is 10 ms, accelerometer minimum is 2 ms; the plugin polls at 2 ms, requests
-  each own minimum per cycle, and restores the old interval only if nobody else changed it.
+- Gyro minimum interval is 10 ms, accelerometer minimum is 2 ms; one dedicated worker waits 2 ms
+  between synchronous reads. The plugin requests each sensor's own minimum per cycle and restores
+  the old interval only if nobody else changed it. No shared thread-pool timer drives acquisition.
 - Both physical sources must match and open; do not synthesize a missing half.
 - Sensor to application axes: `(X, Y, Z) -> (X, Z, -Y)`.
 

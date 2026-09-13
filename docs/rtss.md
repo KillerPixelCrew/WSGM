@@ -30,6 +30,25 @@ Authenticode-signed by the MSI bundle publisher (Claw, 2026-08-28).
 
 ## Application identity and profile writes
 
+### Exclude the ClawLab cursor refresh helper
+
+The ClawLab helper owns a desktop refresh surface, so game frame limiting must not target it. On the
+reference Claw (2026-09-13), a cursor-activity trace attributed about 76% of the helper's sampled
+CPU to RTSS's hook under `DxgiPresenter.Present`, including repeated performance-counter reads. The
+global RTSS limit was 119 FPS while the helper paced at 120 Hz. These are sample shares, not a
+whole-machine CPU measurement or proof that ClawLab itself busy-waits.
+
+The maintainer's local RTSS profile for `ClawLab-Cursor-Refresh-Helper.exe` sets Application
+detection level to None (`[Hooking] EnableHooking=0`) and `[Framerate] Limit=0`. The helper was
+restarted through its existing limited-user scheduled task. Global RTSS settings and ClawLab's
+VRR/LFC configuration were left intact. This is an installation-specific exclusion, not an automatic
+WSGM profile write. The RTSS API read back detection level 0 and frame limit 0. A subsequent
+25-second active capture contained no RTSS hook work in the helper's sampled CPU stacks, although
+the DLL remained mapped. Its startup warm-up differs from the earlier intermittent mouse workload,
+so those captures do not establish an equivalent-workload percentage reduction.
+
+### Shared application identity
+
 `RunningApplicationMonitor` is the only detector; `RunningApplicationCoordinator` projects its one
 answer into `PerformanceService` and controller policy, and QAM and the overlay read that service
 rather than observing Steam or foreground windows again. Identity comes from Steam lifetime
@@ -44,7 +63,9 @@ path with origin/correlation diagnostics; distinct requested, applying, deferred
 applied-unverified, rejected, timed-out, indeterminate, failed and externally-changed outcomes;
 process-generation checks before readback, so an RTSS restart makes an in-flight result
 indeterminate; and polling only while a UI client holds an observation lease, bounded to 250 ms
-through 30 s (2 s by default).
+through 30 s (5 s by default). Commands and application transitions still read back immediately; the
+slower background check reduces profile reloads and discovery while Steam keeps an observation lease
+open. External changes and RTSS availability are detected on that background cadence.
 
 ### The foreground fill for a store title is proof-gated by its install folder
 

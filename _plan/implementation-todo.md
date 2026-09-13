@@ -178,8 +178,17 @@ stops here rather than at zero:
   format switch is a Settings row, on by default. `docs\sd-cards.md`, `docs\steam-cef.md`.
 - #34 is delivered. `KillerPixelCrew/VIIPER@wsgm` carries the former six patches as commits plus two
   new ones (`add_ex` no longer attaches; the device-interface size query is guarded), WSGM pins
-  `fe726ce`, the patch files are gone, and every rejected variant change has a stated reason in
-  `third_party\controller\viiper\README.md`. Validated on the reference Claw.
+  `4d2bd52`, the patch files are gone, and every rejected variant change has a stated reason in
+  `third_party\controller\viiper\README.md`. The earlier `fe726ce` baseline was validated on the
+  reference Claw; the new endpoint-idle optimization awaits manual validation.
+
+- Background CPU optimization is implemented and build-checked, pending manual testing: motion
+  acquisition uses a dedicated sleeping worker, RTSS background checks run every five seconds,
+  and VIIPER no longer retries idle keyboard/mouse placeholders on a timeout. Input latency,
+  gyro, rumble, task switching and before/after CPU remain attended checks. Test suites are deferred
+  under the manual-first policy. ClawLab's mouse-activity trace attributed most helper CPU samples
+  to RTSS's Present hook; the maintainer requested an RTSS exclusion for that executable. Its
+  cursor-helper profile now disables hooking and frame limiting. No ClawLab source change was needed.
 
 - #32 is implemented. The Claw package publishes the Intel GPU memory share as a 13-87 percent
   device-persistent row on the Power page. It is a driver setting rather than an IGCL call:

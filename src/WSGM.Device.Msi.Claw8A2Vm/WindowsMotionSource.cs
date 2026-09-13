@@ -108,8 +108,11 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
             SingleWriter = true,
         });
         CancellationTokenSource cancellation = new();
-        Task producer = Task.Run(
-            () => ProduceAsync(sensors, samples.Writer, cancellation.Token), CancellationToken.None);
+        Task producer = Task.Factory.StartNew(
+            () => Produce(sensors, samples.Writer, cancellation.Token),
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
         Task pump = PumpAsync(samples.Reader, publish, cancellation.Token);
         return new MotionWorkerSession(sensors, cancellation, producer, pump);
     }
@@ -146,7 +149,7 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
     private static Vector3 ToApplicationBasis(Vector3 raw) =>
         new(raw.X, raw.Z, -raw.Y);
 
-    private static async Task ProduceAsync(
+    private static void Produce(
         LegacyPhysicalMotionSensors sensors,
         ChannelWriter<MotionSample> writer,
         CancellationToken cancellationToken)
@@ -158,8 +161,11 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
         bool uncalibratedReported = false;
         try
         {
-            using PeriodicTimer timer = new(PollInterval);
-            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            // Sensor COM calls are synchronous and can block. Keep them on one sleeping worker
+            // instead of waking and spinning shared thread-pool workers for every 2 ms tick.
+            // Wait after each read: a slow sensor must not cause a burst of catch-up polls.
+            WaitHandle stop = cancellationToken.WaitHandle;
+            while (!stop.WaitOne(PollInterval))
             {
                 PhysicalMotionReadResult read = sensors.TryRead(
                     out PhysicalMotionReading reading,

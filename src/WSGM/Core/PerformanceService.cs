@@ -96,7 +96,9 @@ internal static class PerformancePolicyResolver
 /// </summary>
 internal sealed class PerformanceService : IAsyncDisposable
 {
-    private static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(2);
+    // Commands and target transitions already read back immediately. This is the background
+    // external-change/availability check, including while Steam keeps its observation lease.
+    private static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultCommandTimeout = TimeSpan.FromSeconds(2);
     /// <summary>The controls a readback is checked against the desired state for.</summary>
     private static readonly PerformanceControl[] DriftCheckedControls =
