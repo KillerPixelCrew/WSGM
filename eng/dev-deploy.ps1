@@ -29,20 +29,31 @@ param(
 
     # Skip refreshing the installed device plugin. The plugin rebuild + one elevation prompt only
     # matter when the SDK or the built-in package changed; a pure WSGM code loop can skip both.
-    [switch]$SkipPlugin
+    [switch]$SkipPlugin,
+
+    # Deploy to the maintainer's desktop (MS-7E16) instead of the reference Claw. The desktop runs
+    # WSGM desktop-resident beside Explorer and has no device package, so this restarts WSGM with
+    # --shell --desktop-resident unless -WsgmArguments is given, and implies -SkipPlugin.
+    [switch]$Desktop
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# The shell may only run on the reference Claw. The maintainer develops on other machines where
-# WSGM is not installed, and this script restarts Steam and the live shell — on the wrong machine
-# that is a takeover of a desktop nobody offered.
-# The board product is the same one-command identity check the root AGENTS.md mandates before any
-# hardware work.
+# The shell may only run on the reference Claw, and the desktop-resident deploy only on the
+# maintainer's desktop. This script restarts Steam and the live shell, so on any other machine it
+# would be a takeover nobody offered. The board product is the same one-command identity check the
+# root AGENTS.md mandates before any hardware work.
 $board = (Get-CimInstance -ClassName Win32_BaseBoard).Product
-if ($board -ne 'MS-1T52') {
-    throw "dev-deploy refused: this machine reports board '$board', not the reference Claw (MS-1T52)."
+$expectedBoard, $machine = if ($Desktop) { 'MS-7E16', 'desktop' } else { 'MS-1T52', 'reference Claw' }
+if ($board -notlike "*($expectedBoard)" -and $board -ne $expectedBoard) {
+    throw "dev-deploy refused: this machine reports board '$board', not the $machine ($expectedBoard)."
+}
+if ($Desktop) {
+    $SkipPlugin = $true
+    if (-not $PSBoundParameters.ContainsKey('WsgmArguments')) {
+        $WsgmArguments = @('--shell', '--desktop-resident')
+    }
 }
 
 $root = Split-Path -Parent $PSScriptRoot
