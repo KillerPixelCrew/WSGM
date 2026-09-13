@@ -120,11 +120,13 @@ internal sealed class DesktopAppProcessBackend : IDesktopAppBackend
         {
             using Process? launched = Process.Start(new ProcessStartInfo(instance.ExecutablePath, instance.Rule.RestartArguments)
             {
-                UseShellExecute = false,
+                UseShellExecute = true,
+                Verb = "runas",
+                WindowStyle = ProcessWindowStyle.Hidden,
                 WorkingDirectory = Path.GetDirectoryName(instance.ExecutablePath)!,
             });
-            result = launched is null
-                ? ScheduledTaskLaunchDisposition.NotDispatched : ScheduledTaskLaunchDisposition.Dispatched;
+            // ShellExecute can succeed without returning a new process handle.
+            result = ScheduledTaskLaunchDisposition.Dispatched;
         }
         else
         {

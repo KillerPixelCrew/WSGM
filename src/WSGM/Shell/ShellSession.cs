@@ -1779,6 +1779,10 @@ public sealed class ShellSession : IAsyncDisposable
             Avalonia.Threading.Dispatcher.UIThread.Post(() => session.EnsureEntrySplash().SetStatus(line));
         }
 
+        public async Task ArmSteamDetectionAsync() =>
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                session.EnsureEntrySplash().ArmSteamDetection());
+
         public void SetCancellable(bool cancellable) =>
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {

@@ -38,6 +38,13 @@ delayed-relaunch guard, 121 focused tests and the 2,540-test coverage run passed
 guidance, native, style and analyzer checks passed separately; the complete gate remains blocked
 by existing Markdown formatting and C# line-ending drift outside this change.
 
+The first attended desktop entry exposed a separate splash handoff bug: Steam's window was detected,
+but the entry never armed splash detection or its timeout. Entry now awaits the UI-thread arming
+before requesting Big Picture. The same run confirmed Explorer exit and restoration and exposed
+DisplayFusion's compatibility elevation requirement; elevated desktop apps now restart through
+ShellExecute `runas`. The warning-clean build and 34 focused tests passed; the corrected transition
+still needs an attended retry.
+
 After delivery of #38/#39, #51/#53, #58/#59, #61, #65–#68, #22/#26/#35/#36 and, on 2026-09-11,
 #20/#28/#30/#31/#34/#70/#71/#72 and, that evening, #52, eight issues remain open. Issues #41, #42,
 #44, #45, #47 and #48 remain deferred; #21 and #40 are the 2.0 scope. #20 and #28 were closed on 2026-09-10 and

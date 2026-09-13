@@ -43,6 +43,7 @@ public sealed class GameModeEntryTransactionTests
             "observe",
             "exit-explorer",
             "apply-layout",
+            "arm-splash",
             "big-picture",
             "commit",
         ], backend.Steps);
@@ -66,8 +67,22 @@ public sealed class GameModeEntryTransactionTests
         Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
         Assert.Equal(
             ["enter-actions", "wait", "prepare-explorer", "observe", "exit-explorer",
-             "default-posture", "big-picture", "commit"],
+             "default-posture", "arm-splash", "big-picture", "commit"],
             backend.Steps);
+    }
+
+    [Fact]
+    public async Task BigPictureWaitsUntilSplashDetectionIsArmed()
+    {
+        TaskCompletionSource armed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Backend backend = new() { ArmGate = armed.Task };
+        Task<GameModeEntryResult> entry = new GameModeEntryTransaction(backend, Custom()).RunAsync(default);
+
+        Assert.Contains("arm-splash", backend.Calls);
+        Assert.DoesNotContain("big-picture", backend.Calls);
+        armed.SetResult();
+        Assert.Equal(GameModeEntryOutcome.Entered, (await entry).Outcome);
+        Assert.Contains("big-picture", backend.Calls);
     }
 
     [Fact]
@@ -221,6 +236,8 @@ public sealed class GameModeEntryTransactionTests
 
         internal Action? OnWait { get; init; }
 
+        internal Task ArmGate { get; init; } = Task.CompletedTask;
+
         internal bool PrepareExplorer { get; init; } = true;
 
         internal bool ExitExplorer { get; init; } = true;
@@ -310,6 +327,12 @@ public sealed class GameModeEntryTransactionTests
         }
 
         public Task<bool> MustPreserveDesktopAsync() => Task.FromResult(PreserveDesktop);
+
+        public Task ArmSteamDetectionAsync()
+        {
+            Calls.Add("arm-splash");
+            return ArmGate;
+        }
 
         public Task<string?> RequestBigPictureAsync()
         {

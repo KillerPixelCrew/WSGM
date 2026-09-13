@@ -87,6 +87,9 @@ internal interface IGameModeEntryBackend
     /// <returns>True when Game Mode must not commit.</returns>
     Task<bool> MustPreserveDesktopAsync();
 
+    /// <summary>Arms the splash before requesting Steam, after all open-ended waits.</summary>
+    Task ArmSteamDetectionAsync();
+
     /// <summary>Asks Steam for Big Picture once.</summary>
     /// <returns>A warning when it could not be started, otherwise null.</returns>
     Task<string?> RequestBigPictureAsync();
@@ -207,6 +210,7 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
             }
 
             backend.SetStatus("Starting Steam Big Picture");
+            await backend.ArmSteamDetectionAsync().ConfigureAwait(false);
             string? steamWarning = await backend.RequestBigPictureAsync().ConfigureAwait(false);
 
             backend.CommitGameMode();

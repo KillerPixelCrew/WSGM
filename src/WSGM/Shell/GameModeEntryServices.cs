@@ -23,6 +23,9 @@ internal interface IGameModeEntryServices
     /// <param name="line">What is happening now.</param>
     void SetStatus(string line);
 
+    /// <summary>Arms splash dismissal and its timeout on the UI thread before Steam is requested.</summary>
+    Task ArmSteamDetectionAsync();
+
     /// <summary>Switches the splash button between cancelling entry and leaving for the desktop.</summary>
     /// <param name="cancellable">True before the Explorer exit, false after it.</param>
     void SetCancellable(bool cancellable);
@@ -77,6 +80,10 @@ internal sealed class SessionModesEntryBackend(SessionModes modes, ExplorerDeskt
 
     /// <inheritdoc />
     public void SetStatus(string line) => modes.GameModeEntryServices?.SetStatus(line);
+
+    /// <inheritdoc />
+    public Task ArmSteamDetectionAsync() =>
+        modes.GameModeEntryServices?.ArmSteamDetectionAsync() ?? Task.CompletedTask;
 
     /// <inheritdoc />
     public void SetCancellable(bool cancellable) => modes.GameModeEntryServices?.SetCancellable(cancellable);

@@ -189,12 +189,13 @@ transition pass. The LittleBigMouse rule covers the current Avalonia UI and Hook
 
 Normal desktop restoration, failed-entry recovery and coordinated WSGM exit restart remembered
 applications only after Explorer is verified usable. Restarts preserve the captured elevation:
-normal apps use the existing unelevated launcher, and previously elevated apps inherit the
-resident's token. Both use original executable paths, a bounded wait and a running-instance check.
-WSGM's startup-app sequence and auto-relaunch watcher suppress listed integrations while the desktop
-is suspended. An uncertain launch is not dispatched again. Windows sign-out/shutdown does not
-restart them. Ownership is in memory for the resident session; the independent shell-anchor/watchdog
-crash recovery restores Explorer only.
+normal apps use the existing unelevated launcher, and previously elevated apps use ShellExecute
+`runas`. This respects compatibility elevation flags that can reject direct process creation with
+error 740 even from the elevated resident. Both use original executable paths, a bounded wait and a
+running-instance check. WSGM's startup-app sequence and auto-relaunch watcher suppress listed
+integrations while the desktop is suspended. An uncertain launch is not dispatched again. Windows
+sign-out/shutdown does not restart them. Ownership is in memory for the resident session; the
+independent shell-anchor/watchdog crash recovery restores Explorer only.
 
 ### Explorer is asked to exit through its own "Exit Explorer" command
 
@@ -357,6 +358,17 @@ starts immediately and defers only the live Steam change. The evidence, the heal
 the gate itself are in `docs\steam-cef-system.md`, "The transport gate".
 
 ## Big Picture occlusion and the splash
+
+### Entry must arm detection before requesting Steam
+
+The entry splash starts unarmed so waiting for a switched-off TV has no deadline. After the display
+layout is applied, the transaction awaits `ArmSteamDetectionAsync` on the UI dispatcher before
+requesting Big Picture. This enables both window detection and the 120-second Steam timeout.
+
+The 2026-09-13 desktop log showed the missing handoff: Explorer exited cleanly and Steam's Big
+Picture window was recognized at 14:32:35, but the unarmed cover stayed until the user chose Desktop
+at 14:38:26. `ArmSteamDetection` previously had no caller. Regression tests now require arming after
+the display wait and before the Steam request, including waiting for dispatcher completion.
 
 ### Big Picture suspends rendering while occluded
 
