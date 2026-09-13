@@ -81,6 +81,18 @@ internal sealed class Supervisor(Options options, SpikeLog log, GameContainment?
                 {
                     injectAt.Remove(pid);
                     injection?.InjectAll(options.Inject, refreshed);
+
+                    foreach (var call in options.Call)
+                    {
+                        var separator = call.LastIndexOf('!');
+                        if (separator <= 0 || separator == call.Length - 1)
+                        {
+                            log.Error($"remote call: \"{call}\" is not in dll!Export form.");
+                            continue;
+                        }
+
+                        injection?.CallExport(call[..separator], call[(separator + 1)..], refreshed);
+                    }
                 }
             }
 

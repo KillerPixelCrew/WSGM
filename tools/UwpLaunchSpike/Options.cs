@@ -45,6 +45,9 @@ internal sealed class Options
 
     internal TimeSpan InjectDelay { get; private set; } = TimeSpan.Zero;
 
+    /// Zero-argument exports to call inside the game after injection, as dll!Export.
+    internal List<string> Call { get; } = [];
+
     internal bool HelpRequested { get; private set; }
 
     /// Name or pid of an already-running process to report on and exit. The control case:
@@ -144,6 +147,20 @@ internal sealed class Options
                     break;
                 case "--inject-steam-overlay":
                     options.Inject.Add(SteamOverlayPath());
+                    break;
+                case "--call":
+                    if (Next(argument) is { } call) { options.Call.Add(call); }
+                    break;
+                case "--steam-api-init":
+                    // The full chain a Steam build performs for itself: map the game-side
+                    // shim, then make the call that loads steamclient and registers the
+                    // process with the running client.
+                    if (Next(argument) is { } apiDll)
+                    {
+                        options.Inject.Add(apiDll);
+                        options.Call.Add($"{apiDll}!SteamAPI_Init");
+                    }
+
                     break;
                 case "--inject-delay":
                     options.InjectDelay = Seconds(Next(argument), options.InjectDelay, ref failure);
@@ -261,6 +278,10 @@ internal sealed class Options
           --no-proxy             Do not create the window Steam activates to raise the game.
           --inject <dll>         Remote-load a DLL into the game. Repeatable.
           --inject-steam-overlay Remote-load Steam's GameOverlayRenderer64.dll.
+          --call <dll>!<Export>  Call a zero-argument export inside the game. Repeatable.
+          --steam-api-init <dll> Inject steam_api64.dll and call SteamAPI_Init in it. Only
+                                 for testing that hypothesis: a non-Steam shortcut gets the
+                                 overlay without ever calling it, so it should not be needed.
           --inject-delay <secs>  Wait this long after the game appears before injecting.
           --allow-suspend        Leave the package under normal PLM suspension.
           --no-steam-env         Do not pass Steam's launch variables to the package.

@@ -146,6 +146,129 @@ internal sealed class Injection(SpikeLog log)
         }
     }
 
+    /// Calls a zero-argument export inside the game.
+    ///
+    /// This is the step that a LoadLibrary cannot cover. Balatro's working overlay comes from
+    /// the game itself calling SteamAPI_Init, which loads steamclient64.dll and registers the
+    /// process with the running client; both the overlay and Steam Input hang off that
+    /// registration. A packaged title that is not a Steam build never makes that call, so
+    /// mapping Steam's DLLs into it achieves nothing on its own. CreateRemoteThread can only
+    /// pass a single pointer argument, which is exactly enough for an export that takes none.
+    internal void CallExport(string dll, string export, ProcessReport target)
+    {
+        log.Section($"Remote call: {Path.GetFileName(dll)}!{export} in pid {target.Pid}");
+
+        var remoteBase = RemoteModuleBase(target.Pid, Path.GetFileName(dll));
+        if (remoteBase == IntPtr.Zero)
+        {
+            log.Error($"remote call: {Path.GetFileName(dll)} is not loaded in pid {target.Pid}; inject it first.");
+            return;
+        }
+
+        // The export's address is found locally and translated by relative virtual address,
+        // because the same image is mapped at a different base in the target.
+        var local = Native.LoadLibraryW(dll);
+        if (local == IntPtr.Zero)
+        {
+            log.Error($"remote call: could not load {dll} locally to resolve {export} (error {Marshal.GetLastWin32Error()}).");
+            return;
+        }
+
+        IntPtr remoteExport;
+        try
+        {
+            var localExport = Native.GetProcAddress(local, export);
+            if (localExport == IntPtr.Zero)
+            {
+                log.Error($"remote call: {dll} has no export named {export} (error {Marshal.GetLastWin32Error()}).");
+                return;
+            }
+
+            var rva = localExport.ToInt64() - local.ToInt64();
+            remoteExport = new IntPtr(remoteBase.ToInt64() + rva);
+            log.Info($"remote call: {export} at rva 0x{rva:X} -> remote 0x{remoteExport.ToInt64():X} (remote base 0x{remoteBase.ToInt64():X})");
+        }
+        finally
+        {
+            Native.FreeLibrary(local);
+        }
+
+        var process = Native.OpenProcess(Native.InjectorAccess, false, (uint)target.Pid);
+        if (process == IntPtr.Zero)
+        {
+            log.Error($"remote call: OpenProcess failed (error {Marshal.GetLastWin32Error()}).");
+            return;
+        }
+
+        var thread = IntPtr.Zero;
+        try
+        {
+            thread = Native.CreateRemoteThread(process, IntPtr.Zero, UIntPtr.Zero, remoteExport, IntPtr.Zero, 0, IntPtr.Zero);
+            if (thread == IntPtr.Zero)
+            {
+                log.Error($"remote call: CreateRemoteThread failed (error {Marshal.GetLastWin32Error()}).");
+                return;
+            }
+
+            var wait = Native.WaitForSingleObject(thread, 20_000);
+            if (wait != 0)
+            {
+                log.Warn($"remote call: {export} did not return within 20s (wait 0x{wait:X}). It may be blocking on the Steam pipe.");
+                return;
+            }
+
+            Native.GetExitCodeThread(thread, out var exitCode);
+            log.Info($"remote call: {export} returned {exitCode} (0x{exitCode:X8}). "
+                + (exitCode == 0 ? "Zero is failure for SteamAPI_Init." : "Non-zero is success for SteamAPI_Init."));
+        }
+        finally
+        {
+            if (thread != IntPtr.Zero) { Native.CloseHandle(thread); }
+            Native.CloseHandle(process);
+        }
+    }
+
+    private static IntPtr RemoteModuleBase(int pid, string fileName)
+    {
+        var process = Native.OpenProcess(Native.ProcessQueryInformation | Native.ProcessVmRead, false, (uint)pid);
+        if (process == IntPtr.Zero)
+        {
+            return IntPtr.Zero;
+        }
+
+        try
+        {
+            var handles = new IntPtr[4096];
+            if (!Native.K32EnumProcessModulesEx(process, handles, (uint)(handles.Length * IntPtr.Size), out var needed, Native.ListModulesAll))
+            {
+                return IntPtr.Zero;
+            }
+
+            var count = Math.Min(handles.Length, (int)(needed / IntPtr.Size));
+            var buffer = new StringBuilder(Native.MaxPath * 4);
+            for (var index = 0; index < count; index++)
+            {
+                buffer.Clear();
+                if (Native.K32GetModuleFileNameExW(process, handles[index], buffer, (uint)buffer.Capacity) == 0)
+                {
+                    continue;
+                }
+
+                var path = buffer.ToString();
+                if (Path.GetFileName(path).Equals(fileName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return handles[index];
+                }
+            }
+
+            return IntPtr.Zero;
+        }
+        finally
+        {
+            Native.CloseHandle(process);
+        }
+    }
+
     private string? Stage(string source)
     {
         try

@@ -59,6 +59,13 @@ internal static class Native
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi)]
     internal static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
 
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    internal static extern IntPtr LoadLibraryW(string lpLibFileName);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool FreeLibrary(IntPtr hLibModule);
+
     // ---- Job objects ----
     internal const int JobObjectExtendedLimitInformation = 9;
     internal const uint JobObjectLimitKillOnJobClose = 0x2000;

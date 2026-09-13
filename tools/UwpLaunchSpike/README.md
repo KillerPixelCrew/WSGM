@@ -151,9 +151,33 @@ Injection and lifetime results, same title, wrapper started from a terminal:
   `SteamAppId` / `SteamGameId` / `SteamOverlayGameId` to a broker-started title. The wrapper now
   does both before activating, and `--observe` dumps a working overlay process for comparison.
 
-The open questions for the next Steam-launched run: which variables Steam actually hands the
-wrapper, what a game where the overlay works has loaded that the injected case does not, and
-whether the environment block closes that gap.
+Control case, Balatro launched normally from Steam and read with `--observe`:
+
+| Module | Location |
+| --- | --- |
+| `steam_api64.dll` | the game's own folder |
+| `steamclient64.dll` | Steam root |
+| `tier0_s64.dll`, `vstdlib_s64.dll` | Steam root, pulled in by steamclient |
+| `gameoverlayrenderer64.dll` | Steam root |
+
+Its parent is `steam.exe`, and it runs with intact lineage and a normal window.
+
+Read that table carefully, because the obvious conclusion from it is wrong. `steam_api64.dll` and
+`steamclient64.dll` are there because Balatro is a Steam build that calls `SteamAPI_Init` for its
+own purposes. **The overlay does not depend on that call**: an ordinary non-Steam shortcut ships no
+`steam_api64.dll` and never makes it, yet gets the overlay anyway. The renderer negotiates with the
+client over the pipe once both ends are up.
+
+So the missing piece for a packaged title is not the Steam API, it is the launch environment. Steam
+hands `SteamAppId` / `SteamGameId` / `SteamOverlayGameId` to whatever it starts, including the id it
+calculates for a non-Steam shortcut, and the wrapper receives them - but a broker-activated package
+inherits nothing from the wrapper, so the injected renderer comes up with no session to attach to.
+`EnableDebugging`'s environment block is the one supported way to close that, and the wrapper now
+uses it. `--call` and `--steam-api-init` exist to test the Steam-API hypothesis anyway, since a
+measurement beats a deduction; the runs above are what happens when they are not used.
+
+The next Steam-launched run is the one that matters: the transcript records which variables Steam
+actually handed the wrapper, and whether forwarding them makes the injected renderer come alive.
 
 ## Caveats
 
