@@ -67,8 +67,10 @@ dotnet test .\tests\WSGM.Tests\WSGM.Tests.csproj --filter 'FullyQualifiedName~St
 ```
 
 Run the asset build when toolkit TypeScript or a WSGM source fragment changes. Use the check and
-claims commands for any Steam UI change. Narrow the test filter while iterating, then run the full
-repository gate before delivery and review every formatter-written change.
+claims commands for any Steam UI change. Under the root AGENTS.md manual-first policy, execute
+claims and test suites only after the maintainer reports manual testing, unless requested sooner.
+Build and deliver a requested development deployment first. After manual testing, narrow the test
+filter during iteration and run the initial repository gate. Review every formatter-written change.
 
 For standalone toolkit work, run `npm ci` when dependencies are not installed and
 `npm run prelude:claims` from `external/steam-ui-toolkit`.

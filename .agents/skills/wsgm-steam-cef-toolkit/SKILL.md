@@ -79,7 +79,8 @@ transport, bridge, or patch lifecycle.
 
 ## Finish with evidence
 
-Regenerate assets when toolkit TypeScript changes, run the narrow tests while iterating, and follow
-the root AGENTS.md validation policy for full gate runs. Record what was established offline
-separately from what still requires a maintainer-directed live Big Picture or device pass. A
-successful build does not prove that a row rendered after a Steam client update.
+Regenerate assets when toolkit TypeScript changes. Follow the root AGENTS.md manual-first timing:
+test suites and ownership claims wait for the maintainer's manual test unless requested sooner. They
+do not block a requested development deployment. Record what was established offline separately from
+what still requires a maintainer-directed live Big Picture or device pass. A successful build does
+not prove that a row rendered after a Steam client update.

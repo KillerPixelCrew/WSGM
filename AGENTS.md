@@ -125,11 +125,23 @@ clean, and every local branch equals its upstream.
 
 ## Validation
 
-Use the narrowest relevant test while iterating:
+Manual testing comes first in the local development loop. Build and, when explicitly requested,
+deploy the change promptly so the maintainer can try it. Run automated test suites only after the
+maintainer reports having tested that change manually, unless they explicitly request tests sooner.
+This includes focused suites, full suites, coverage, and test-bearing gates such as eng/verify.ps1
+and Steam asset ownership claims. Writing regression tests may accompany implementation; executing
+them waits. Compilation, asset generation/drift checks, formatting, syntax and guidance checks may
+run before manual testing. Do not hold a requested development deployment or its commit/push for
+test-suite completion. State which tests are deferred. CI stays unchanged.
+
+This timing rule applies to scoped contributor guides and skills as well: their test and gate
+instructions describe what to run after manual testing, not a prerequisite for the first deployment.
+
+After manual testing, use the narrowest relevant test while iterating:
 
     dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~Area"
 
-Run the repository gate once for the initial implementation before delivery:
+After the maintainer's manual test, run the repository gate once for the initial implementation:
 
     .\eng\verify.ps1
 
