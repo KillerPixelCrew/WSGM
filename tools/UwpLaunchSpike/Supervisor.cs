@@ -46,6 +46,14 @@ internal sealed class Supervisor(Options options, SpikeLog log, GameContainment?
                     goneSince = null;
                     containment?.Contain(report.Pid, report.Name);
                     proxy?.SetTarget(report.Pid);
+
+                    // Before any injection: the renderer reads these at load, so the
+                    // environment has to be in place first.
+                    if (options.PassSteamEnvironment)
+                    {
+                        EnvironmentPatch.Apply(report.Pid, options.SteamEnvironment, log);
+                    }
+
                     if (injection is not null && options.Inject.Count > 0)
                     {
                         injectAt[report.Pid] = clock.Elapsed + options.InjectDelay;

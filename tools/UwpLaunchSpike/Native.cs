@@ -47,6 +47,36 @@ internal static class Native
     internal static extern bool WriteProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, UIntPtr nSize, out UIntPtr lpNumberOfBytesWritten);
 
     [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool ReadProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, UIntPtr nSize, out UIntPtr lpNumberOfBytesRead);
+
+    // ---- PEB access ----
+    // The environment a process sees lives in its PEB, at
+    // PEB -> ProcessParameters -> Environment. Offsets below are x64.
+    internal const int PebProcessParametersOffset = 0x20;
+    internal const int ProcessParametersEnvironmentOffset = 0x80;
+    internal const int ProcessParametersEnvironmentSizeOffset = 0x03F0;
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ProcessBasicInformation
+    {
+        internal IntPtr ExitStatus;
+        internal IntPtr PebBaseAddress;
+        internal IntPtr AffinityMask;
+        internal IntPtr BasePriority;
+        internal IntPtr UniqueProcessId;
+        internal IntPtr InheritedFromUniqueProcessId;
+    }
+
+    [DllImport("ntdll.dll")]
+    internal static extern int NtQueryInformationProcess(
+        IntPtr processHandle,
+        int processInformationClass,
+        ref ProcessBasicInformation processInformation,
+        uint processInformationLength,
+        out uint returnLength);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
     internal static extern IntPtr CreateRemoteThread(IntPtr hProcess, IntPtr lpThreadAttributes, UIntPtr dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
 
     [DllImport("kernel32.dll", SetLastError = true)]

@@ -176,8 +176,28 @@ inherits nothing from the wrapper, so the injected renderer comes up with no ses
 uses it. `--call` and `--steam-api-init` exist to test the Steam-API hypothesis anyway, since a
 measurement beats a deduction; the runs above are what happens when they are not used.
 
-The next Steam-launched run is the one that matters: the transcript records which variables Steam
-actually handed the wrapper, and whether forwarding them makes the injected renderer come alive.
+First Steam-launched run with injection, and what it settled:
+
+- **Steam hands the wrapper the whole set.** `SteamAppId=2692480092`,
+  `SteamGameId=SteamOverlayGameId=11564113940304625664` (`0xA080000040800000`: the calculated
+  shortcut id with the shortcut type tag), plus `SteamClientLaunch`, `SteamEnv`, `SteamPath`,
+  `SteamTenfoot`, `SteamGamepadUI`. Nothing has to be computed; Steam provides it.
+- **Steam injects its renderer into the wrapper**, which has all of that environment and draws
+  nothing. That is the architecture in one line: the overlay attaches to the process Steam
+  launched, and the rendering happens in another process that has none of it.
+- **`EnableDebugging` cannot carry the environment.** It answers `E_INVALIDARG` for any
+  environment block and succeeds the moment one is not passed, so that parameter is the
+  environment for the debugger command line, not for the app. The suspension exemption still
+  works; environment forwarding through it does not.
+
+What replaces it is `EnvironmentPatch`, which edits the game's own environment block through its
+PEB. `GetEnvironmentVariableW` reads `ProcessParameters->Environment` on every call, so repointing
+it changes what code loaded afterwards sees - and the renderer is injected after. Verified
+mechanically against a live game: a 5892-byte block read, merged, and replaced with 44 variables.
+
+Still open: whether the renderer, injected into a process that now carries Steam's session
+variables, actually registers and draws - and whether Steam Input follows it or needs its own
+association.
 
 ## Caveats
 

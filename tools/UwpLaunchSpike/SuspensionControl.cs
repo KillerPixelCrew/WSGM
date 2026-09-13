@@ -26,6 +26,7 @@ internal sealed class SuspensionControl : IDisposable
     private readonly SpikeLog log;
     private object? settings;
     private string? packageFullName;
+    private bool environmentAccepted = true;
 
     internal SuspensionControl(SpikeLog log) => this.log = log;
 
@@ -117,6 +118,18 @@ internal sealed class SuspensionControl : IDisposable
             settings = new Native.PackageDebugSettings();
             var debug = (Native.IPackageDebugSettings)settings;
             var hresult = debug.EnableDebugging(fullName, null, block);
+
+            // Separating the two jobs this call does: if it only refuses the environment
+            // block, the suspension exemption is still worth having, and knowing which
+            // argument was rejected is the finding.
+            if (hresult < 0 && block != IntPtr.Zero)
+            {
+                log.Warn($"suspension: EnableDebugging with an environment block failed with 0x{hresult:X8}; "
+                    + "retrying without it to see whether the environment is what it rejects.");
+                environmentAccepted = false;
+                hresult = debug.EnableDebugging(fullName, null, IntPtr.Zero);
+            }
+
             if (hresult < 0)
             {
                 log.Warn($"suspension: EnableDebugging({fullName}) failed with 0x{hresult:X8}; "
@@ -127,7 +140,12 @@ internal sealed class SuspensionControl : IDisposable
 
             packageFullName = fullName;
             log.Info($"suspension: {fullName} is exempt from PLM suspension for this session.");
-            if (environment.Count > 0)
+            if (environment.Count > 0 && !environmentAccepted)
+            {
+                log.Warn("suspension: the environment block was rejected, so Steam's launch variables "
+                    + "did NOT reach the game. The renderer will have no session to attach to.");
+            }
+            else if (environment.Count > 0)
             {
                 log.Info($"suspension: handed {environment.Count} variable(s) to the package launch:");
                 foreach (var variable in environment)
