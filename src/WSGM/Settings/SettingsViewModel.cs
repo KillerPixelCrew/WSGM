@@ -75,7 +75,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         Func<SaveRequest, Task<SaveResult>> Persist,
         Func<AppConfig, Task> ApplySteamInput,
         Action<string, Exception?> Report,
-        Func<ModernStandbyReport> ReadStandby)
+        Func<ModernStandbyReport> ReadStandby,
+        Func<IReadOnlyList<SteamAutostartSource>> ScanSteamAutostart,
+        Func<IReadOnlyList<SteamAutostartSource>, SteamAutostartTakeoverResult> ApplySteamAutostart)
     {
         internal static SettingsServices Windows(SettingsViewModel owner) => new(
             () => OperatingSystem.IsWindows()
@@ -90,7 +92,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             (message, error) => { if (error is null) { Log.Info(message); } else { Log.Error(message, error); } },
             // Windows' account of the last standby. Injected so a preview or a test renders a fixed
             // report instead of whatever this machine did last night.
-            ModernStandbyDiagnostics.Read);
+            ModernStandbyDiagnostics.Read,
+            () => SteamAutostartService.Scan(),
+            sources => SteamAutostartService.Apply(sources, allowElevation: true));
 
         /// <summary>Asks one active display what it supports, so the answers can be remembered and
         /// offered again after it is unplugged. Every query is optional: a display that refuses one
@@ -186,7 +190,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         _services = services ?? SettingsServices.Windows(this);
         SaveCommand = new AsyncRelayCommand(SaveWithStatusAsync);
         OpenLogLocationCommand = new RelayCommand(OpenLogLocation);
-        TakeOverSteamAutostartCommand = new RelayCommand(TakeOverSteamAutostart);
+        TakeOverSteamAutostartCommand = new AsyncRelayCommand(TakeOverSteamAutostartAsync);
         GameLayout = new DisplayLayoutEditor(RefreshLaunchSummary);
         DesktopLayout = new DisplayLayoutEditor(RefreshLaunchSummary);
         ActionLists =
@@ -321,7 +325,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Gets the command that re-checks Windows' Steam startup entries and turns off any
     /// that came back. This configures how WSGM starts Steam, which is WSGM's own behavior; the
     /// exception for touching an external setting is recorded in <c>docs\decisions.md</c>.</summary>
-    public RelayCommand TakeOverSteamAutostartCommand { get; }
+    public AsyncRelayCommand TakeOverSteamAutostartCommand { get; }
 
     /// <summary>Gets the command that captures the current desktop as the Game Mode layout.</summary>
     public RelayCommand SnapshotGameLayoutCommand { get; }
@@ -816,13 +820,28 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         private set { _steamAutostartStatusText = value; Raise(nameof(SteamAutostartStatusText)); }
     }
 
-    /// <summary>Re-scans and, with the takeover accepted, disables what came back. Scanning alone
-    /// changes nothing, so the button is safe to press before the choice has been made.</summary>
-    private void TakeOverSteamAutostart()
+    /// <summary>Reads startup sources on a worker. The synchronous Windows adapter waits for an
+    /// asynchronous console command and must never run under the UI synchronization context.</summary>
+    internal async Task<IReadOnlyList<SteamAutostartSource>> ScanSteamAutostartAsync()
     {
         try
         {
-            var enabled = SteamAutostartService.Scan().Where(source => source.Enabled).ToArray();
+            return await Task.Run(_services.ScanSteamAutostart);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            _services.Report("Steam autostart scan failed", ex);
+            throw;
+        }
+    }
+
+    /// <summary>Re-scans and, with the takeover accepted, disables what came back.</summary>
+    private async Task TakeOverSteamAutostartAsync()
+    {
+        try
+        {
+            SteamAutostartStatusText = "Checking how Windows starts Steam…";
+            var enabled = (await ScanSteamAutostartAsync()).Where(source => source.Enabled).ToArray();
             if (enabled.Length == 0)
             {
                 SteamAutostartStatusText = "WSGM starts Steam; Windows has no Steam startup entry of its own.";
@@ -835,7 +854,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
                 SteamAutostartTakeoverAccepted = true;
                 return;
             }
-            var result = SteamAutostartService.Apply(enabled, allowElevation: true);
+            var result = await Task.Run(() => _services.ApplySteamAutostart(enabled));
             SteamAutostartStatusText = result.Complete
                 ? $"Turned off {result.Disabled.Count} Steam startup entry/entries; WSGM starts Steam."
                 : "Some Steam startup entries are still enabled: "

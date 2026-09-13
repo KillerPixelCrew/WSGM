@@ -60,10 +60,14 @@ which rescans and takes no name from its command line. A sign-in never prompts: 
 re-check disables user-scope entries and warns about the rest. `--restore-steam-autostart` runs from
 the elevated uninstall restore.
 
-Quick Setup (revision 2) asks the two sign-in choices and lists what it found. With entries present,
-Continue stays disabled until the takeover is allowed; Skip means off for all of it, as it does for
-the Steam integrations. The takeover itself runs after the save, outside the config lock, because it
-may prompt. Settings > System shows the state and offers "Take over again".
+Quick Setup (revision 2) asks the two sign-in choices and lists what it found. The panel opens
+before its read-only startup scan runs on a worker, so the window stays responsive while Task
+Scheduler answers. Continue waits for the scan; a failed scan offers Try again and leaves Skip
+available. Closing or skipping the panel discards a late scan result. With entries present, Continue
+stays disabled until the takeover is allowed; Skip means off for all of it, as it does for the Steam
+integrations. The takeover itself runs after the save, outside the config lock, because it may
+prompt. Settings > System shows the state and offers "Take over again". That command also scans and
+applies on a worker, and disables itself until the operation finishes.
 
 `Program.DecideMode` picks one mode from the command line. WSGM never registers as the Windows
 shell, so no arguments means Settings.

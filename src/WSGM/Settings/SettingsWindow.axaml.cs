@@ -30,6 +30,8 @@ public partial class SettingsWindow : Window
     private bool _closed;
     private IDisposable? _handoffFallback;
     private System.Collections.Generic.IReadOnlyList<SteamAutostartSource> _quickSetupSteamAutostart = [];
+    private bool _quickSetupScanComplete;
+    internal Task SteamAutostartScan { get; private set; } = Task.CompletedTask;
 
     // When Settings is the on-screen surface in game mode it must hold the Steam
     // Input lease, exactly like the overlay: without it Steam's desktop profile
@@ -284,23 +286,33 @@ public partial class SettingsWindow : Window
         QuickSetupStartAtSignIn.IsChecked = viewModel.StartAtSignIn;
         QuickSetupStartMode.SelectedIndex = viewModel.StartModeIndex;
         QuickSetupAutostart.IsCheckedChanged += (_, _) => UpdateQuickSetupContinue();
-        ShowFoundSteamAutostart();
         QuickSetupOverlay.IsVisible = true;
         UpdateSettingsEnabled();
-        QuickSetupContinueButton.Focus();
+        QuickSetupSkipButton.Focus();
+        SteamAutostartScan = ShowFoundSteamAutostartAsync();
     }
 
     /// <summary>Lists what Windows would start Steam from. Scanning only reads.</summary>
-    private void ShowFoundSteamAutostart()
+    private async Task ShowFoundSteamAutostartAsync()
     {
+        _quickSetupScanComplete = false;
+        QuickSetupScanStatus.IsVisible = true;
+        QuickSetupScanStatus.Text = "Checking how Windows starts Steam…";
+        QuickSetupScanRetry.IsVisible = false;
+        UpdateQuickSetupContinue();
         try
         {
-            _quickSetupSteamAutostart = [.. SteamAutostartService.Scan().Where(source => source.Enabled)];
+            var sources = await _viewModel.ScanSteamAutostartAsync();
+            if (_closed || !QuickSetupOverlay.IsVisible) { return; }
+            _quickSetupSteamAutostart = [.. sources.Where(source => source.Enabled)];
+            _quickSetupScanComplete = true;
+            QuickSetupScanStatus.IsVisible = false;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            Log.Warn($"Quick Setup: scanning Steam autostart failed: {ex.Message}");
-            _quickSetupSteamAutostart = [];
+            if (_closed || !QuickSetupOverlay.IsVisible) { return; }
+            QuickSetupScanStatus.Text = "Could not check how Windows starts Steam. Try again or choose Skip.";
+            QuickSetupScanRetry.IsVisible = true;
         }
         QuickSetupAutostartRow.IsVisible = _quickSetupSteamAutostart.Count != 0;
         QuickSetupAutostartList.Text = string.Join("\n",
@@ -308,8 +320,11 @@ public partial class SettingsWindow : Window
         UpdateQuickSetupContinue();
     }
 
+    private void OnQuickSetupScanRetry(object? sender, RoutedEventArgs e) =>
+        SteamAutostartScan = ShowFoundSteamAutostartAsync();
+
     private void UpdateQuickSetupContinue() => QuickSetupContinueButton.IsEnabled =
-        _quickSetupSteamAutostart.Count == 0 || QuickSetupAutostart.IsChecked == true;
+        _quickSetupScanComplete && (_quickSetupSteamAutostart.Count == 0 || QuickSetupAutostart.IsChecked == true);
 
     private void OnQuickSetupContinue(object? sender, RoutedEventArgs e) =>
         CompleteQuickSetup(

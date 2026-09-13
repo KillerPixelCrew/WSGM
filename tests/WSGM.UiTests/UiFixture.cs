@@ -26,6 +26,9 @@ internal sealed class UiFixture : IDisposable
     internal List<string> Calls { get; } = [];
     internal AppConfig Saved { get; private set; } = new() { AccentColor = "#4CC2FF", QuickSetupRevision = QuickSetup.CurrentRevision };
     internal Func<SettingsViewModel.SaveRequest, Task<SettingsViewModel.SaveResult>>? Persist { get; set; }
+    internal Func<IReadOnlyList<SteamAutostartSource>> ScanSteamAutostart { get; set; } = () => [];
+    internal Func<IReadOnlyList<SteamAutostartSource>, SteamAutostartTakeoverResult> ApplySteamAutostart { get; set; } =
+        _ => throw new InvalidOperationException("Unexpected Steam autostart write.");
 
     /// <summary>What a Snapshot in Settings observes. Synthetic: these tests never read this
     /// machine's displays.</summary>
@@ -69,7 +72,8 @@ internal sealed class UiFixture : IDisposable
             (message, _) => Calls.Add(message),
             // A fixed report: the real reader describes this machine's last standby, which put the
             // previous night's sleep length into the settings-system baselines.
-            () => new ModernStandbyReport(true, "This machine has not been in standby since it booted.", []));
+            () => new ModernStandbyReport(true, "This machine has not been in standby since it booted.", []),
+            () => ScanSteamAutostart(), sources => ApplySteamAutostart(sources));
         var model = new SettingsViewModel(ConfigStore.CloneJson(Saved, ConfigJsonContext.Default.AppConfig),
             null, false, services);
         var windowServices = new SettingsWindowServices(new(),
