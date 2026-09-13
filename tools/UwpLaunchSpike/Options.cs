@@ -159,6 +159,17 @@ internal sealed class Options
                 case "--inject-steam-overlay":
                     options.Inject.Add(SteamOverlayPath());
                     break;
+                case "--inject-steam-client":
+                    // Dependencies first and by full path. LoadLibraryW searches the target
+                    // process's directory, not the loaded DLL's, so steamclient64 cannot
+                    // find tier0_s64 and vstdlib_s64 on its own inside a packaged game;
+                    // mapping them first lets the loader satisfy the imports by name.
+                    foreach (var client in SteamClientPaths())
+                    {
+                        options.Inject.Add(client);
+                    }
+
+                    break;
                 case "--call":
                     if (Next(argument) is { } call) { options.Call.Add(call); }
                     break;
@@ -229,15 +240,28 @@ internal sealed class Options
         }
     }
 
-    /// Steam's 64-bit overlay renderer, from the install path Steam records for itself.
-    internal static string SteamOverlayPath()
+    /// The steamclient stack in load order: its two dependencies, then itself.
+    internal static IReadOnlyList<string> SteamClientPaths()
+    {
+        var root = SteamRoot();
+        return
+        [
+            Path.Combine(root, "tier0_s64.dll"),
+            Path.Combine(root, "vstdlib_s64.dll"),
+            Path.Combine(root, "steamclient64.dll"),
+        ];
+    }
+
+    private static string SteamRoot()
     {
         var steam = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null) as string;
-        var root = string.IsNullOrEmpty(steam)
+        return string.IsNullOrEmpty(steam)
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam")
             : steam.Replace('/', '\\');
-        return Path.Combine(root, "GameOverlayRenderer64.dll");
     }
+
+    /// Steam's 64-bit overlay renderer, from the install path Steam records for itself.
+    internal static string SteamOverlayPath() => Path.Combine(SteamRoot(), "GameOverlayRenderer64.dll");
 
     private static TimeSpan Seconds(string? value, TimeSpan fallback, ref string? error)
     {
@@ -297,6 +321,8 @@ internal sealed class Options
           --no-proxy             Do not create the window Steam activates to raise the game.
           --inject <dll>         Remote-load a DLL into the game. Repeatable.
           --inject-steam-overlay Remote-load Steam's GameOverlayRenderer64.dll.
+          --inject-steam-client  Remote-load tier0_s64, vstdlib_s64 and steamclient64, in
+                                 that order. Put it before --inject-steam-overlay.
           --call <dll>!<Export>  Call a zero-argument export inside the game. Repeatable.
           --steam-api-init <dll> Inject steam_api64.dll and call SteamAPI_Init in it. Only
                                  for testing that hypothesis: a non-Steam shortcut gets the

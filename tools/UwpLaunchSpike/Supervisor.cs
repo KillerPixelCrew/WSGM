@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using System.Threading;
 
 namespace Wsgm.UwpSpike;
@@ -13,6 +14,7 @@ internal sealed class Supervisor(Options options, SpikeLog log, GameContainment?
 {
     private readonly Dictionary<int, TimeSpan> injectAt = [];
     private readonly Dictionary<int, TimeSpan> envAt = [];
+    private string lastForeground = string.Empty;
     private readonly Dictionary<int, ProcessReport> tracked = [];
     private readonly Dictionary<int, HashSet<string>> reportedModules = [];
     private readonly Dictionary<int, string> reportedWindows = [];
@@ -132,6 +134,8 @@ internal sealed class Supervisor(Options options, SpikeLog log, GameContainment?
                 }
             }
 
+            NoteForeground(byPid);
+
             if (clock.Elapsed - lastHeartbeat >= options.Heartbeat)
             {
                 lastHeartbeat = clock.Elapsed;
@@ -167,6 +171,37 @@ internal sealed class Supervisor(Options options, SpikeLog log, GameContainment?
     /// tracked process. Steam's renderer is called out by name because it is the answer to
     /// the issue's main question; RTSS and the rest are the control, since a third-party
     /// overlay getting in where Steam's does not says the obstacle is Steam's, not Windows'.
+    /// Whatever currently owns the foreground, and which process it belongs to.
+    ///
+    /// Steam picks the window it draws the overlay over, and the one it routes Steam Input
+    /// to, from the app it is tracking. The tracked app here is the wrapper, and the game
+    /// showed no enumerable window at all for a whole session while input went to Big
+    /// Picture behind it. This says who really owns the screen when the game is up.
+    private void NoteForeground(Dictionary<int, ProcessEntry> byPid)
+    {
+        var handle = Native.GetForegroundWindow();
+        if (handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        Native.GetWindowThreadProcessId(handle, out var owner);
+        var className = new StringBuilder(256);
+        Native.GetClassNameW(handle, className, className.Capacity);
+        var title = new StringBuilder(512);
+        Native.GetWindowTextW(handle, title, title.Capacity);
+        var name = byPid.TryGetValue((int)owner, out var entry) ? entry.Name : "<unknown>";
+
+        var description = $"0x{handle.ToInt64():X} [{className}] pid {owner} \"{name}\" title \"{title}\"";
+        if (description == lastForeground)
+        {
+            return;
+        }
+
+        lastForeground = description;
+        log.Info($"foreground: after {clock.Elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture)}s -> {description}");
+    }
+
     /// A UWP title's window does not exist when the process does, and for the frame case it
     /// never belongs to the process at all, so the window set is reported whenever it
     /// changes rather than once at discovery.
