@@ -18,6 +18,9 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
     // admission before waiting so no caller can pass a stale disposed check and publish an anchor
     // after teardown has already detached the previous one.
     private readonly SemaphoreSlim _operationGate = new(1, 1);
+    private readonly DesktopAppLifecycle _desktopApps = new(new DesktopAppProcessBackend(), Log.Warn);
+    private int _desktopAppsSuspended;
+    private int _desktopAppsGeneration;
     private ExplorerShellAnchor? _anchor;
     private int _disposeState;
 
@@ -170,6 +173,50 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
     private static bool CanCaptureShell(ExplorerDesktopObservation shell) =>
         shell.Acceptance.Accepted || shell.Acceptance.Rejection is ExplorerShellRejection.JobBound;
 
+    internal bool IsApplicationLaunchSuppressed(string path) =>
+        Volatile.Read(ref _desktopAppsSuspended) != 0 && DesktopAppLifecycle.MatchesPath(path);
+
+    internal int ApplicationLaunchGeneration(string path) =>
+        DesktopAppLifecycle.MatchesPath(path) ? Volatile.Read(ref _desktopAppsGeneration) : 0;
+
+    /// <summary>Stops captured desktop integrations before the irreversible Explorer exit.
+    /// A refused or partial app exit keeps Explorer and restores the affected applications.</summary>
+    internal async Task<bool> ExitExplorerAndWaitAsync(TimeSpan timeout)
+    {
+        ThrowIfDisposalRequested();
+        await _operationGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            ThrowIfDisposalRequested();
+            Volatile.Write(ref _desktopAppsSuspended, 1);
+            Interlocked.Increment(ref _desktopAppsGeneration);
+            bool stopped = await _desktopApps.StopAsync(CancellationToken.None).ConfigureAwait(false);
+            bool exited = false;
+            if (stopped)
+            {
+                try
+                {
+                    exited = await Task.Run(() => ExplorerControl.ExitExplorerAndWait(timeout)).ConfigureAwait(false);
+                }
+                catch (Exception ex) { Log.Error("Explorer exit failed", ex); }
+            }
+            if (!exited)
+            {
+                ExplorerDesktopObservation desktop = ObserveCurrentDesktop(_sessionId);
+                if (desktop.Initialized && CanCaptureShell(desktop))
+                {
+                    await _desktopApps.RestoreAsync(DateTimeOffset.UtcNow.AddSeconds(20)).ConfigureAwait(false);
+                    Volatile.Write(ref _desktopAppsSuspended, 0);
+                }
+            }
+            return exited;
+        }
+        finally
+        {
+            _operationGate.Release();
+        }
+    }
+
     /// <summary>Adopts an already-normal taskbar owner or restores Explorer through the captured
     /// jobless anchor, waiting for the resulting taskbar owner rather than trusting the created PID.</summary>
     internal async Task<ExplorerDesktopResult> RestoreDesktopAsync(
@@ -210,8 +257,14 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             {
                 return CreateOperationGateTimeout(elapsed.Elapsed);
             }
-            return await RestoreDesktopUnderGateAsync(deadline, elapsed, cancellationToken)
+            ExplorerDesktopResult result = await RestoreDesktopUnderGateAsync(deadline, elapsed, cancellationToken)
                 .ConfigureAwait(false);
+            if (result.Outcome is ExplorerDesktopOutcome.Normal or ExplorerDesktopOutcome.Degraded)
+            {
+                await _desktopApps.RestoreAsync(deadline).ConfigureAwait(false);
+                Volatile.Write(ref _desktopAppsSuspended, 0);
+            }
+            return result;
         }
         finally
         {

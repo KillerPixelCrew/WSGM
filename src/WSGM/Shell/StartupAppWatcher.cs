@@ -24,6 +24,7 @@ public sealed class StartupAppWatcher : IDisposable
         public bool WasAlive;
         public DateTime LastRelaunchUtc;
         public bool RelaunchPending;
+        public int LaunchGeneration;
     }
 
     private readonly DispatcherTimer _timer;
@@ -34,6 +35,12 @@ public sealed class StartupAppWatcher : IDisposable
     private readonly Dictionary<string, WatchState> _states = new(StringComparer.OrdinalIgnoreCase);
     private bool _pollInFlight;
     private bool _disposed;
+
+    /// <summary>Session policy preventing a deliberately suspended integration from relaunching.</summary>
+    internal Func<string, bool>? IsLaunchSuppressed { get; init; }
+
+    /// <summary>Invalidates delayed relaunches across even a very short desktop takeover.</summary>
+    internal Func<string, int>? LaunchGeneration { get; init; }
 
     /// <summary>Creates a watcher for the currently configured startup programs.</summary>
     /// <param name="apps">The startup-program configuration to monitor.</param>
@@ -62,6 +69,12 @@ public sealed class StartupAppWatcher : IDisposable
         var probes = new List<(string Path, string Name)>();
         foreach (var app in _apps)
         {
+            if (IsLaunchSuppressed?.Invoke(app.Path) == true)
+            {
+                // Invalidate already-queued relaunch callbacks as well as future polls.
+                _states.Remove(app.Path);
+                continue;
+            }
             if (!app.Enabled || !app.AutoRelaunch || app.Path.Length == 0 || AppLauncher.IsProtocol(app.Path))
             {
                 continue;
@@ -120,9 +133,15 @@ public sealed class StartupAppWatcher : IDisposable
         for (var i = 0; i < probes.Count; i++)
         {
             var (path, name) = probes[i];
-            if (!_states.TryGetValue(path, out var state))
+            if (IsLaunchSuppressed?.Invoke(path) == true)
             {
-                state = new WatchState();
+                _states.Remove(path);
+                continue;
+            }
+            int generation = LaunchGeneration?.Invoke(path) ?? 0;
+            if (!_states.TryGetValue(path, out var state) || state.LaunchGeneration != generation)
+            {
+                state = new WatchState { LaunchGeneration = generation };
                 _states[path] = state;
             }
 
@@ -176,8 +195,10 @@ public sealed class StartupAppWatcher : IDisposable
     private void Relaunch(string path, string name, WatchState state)
     {
         state.RelaunchPending = false;
+        if (!_states.TryGetValue(path, out WatchState? current) || !ReferenceEquals(current, state)
+            || state.LaunchGeneration != (LaunchGeneration?.Invoke(path) ?? 0)) { return; }
         var app = _apps.Find(a => string.Equals(a.Path, path, StringComparison.OrdinalIgnoreCase));
-        if (app is null || !app.Enabled || !app.AutoRelaunch)
+        if (app is null || !app.Enabled || !app.AutoRelaunch || IsLaunchSuppressed?.Invoke(path) == true)
         {
             Log.Info($"Startup app '{name}' relaunch skipped — removed or disabled meanwhile.");
             return;

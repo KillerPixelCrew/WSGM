@@ -28,6 +28,16 @@ Read-only checks found the native high-refresh modes of the disabled G7, X32 and
 
 ## Current issue workoff
 
+Desktop integration takeover now has a shared hardcoded rule list for DisplayFusion, Wallpaper
+Engine and LittleBigMouse. It captures running instances before Explorer exit and restores only
+affected apps after a verified desktop return. Automated lifecycle tests cover cancellation,
+partial exit, respawn, repeated entry and restart failures; live boot and desktop/game transitions
+with these applications remain unverified.
+The Release solution build passed without warnings and all 3,548 solution tests passed. After the
+delayed-relaunch guard, 121 focused tests and the 2,540-test coverage run passed. The gate's asset,
+guidance, native, style and analyzer checks passed separately; the complete gate remains blocked
+by existing Markdown formatting and C# line-ending drift outside this change.
+
 After delivery of #38/#39, #51/#53, #58/#59, #61, #65–#68, #22/#26/#35/#36 and, on 2026-09-11,
 #20/#28/#30/#31/#34/#70/#71/#72 and, that evening, #52, eight issues remain open. Issues #41, #42,
 #44, #45, #47 and #48 remain deferred; #21 and #40 are the 2.0 scope. #20 and #28 were closed on 2026-09-10 and

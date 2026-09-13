@@ -1145,7 +1145,11 @@ public sealed class ShellSession : IAsyncDisposable
 
     private void WatchStartupAppsAndConfig()
     {
-        _startupWatcher = new StartupAppWatcher(_config.StartupApps);
+        _startupWatcher = new StartupAppWatcher(_config.StartupApps)
+        {
+            IsLaunchSuppressed = path => _desktopHost?.IsApplicationLaunchSuppressed(path) == true,
+            LaunchGeneration = path => _desktopHost?.ApplicationLaunchGeneration(path) ?? 0,
+        };
         WatchConfig();
     }
 
@@ -1384,7 +1388,7 @@ public sealed class ShellSession : IAsyncDisposable
                 ? BootTakeoverResult.DesktopPreserved
                 : BootTakeoverResult.DesktopRestoreRequired;
         }
-        var exited = ExplorerControl.ExitExplorerAndWait(TimeSpan.FromSeconds(30));
+        var exited = await _desktopHost!.ExitExplorerAndWaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
         // Posting Explorer's orderly-exit command is irreversible. A desktop
         // request that landed during the bounded wait must recover by starting
         // Explorer again, never continue into posture/tray/Steam game mode.
@@ -3650,6 +3654,11 @@ public sealed class ShellSession : IAsyncDisposable
             cancellationToken.ThrowIfCancellationRequested();
             if (!app.Enabled || string.IsNullOrWhiteSpace(app.Path))
             {
+                continue;
+            }
+            if (_desktopHost?.IsApplicationLaunchSuppressed(app.Path) == true)
+            {
+                Log.Info($"Desktop integration startup suppressed during Game Mode: {app.Path}");
                 continue;
             }
             // Explorer processed Run keys/Startup folder during the takeover's

@@ -128,11 +128,12 @@ internal sealed class SessionModesEntryBackend(SessionModes modes, ExplorerDeskt
     }
 
     /// <inheritdoc />
-    public Task<bool> ExitExplorerAndWaitAsync() => Task.Run(() =>
+    public async Task<bool> ExitExplorerAndWaitAsync()
     {
         try
         {
-            bool exited = ExplorerControl.ExitExplorerAndWait(SessionModes.ExplorerExitTimeout);
+            bool exited = await desktopHost.ExitExplorerAndWaitAsync(SessionModes.ExplorerExitTimeout)
+                .ConfigureAwait(false);
             ExplorerWasRemoved = exited;
             return exited;
         }
@@ -141,7 +142,7 @@ internal sealed class SessionModesEntryBackend(SessionModes modes, ExplorerDeskt
             Log.Error("Explorer exit failed", ex);
             return false;
         }
-    });
+    }
 
     /// <inheritdoc />
     public async Task<bool> MustPreserveDesktopAsync()

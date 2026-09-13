@@ -158,6 +158,44 @@ absent or broken.
 
 ## How Explorer is ended
 
+### Desktop integrations leave before Explorer
+
+`Core\DesktopAppLifecycle.cs` holds the hardcoded integration list. Each rule names exact primary
+processes, the exit command when one exists, restart arguments and any editor-close requirement.
+`DesktopAppProcessBackend` supplies the Windows operations; `ExplorerDesktopHost` owns the captured
+instances under its transition gate. Add future Explorer-hooking applications to this list rather
+than adding another boot or mode-switch branch.
+
+Immediately before Explorer's exit, WSGM captures listed processes in its own Windows session,
+including their executable paths, PIDs, start times and elevation. Nothing is launched merely
+because it is installed. Both boot takeover and resident Game Mode entry use this path. An
+unreadable process, failed exit or respawning integration refuses takeover. A partial failure
+restores the affected apps while retaining Explorer. Captured identity is checked again before
+stopping a process; services and unrelated processes are not selected by a substring match.
+
+| Integration      | Exit                                                                                                         | Desktop return                            |
+| ---------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------- |
+| DisplayFusion    | Its sibling `DisplayFusionCommand.exe -closeall`, then wait for exit                                         | Captured `DisplayFusion.exe`              |
+| Wallpaper Engine | Terminate the captured `wallpaper32.exe` or `wallpaper64.exe` tree                                           | Same executable with `-silent`            |
+| LittleBigMouse   | Close an open Avalonia editor first, allowing its save prompt; then terminate the captured UI and hook trees | Captured hook first, then the captured UI |
+
+DisplayFusion's
+[command-line guide](https://www.displayfusion.com/HelpGuide/DisplayFusionCommandLineTool/)
+documents its full-exit command. Wallpaper Engine's documented `-control stop` only stops wallpaper
+playback, so it is not used as proof of process exit. LittleBigMouse's installed 5.6.0 source
+(`48f7ef83b8c87d6bdec06d560fa88a4d87bd0d27`) shows that its UI automatically restarts a dead hook,
+so stopping the hook alone cannot keep it inactive. These are implementation references, not a live
+transition pass. The LittleBigMouse rule covers the current Avalonia UI and Hook process names.
+
+Normal desktop restoration, failed-entry recovery and coordinated WSGM exit restart remembered
+applications only after Explorer is verified usable. Restarts preserve the captured elevation:
+normal apps use the existing unelevated launcher, and previously elevated apps inherit the
+resident's token. Both use original executable paths, a bounded wait and a running-instance check.
+WSGM's startup-app sequence and auto-relaunch watcher suppress listed integrations while the desktop
+is suspended. An uncertain launch is not dispatched again. Windows sign-out/shutdown does not
+restart them. Ownership is in memory for the resident session; the independent shell-anchor/watchdog
+crash recovery restores Explorer only.
+
 ### Explorer is asked to exit through its own "Exit Explorer" command
 
 `ExitExplorerAndWait` (`Core\ExplorerControl.cs`) posts `0x5B4` (`WM_USER+436`, the
@@ -179,8 +217,8 @@ preserved and the user sees `Couldn't exit Windows Explorer safely`.
 A shell extension can hold the Explorer process open after the taskbar is gone. After eight seconds,
 WSGM logs the remaining process IDs and continues waiting within the original deadline. It never
 terminates those processes. Killing a remnant caused the reported restart loop; the maintainer
-confirmed that stopping DisplayFusion allowed the orderly exit on 2026-09-13. Success requires
-500 ms of stable absence. An expired deadline fails open to desktop recovery.
+confirmed that stopping DisplayFusion allowed the orderly exit on 2026-09-13. Success requires 500
+ms of stable absence. An expired deadline fails open to desktop recovery.
 
 ## How Explorer is restored
 
@@ -189,11 +227,12 @@ confirmed that stopping DisplayFusion allowed the orderly exit on 2026-09-13. Su
 Explorer started by the de-elevating scheduled task inherits the Task Scheduler's job, and desktop
 launchers such as Mod Organizer 2 then fail `CREATE_BREAKAWAY_FROM_JOB` with error 5 (see
 `docs\elevation.md`). So immediately before each orderly exit WSGM resolves the current
-`Shell_TrayWnd` owner. The normal parent route accepts it only if `GetShellWindow` names the same owner, its image is
-`%WINDIR%\explorer.exe`, it is in the current session, at medium integrity and not in a job. WSGM
-keeps that process as the `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` and starts one fixed-purpose
-medium, jobless anchor under it before the old shell exits (`Core\ExplorerShellAnchor.cs`; installed
-as the same payload under the image name `WSGM.ShellAnchor.exe`).
+`Shell_TrayWnd` owner. The normal parent route accepts it only if `GetShellWindow` names the same
+owner, its image is `%WINDIR%\explorer.exe`, it is in the current session, at medium integrity and
+not in a job. WSGM keeps that process as the `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` and starts one
+fixed-purpose medium, jobless anchor under it before the old shell exits
+(`Core\ExplorerShellAnchor.cs`; installed as the same payload under the image name
+`WSGM.ShellAnchor.exe`).
 
 The anchor accepts one authenticated per-session `start` command for the fixed Explorer path. WSGM
 owns the child handle, bounds every pipe operation, stops only that owned process on failed setup,
