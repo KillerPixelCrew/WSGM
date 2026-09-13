@@ -68,12 +68,13 @@ integration-disabled controls, staged power selection, Settings saves and window
 warnings fail the suite. Headless tests do not prove native window activation, global input hooks,
 Steam Input handoffs or device behavior.
 
-Twelve PNG baselines cover Quick Access, Core Device, synthetic Device rows, and Settings System,
-Quick Access and Appearance. Overlay captures use 1280×800 and 1920×1080 screens with the normal
-sheet-height fraction. Settings uses 1024×700 (its supported minimum width) and 1280×800 client
-sizes. Culture, dark theme, accent, scale and embedded Inter fonts are fixed; transitions, focus and
-pointer hover are removed before capture. Focus behavior is covered by interaction tests.
-Comparisons use decoded pixels with no tolerance.
+PNG baselines cover Quick Access, Widgets, Plugins, Display, Core Device, synthetic Device rows, and
+Settings System, Quick Access, Display and Appearance. Overlay captures use 1280×800 and 1920×1080
+screens with the normal sheet-height fraction. Settings uses 1024×700 (its supported minimum width)
+and 1280×800 client sizes. Culture, dark theme, accent, scale and embedded Inter fonts are fixed;
+transitions, focus and pointer hover are removed before capture. Focus behavior is covered by
+interaction tests. Comparisons use decoded pixels with a two-level per-channel antialiasing
+tolerance; alpha must match.
 
 Missing or changed baselines fail `eng/verify.ps1`. Each case writes `actual.png` and, when
 available, `expected.png` and `diff.png` under `TestResults/ui/<case-name>`, included in the CI test
@@ -117,11 +118,11 @@ single open-handle decode API shared by every call site.
 ### Complete Device-page captures
 
 The Device root uses two columns of section cards. Power places assignments and performance side by
-side, followed by shared cards for manual power/display, fans, charging and automatic control.
-Windows energy plans and profile details/reset are collapsible; Windows plans start expanded with
-integration disabled. Normal capability persistence/readback details are tooltips; faults remain
-visible in their rows. Shared `device-group` styling gives each group one card background while
-preserving each control's focus border.
+side, followed by category headings and individual row cards for manual power/display, fans,
+charging and automatic control. Windows energy plans and profile details/reset are collapsible;
+Windows plans start expanded with integration disabled. Normal capability persistence/readback
+details are tooltips; faults remain visible in their rows. Groups share spacing and headings; their
+controls use the same card backgrounds and focus borders as the rest of the overlay.
 
 `DevicePageCaptureTests` renders the actual Claw descriptor/state publication with simulated WSGM
 services at 1280 × 800 and, for Power, 1920 × 1200. It writes viewport and full-content PNGs under
@@ -137,3 +138,27 @@ host controls are explicit simulations; no capture test starts live hardware, St
 Live Device/performance refreshes preserve the current scroll offset through layout and suppress
 bring-into-view requests raised by replacement controls during that refresh. Explicit navigation
 keeps its normal focus scrolling.
+
+### Readable controls and pins
+
+Steam and Tools category pages use a consistent 720-DIP content width. Quick Access keeps compact
+action cards and places pinned sections in two columns. Each grouped section, such as Fans or
+Charging, has one Pin section action in its heading. The complete group appears on the front page
+with its sliders, selectors, curves and readings together. X, right-click or touch hold within a
+group targets that section. Right-click is intercepted before an editor can change its value.
+Individual Device value controls are not separate pin targets. A front page containing only sections
+starts with those sections, without an empty action row above them.
+
+Pinned sections use the same Device grouping and control renderer as their source pages. Active
+editors survive telemetry refreshes. Power assignments, Windows plans and processor controls reuse
+the owning selection model and detach their observation when removed. Missing Device providers keep
+an unavailable section with an Unpin action.
+
+Widget actions use shared cards and readable labels. Each widget has one pin toggle; arrangement
+controls live under an expander, and unavailable providers remain visible. Internal plugin
+identities are persistence keys, not widget headings.
+
+Settings uses compact natural-width tabs with horizontal scrolling when necessary; selecting a tab
+brings its full label into view. Display modes show resolution and refresh, scaling has an explicit
+percentage label, and secondary-display coordinates live under Display position. Session actions are
+expandable, with one unavailable-provider hint rather than a repeated message for each event.

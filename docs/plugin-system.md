@@ -186,16 +186,16 @@ entries, bounds the list to 64 and retains unavailable providers. Reset order so
 instance and widget identity without removing pins. UI-facing mutations use the normal atomic
 ConfigStore path.
 
-The plugin source panel now exposes Pin widget and Unpin widget actions for each validated widget
-declaration. These edit preferences only on an explicit click and report persistence failures. The
-Device page exposes the same pin controls in its Quick Access widgets expander, without duplicating
-capability editors.
+The plugin source panel exposes one pin toggle for each validated widget declaration, initialized
+from the saved preference. These edit preferences only on an explicit click and report persistence
+failures. The Device page exposes the same pin controls in its Quick Access widgets expander,
+without duplicating capability editors.
 
 Pinned common widgets now render below the front-page quick-access cards. The existing contribution
 renderer supplies live state and named actions; widget predicates disable unavailable controls.
-Missing plugin instances retain identity-labelled placeholders. Each card offers move up/down and
-unpin, with a reset-order action below the list. The IR package declares a selected-command/send
-widget.
+Missing plugin instances retain unavailable placeholders. Each card offers move up/down and unpin
+under Arrange widget, with reset order under Widget order below the list. The IR package declares a
+selected-command/send widget.
 
 Pinned widgets with NavigationCategory now offer Open plugin controls. The Overlay selects Tools,
 then scrolls and focuses the owning plugin-instance/category anchor using stable identities.
@@ -220,9 +220,10 @@ dispatch, including changes between timer refreshes. Reloaded providers rebuild 
 using the new generation. Focused headless tests cover unload/recovery and stale-click refusal.
 
 Pinned widgets use a vertical list in the Quick Access scroll surface. Reordering restores focus to
-the same widget action by stable identity. Unpinning focuses the neighboring widget, or the list
-itself when empty; resetting order retains the reset control. The preference operations are supplied
-by the Shell source, allowing focused UI checks without reading or writing live configuration.
+the same widget action by stable identity, or its Unpin action when the requested move reaches an
+end. Unpinning focuses the neighboring widget, or the list itself when empty; resetting order
+retains the reset control. The preference operations are supplied by the Shell source, allowing
+focused UI checks without reading or writing live configuration.
 
 Widget icons use host keys: power, fan, battery, lighting, controller, display, settings and action.
 They render with the shared WSGM geometry and foreground color. Unknown keys omit the icon; plugin

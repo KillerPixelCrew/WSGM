@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using WSGM.Overlay;
 using WSGM.Shell;
@@ -18,7 +19,7 @@ public sealed class DisplayBrightnessTests
             () => brightness, _ => { writes++; return true; }, Timeout.InfiniteTimeSpan);
         await service.ReadAsync();
         DisplayBrightnessView view = new(service);
-        var slider = Assert.IsType<Slider>(view.Children[2]);
+        var slider = view.GetLogicalDescendants().OfType<Slider>().Single();
         Window window = new() { Content = view, Width = 500, Height = 200 };
         try
         {
@@ -28,7 +29,7 @@ public sealed class DisplayBrightnessTests
             await service.ReadAsync();
             Dispatcher.UIThread.RunJobs();
             Assert.Equal(61, slider.Value);
-            Assert.Same(slider, view.Children[2]);
+            Assert.Same(slider, view.GetLogicalDescendants().OfType<Slider>().Single());
             brightness = null;
             await service.ReadAsync();
             Dispatcher.UIThread.RunJobs();

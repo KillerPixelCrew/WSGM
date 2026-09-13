@@ -1,6 +1,6 @@
 <!-- ControlTheme for the shared bumper TabStrip control (quick access +
-     Settings): LB/RB chips at the ends, flex-equal icon+label tab buttons in a
-     UniformGrid, accent underline on the active tab. The tab buttons are built
+     Settings): LB/RB chips at the ends, natural-width icon+label tab buttons in a
+     horizontal scroller, accent underline on the active tab. The tab buttons are built
      in code (Controls\TabStrip.cs) and styled here via the tab-strip-* classes;
      selection state is the "active" style class. Accent via DynamicResource
      (runtime accent pipeline), everything else StaticResource. -->
@@ -22,7 +22,9 @@
                                     Margin="0,0,10,0">
                                 <TextBlock Text="LB" />
                             </Border>
-                            <UniformGrid Name="PART_TabsHost" Grid.Column="1" Rows="1" />
+                            <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
+                                <StackPanel Name="PART_TabsHost" Orientation="Horizontal" />
+                            </ScrollViewer>
                             <Border Grid.Column="2"
                                     Classes="tab-strip-bumper"
                                     Margin="10,0,0,0">
@@ -34,6 +36,13 @@
             </ControlTheme>
         </ResourceDictionary>
     </Styles.Resources>
+
+    <Style Selector="StackPanel.tab-strip-face">
+        <Setter Property="Margin" Value="14,8,14,11" />
+    </Style>
+    <Style Selector="controls|TabStrip.compact StackPanel.tab-strip-face">
+        <Setter Property="Margin" Value="6,8,6,11" />
+    </Style>
 
     <!-- LB/RB bumper hint chips -->
     <Style Selector="Border.tab-strip-bumper">

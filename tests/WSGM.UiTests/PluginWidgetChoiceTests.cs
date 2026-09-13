@@ -40,7 +40,7 @@ public sealed class PluginWidgetChoiceTests
             Assert.Null(source.Requested);
             buttons.Press(GamepadButtons.A);
             Assert.False(choice.IsDropDownOpen);
-            var apply = panel.GetLogicalDescendants().OfType<Button>().Single(button => Equals(button.Content, "Change fan"));
+            var apply = panel.GetLogicalDescendants().OfType<Button>().Single(button => button is WSGM.Controls.CardButton { Title: "Change fan" });
             Assert.True(apply.Focus());
             buttons.Press(GamepadButtons.A);
             Assert.Equal("turbo", source.Requested);
@@ -86,7 +86,7 @@ public sealed class PluginWidgetChoiceTests
             Assert.Equal("quiet", choice.SelectedItem);
             choice.SelectedItem = "turbo";
             Assert.Null(source.Requested);
-            UiFixture.Click(window, panel.GetLogicalDescendants().OfType<Button>().Single(button => Equals(button.Content, "Change fan")));
+            UiFixture.Click(window, panel.GetLogicalDescendants().OfType<Button>().Single(button => button is WSGM.Controls.CardButton { Title: "Change fan" }));
             Assert.Equal("turbo", source.Requested);
         }
         finally { window.Close(); }

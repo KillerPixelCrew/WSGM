@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.LogicalTree;
 using WindowsDeviceControl;
 using WSGM.Overlay;
 
@@ -19,8 +20,8 @@ public sealed class DisplayModeTests
         try
         {
             window.Show();
-            var resolution = Assert.IsType<ComboBox>(view.Children[2]);
-            var refresh = Assert.IsType<ComboBox>(view.Children[3]);
+            var resolution = view.GetLogicalDescendants().OfType<ComboBox>().First();
+            var refresh = view.GetLogicalDescendants().OfType<ComboBox>().Last();
             Assert.Equal(120, refresh.SelectedItem);
             resolution.SelectedItem = "1280 × 720";
             Assert.Equal(60, refresh.SelectedItem);

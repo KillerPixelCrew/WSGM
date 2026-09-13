@@ -23,14 +23,14 @@ Power, RGB, Controller and Info pages.
 
 The tab-by-tab audit behind that, so a later addition is measured against the same rule:
 
-| Tab          | Status                    | Why                                                                                                                  |
-| ------------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Quick access | Intentional direct layout | It is the pinned rows and the plugin widgets. Its whole purpose is one-step reach; a category layer would defeat it. |
-| Steam        | Converted                 | Library, Per-game launch fixes.                                                                                      |
-| Device       | Converted                 | Category tiles from the plugin's declared sections, plus the shared Power, RGB, Controller and Info pages.           |
-| Tools        | Converted                 | System, Performance, Storage, Display, Plugins, Controller ownership.                                                |
-| Power        | Converted                 | Wake, Idle timeouts, Power, Session.                                                                                 |
-| Session      | Absorbed into Power       | Four buttons never justified a root tab (2026-09-11). They are lifecycle transitions, which is what Power is.        |
+| Tab          | Status                    | Why                                                                                                                                     |
+| ------------ | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Quick access | Intentional direct layout | It contains pinned actions, grouped sections and plugin widgets. Its whole purpose is one-step reach; a category layer would defeat it. |
+| Steam        | Converted                 | Library, Per-game launch fixes.                                                                                                         |
+| Device       | Converted                 | Category tiles from the plugin's declared sections, plus the shared Power, RGB, Controller and Info pages.                              |
+| Tools        | Converted                 | System, Performance, Storage, Display, Plugins, Controller ownership.                                                                   |
+| Power        | Converted                 | Wake, Idle timeouts, Power, Session.                                                                                                    |
+| Session      | Absorbed into Power       | Four buttons never justified a root tab (2026-09-11). They are lifecycle transitions, which is what Power is.                           |
 
 A new control belongs on the category page that names its group, never on a root. A control with no
 group is a reason to add a category, not to put it on the root.
@@ -41,11 +41,12 @@ reopens on its last destination; focus lands on the first row after a switch; th
 stays above the tabs.
 
 Quick access is the home root and the Back target of every other root. `AppConfig.QuickAccessPins`
-holds row ids (X, touch-hold or right-click toggles one through `PinToggleRequested`). The root
-renders live mirrors of the source rows that follow their title, description, badge and visibility
-and press through to the source's Click handler, so a row that rewrites its own title ("Really?",
-"Applied to …") keeps working when pinned. Device rows are re-rendered from the current snapshot on
-every Device render.
+holds action and section IDs. Static action cards render live mirrors of their source rows and press
+through to the same Click handler. Device sections such as Fans or Charging have one Pin section
+action in the heading; the whole block appears on the front page with its controls intact. X, touch
+hold and right-click inside a group resolve that group, not the individual toggle or slider. Host
+power, display and performance controls follow the same section model. Pinned editors refresh from
+the current snapshot without replacement while in use; unavailable Device sections remain removable.
 
 The Open apps chip strip (`AppSwitcherViewModel`) sits along the sheet's bottom and is reconciled in
 place every second; a wholesale rebuild would destroy the focused chip under the gamepad cursor. Y

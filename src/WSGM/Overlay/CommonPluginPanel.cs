@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Layout;
@@ -26,15 +27,17 @@ internal sealed class CommonPluginPanel : StackPanel
     private string _structure = "\0";
     private readonly PluginWidgetPin? _widget;
     private readonly bool _pinsOnly;
+    private readonly Func<Task<PluginWidgetPin[]>>? _readPins;
     private readonly Action<PluginWidgetPin, string>? _navigate;
     private readonly Dictionary<(string Plugin, string Instance, string Category), Control> _categories = [];
 
     internal CommonPluginPanel(ICommonPluginOverlaySource source, PluginWidgetPin? widget = null,
-        Action<PluginWidgetPin, string>? navigate = null, bool pinsOnly = false)
+        Action<PluginWidgetPin, string>? navigate = null, bool pinsOnly = false, Func<Task<PluginWidgetPin[]>>? readPins = null)
     {
         _source = source;
         _widget = widget;
         _pinsOnly = pinsOnly;
+        _readPins = readPins;
         _navigate = navigate;
         Spacing = 8;
         _timer.Tick += (_, _) => Refresh();
@@ -69,11 +72,16 @@ internal sealed class CommonPluginPanel : StackPanel
 
     private void AddInstance(PluginOverlayInstance instance)
     {
-        Children.Add(new TextBlock { Text = $"{instance.Name} / {instance.Identity.InstanceId}", Classes = { "eyebrow" } });
+        if (_widget is null) { Children.Add(new TextBlock { Text = instance.Name, Classes = { "eyebrow" } }); }
         var health = new TextBlock { Classes = { "caption" }, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
         Children.Add(health);
         var owner = instance;
-        _refresh.Add(() => health.Text = _observed.FirstOrDefault(value => value.Identity == instance.Identity) is { } current ? current.Error ?? current.Status : "Plugin unavailable");
+        _refresh.Add(() =>
+        {
+            var current = _observed.FirstOrDefault(value => value.Identity == instance.Identity);
+            health.Text = current is null ? "Plugin unavailable" : current.Error ?? (current.CanInvoke ? "" : current.Status);
+            health.IsVisible = !string.IsNullOrWhiteSpace(health.Text);
+        });
         if (owner.Controls is not { } actions) { return; }
         if (_widget is { } pinned)
         {
@@ -101,7 +109,7 @@ internal sealed class CommonPluginPanel : StackPanel
             Children.Add(heading);
             if (widget.NavigationCategory is { } category && _navigate is not null)
             {
-                Button open = new() { Content = "Open plugin controls" };
+                CardButton open = new() { Title = "Open plugin controls", IconGeometry = Icons.Gear };
                 open.Click += (_, _) => _navigate(pinned, category);
                 Children.Add(open);
             }
@@ -109,7 +117,7 @@ internal sealed class CommonPluginPanel : StackPanel
             foreach (var id in widget.ContributionIds)
             { AddContribution(instance, owner, actions.Contributions.First(item => item.Id == id)); }
             var controls = Children.Skip(firstControl).ToArray();
-            var secondary = new TextBlock { Classes = { "caption" } };
+            var secondary = new TextBlock { Classes = { "caption" }, IsVisible = false };
             Children.Add(secondary);
             _refresh.Add(() =>
             {
@@ -120,6 +128,7 @@ internal sealed class CommonPluginPanel : StackPanel
                 foreach (var control in controls) { control.IsEnabled = enabled; }
                 secondary.Text = !available ? "Widget unavailable" : widget.SecondaryStateKey is { } key
                     ? states.FirstOrDefault(value => value.Key == key) is { } state ? Format(state.Value) : "No confirmed value" : "";
+                secondary.IsVisible = !string.IsNullOrWhiteSpace(secondary.Text);
             });
             return;
         }
@@ -127,12 +136,18 @@ internal sealed class CommonPluginPanel : StackPanel
         {
             PluginWidgetPin pin = new(instance.Identity.PluginId, instance.Identity.InstanceId, widget.Id);
             Children.Add(new PluginWidgetPinControls(widget.Label,
-                pinned => CommonPluginOverlaySource.SetPinnedAsync(pin, pinned)));
+                pinned => CommonPluginOverlaySource.SetPinnedAsync(pin, pinned),
+                _readPins is null ? null : async () => (await _readPins()).Contains(pin)));
         }
         if (_pinsOnly) { return; }
         foreach (var group in actions.Contributions.GroupBy(contribution => contribution.Category))
         {
-            TextBlock anchor = new() { Text = group.Key, Classes = { "caption" }, Focusable = true };
+            TextBlock anchor = new()
+            {
+                Text = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(group.Key.Replace('-', ' ').Replace('_', ' ')),
+                Classes = { "eyebrow" },
+                Focusable = true,
+            };
             _categories[(instance.Identity.PluginId, instance.Identity.InstanceId, group.Key)] = anchor;
             Children.Add(anchor);
             foreach (var contribution in group) { AddContribution(instance, owner, contribution); }
@@ -151,9 +166,9 @@ internal sealed class CommonPluginPanel : StackPanel
         long generation = owner.Generation;
         var row = new StackPanel { Spacing = 4 };
         var effective = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap, Classes = { "caption" } };
-        row.Children.Add(new TextBlock { Text = contribution.Label, Classes = { "setting-title" } });
+        if (contribution.Kind != PluginUiKind.Action) { row.Children.Add(new TextBlock { Text = contribution.Label, Classes = { "setting-title" } }); }
         if (contribution.StateKey is not null) { row.Children.Add(effective); }
-        Children.Add(row);
+        Children.Add(contribution.Kind == PluginUiKind.Action ? row : new Border { Classes = { "tile" }, Child = row });
         _refresh.Add(() =>
         {
             var state = _source.State(instance.Identity).FirstOrDefault(value => value.Key == contribution.StateKey && value.Generation == generation);
@@ -164,7 +179,7 @@ internal sealed class CommonPluginPanel : StackPanel
         if (contribution.Kind == PluginUiKind.Action
             && owner.Controls!.Actions.First(value => value.Id == contribution.ActionId).Arguments.Count > 0)
         {
-            row.Children.Add(new Expander { Header = "Edit and run", Content = inputs });
+            row.Children.Add(new Expander { Header = contribution.Label, Content = inputs, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
         }
         else { row.Children.Add(inputs); }
         Dictionary<string, Func<PluginValue>> argumentReaders = [];
@@ -214,7 +229,7 @@ internal sealed class CommonPluginPanel : StackPanel
         {
             var editor = new Slider
             {
-                Width = 180,
+                MinWidth = 240,
                 Minimum = argument!.Minimum!.Value,
                 Maximum = argument.Maximum!.Value,
                 Value = argument.Default.Number!.Value
@@ -223,19 +238,21 @@ internal sealed class CommonPluginPanel : StackPanel
             read = () => new PluginValue(Number: editor.Value);
         }
         // The draft is intentionally separate from readback. Refresh cannot invoke the write path.
-        var apply = new Button
+        var apply = new CardButton
         {
-            Content = contribution.Kind == PluginUiKind.Action ? contribution.Label : "Apply",
+            Title = contribution.Kind == PluginUiKind.Action ? contribution.Label : "Apply",
+            IconGeometry = Icons.Play,
             Tag = $"plugin.{instance.Identity.PluginId}.{instance.Identity.InstanceId}.{contribution.Id}"
         };
         inputs.Children.Add(apply);
-        var result = new TextBlock { Classes = { "caption" }, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+        var result = new TextBlock { Classes = { "caption" }, TextWrapping = Avalonia.Media.TextWrapping.Wrap, IsVisible = false };
         row.Children.Add(result);
         bool busy = false;
         _refresh.Add(() => apply.IsEnabled = !busy && _observed.Any(value => value.Identity == instance.Identity && value.CanInvoke && value.Generation == generation));
         apply.Click += async (_, _) =>
         {
             if (busy || _closed.IsCancellationRequested) { return; }
+            result.IsVisible = true;
             var current = _source.Snapshot().FirstOrDefault(value => value.Identity == instance.Identity);
             if (current is null || !current.CanInvoke || current.Generation != generation)
             { result.Text = "Widget unavailable. Select it again."; return; }
@@ -257,7 +274,8 @@ internal sealed class CommonPluginPanel : StackPanel
             try
             {
                 var response = await _source.InvokeAsync(instance.Identity, generation, contribution.ActionId!, arguments, _closed.Token);
-                result.Text = $"{response.Outcome}: {response.Detail}";
+                result.Text = response.Outcome == PluginActionOutcome.AppliedVerified ? "Applied" :
+                    string.IsNullOrWhiteSpace(response.Detail) ? "Change was not confirmed" : response.Detail;
             }
             catch (Exception ex) { result.Text = "Unconfirmed: " + ex.Message; }
             finally { busy = false; }

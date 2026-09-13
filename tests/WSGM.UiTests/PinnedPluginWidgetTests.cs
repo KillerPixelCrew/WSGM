@@ -11,6 +11,38 @@ namespace WSGM.UiTests;
 public sealed class PinnedPluginWidgetTests
 {
     [AvaloniaFact]
+    public void PluginPageHasOnePinTogglePerWidgetAndSharedActionCards()
+    {
+        using UiFixture fixture = new();
+        var window = fixture.Overlay();
+        var host = UiFixture.Named<StackPanel>(window, "CommonPluginRows");
+        host.Children.Add(new CommonPluginPanel(new MutableProvider(), readPins: () => Task.FromResult(Array.Empty<PluginWidgetPin>())));
+        var tile = UiFixture.Named<WSGM.Controls.CardButton>(window, "SystemPluginsTile");
+        tile.IsVisible = true;
+        UiFixture.Click(window, UiFixture.Tab(window, 2));
+        UiFixture.Click(window, tile);
+        Assert.Single(host.GetLogicalDescendants().OfType<PluginWidgetPinControls>());
+        VisualBaseline.Verify(window, "overlay-plugins-1280");
+    }
+
+    [AvaloniaFact]
+    public void WidgetUsesTheOverlayCardsWithoutInternalIdentityOrPermanentArrangementButtons()
+    {
+        using UiFixture fixture = new();
+        var window = fixture.Overlay();
+        PluginWidgetPin pin = new("test", "default", "power");
+        PluginWidgetPreferences preferences = new(() => Task.FromResult(new[] { pin }),
+            (_, _) => Task.CompletedTask, _ => Task.CompletedTask, () => Task.CompletedTask);
+        PinnedPluginWidgets panel = new(new MutableProvider(), (_, _) => { }, preferences);
+        UiFixture.Named<StackPanel>(window, "PinnedPluginWidgetsHost").Children.Add(panel);
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        Assert.DoesNotContain(panel.GetLogicalDescendants().OfType<TextBlock>(),
+            text => text.Text?.Contains("test / default") == true);
+        Assert.All(panel.GetLogicalDescendants().OfType<Expander>(), expander => Assert.False(expander.IsExpanded));
+        VisualBaseline.Verify(window, "overlay-widgets-1280");
+    }
+
+    [AvaloniaFact]
     public void ReorderAndUnpinKeepFocusOnTheAffectedWidgetOrNeighbor()
     {
         using UiFixture fixture = new();
@@ -28,9 +60,10 @@ public sealed class PinnedPluginWidgetTests
         try
         {
             window.Show();
+            foreach (var expander in panel.GetLogicalDescendants().OfType<Expander>()) { expander.IsExpanded = true; }
             UiFixture.Click(window, Find(first, "Move down"));
             Assert.Equal([second, first], pins);
-            Assert.True(Find(first, "Move down").IsFocused);
+            Assert.True(Find(first, "Unpin").IsFocused);
             UiFixture.Click(window, Find(first, "Unpin"));
             Assert.Equal([second], pins);
             Assert.True(Find(second, "Unpin").IsFocused);
@@ -83,6 +116,10 @@ public sealed class PinnedPluginWidgetTests
             Assert.Equal(0, source.Invocations);
             panel.Refresh();
             Assert.False(panel.GetLogicalDescendants().OfType<Button>().Single().IsEffectivelyEnabled);
+            source.Available = false;
+            panel.Refresh();
+            Assert.Contains(panel.GetLogicalDescendants().OfType<TextBlock>(),
+                text => text.Text == "Widget unavailable" && text.IsEffectivelyVisible);
         }
         finally { window.Close(); }
     }
@@ -93,13 +130,15 @@ public sealed class PinnedPluginWidgetTests
         public long Generation { get; set; } = 1;
         public bool Present { get; set; } = true;
         public bool Enabled { get; set; } = true;
+        public bool Available { get; set; } = true;
         public int Invocations { get; private set; }
         public PluginOverlayInstance[] Snapshot() => !Present ? [] :
         [new(Identity, "Test", Generation, new([new("run", "Run", [])],
             [new("run", "Run", "power", PluginUiKind.Action, ActionId: "run")],
-            [new("power", "Power", ["run"], EnabledStateKey: "enabled")]), "Ready", true, null)];
+            [new("power", "Power", ["run"], VisibleStateKey: "available", EnabledStateKey: "enabled")]), "Ready", true, null)];
         public PluginStatePublication[] State(PluginInstanceIdentity identity) =>
-            [new(Identity, Generation, 1, "enabled", new(Boolean: Enabled), PluginStateOrigin.HardwareReadback)];
+            [new(Identity, Generation, 1, "enabled", new(Boolean: Enabled), PluginStateOrigin.HardwareReadback),
+                new(Identity, Generation, 1, "available", new(Boolean: Available), PluginStateOrigin.HardwareReadback)];
         public Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,
             string action, IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken)
         {

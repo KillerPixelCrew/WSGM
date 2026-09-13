@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Threading;
 using WindowsDeviceControl;
+using WSGM.Controls;
 
 namespace WSGM.Overlay;
 
@@ -13,7 +14,7 @@ internal sealed class DisplayModeView : StackPanel
     private readonly TextBlock _status = new();
     private readonly ComboBox _resolution = new() { HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch };
     private readonly ComboBox _refresh = new() { HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch };
-    private readonly Button _apply = new() { Content = "Apply display mode", IsEnabled = false };
+    private readonly CardButton _apply = new() { Title = "Apply display mode", IconGeometry = Icons.Monitor, IsEnabled = false };
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(5) };
     private DisplayModeSnapshot? _snapshot;
     private bool _busy;
@@ -28,17 +29,29 @@ internal sealed class DisplayModeView : StackPanel
             var path = DisplayTopology.CaptureActive().Paths.FirstOrDefault();
             return path is null ? null : DisplayModes.Read(path.Target);
         }));
-        Spacing = 6;
+        Classes.Add("overlay-control");
+        Spacing = 8;
         Children.Add(new TextBlock { Text = "Display mode", Classes = { "setting-title" } });
         Children.Add(_status);
-        Children.Add(_resolution);
-        Children.Add(_refresh);
+        Children.Add(Selector("Resolution", _resolution));
+        Children.Add(Selector("Refresh rate", _refresh));
         Children.Add(_apply);
+        _refresh.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<int>((hz, _) => new TextBlock { Text = $"{hz} Hz" });
         _resolution.SelectionChanged += (_, _) => { if (!_synchronizing) { UpdateRates(); } };
         _apply.Click += async (_, _) => await ApplyAsync();
         _timer.Tick += async (_, _) => await ReadAsync();
         AttachedToVisualTree += async (_, _) => { _timer.Start(); await ReadAsync(); };
         DetachedFromVisualTree += (_, _) => { _closed = true; _timer.Stop(); };
+    }
+
+    private static Control Selector(string label, ComboBox selector)
+    {
+        Avalonia.Automation.AutomationProperties.SetName(selector, label);
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,240"), ColumnSpacing = 12 };
+        grid.Children.Add(new TextBlock { Text = label, Classes = { "setting-title" }, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center });
+        Grid.SetColumn(selector, 1);
+        grid.Children.Add(selector);
+        return new Border { Classes = { "tile" }, Child = grid };
     }
 
     private static string Resolution(DisplayMode mode) => $"{mode.Width} × {mode.Height}";

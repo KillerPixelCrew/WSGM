@@ -76,7 +76,7 @@
                 Padding="14,6">
             <!-- Tab descriptors (labels + Icons geometries) are assigned in
                  code-behind; LB/RB cycle via GamepadNavigation. -->
-            <c:TabStrip x:Name="Tabs" />
+            <c:TabStrip x:Name="Tabs" Classes="compact" />
         </Border>
 
         <Grid Grid.Row="1" Background="{StaticResource HcHeaderBrush}">

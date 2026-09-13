@@ -55,7 +55,7 @@ public sealed class TabStripSelectionChangedEventArgs : EventArgs
 }
 
 /// <summary>The shared bumper tab bar used by the quick access overlay and the Settings
-/// window: LB/RB hint chips at the ends and one flex-equal icon+label button per tab,
+/// window: LB/RB hint chips at the ends and readable, horizontally scrollable tab buttons,
 /// with an accent underline marking the active tab. The tabs are real focusable
 /// <see cref="Button"/>s, so gamepad navigation (tab-order traversal + synthesized
 /// Enter) and touch both work without special handling. Visuals live in
@@ -128,6 +128,13 @@ public sealed class TabStrip : TemplatedControl
             var tabs = Tabs;
             var selected = tabs is not null && newIndex >= 0 && newIndex < tabs.Count ? tabs[newIndex] : null;
             SelectionChanged?.Invoke(this, new TabStripSelectionChangedEventArgs(newIndex, selected));
+            if (newIndex >= 0 && newIndex < _tabButtons.Count)
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    if (SelectedIndex >= 0 && SelectedIndex < _tabButtons.Count) { _tabButtons[SelectedIndex].BringIntoView(); }
+                });
+            }
         }
     }
 
@@ -176,8 +183,7 @@ public sealed class TabStrip : TemplatedControl
             Spacing = 8,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
-            // Bottom-heavy so the accent underline below never crowds the label.
-            Margin = new Thickness(14, 8, 14, 11),
+            Classes = { "tab-strip-face" },
         };
         if (item.IconGeometry is not null)
         {

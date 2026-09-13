@@ -16,10 +16,10 @@ Windows shell the whole time.
   running, and enters Game Mode from the icon or the overlay. Built for gaming PCs and Steam
   Machines; see [Game Mode and Desktop Mode](#game-mode-and-desktop-mode).
 - **Quick access sheet** — one controller- and touch-driven surface that slides down from the top
-  edge and leaves the game visible below: a home tab of rows and plugin widgets you pin yourself,
-  session control, Steam and device tools, power actions, your open programs, tray icons,
-  Wi-Fi/Bluetooth state, battery, and a clock. Left and right edges stay Steam's own menus, exactly
-  like SteamOS.
+  edge and leaves the game visible below: a home tab of actions, grouped sections and plugin widgets
+  you pin yourself, session control, Steam and device tools, power actions, your open programs, tray
+  icons, Wi-Fi/Bluetooth state, battery, and a clock. Left and right edges stay Steam's own menus,
+  exactly like SteamOS.
 - **Steam's own Quick Access Menu, revived** — Steam ships its Performance, audio, Bluetooth and
   network menus on Windows with nothing behind them. WSGM answers them, so TDP sliders, frame limit,
   per-game performance profiles, brightness, volume, Bluetooth and Wi-Fi work inside Steam's own UI,

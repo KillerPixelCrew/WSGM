@@ -24,6 +24,7 @@ public sealed class DevicePageCaptureTests
     [InlineData("RGB", 1280, 800)]
     [InlineData("Info", 1280, 800)]
     [InlineData("Controller", 1280, 800)]
+    [InlineData("Pinned sections", 1280, 800)]
     public async Task CompleteClawPublication(string page, int width, int height)
     {
         var publication = JsonSerializer.Deserialize<Publication>(File.ReadAllText(
@@ -75,7 +76,30 @@ public sealed class DevicePageCaptureTests
         window.AttachPowerPresets(selection);
         await performance.RefreshAsync();
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        if (page != "Device")
+        if (page == "Pinned sections")
+        {
+            List<string> pins = [];
+            window.PinToggleRequested += id => { pins.Add(id); window.SetPins(pins.ToArray()); };
+            UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
+                .Single(card => card.IsEffectivelyVisible && card.Title == "Power"));
+            foreach (var id in new[] { "section.device.plugin.power.category.control", "section.device.plugin.power.category.charging" })
+            {
+                var header = window.GetVisualDescendants().OfType<SectionPinHeader>()
+                    .Single(header => header.IsEffectivelyVisible && header.SectionId == id);
+                UiFixture.Click(window, header.GetVisualDescendants().OfType<Button>().Single());
+            }
+            UiFixture.Click(window, UiFixture.Tab(window, 0));
+            var sectionsPanel = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
+            Assert.Equal(2, sectionsPanel.Children.Count);
+            foreach (var capability in device.State.Capabilities.Where(capability => capability.CategoryId is "control" or "charging"))
+            {
+                string key = "pin:" + capability.CapabilityId + (capability.InstanceId is { Length: > 0 } instance ? "#" + instance : "");
+                Assert.Contains(sectionsPanel.GetVisualDescendants().OfType<Control>(), control => Equals(control.Tag, key));
+            }
+            UiFixture.Named<Control>(window, "PinToast").IsVisible = false;
+            VisualBaseline.Verify(window, "overlay-sections-1280");
+        }
+        else if (page != "Device")
         {
             UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
                 .Single(card => card.IsEffectivelyVisible && card.Title == page));
@@ -86,10 +110,10 @@ public sealed class DevicePageCaptureTests
             Assert.False(UiFixture.Named<Expander>(window, "DeviceWindowsPower").IsExpanded);
             var cards = window.GetVisualDescendants().OfType<Border>()
                 .Where(border => border.Classes.Contains("device-group") && border.IsEffectivelyVisible).ToArray();
-            Assert.True(cards.Length >= 6);
+            Assert.True(cards.Length >= 5);
             Assert.All(cards, card => Assert.InRange(card.Bounds.Width, 400, width / 2));
         }
-        string directory = Path.Combine(RepositoryRoot(), "TestResults", "ui", "claw-" + page.ToLowerInvariant()
+        string directory = Path.Combine(RepositoryRoot(), "TestResults", "ui", "claw-" + page.ToLowerInvariant().Replace(' ', '-')
             + (width == 1280 ? string.Empty : "-" + width));
         Directory.CreateDirectory(directory);
         Capture(window, Path.Combine(directory, "viewport.png"));

@@ -8,9 +8,10 @@ using WSGM.Shell;
 namespace WSGM.Overlay;
 
 /// <summary>Projects the session brightness owner without a second hardware poll or write path.</summary>
-internal sealed class DisplayBrightnessView : StackPanel
+internal sealed class DisplayBrightnessView : Border
 {
     private readonly NativeQamBrightnessService _service;
+    private readonly StackPanel _body = new() { Spacing = 4 };
     private readonly Slider _slider = new() { Minimum = 0, Maximum = 100, TickFrequency = 1, IsSnapToTickEnabled = true };
     private readonly TextBlock _status = new();
     private readonly CancellationTokenSource _closed = new();
@@ -21,10 +22,11 @@ internal sealed class DisplayBrightnessView : StackPanel
     internal DisplayBrightnessView(NativeQamBrightnessService service)
     {
         _service = service;
-        Spacing = 4;
-        Children.Add(new TextBlock { Text = "Display brightness", Classes = { "setting-title" } });
-        Children.Add(_status);
-        Children.Add(_slider);
+        Classes.Add("tile");
+        Child = _body;
+        _body.Children.Add(new TextBlock { Text = "Display brightness", Classes = { "setting-title" } });
+        _body.Children.Add(_status);
+        _body.Children.Add(_slider);
         _slider.ValueChanged += async (_, _) =>
         {
             if (_synchronizing || _closed.IsCancellationRequested) { return; }

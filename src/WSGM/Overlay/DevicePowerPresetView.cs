@@ -29,7 +29,7 @@ public sealed class DevicePowerPresetView : UserControl
         _assignments.Children.Add(_battery);
         Content = new Border
         {
-            Classes = { "device-group" },
+            Classes = { "tile" },
             Child = new StackPanel
             {
                 Spacing = 6,

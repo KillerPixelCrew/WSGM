@@ -17,9 +17,10 @@ public sealed class PluginWidgetPinControlTests
         {
             window.Show();
             Assert.Empty(edits);
-            var buttons = Assert.IsType<StackPanel>(view.Children[1]);
-            UiFixture.Click(window, Assert.IsType<Button>(buttons.Children[0]));
-            UiFixture.Click(window, Assert.IsType<Button>(buttons.Children[1]));
+            UiFixture.Click(window, view);
+            Assert.True(view.IsPinned);
+            UiFixture.Click(window, view);
+            Assert.False(view.IsPinned);
             Assert.Equal([true, false], edits);
         }
         finally { window.Close(); }

@@ -9,11 +9,11 @@ using WSGM.Device.Sdk.Capabilities;
 namespace WSGM.Overlay;
 
 /// <summary>
-/// The non-slider device capability controls — toggle, dropdown, textbox — that a capability's
+/// The non-slider device capability controls — toggle, dropdown, text editor — that a capability's
 /// value kind asks for, so a boolean is a switch and a choice is a dropdown instead of a
 /// value-cycling button. Each is a themed tile whose single interactive control is the focus
 /// target; <c>GamepadNavigation</c> already routes A/Left/Right to a focused ToggleSwitch,
-/// ComboBox and TextBox, so pad, touch and keyboard drive them with no extra plumbing.
+/// ComboBox and edit row, so pad, touch and keyboard drive them with no extra plumbing.
 /// </summary>
 internal static class DeviceControlRows
 {
@@ -130,7 +130,7 @@ internal static class DeviceControlRows
         return (Tile(key, title, description, combo), combo);
     }
 
-    /// <summary>A text capability as a textbox that commits on Enter or when focus leaves.</summary>
+    /// <summary>A text capability edited through the shared controller keyboard.</summary>
     /// <param name="key">Stable focus key.</param>
     /// <param name="title">Row heading.</param>
     /// <param name="description">Supporting line.</param>
@@ -149,34 +149,28 @@ internal static class DeviceControlRows
         Action<string> onCommit)
     {
         ArgumentNullException.ThrowIfNull(onCommit);
-        var box = new TextBox
+        string draft = text ?? string.Empty;
+        var editor = new WSGM.Controls.CardButton
         {
-            Text = text ?? string.Empty,
+            Title = title,
+            Description = draft,
+            Tag = key,
             IsEnabled = enabled,
-            Focusable = enabled,
-            MinWidth = 200,
-            HorizontalAlignment = HorizontalAlignment.Right,
+            IconGeometry = WSGM.Controls.Icons.Gear,
         };
-        if (maximumLength is { } max and > 0)
+        editor.Click += (_, _) =>
         {
-            box.MaxLength = max;
-        }
-
-        void Commit()
-        {
-            onCommit(box.Text ?? string.Empty);
-        }
-
-        box.KeyDown += (_, e) =>
-        {
-            if (e.Key == Avalonia.Input.Key.Enter)
+            if (!WSGM.Core.KeyboardService.Request(title, draft, maximumLength ?? 4096, value =>
             {
-                Commit();
-                e.Handled = true;
+                draft = value;
+                editor.Description = value;
+                onCommit(value);
+            }))
+            {
+                editor.Description = "Keyboard unavailable. Reopen the overlay to retry.";
             }
         };
-        box.LostFocus += (_, _) => Commit();
-        return (Tile(key, title, description, box), box);
+        return (new Border { Tag = key, Child = editor }, editor);
     }
 
     private static string LabelFor(CapabilityChoice choice) =>

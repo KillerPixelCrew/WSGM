@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidatePattern('^(overlay-(quick-access|device-core|device-plugin)-(1280|1920)|overlay-(steam|tools|power)-1280|settings-(system|quick-access|appearance)-(1024|1280))$')]
+    [ValidatePattern('^(overlay-(quick-access|device-core|device-plugin)-(1280|1920)|overlay-(steam|tools|power|display|widgets|plugins|sections)-1280|settings-(system|quick-access|appearance|display-custom)-(1024|1280))$')]
     [string[]]$Case
 )
 

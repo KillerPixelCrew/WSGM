@@ -11,8 +11,8 @@ docs/ui.md before changing behavior.
 - Use the SDK's shared Power, RGB, Controller and Info IDs for host and plugin controls.
   Power stays reachable without integration. The session owns AC/battery preset assignments;
   overlay controls report intent and never run a second automatic profile loop.
-- Quick Access pin IDs persist in AppConfig. Device rows use capability keys, and plugin sections
-  use the DevicePluginSection route plus a section ID rather than new enum values.
+- Quick Access pin IDs persist in AppConfig. Device groups use stable section/category
+  keys. Plugin pages use the DevicePluginSection route plus a section ID rather than new enum values.
 - OverlayController owns lifetime and integration sequencing. Views and controls render state and
   report intent; they do not mutate ConfigStore or acquire leases directly.
 - Capture, focus, cursor, and input-lease transitions are paired operations. Every close,
@@ -35,4 +35,4 @@ docs/ui.md before changing behavior.
 Test open/close idempotence, route transitions, stale async results, touch/mouse deduplication,
 capture release, and integration-disabled behavior.
 
-Device sections use shared group cards and two-column blocks. Keep assignments and performance together, preserve focus while regrouping rows, and keep Windows energy plans reachable with integration disabled. Run the complete Claw publication captures when changing Device layout; the one-row fake is not sufficient coverage.
+Device sections use two-column groups with shared individual row cards and category headings. Keep assignments and performance together, preserve focus while regrouping rows, and keep Windows energy plans reachable with integration disabled. Pin grouped sections with all their controls through one action in the heading. Nested editors resolve their group, never a separate value pin. Keep source and front-page group contents aligned. Run the complete Claw publication captures when changing Device layout; the one-row fake is not sufficient coverage.

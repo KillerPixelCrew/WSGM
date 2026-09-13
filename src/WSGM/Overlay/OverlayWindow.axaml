@@ -192,14 +192,11 @@
                          is visible on every one. -->
                     <fa:FAInfoBar IsOpen="{Binding HasWarning}" Title="WSGM" Message="{Binding WarningText}" Severity="Warning" IsClosable="False" Margin="0,0,0,4" />
 
-                    <!-- Quick access root: the rows the user pinned (X on any row in
-                         any other destination). Cards are built in code — mirrors of
-                         the XAML rows that follow their live title/description/badge,
-                         and device rows re-rendered from the current snapshot. -->
-                    <!-- The ghost "Pin an option" tile is appended by RenderPins as the
-                         grid's permanent last cell (mock: empty-slot affordance). -->
+                    <!-- Quick access combines action cards, complete pinned sections and widgets.
+                         Section headers own pinning; their controls keep normal editing behavior. -->
                     <StackPanel x:Name="PanelQuickAccess" Spacing="8" IsVisible="True">
                         <UniformGrid x:Name="PinnedGrid" Columns="4" />
+                        <UniformGrid x:Name="PinnedSectionsGrid" Columns="2" />
                         <StackPanel x:Name="PinnedPluginWidgetsHost" Spacing="8" />
                     </StackPanel>
 
@@ -218,7 +215,7 @@
                                       Description="De-elevation, the Steam Input lease and custom launch actions" />
                     </UniformGrid>
 
-                    <StackPanel x:Name="PanelSteamLibrary" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                    <StackPanel x:Name="PanelSteamLibrary" Spacing="4" IsVisible="False" Width="720" HorizontalAlignment="Left">
                         <TextBlock Text="STEAM LIBRARY" Classes="eyebrow" Margin="2,0,2,2" />
                         <TextBlock Text="Steam integration is turned off in Settings."
                                    Classes="caption"
@@ -258,7 +255,7 @@
                                       Description="Erase a card as a Steam game library" />
                     </StackPanel>
 
-                    <StackPanel x:Name="PanelSteamLaunch" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                    <StackPanel x:Name="PanelSteamLaunch" Spacing="4" IsVisible="False" Width="720" HorizontalAlignment="Left">
                         <TextBlock Text="PER-GAME LAUNCH FIXES" Classes="eyebrow" Margin="2,0,2,2" />
                         <!-- The x:Name lives on the button: the handlers rewrite its
                              Title with the result. Titles and descriptions are set
@@ -293,7 +290,7 @@
                          scoped to this window). Three states toggle by
                          visibility: pick a drive, confirm the erase, watch it
                          run. The whole sub-view is hidden from the tab strip. -->
-                    <StackPanel x:Name="PanelFormat" DataContext="{x:Null}" x:DataType="sh:SdFormatManager" Spacing="6" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                    <StackPanel x:Name="PanelFormat" DataContext="{x:Null}" x:DataType="sh:SdFormatManager" Spacing="6" IsVisible="False" Width="720" HorizontalAlignment="Left">
                         <TextBlock x:Name="FormatHeading"
                                    Text="Format SD Card"
                                    FontSize="15"
@@ -379,15 +376,15 @@
                          LB/RB-suppress + B-cancels wiring. Width-capped: they were
                          designed as single columns and read badly stretched across
                          the whole sheet. -->
-                    <ov:LibraryTabsView x:Name="LibraryTabsHost" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left" />
-                    <ov:CardManagerView x:Name="CardManagerHost" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left" />
-                    <ov:ArtworkView x:Name="ArtworkHost" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left" />
-                    <ov:LaunchWrapperView x:Name="LaunchWrapperHost" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left" />
-                    <ov:WakeLockHoldersView x:Name="WakeLockHost" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left" />
+                    <ov:LibraryTabsView x:Name="LibraryTabsHost" IsVisible="False" Width="720" HorizontalAlignment="Left" />
+                    <ov:CardManagerView x:Name="CardManagerHost" IsVisible="False" Width="720" HorizontalAlignment="Left" />
+                    <ov:ArtworkView x:Name="ArtworkHost" IsVisible="False" Width="720" HorizontalAlignment="Left" />
+                    <ov:LaunchWrapperView x:Name="LaunchWrapperHost" IsVisible="False" Width="720" HorizontalAlignment="Left" />
+                    <ov:WakeLockHoldersView x:Name="WakeLockHost" IsVisible="False" Width="720" HorizontalAlignment="Left" />
 
                     <!-- Device RGB editor. It stages changes and commits once so persistent
                          firmware lighting is never written continuously while navigating. -->
-                    <ov:DeviceColorView x:Name="DeviceColorHost" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left" />
+                    <ov:DeviceColorView x:Name="DeviceColorHost" IsVisible="False" Width="720" HorizontalAlignment="Left" />
 
                     <!-- Device destination. Plugin rows come from the closed semantic descriptor
                          vocabulary; WSGM-owned commands are separate view models. Packages cannot
@@ -427,10 +424,10 @@
                             </Border>
                         </Grid>
                         <StackPanel x:Name="DeviceCapabilityList" Spacing="4" />
-                        <Expander Header="Quick Access widgets" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                        <Expander x:Name="DeviceWidgetsExpander" IsVisible="False" Header="Quick Access widgets" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                             <StackPanel x:Name="DeviceWidgetPinsHost" Spacing="8" />
                         </Expander>
-                        <Expander x:Name="DeviceWindowsPower" Header="Windows energy plan" IsVisible="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Margin="0,12,0,0">
+                        <Expander x:Name="DeviceWindowsPower" Width="720" HorizontalAlignment="Left" Header="Windows energy plan" IsVisible="False" HorizontalContentAlignment="Stretch" Margin="0,12,0,0">
                             <ov:PowerSchemeView x:Name="DevicePowerSchemeHost" />
                         </Expander>
 
@@ -481,7 +478,7 @@
                                       Description="The on-screen keyboard and the Steam Input handoff" />
                     </UniformGrid>
 
-                    <StackPanel x:Name="PanelSystemTools" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                    <StackPanel x:Name="PanelSystemTools" Spacing="4" IsVisible="False" Width="720" HorizontalAlignment="Left">
                         <TextBlock Text="SYSTEM" Classes="eyebrow" Margin="2,0,2,2" />
                         <c:CardButton Click="OnSettings"
                                       Tag="system.settings"
@@ -498,7 +495,7 @@
                     <!-- One shared performance projection is reparented into Device while
                          integration is visible and lives on this page otherwise. Its source owns
                          RTSS lifetime and state; this window only observes and invokes rows. -->
-                    <StackPanel x:Name="PanelSystemPerformance" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                    <StackPanel x:Name="PanelSystemPerformance" Spacing="4" IsVisible="False" Width="720" HorizontalAlignment="Left">
                         <StackPanel x:Name="PerformanceSection" Spacing="4" IsVisible="False">
                             <TextBlock Text="PERFORMANCE" Classes="eyebrow" Margin="2,0,2,2" />
                             <TextBlock x:Name="PerformanceStatus"
@@ -509,7 +506,7 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <StackPanel x:Name="PanelSystemStorage" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                    <StackPanel x:Name="PanelSystemStorage" Spacing="4" IsVisible="False" Width="720" HorizontalAlignment="Left">
                         <TextBlock Text="STORAGE" Classes="eyebrow" Margin="2,0,2,2" />
                         <c:CardButton Click="OnEjectTileClicked"
                                       Tag="system.eject"
@@ -518,17 +515,17 @@
                                       Description="Eject an SD card or USB drive" />
                     </StackPanel>
 
-                    <StackPanel x:Name="PanelSystemDisplay" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                    <StackPanel x:Name="PanelSystemDisplay" Spacing="4" IsVisible="False" Width="720" HorizontalAlignment="Left">
                         <TextBlock Text="DISPLAY" Classes="eyebrow" Margin="2,0,2,2" />
                         <StackPanel x:Name="DisplayBrightnessHost" />
                     </StackPanel>
 
-                    <StackPanel x:Name="PanelSystemPlugins" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                    <StackPanel x:Name="PanelSystemPlugins" Spacing="4" IsVisible="False" Width="720" HorizontalAlignment="Left">
                         <TextBlock Text="PLUGINS" Classes="eyebrow" Margin="2,0,2,2" />
                         <StackPanel x:Name="CommonPluginRows" Spacing="8" />
                     </StackPanel>
 
-                    <StackPanel x:Name="PanelSystemController" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                    <StackPanel x:Name="PanelSystemController" Spacing="4" IsVisible="False" Width="720" HorizontalAlignment="Left">
                         <TextBlock Text="CONTROLLER OWNERSHIP" Classes="eyebrow" Margin="2,0,2,2" />
                         <c:CardButton Title="On-Screen Keyboard" Click="OnScreenKeyboard"
                                       Tag="system.keyboard" Description="Open the keyboard for the current mode" />
@@ -569,7 +566,7 @@
 
                     <!-- Session: the former root tab, now a Power category. The four rows keep
                          their names, tags and handlers so pins and focus keys are unchanged. -->
-                    <StackPanel x:Name="PanelPowerSession" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                    <StackPanel x:Name="PanelPowerSession" Spacing="4" IsVisible="False" Width="720" HorizontalAlignment="Left">
                         <TextBlock Text="SESSION" Classes="eyebrow" Margin="2,0,2,2" />
                         <c:CardButton x:Name="HomeAppButton" Classes="primary" Click="OnHomeApp"
                                       Tag="home.steam"
@@ -596,7 +593,7 @@
                                       Description="Quit Steam completely" />
                     </StackPanel>
 
-                    <StackPanel x:Name="PanelPowerWake" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                    <StackPanel x:Name="PanelPowerWake" Spacing="4" IsVisible="False" Width="720" HorizontalAlignment="Left">
                         <TextBlock Text="WAKE" Classes="eyebrow" Margin="2,0,2,2" />
                         <c:CardButton x:Name="KeepAwakeButton" Click="OnKeepAwakeToggle"
                                       Tag="system.keep-awake"
@@ -612,7 +609,7 @@
                                       Description="List the programs holding a wake lock" />
                     </StackPanel>
 
-                    <StackPanel x:Name="PanelPowerTimeouts" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                    <StackPanel x:Name="PanelPowerTimeouts" Spacing="4" IsVisible="False" Width="720" HorizontalAlignment="Left">
                         <TextBlock Text="IDLE TIMEOUTS" Classes="eyebrow" Margin="2,0,2,2" />
                         <c:CardButton Click="OnCycleDisplayDc"
                                       Tag="system.timeout.display-dc"
@@ -640,7 +637,7 @@
                                       TrailingText="{Binding SleepAcTimeout}" />
                     </StackPanel>
 
-                    <StackPanel x:Name="PanelPowerActions" Spacing="4" IsVisible="False" MaxWidth="720" HorizontalAlignment="Left">
+                    <StackPanel x:Name="PanelPowerActions" Spacing="4" IsVisible="False" Width="720" HorizontalAlignment="Left">
                         <TextBlock Text="POWER" Classes="eyebrow" Margin="2,0,2,2" />
                         <c:CardButton Click="OnStandby"
                                       Tag="system.standby"

@@ -54,13 +54,44 @@ public partial class OverlayWindow : Window
     private HybridCoreSelection? _hybridCoreSelection;
     private bool _performanceDetailsExpanded;
 
-    internal void AttachPowerPresets(DevicePowerPresetSelection selection) => DevicePowerPresetHost.Attach(selection);
-    internal void AttachManualTdp(DeviceCoordinator coordinator) => ManualTdpHost.Children.Add(
-        new ManualTdpModeView(() => coordinator.ManualTdpMode, coordinator.SetManualTdpModeAsync));
-    internal void AttachBrightness(NativeQamBrightnessService service)
+    private readonly Dictionary<string, (string Title, Func<Control> Create)> _controlPinFactories = [];
+
+    internal void AttachPowerPresets(DevicePowerPresetSelection selection)
     {
+        DevicePowerPresetHost.Attach(selection);
+        DevicePowerPresetContainer.Tag = "section.device.power-presets";
+        DevicePowerPresetContainer.Children.Insert(0, CreateSectionHeader("section.device.power-presets", "Power assignments"));
+        _controlPinFactories["section.device.power-presets"] = ("Power assignments", () =>
+        {
+            DevicePowerPresetView view = new();
+            view.Attach(selection);
+            view.DetachedFromVisualTree += (_, _) => view.Attach(null);
+            return view;
+        }
+        );
+        RenderPins();
+    }
+    internal void AttachManualTdp(DeviceCoordinator coordinator)
+    {
+        Control Create() => new ManualTdpModeView(() => coordinator.ManualTdpMode, coordinator.SetManualTdpModeAsync);
+        ManualTdpHost.Tag = "section.device.manual-tdp";
+        ManualTdpHost.Children.Add(CreateSectionHeader("section.device.manual-tdp", "Manual power mode"));
+        ManualTdpHost.Children.Add(Create());
+        _controlPinFactories["section.device.manual-tdp"] = ("Manual power mode", Create);
+        RenderPins();
+    }
+    internal void AttachBrightness(NativeQamBrightnessService service, Func<Task<WindowsDeviceControl.DisplayModeSnapshot?>>? readMode = null)
+    {
+        DisplayBrightnessHost.Tag = "section.display";
+        PanelSystemDisplay.Children[0] = CreateSectionHeader("section.display", "Display");
         DisplayBrightnessHost.Children.Add(new DisplayBrightnessView(service));
-        DisplayBrightnessHost.Children.Add(new DisplayModeView());
+        DisplayBrightnessHost.Children.Add(new DisplayModeView(readMode));
+        _controlPinFactories["section.display"] = ("Display", () => new StackPanel
+        {
+            Spacing = 4,
+            Children = { new DisplayBrightnessView(service), new DisplayModeView(readMode) },
+        });
+        RenderPins();
     }
 
     internal void AttachSteamOwnership(Func<SteamControllerHandoff?> getOwner)
@@ -98,6 +129,16 @@ public partial class OverlayWindow : Window
     {
         _powerSchemeSelection = selection;
         DevicePowerSchemeHost.Attach(selection);
+        DevicePowerSchemeHost.Tag = "section.system.power-profile";
+        DeviceWindowsPower.Header = CreateSectionHeader("section.system.power-profile", "Windows energy plan");
+        _controlPinFactories["section.system.power-profile"] = ("Windows energy plan", () =>
+        {
+            PowerSchemeView view = new();
+            view.Attach(selection);
+            view.DetachedFromVisualTree += (_, _) => view.Attach(null);
+            return view;
+        }
+        );
         RefreshDevicePanel();
     }
 
@@ -107,6 +148,16 @@ public partial class OverlayWindow : Window
     {
         _hybridCoreSelection = selection;
         DeviceHybridCoreHost.Attach(selection);
+        DeviceHybridCoreHost.Tag = "section.system.processor-cores";
+        DeviceHybridCores.Header = CreateSectionHeader("section.system.processor-cores", "Processor cores");
+        _controlPinFactories["section.system.processor-cores"] = ("Processor cores", () =>
+        {
+            HybridCoreView view = new();
+            view.Attach(selection);
+            view.DetachedFromVisualTree += (_, _) => view.Attach(null);
+            return view;
+        }
+        );
         RefreshDevicePanel();
     }
 
@@ -358,14 +409,15 @@ public partial class OverlayWindow : Window
     {
         CommonPluginRows.Children.Clear();
         DeviceWidgetPinsHost.Children.Clear();
+        DeviceWidgetsExpander.IsVisible = false;
         PinnedPluginWidgetsHost.Children.Clear();
         SystemPluginsTile.IsVisible = source is not null;
         if (source is not null)
         {
-            CommonPluginPanel panel = new(source);
+            CommonPluginPanel panel = new(source, readPins: PluginWidgetPreferences.Default.Read);
             CommonPluginRows.Children.Add(panel);
             if (source.Device is { } device)
-            { DeviceWidgetPinsHost.Children.Add(new CommonPluginPanel(device, pinsOnly: true)); }
+            { DeviceWidgetPinsHost.Children.Add(new CommonPluginPanel(device, pinsOnly: true, readPins: PluginWidgetPreferences.Default.Read)); DeviceWidgetsExpander.IsVisible = true; }
             PinnedPluginWidgetsHost.Children.Add(new PinnedPluginWidgets(source, (pin, category) =>
             {
                 // The rows moved a level down when Tools became a menu, so the jump has to open the
@@ -426,6 +478,8 @@ public partial class OverlayWindow : Window
         _performanceObservation?.Dispose();
         _performanceObservation = null;
 
+        PerformanceSection.Tag = "section.performance";
+        PerformanceSection.Children[0] = CreateSectionHeader("section.performance", "Performance");
         _performanceSource = source;
         if (_performanceSource is not null)
         {
@@ -746,6 +800,7 @@ public partial class OverlayWindow : Window
             DeviceCapabilityList.Children.Count == 0 ? LogLevel.Warn : LogLevel.Info);
 
         restoreFocus?.Focus(NavigationMethod.Directional);
+        RestoreSectionHeaderFocus(focusedKey);
         RenderPins();
     }
 
@@ -865,65 +920,12 @@ public partial class OverlayWindow : Window
         for (int i = 0; i < stacks.Length; i++) { Grid.SetColumn(stacks[i], i); columns.Children.Add(stacks[i]); }
         DeviceCapabilityList.Children.Add(columns);
         int groupIndex = 0;
-        StackPanel Group(string title)
+        foreach (var section in DevicePinSections(snapshot).Where(section => section.PluginSectionId == sectionId))
         {
-            var content = new StackPanel { Spacing = 14 };
-            content.Children.Add(new TextBlock { Text = title, Classes = { "setting-title" }, Margin = new Thickness(2, 0, 2, 6) });
+            var content = CreateSection(section.Id, section.Title);
+            restoreFocus = AddDeviceSectionRows(snapshot, section, content, focusedKey) ?? restoreFocus;
+            if (content.Children.Count == 1) { continue; }
             stacks[groupIndex++ % 2].Children.Add(new Border { Classes = { "device-group" }, Child = content });
-            return content;
-        }
-        void AddRows(IEnumerable<DeviceOverlayCapability> rows, Panel target)
-        {
-            foreach (DeviceOverlayCapability capability in rows)
-            {
-                var presentation = capability with
-                {
-                    Title = capability.Role == CapabilityRole.ScenarioMode ? "Firmware power mode" : capability.Title,
-                    Description = capability.Status == DescriptorStatus.Available
-                        && (capability.Description.StartsWith("Observed ·", StringComparison.Ordinal)
-                            || capability.Description.StartsWith("Verified ·", StringComparison.Ordinal))
-                        ? string.Empty : capability.Description,
-                };
-                string key = capability.InstanceId is { Length: > 0 }
-                    ? $"{capability.CapabilityId}#{capability.InstanceId}" : capability.CapabilityId;
-                if (TryCreateDeviceControl(presentation, key) is { } control)
-                { ToolTip.SetTip(control, capability.Description); target.Children.Add(control); continue; }
-                DescriptorStatusRow button = CreateDeviceCapabilityRow(presentation, key);
-                ToolTip.SetTip(button, capability.Description);
-                target.Children.Add(button);
-                if (string.Equals(key, focusedKey, StringComparison.Ordinal)) { restoreFocus = button; }
-            }
-        }
-        bool power = absorbed == DeviceOverlaySection.PowerAndThermals;
-        var lead = capabilities.Where(capability => capability.CategoryId is null
-            || (power && capability.Role is CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit))
-            .OrderBy(capability => power ? capability.Role switch
-            {
-                CapabilityRole.ScenarioMode => 0,
-                CapabilityRole.PowerSustainedLimit => 1,
-                CapabilityRole.PowerSlowLimit => 2,
-                _ => 3,
-            } : capability.SortOrder).ToArray();
-        if (lead.Length > 0) { AddRows(lead, Group(power ? "Manual power and display" : pluginSection.Title)); }
-        var categories = power
-            ? pluginSection.Categories.OrderBy(category => capabilities.Any(capability => capability.CategoryId == category.Id
-                && capability.Role is CapabilityRole.FanMode or CapabilityRole.FanCurve) ? 0 : 1)
-            : pluginSection.Categories.AsEnumerable();
-        foreach (DeviceOverlayCategory category in categories)
-        {
-            var rows = capabilities.Where(capability => capability.CategoryId == category.Id && !lead.Contains(capability)).ToArray();
-            if (rows.Length > 0) { AddRows(rows, Group(category.Title)); }
-        }
-        if (absorbed is { } owned)
-        {
-            int firstOwned = DeviceCapabilityList.Children.Count;
-            restoreFocus = RenderOwnedDeviceRows(snapshot, owned, focusedKey) ?? restoreFocus;
-            Control[] ownedControls = DeviceCapabilityList.Children.Skip(firstOwned).ToArray();
-            if (ownedControls.Length > 0)
-            {
-                var group = Group(power ? "Automatic control and saved profiles" : "Configuration");
-                foreach (var control in ownedControls) { DeviceCapabilityList.Children.Remove(control); group.Children.Add(control); }
-            }
         }
         if (groupIndex == 1) { Grid.SetColumnSpan(stacks[0], 2); }
         return restoreFocus;
@@ -948,36 +950,12 @@ public partial class OverlayWindow : Window
         DeviceOverlaySection section,
         string? focusedKey)
     {
-        DescriptorStatusRow? restoreFocus = null;
-        TextBlock heading = new()
-        {
-            Text = DeviceSectionLabel(section),
-            Margin = new Thickness(2, 2, 2, 2),
-        };
-        heading.Classes.Add("eyebrow");
-        DeviceCapabilityList.Children.Add(heading);
-
-        foreach (DeviceOverlayCapability capability
-            in DeviceOverlaySectionPages.CapabilitiesIn(snapshot, section))
-        {
-            string key = capability.InstanceId is { Length: > 0 }
-                ? $"{capability.CapabilityId}#{capability.InstanceId}"
-                : capability.CapabilityId;
-            if (TryCreateDeviceControl(capability, key) is { } control)
-            {
-                DeviceCapabilityList.Children.Add(control);
-                continue;
-            }
-
-            DescriptorStatusRow button = CreateDeviceCapabilityRow(capability, key);
-            DeviceCapabilityList.Children.Add(button);
-            if (string.Equals(key, focusedKey, StringComparison.Ordinal))
-            {
-                restoreFocus = button;
-            }
-        }
-
-        return RenderOwnedDeviceRows(snapshot, section, focusedKey) ?? restoreFocus;
+        var definition = DevicePinSections(snapshot).FirstOrDefault(candidate => candidate.Id == DeviceOverlaySectionPages.FocusKey(section).Replace("device.section.", "section.device.", StringComparison.Ordinal));
+        if (definition is null) { return null; }
+        var content = CreateSection(definition.Id, definition.Title);
+        var restoreFocus = AddDeviceSectionRows(snapshot, definition, content, focusedKey);
+        if (content.Children.Count > 1) { DeviceCapabilityList.Children.Add(content); }
+        return restoreFocus;
     }
 
     /// <summary>
@@ -987,6 +965,8 @@ public partial class OverlayWindow : Window
     /// <param name="snapshot">The current Device snapshot.</param>
     /// <param name="section">The WSGM-owned section being drawn.</param>
     /// <param name="focusedKey">The focus key to restore, when one of these rows holds it.</param>
+    /// <param name="target">Section body receiving the rows.</param>
+    /// <param name="includePreview">Whether to show the source page's glyph input preview.</param>
     /// <returns>The row to restore focus to, or null when none of these held it.</returns>
     /// <remarks>
     /// Split out because these rows are drawn on two different pages: the WSGM section's own, and —
@@ -997,8 +977,11 @@ public partial class OverlayWindow : Window
     private DescriptorStatusRow? RenderOwnedDeviceRows(
         DeviceOverlaySnapshot snapshot,
         DeviceOverlaySection section,
-        string? focusedKey)
+        string? focusedKey,
+        Panel? target = null,
+        bool includePreview = true)
     {
+        target ??= DeviceCapabilityList;
         DescriptorStatusRow? restoreFocus = null;
 
         // AutoTDP moves the power limit rather than being one, so it sits with the limit it moves
@@ -1015,7 +998,7 @@ public partial class OverlayWindow : Window
                 autoTdp.CanInvoke,
                 autoTdp.Status));
             row.Click += (_, _) => InvokeAutoTdpToggle();
-            DeviceCapabilityList.Children.Add(row);
+            target.Children.Add(row);
             if (string.Equals(autoTdpFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = row;
@@ -1037,7 +1020,7 @@ public partial class OverlayWindow : Window
                 profile.CanInvoke,
                 profile.Status));
             row.Click += (_, _) => InvokeHardwareProfileCycle();
-            DeviceCapabilityList.Children.Add(row);
+            target.Children.Add(row);
             if (string.Equals(profileFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = row;
@@ -1059,7 +1042,7 @@ public partial class OverlayWindow : Window
                 authored.CanInvoke,
                 authored.Status));
             authoredRow.Click += (_, _) => InvokeAuthoredProfileCycle();
-            DeviceCapabilityList.Children.Add(authoredRow);
+            target.Children.Add(authoredRow);
             if (string.Equals(authoredFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = authoredRow;
@@ -1081,7 +1064,7 @@ public partial class OverlayWindow : Window
                 controller.CanInvoke,
                 controller.Status));
             row.Click += (_, _) => InvokeControllerTargetCycle();
-            DeviceCapabilityList.Children.Add(row);
+            target.Children.Add(row);
             if (string.Equals(controllerFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = row;
@@ -1102,7 +1085,7 @@ public partial class OverlayWindow : Window
                 true,
                 recovery.Status));
             row.Click += (_, _) => InvokeDeviceCycleRetry();
-            DeviceCapabilityList.Children.Add(row);
+            target.Children.Add(row);
             if (string.Equals(recoveryFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = row;
@@ -1116,7 +1099,7 @@ public partial class OverlayWindow : Window
         {
             string glyphFocusKey = glyphSelection.Id;
             DescriptorStatusRow button = CreateGlyphSelectionRow(glyphSelection);
-            DeviceCapabilityList.Children.Add(button);
+            target.Children.Add(button);
             if (string.Equals(glyphFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = button;
@@ -1125,10 +1108,10 @@ public partial class OverlayWindow : Window
 
         // After the selection row it is the result of, so changing the selection and seeing what it
         // produced reads top to bottom.
-        if (section is DeviceOverlaySection.ControllerAndMotion
+        if (includePreview && section is DeviceOverlaySection.ControllerAndMotion
             && snapshot.GlyphPreview is { } preview)
         {
-            RenderGlyphPreview(preview);
+            RenderGlyphPreview(preview, target);
         }
 
         return restoreFocus;
@@ -1138,6 +1121,7 @@ public partial class OverlayWindow : Window
     /// Draws the plugin's own glyphs, and lights the one being pressed.
     /// </summary>
     /// <param name="preview">The resolved preview.</param>
+    /// <param name="target">The section body containing the preview.</param>
     /// <remarks>
     /// The preview answers the two questions a glyph profile can fail at, and it answers them with
     /// the same picture: whether the artwork resolves at all, and whether pressing a control reaches
@@ -1148,7 +1132,7 @@ public partial class OverlayWindow : Window
     /// it and whatever follows, for controls that do nothing when activated.
     /// </para>
     /// </remarks>
-    private void RenderGlyphPreview(DeviceOverlayGlyphPreview preview)
+    private void RenderGlyphPreview(DeviceOverlayGlyphPreview preview, Panel target)
     {
         TextBlock caption = new()
         {
@@ -1157,7 +1141,7 @@ public partial class OverlayWindow : Window
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
         };
         caption.Classes.Add("caption");
-        DeviceCapabilityList.Children.Add(caption);
+        target.Children.Add(caption);
 
         TextBlock hint = new()
         {
@@ -1168,7 +1152,7 @@ public partial class OverlayWindow : Window
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
         };
         hint.Classes.Add("caption");
-        DeviceCapabilityList.Children.Add(hint);
+        target.Children.Add(hint);
 
         WrapPanel tiles = new() { Margin = new Thickness(2, 0, 2, 4) };
         foreach (DeviceOverlayGlyphPreviewItem item in preview.Items)
@@ -1206,7 +1190,7 @@ public partial class OverlayWindow : Window
             _glyphTiles[item.Control] = tile;
         }
 
-        DeviceCapabilityList.Children.Add(tiles);
+        target.Children.Add(tiles);
         ApplyGlyphInputTest();
     }
 
@@ -1442,7 +1426,7 @@ public partial class OverlayWindow : Window
         && max > min;
 
     /// <summary>Builds the proper control for a writable capability — slider, toggle, dropdown or
-    /// textbox — or null when it has no dedicated control and should render as a plain row (an
+    /// text editor — or null when it has no dedicated control and should render as a plain row (an
     /// action, a colour swatch, or a read-only value). Sets the row's focus target so gamepad
     /// focus restore lands on the interactive control.</summary>
     private Control? TryCreateDeviceControl(DeviceOverlayCapability capability, string key)
@@ -1665,6 +1649,7 @@ public partial class OverlayWindow : Window
                 return;
             }
 
+            bool restoreAfterInvoke = button.IsFocused;
             button.IsEnabled = false;
             try
             {
@@ -1682,6 +1667,11 @@ public partial class OverlayWindow : Window
                 if (!_closed)
                 {
                     button.IsEnabled = capability.CanInvoke;
+                    if (restoreAfterInvoke && button.IsEffectivelyVisible
+                        && FocusManager?.GetFocusedElement() is null)
+                    {
+                        button.Focus(NavigationMethod.Directional);
+                    }
                 }
             }
         };
@@ -1808,6 +1798,8 @@ public partial class OverlayWindow : Window
         }
 
         restoreFocus?.Focus(NavigationMethod.Directional);
+        RestoreSectionHeaderFocus(focusedKey);
+        RenderPins();
     }
 
     /// <summary>
@@ -1997,18 +1989,6 @@ public partial class OverlayWindow : Window
             && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, sectionId)
                 is DeviceOverlaySection.PowerAndThermals;
     }
-
-    private static string DeviceSectionLabel(DeviceOverlaySection section) => section switch
-    {
-        DeviceOverlaySection.Overview => "OVERVIEW",
-        DeviceOverlaySection.Profiles => "PROFILES",
-        DeviceOverlaySection.PowerAndThermals => "POWER",
-        DeviceOverlaySection.ControllerAndMotion => "CONTROLLER",
-        DeviceOverlaySection.Oem => "OEM BUTTONS",
-        DeviceOverlaySection.LightingAndFeatures => "LIGHTING AND FEATURES",
-        DeviceOverlaySection.Diagnostics => "DIAGNOSTICS AND RECOVERY",
-        _ => "DEVICE",
-    };
 
     private void ConfigureTabs(bool showDevice)
     {
@@ -2217,8 +2197,9 @@ public partial class OverlayWindow : Window
         // primary screen); the dock recomputes it against the real display width.
         TrayScroller.MaxWidth = ComputeTrayMaxWidth(Width, _contentScale);
         // Touch and mouse routes to pinning: a hold on a row, or a right click.
-        AddHandler(InputElement.HoldingEvent, OnHolding, RoutingStrategies.Bubble);
-        AddHandler(PointerReleasedEvent, OnPointerReleasedForPin, RoutingStrategies.Bubble);
+        AddHandler(InputElement.HoldingEvent, OnHolding, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(PointerPressedEvent, OnPointerPressedForPin, RoutingStrategies.Tunnel);
+        AddHandler(PointerReleasedEvent, OnPointerReleasedForPin, RoutingStrategies.Tunnel);
         AddHandler(PointerPressedEvent, OnPointerPressedForLiveRefresh, RoutingStrategies.Tunnel);
         AddHandler(PointerReleasedEvent, OnPointerReleasedForLiveRefresh, RoutingStrategies.Tunnel);
         PointerCaptureLost += OnPointerCaptureLostForLiveRefresh;
@@ -2706,7 +2687,7 @@ public partial class OverlayWindow : Window
         IReadOnlyList<string>? previous = _pinsInitialized ? _pins : null;
         _pins = ids;
         _pinsInitialized = true;
-        RenderPins();
+        RenderPins(preserveEditing: false);
         if (previous is not null && ids.Count != previous.Count)
         {
             ShowPinToast(added: ids.Count > previous.Count);
@@ -2739,51 +2720,94 @@ public partial class OverlayWindow : Window
         _pinToastTimer.Start();
     }
 
-    private void RenderPins()
+    private void RenderPins(bool preserveEditing = true)
     {
         if (_closed)
         {
             return;
         }
 
+        if (preserveEditing && (IsEditingValueIn(PinnedGrid) || IsEditingValueIn(PinnedSectionsGrid))
+            && PinnedSectionProvidersAvailable())
+        {
+            var snapshot = _deviceBridge?.Snapshot();
+            foreach (var slider in PinnedSectionsGrid.GetLogicalDescendants().OfType<DeviceSliderRow>())
+            {
+                string key = (slider.Tag as string ?? "")[PinTagPrefix.Length..];
+                if (key.StartsWith("performance.", StringComparison.Ordinal)
+                    && _performanceSource?.Snapshot() is { Visible: true } performance
+                    && performance.ProfileRows.Concat(performance.Rows).FirstOrDefault(row => "performance." + row.Id == key)
+                        is { Range: { } range, Value: { } value } descriptor)
+                {
+                    slider.RefreshReadback(range.Minimum, range.Maximum, range.Step, value, descriptor.CanInvoke);
+                    continue;
+                }
+                var capability = snapshot?.Capabilities.FirstOrDefault(item => DeviceRowKey(item) == key);
+                slider.RefreshReadback(capability?.Minimum ?? 0, capability?.Maximum ?? 0, capability?.Step ?? 1,
+                    capability?.CurrentValue?.IntegerValue ?? 0, snapshot?.Visible is true && capability is not null
+                        && RendersAsSlider(capability) && capability.CanInvoke);
+            }
+            return;
+        }
         string? focusedKey = CurrentSemanticFocusKey();
         Control? restoreFocus = null;
         ReleasePinMirrors();
         PinnedGrid.Children.Clear();
+        List<Control> valueControls = [];
         foreach (var id in _pins)
         {
             Control? row = _pinnable.TryGetValue(id, out var source)
                 ? CreatePinMirror(id, source)
-                : CreatePinnedDeviceRow(id);
+                : CreatePinnedSection(id);
             if (row is null)
             {
                 continue;
             }
             row.Margin = new Thickness(0, 0, 10, 10);
-            PinnedGrid.Children.Add(row);
+            if (row is CardButton) { PinnedGrid.Children.Add(row); }
+            else { valueControls.Add(row); }
             if (string.Equals(row.Tag as string, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = row;
             }
         }
-        // The ghost cell is the permanent last slot: the pin affordance stays
-        // discoverable whether the grid is empty or full (mock: empty-slot card).
+        // Host controls own subscriptions and user selections. Keep them attached across
+        // telemetry refreshes; removing a pin is what ends that view's lifetime.
+        foreach (var stale in PinnedSectionsGrid.Children.Where(row => !valueControls.Contains(row)).ToArray())
+        {
+            PinnedSectionsGrid.Children.Remove(stale);
+        }
+        for (int i = 0; i < valueControls.Count; i++)
+        {
+            int existing = PinnedSectionsGrid.Children.IndexOf(valueControls[i]);
+            if (existing < 0) { PinnedSectionsGrid.Children.Insert(i, valueControls[i]); }
+            else if (existing != i) { PinnedSectionsGrid.Children.Move(existing, i); }
+        }
+        // Once sections are present their headers explain pinning. Avoid an empty
+        // action row above a front page containing only sections.
         CardButton ghost = new()
         {
             IconGeometry = Icons.Pin,
-            Title = "Pin an option",
-            Description = "Hold X on any row in any tab; X again unpins",
+            Title = "Pin a section",
+            Description = "Use Pin section in a heading to show its controls here",
             IsEnabled = false,
             Margin = new Thickness(0, 0, 10, 10),
         };
         ghost.Classes.Add("tile");
         ghost.Classes.Add("ghost");
-        PinnedGrid.Children.Add(ghost);
+        if (valueControls.Count == 0) { PinnedGrid.Children.Add(ghost); }
+        PinnedGrid.IsVisible = PinnedGrid.Children.Count > 0;
         UpdatePinnedIndicators();
-        Log.Change("overlay.pins", $"Quick access pins: {PinnedGrid.Children.Count} of {_pins.Count} rendered.");
+        if (restoreFocus is null && PanelQuickAccess.IsVisible && !AnySubView && focusedKey is not null)
+        {
+            restoreFocus = PinnedSectionsGrid.GetLogicalDescendants().OfType<Control>()
+                .FirstOrDefault(control => control.Focusable && Equals(control.Tag, focusedKey));
+        }
+        Log.Change("overlay.pins", $"Quick access pins: {PinnedGrid.Children.Count + PinnedSectionsGrid.Children.Count - (valueControls.Count == 0 ? 1 : 0)} of {_pins.Count} rendered.");
         if (restoreFocus is not null)
         {
-            restoreFocus.Focus(NavigationMethod.Directional);
+            if (restoreFocus.Focusable) { restoreFocus.Focus(NavigationMethod.Directional); }
+            else { FocusFirstControl(restoreFocus); }
         }
         else if (PanelQuickAccess.IsVisible && !AnySubView && focusedKey is not null
             && focusedKey.StartsWith(PinTagPrefix, StringComparison.Ordinal))
@@ -2804,9 +2828,10 @@ public partial class OverlayWindow : Window
     private void UpdatePinnedIndicators()
     {
         var pinned = _pins.ToHashSet(StringComparer.Ordinal);
+        foreach (var header in this.GetLogicalDescendants().OfType<SectionPinHeader>()) { header.Refresh(pinned.Contains(header.SectionId)); }
         foreach (CardButton button in this.GetLogicalDescendants().OfType<CardButton>())
         {
-            button.IsPinned = IsOriginalPinnedRow(button.Tag, pinned);
+            if (button is not PluginWidgetPinControls) { button.IsPinned = IsOriginalPinnedRow(button.Tag, pinned); }
         }
     }
 
@@ -2862,80 +2887,25 @@ public partial class OverlayWindow : Window
         clone.IsEnabled = source.IsEnabled;
     }
 
-    /// <summary>A pinned Device row, rebuilt from the current snapshot: a plugin
-    /// capability by its key, or one of WSGM's direct rows by its focus key. Null when
-    /// the device is not showing it right now.</summary>
-    private Control? CreatePinnedDeviceRow(string id)
-    {
-        DeviceOverlaySnapshot? snapshot = _deviceBridge?.Snapshot();
-        if (snapshot is not { Visible: true })
-        {
-            return null;
-        }
-
-        DescriptorStatusRow? row = null;
-        foreach (DeviceOverlayCapability capability in snapshot.Capabilities)
-        {
-            if (string.Equals(DeviceRowKey(capability), id, StringComparison.Ordinal))
-            {
-                row = CreateDeviceCapabilityRow(capability, id);
-                break;
-            }
-        }
-        if (row is null && DirectDeviceRow(snapshot, id) is { } direct)
-        {
-            row = new DescriptorStatusRow();
-            row.Apply(direct.Row with { Id = id });
-            Action invoke = direct.Invoke;
-            row.Click += (_, _) => invoke();
-        }
-        if (row is null && snapshot.GlyphSelection is { } glyphSelection
-            && string.Equals(glyphSelection.Id, id, StringComparison.Ordinal))
-        {
-            row = CreateGlyphSelectionRow(glyphSelection);
-        }
-        if (row is not null)
-        {
-            row.Tag = PinTagPrefix + id;
-            row.Classes.Add("tile");
-        }
-        return row;
-    }
-
     private static string DeviceRowKey(DeviceOverlayCapability capability)
         => capability.InstanceId is { Length: > 0 }
             ? $"{capability.CapabilityId}#{capability.InstanceId}"
             : capability.CapabilityId;
 
-    /// <summary>WSGM's own Device rows by their focus key — the same table the section
-    /// renderer draws from, so a pinned direct row invokes exactly what the page does.</summary>
-    private (DescriptorRow Row, Action Invoke)? DirectDeviceRow(DeviceOverlaySnapshot snapshot, string id)
-        => id switch
-        {
-            "device.auto-tdp" when snapshot.AutoTdp is { } row => (row, InvokeAutoTdpToggle),
-            "device.hardware-profile" when snapshot.Profile is { } row => (row, InvokeHardwareProfileCycle),
-            "device.authored-profile" when snapshot.AuthoredProfile is { } row => (row, InvokeAuthoredProfileCycle),
-            "device.controller-target" when snapshot.Controller is { } row => (row, InvokeControllerTargetCycle),
-            "device.retry" when snapshot.Recovery is { } row => (row, InvokeDeviceCycleRetry),
-            _ => null,
-        };
-
-    /// <summary>Whether a row id can be pinned: a XAML row, or a Device row the snapshot
-    /// currently shows.</summary>
-    private bool IsPinnable(string id)
-        => _pinnable.ContainsKey(id)
-            || (_deviceBridge?.Snapshot() is { Visible: true } snapshot
-                && (snapshot.Capabilities.Any(c => string.Equals(DeviceRowKey(c), id, StringComparison.Ordinal))
-                    || DirectDeviceRow(snapshot, id) is not null
-                    || string.Equals(snapshot.GlyphSelection?.Id, id, StringComparison.Ordinal)));
+    /// <summary>Static actions and whole sections are the pin targets.</summary>
+    private bool IsPinnable(string id) => _pinnable.ContainsKey(id) || _controlPinFactories.ContainsKey(id)
+        || id == "section.performance" && _performanceSource?.Snapshot().Visible is true
+        || _pins.Contains(id) && id.StartsWith("section.", StringComparison.Ordinal)
+        || _deviceBridge?.Snapshot() is { } snapshot && DevicePinSections(snapshot).Any(section => section.Id == id);
 
     /// <summary>Resolves the row id a row or its Quick access mirror stands for.</summary>
     private bool TryGetPinId(Control? control, out string id)
     {
-        if (control is CardButton { Tag: string tag })
+        for (Visual? node = control; node is not null; node = node.GetVisualParent())
         {
+            if (node is not Control { Tag: string tag }) { continue; }
             id = tag.StartsWith(PinTagPrefix, StringComparison.Ordinal) ? tag[PinTagPrefix.Length..] : tag;
-            return IsPinnable(id);
+            if (IsPinnable(id)) { return true; }
         }
         id = "";
         return false;
@@ -2967,12 +2937,20 @@ public partial class OverlayWindow : Window
         {
             return;
         }
-        var row = (e.Source as Visual)?.FindAncestorOfType<CardButton>(includeSelf: true);
+        var row = e.Source as Control;
         if (TryGetPinId(row, out var id))
         {
             e.Handled = true;
             Log.Info($"Touch hold: toggling pin '{id}'.");
             PinToggleRequested?.Invoke(id);
+        }
+    }
+
+    private void OnPointerPressedForPin(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.GetCurrentPoint(this).Properties.IsRightButtonPressed && TryGetPinId(e.Source as Control, out _))
+        {
+            e.Handled = true;
         }
     }
 
@@ -2982,7 +2960,7 @@ public partial class OverlayWindow : Window
         {
             return;
         }
-        var row = (e.Source as Visual)?.FindAncestorOfType<CardButton>(includeSelf: true);
+        var row = e.Source as Control;
         if (TryGetPinId(row, out var id))
         {
             e.Handled = true;

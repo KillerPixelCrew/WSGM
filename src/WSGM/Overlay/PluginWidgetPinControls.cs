@@ -1,36 +1,47 @@
 using System;
 using System.Threading.Tasks;
-using Avalonia.Controls;
-using Avalonia.Layout;
+using WSGM.Controls;
 
 namespace WSGM.Overlay;
 
-/// <summary>Explicit pin edits for a declared widget; constructing the view never changes preferences.</summary>
-internal sealed class PluginWidgetPinControls : StackPanel
+/// <summary>A single pin action for a declared widget, with confirmed preference readback.</summary>
+internal sealed class PluginWidgetPinControls : CardButton
 {
-    internal PluginWidgetPinControls(string title, Func<bool, Task> save)
+    internal PluginWidgetPinControls(string title, Func<bool, Task> save, Func<Task<bool>>? read = null)
     {
-        Spacing = 4;
-        Children.Add(new TextBlock { Text = title, Classes = { "setting-title" } });
-        StackPanel buttons = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
-        Button pin = new() { Content = "Pin widget" };
-        Button unpin = new() { Content = "Unpin widget" };
-        TextBlock status = new() { Classes = { "caption" } };
-        buttons.Children.Add(pin);
-        buttons.Children.Add(unpin);
-        Children.Add(buttons);
-        Children.Add(status);
+        Title = title;
+        IconGeometry = Icons.Pin;
+        bool pinned = false;
         bool busy = false;
-        async Task SetAsync(bool pinned)
+        void ShowState()
+        {
+            IsPinned = pinned;
+            Description = pinned ? "Pinned to Quick access - Select to unpin" : "Select to pin to Quick access";
+        }
+        ShowState();
+        AttachedToVisualTree += async (_, _) =>
+        {
+            if (read is null) { return; }
+            IsEnabled = false;
+            try { pinned = await read(); ShowState(); }
+            catch (Exception ex) { Description = "Could not read pin: " + ex.Message; }
+            finally { IsEnabled = true; }
+        };
+        Click += async (_, _) =>
         {
             if (busy) { return; }
             busy = true;
-            pin.IsEnabled = unpin.IsEnabled = false;
-            try { await save(pinned); status.Text = pinned ? "Pinned to Quick Access" : "Widget unpinned"; }
-            catch (Exception ex) { status.Text = "Pin change failed: " + ex.Message; }
-            finally { busy = false; pin.IsEnabled = unpin.IsEnabled = true; }
-        }
-        pin.Click += async (_, _) => await SetAsync(true);
-        unpin.Click += async (_, _) => await SetAsync(false);
+            IsEnabled = false;
+            try
+            {
+                if (read is not null) { pinned = await read(); }
+                bool next = !pinned;
+                await save(next);
+                pinned = next;
+                ShowState();
+            }
+            catch (Exception ex) { Description = "Pin change failed: " + ex.Message; }
+            finally { busy = false; IsEnabled = true; }
+        };
     }
 }

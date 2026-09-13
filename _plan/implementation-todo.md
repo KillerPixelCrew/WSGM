@@ -204,6 +204,13 @@ stops here rather than at zero:
   display switching and sign-in review is not claimed; the maintainer requested implementation
   closure with review later.
 
+- The UI consistency follow-up adds one pin action per grouped section, including Device Fans and
+  Charging, host power, Display and Performance. Whole blocks appear on Quick Access with their
+  controls intact. Device sections use shared row cards, widgets hide identity and arrangement
+  clutter, category pages have consistent widths, and Display Settings labels modes, scaling and
+  optional position/session controls. Headless captures cover both Display surfaces, Widgets and
+  pinned Claw sections alongside the complete Claw publication.
+
 - #53 is implemented. The common SDK supplies structured widgets with stable identities, state
   predicates, icons and category navigation. Device and IR use the shared renderer. Source-page
   pinning and front-page unpin/reorder/reset persist across restarts and retain unavailable providers.

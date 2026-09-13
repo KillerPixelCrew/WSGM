@@ -182,6 +182,9 @@ public sealed class PluginActionListEditor : INotifyPropertyChanged
     /// <summary>Gets whether anything can be added right now.</summary>
     public bool CanAdd => Choices.Count > 0;
 
+    /// <summary>Gets whether this event has editable or saved actions.</summary>
+    public bool HasEditor => CanAdd || Rows.Count > 0;
+
     /// <summary>Gets the note shown when no plugin is running to add an action from.</summary>
     public string AddHintText => CanAdd
         ? ""
@@ -273,6 +276,7 @@ public sealed class PluginActionListEditor : INotifyPropertyChanged
     private void RaiseState()
     {
         PropertyChanged?.Invoke(this, new(nameof(CanAdd)));
+        PropertyChanged?.Invoke(this, new(nameof(HasEditor)));
         PropertyChanged?.Invoke(this, new(nameof(AddHintText)));
         PropertyChanged?.Invoke(this, new(nameof(HasValidationError)));
     }
