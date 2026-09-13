@@ -209,9 +209,27 @@ loader and the packaged-app runtime are still bringing the process up in that wi
 before the variables it reads exist. The suspension exemption is not implicated - a run with
 `EnableDebugging` active and no patch ran 50s untouched.
 
-Still open: whether the renderer, injected into a process that now carries Steam's session
-variables, actually registers and draws - and whether Steam Input follows it or needs its own
-association.
+With the whole stack in - `tier0_s64`, `vstdlib_s64`, `steamclient64`, then the renderer, all
+loading successfully, with Steam's variables present - there was still no overlay. Two reasons,
+both now measured rather than guessed.
+
+**Injection was about eleven seconds too late.** The overlay hooks device creation and the present
+call, so it has to be loaded before the game builds its swapchain; the published guidance for
+injecting it by hand says the same, that it must run during process initialisation and cannot be
+run after the game has started. `ActivateApplication` returns the process id milliseconds after
+creation, so the wrapper now acts on that directly instead of waiting for the supervisor's first
+poll. Environment variables go in through a remote `SetEnvironmentVariableW` call rather than a
+PEB block swap, which is both correct at that moment and survivable: 5 of 5 variables set at
+process start with the game still running, where replacing the block wholesale killed it.
+
+**The game's window belongs to a third process.** The foreground while Moonlighter runs is
+`ApplicationFrameWindow` owned by `ApplicationFrameHost.exe` - not the wrapper Steam tracks, and
+not `Moonlighter.exe` where the renderer lives. Steam chooses both its overlay surface and its
+Steam Input target from the tracked app's window, which is why controller input arrives in Big
+Picture behind the game. Three processes hold the three things that normally sit in one.
+
+Still open: whether a renderer loaded before device creation, in a process carrying the session
+variables, actually draws - and whether the split window ownership defeats it regardless.
 
 ## Caveats
 

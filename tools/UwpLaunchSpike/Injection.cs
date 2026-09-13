@@ -269,6 +269,143 @@ internal sealed class Injection(SpikeLog log)
         }
     }
 
+    /// Sets environment variables inside the target by calling SetEnvironmentVariableW in
+    /// it, one remote thread per variable.
+    ///
+    /// The alternative - replacing ProcessParameters->Environment wholesale - works on a
+    /// settled process but kills a starting one about a second later, and starting is
+    /// exactly when this has to happen: the overlay renderer hooks device creation, so it
+    /// must be loaded before the game builds its swapchain, and it reads SteamGameId when
+    /// it loads. Going through the API lets ntdll own the block's allocation as usual.
+    ///
+    /// CreateRemoteThread passes one argument and this function takes two, so the call is
+    /// made by a small stub: the two pointers and the function address are baked in as
+    /// immediates, around a standard x64 shadow-space frame.
+    internal bool SetRemoteEnvironment(int pid, IReadOnlyList<string> variables)
+    {
+        if (variables.Count == 0)
+        {
+            return true;
+        }
+
+        log.Section($"Remote environment: pid {pid}");
+
+        var kernel32 = Native.GetModuleHandleW("kernel32.dll");
+        var setter = kernel32 == IntPtr.Zero ? IntPtr.Zero : Native.GetProcAddress(kernel32, "SetEnvironmentVariableW");
+        if (setter == IntPtr.Zero)
+        {
+            log.Error($"remote env: could not resolve SetEnvironmentVariableW (error {Marshal.GetLastWin32Error()}).");
+            return false;
+        }
+
+        var process = Native.OpenProcess(Native.InjectorAccess, false, (uint)pid);
+        if (process == IntPtr.Zero)
+        {
+            log.Error($"remote env: OpenProcess failed (error {Marshal.GetLastWin32Error()}).");
+            return false;
+        }
+
+        try
+        {
+            var applied = 0;
+            foreach (var variable in variables)
+            {
+                var separator = variable.IndexOf('=');
+                if (separator <= 0)
+                {
+                    continue;
+                }
+
+                if (SetOne(process, setter, variable[..separator], variable[(separator + 1)..]))
+                {
+                    applied++;
+                }
+            }
+
+            log.Info($"remote env: set {applied} of {variables.Count} variable(s) inside pid {pid}.");
+            return applied > 0;
+        }
+        finally
+        {
+            Native.CloseHandle(process);
+        }
+    }
+
+    private bool SetOne(IntPtr process, IntPtr setter, string name, string value)
+    {
+        var nameBytes = Encoding.Unicode.GetBytes(name + "\0");
+        var valueBytes = Encoding.Unicode.GetBytes(value + "\0");
+
+        // Layout: [name][value][stub]. The strings go first so their addresses are known
+        // before the stub that references them is built.
+        var nameOffset = 0;
+        var valueOffset = nameBytes.Length;
+        var codeOffset = valueOffset + valueBytes.Length;
+        var total = codeOffset + 64;
+
+        var block = Native.VirtualAllocEx(process, IntPtr.Zero, (UIntPtr)total, Native.MemCommit | Native.MemReserve, Native.PageExecuteReadWrite);
+        if (block == IntPtr.Zero)
+        {
+            log.Error($"remote env: VirtualAllocEx failed for {name} (error {Marshal.GetLastWin32Error()}).");
+            return false;
+        }
+
+        var thread = IntPtr.Zero;
+        try
+        {
+            var buffer = new byte[total];
+            Array.Copy(nameBytes, 0, buffer, nameOffset, nameBytes.Length);
+            Array.Copy(valueBytes, 0, buffer, valueOffset, valueBytes.Length);
+
+            var code = new List<byte>(64);
+            code.AddRange([0x48, 0x83, 0xEC, 0x28]);                                    // sub rsp, 0x28
+            code.AddRange([0x48, 0xB9]);                                                // mov rcx, imm64
+            code.AddRange(BitConverter.GetBytes(block.ToInt64() + nameOffset));
+            code.AddRange([0x48, 0xBA]);                                                // mov rdx, imm64
+            code.AddRange(BitConverter.GetBytes(block.ToInt64() + valueOffset));
+            code.AddRange([0x48, 0xB8]);                                                // mov rax, imm64
+            code.AddRange(BitConverter.GetBytes(setter.ToInt64()));
+            code.AddRange([0xFF, 0xD0]);                                                // call rax
+            code.AddRange([0x48, 0x83, 0xC4, 0x28]);                                    // add rsp, 0x28
+            code.Add(0xC3);                                                             // ret
+            code.CopyTo(buffer, codeOffset);
+
+            if (!Native.WriteProcessMemory(process, block, buffer, (UIntPtr)buffer.Length, out _))
+            {
+                log.Error($"remote env: WriteProcessMemory failed for {name} (error {Marshal.GetLastWin32Error()}).");
+                return false;
+            }
+
+            thread = Native.CreateRemoteThread(process, IntPtr.Zero, UIntPtr.Zero, new IntPtr(block.ToInt64() + codeOffset), IntPtr.Zero, 0, IntPtr.Zero);
+            if (thread == IntPtr.Zero)
+            {
+                log.Error($"remote env: CreateRemoteThread failed for {name} (error {Marshal.GetLastWin32Error()}).");
+                return false;
+            }
+
+            if (Native.WaitForSingleObject(thread, 10_000) != 0)
+            {
+                log.Warn($"remote env: the stub for {name} did not finish.");
+                return false;
+            }
+
+            Native.GetExitCodeThread(thread, out var exitCode);
+            if (exitCode == 0)
+            {
+                log.Warn($"remote env: SetEnvironmentVariableW({name}) returned FALSE inside the game.");
+                return false;
+            }
+
+            log.Line($"            {name}={value}");
+            return true;
+        }
+        finally
+        {
+            if (thread != IntPtr.Zero) { Native.CloseHandle(thread); }
+            Native.VirtualFreeEx(process, block, UIntPtr.Zero, Native.MemRelease);
+        }
+    }
+
     private string? Stage(string source)
     {
         try

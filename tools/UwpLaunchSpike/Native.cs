@@ -33,6 +33,7 @@ internal static class Native
     internal const uint MemReserve = 0x2000;
     internal const uint MemRelease = 0x8000;
     internal const uint PageReadWrite = 0x04;
+    internal const uint PageExecuteReadWrite = 0x40;
     internal const uint InfiniteWait = 0xFFFF_FFFF;
 
     [DllImport("kernel32.dll", SetLastError = true)]

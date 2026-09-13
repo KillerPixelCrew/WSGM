@@ -82,6 +82,8 @@ internal static class Program
             }
         }
 
+        var earlyDone = false;
+
         log.Section("Activation");
         log.Info($"mode: {options.Mode.ToString().ToLowerInvariant()}   target: {options.Aumid ?? options.Target}");
         var result = Activation.Launch(options, log);
@@ -92,19 +94,40 @@ internal static class Program
             return 3;
         }
 
-        log.Section("Supervision");
-        using var containment = options.Contain ? new GameContainment(log) : null;
-        using var proxy = options.Proxy ? new ForegroundProxy(log) : null;
         var injection = options.Inject.Count > 0 ? new Injection(log) : null;
-        if (injection is not null)
+
+        // The renderer hooks device creation, so it has to be in before the game builds
+        // its swapchain. ActivateApplication hands back the process id immediately, which
+        // is milliseconds after creation - waiting for the supervisor's first poll was
+        // putting the renderer in around eleven seconds late, long past any hook point.
+        if (options.Early && injection is not null && result.SeedPid > 0)
         {
-            foreach (var dll in options.Inject)
+            log.Section("Early attach");
+            log.Info($"early: acting on pid {result.SeedPid} straight from the activation, before the first poll.");
+            if (options.PassSteamEnvironment)
             {
-                log.Info($"injection queued: {dll}");
+                injection.SetRemoteEnvironment(result.SeedPid, options.SteamEnvironment);
+            }
+
+            var seed = ProcessProbe.Snapshot().FirstOrDefault(entry => entry.Pid == result.SeedPid);
+            if (seed is null)
+            {
+                log.Warn($"early: pid {result.SeedPid} was gone before it could be described.");
+            }
+            else
+            {
+                injection.InjectAll(options.Inject, ProcessProbe.Describe(seed, "<activation>", probeRights: false));
+                earlyDone = true;
             }
         }
 
-        var supervisor = new Supervisor(options, log, containment, proxy, injection);
+        log.Section("Supervision");
+        using var containment = options.Contain ? new GameContainment(log) : null;
+        using var proxy = options.Proxy ? new ForegroundProxy(log) : null;
+
+        // Injection and the environment are already done when the early attach ran; the
+        // supervisor must not repeat either.
+        var supervisor = new Supervisor(options, log, containment, proxy, earlyDone ? null : injection);
         var completed = supervisor.Run(result.SeedPid, cancellation.Token);
 
         log.Section("Result");

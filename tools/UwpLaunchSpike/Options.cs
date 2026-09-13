@@ -33,6 +33,11 @@ internal sealed class Options
 
     internal bool Proxy { get; private set; } = true;
 
+    /// Whether to set the environment and inject the moment activation returns a process
+    /// id, rather than on the supervisor's first poll. On by default: the overlay renderer
+    /// hooks device creation, so arriving after the game's swapchain exists is useless.
+    internal bool Early { get; private set; } = true;
+
     internal List<string> Inject { get; } = [];
 
     internal bool NoSuspend { get; private set; } = true;
@@ -140,6 +145,9 @@ internal sealed class Options
                     break;
                 case "--no-proxy":
                     options.Proxy = false;
+                    break;
+                case "--no-early":
+                    options.Early = false;
                     break;
                 case "--allow-suspend":
                     options.NoSuspend = false;
