@@ -23,6 +23,10 @@ before you trust the change.
 
 ## Steam
 
+[Steam overlay and input across launchers](steam-launcher-handoff.md) records runtime
+classification, the demonstrated UWP and packaged Win32 launch routes, and the checks for consistent
+overlay/input through launcher replacements and foreground changes.
+
 | Read                                             | When you want to understand                                                                                                            |
 | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `steam-cef.md`                                   | findings from driving Steam's front-end: libraries, tabs, badges, launch options, download sorting, revived surfaces, the 2026-09 beta |

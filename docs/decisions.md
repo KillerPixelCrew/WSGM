@@ -161,3 +161,13 @@ Desktop Mode can therefore lack controller support for multiplayer games on this
 maintainer accepts that limitation. Controller-only must not silently enable the injection route.
 Neither mode carries a general anti-cheat compatibility guarantee. These are launcher design
 decisions, not shipped per-game options or an expansion of the 2.0 milestone.
+
+**Xbox imports select a launcher by runtime (2026-09-14).** The future library sync in
+[#47](https://github.com/KillerPixelCrew/WSGM/issues/47) identifies UWP/AppContainer versus packaged
+Win32/GDK before generating a shortcut and selects the corresponding launch strategy from #48. Both
+are packaged; an Xbox source or WindowsApps path does not determine the runtime. Moonlighter
+required an AppContainer IPC/input bridge and CoreWindow correction. PowerWash Simulator 2 worked by
+injecting Steam into its AAM-created launch helper early and letting Steam follow the game child.
+This automatic technical routing remains separate from the user's explicit Steam-integration versus
+controller-only choice. Unknown classification must not silently enable injection. See
+[Steam launcher handoff](steam-launcher-handoff.md) for the evidence and remaining limits.

@@ -35,6 +35,15 @@ support remain deferred under #48.
 The eventual launcher will offer explicit single-player Steam integration and controller-only
 VIIPER Xbox modes; this selection and its session switching are not implemented by the spike.
 
+PowerWash Simulator 2 also passed attended controller input and overlay testing on 2026-09-14.
+It is packaged Win32/GDK: early Steam environment/client/renderer injection into the AAM-created
+GameLaunchHelper enabled Steam's child-process handoff without the AppContainer bridge or foreground
+proxy. Repeated Alt-Tab is not separately confirmed. The future #47 importer must classify Xbox titles
+by runtime and select the corresponding #48 launcher while preserving the explicit input-mode choice.
+The reusable [launcher handoff findings](../docs/steam-launcher-handoff.md) document session lifetime,
+creation timing, IPC, foreground ownership, and input API validation. Both issues remain deferred;
+automatic classification and production launch routing are not implemented.
+
 ## Display and Device usability follow-up (2026-09-13)
 
 The approved design is implemented: manual display arrangement with per-display inspection,

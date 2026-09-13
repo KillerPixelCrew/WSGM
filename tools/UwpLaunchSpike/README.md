@@ -32,13 +32,61 @@ Transcripts go to `%LOCALAPPDATA%/WSGM/uwp-spike`. With the bridge enabled, the 
 is redirected through a brokered file handle to `<transcript>.renderer-<pid>.log`. The normal Steam
 renderer log otherwise describes the wrapper and can be misleading.
 
-Do not attach a debugger or these investigation tools to Steam CEF. The maintainer reported a
-CEF-related Steam failure during this investigation and explicitly prohibited that route. Use native
-process/window/handle observations and file logs. Do not change the live shortcut through CEF. The
-previous shortcut options are recorded locally in `publish/uwp-spike-shortcut-recovery.json` for
-this session.
+Do not attach a debugger to Steam. The maintainer reported a CEF-related Steam failure during this
+investigation. Use native process/window/handle observations and file logs for game diagnostics. On
+September 14 the maintainer explicitly authorized CEF shortcut management for the PowerWash trial,
+but reported another Steam failure during those calls. Stop using CEF for this investigation,
+including shortcut edits. Update the shortcut file only while Steam is stopped, with a backup and
+checks that preserve other entries and refuse a write if Steam restarts. Previous Moonlighter
+options are recorded locally in `publish/uwp-spike-shortcut-recovery.json` for this session.
 
 ## Attended findings on 2026-09-13 and 2026-09-14
+
+### PowerWash Simulator 2
+
+The installed `FuturLabLtd.PowerWashSimulator2_1.0.286.0_x64__2xkwfxww5pj0p` package is a full-trust
+Win32/GDK title. Its manifest activates `GameLaunchHelper.exe`; `MicrosoftGame.config` names
+`PowerWash Simulator 2.exe`. The game owns a normal `UnityWndClass` window, has no AppContainer
+token, and loads `xinput1_3.dll`.
+
+- In the 00:26 AAM trial Steam tracked the wrapper, but neither the helper nor the final game
+  received Steam's renderer. The maintainer confirmed no overlay or gamepad input and the Desktop
+  Steam Input profile. Reported parent lineage did not establish Steam hook propagation.
+- In the 00:28 direct game-executable trial Steam tracked the initial process (4568), which exited
+  after about two seconds. The replacement game (14264) was not tracked and had no Steam renderer.
+  The maintainer confirmed the same failure and loss of Steam's running state.
+- In the 00:30 wrapper-to-helper trial Steam tracked and injected helper 20924, but `dllhost.exe`
+  started replacement helper 16928 at medium integrity. That helper launched game 7464 without
+  Steam's renderer. The maintainer confirmed the running state was restored, still with no overlay
+  or input. This isolates the observed loss to the helper replacement.
+- Suspended creation probes with `PROC_THREAD_ATTRIBUTE_PACKAGE_FULL_NAME` succeeded for the helper
+  from PowerShell, including the same managed creation code and an explicit environment block. Each
+  probe was terminated before its primary thread ran. The standalone wrapper failed with error 575
+  both inside and outside Steam, including suspended creation. The differing caller context remains
+  unresolved; the unsuccessful wrapper option was removed.
+- The 00:42 AAM trial forwarded Steam's environment and injected its client/renderer into the
+  returned helper (7740) immediately. Steam then tracked the actual game (19296), which had its
+  renderer loaded by the supervisor's first observation, before scheduled game injection. Steam
+  selected the shortcut's XInput layout. The maintainer confirmed working controller input and
+  overlay. No custom AppContainer bridge or foreground proxy was used. Repeated Alt-Tab has not been
+  separately confirmed for PowerWash.
+
+The working PowerWash shortcut uses the same wrapper executable with:
+
+```text
+--aumid "FuturLabLtd.PowerWashSimulator2_2xkwfxww5pj0p!Game" --inject-steam-client --inject-steam-overlay --probe-rights --hide-console --no-contain --no-proxy --allow-suspend
+```
+
+Direct executable children have `SDL_GAMECONTROLLER_IGNORE_DEVICES` removed from their inherited
+environment. AAM environment forwarding includes only Steam variables and excludes SDL variables.
+The supervisor's existing delayed environment/injection checks remain enabled in the working trial;
+their necessity for descendants that already inherited Steam's renderer has not been established.
+This is a result for this installed title, not general GDK or anti-cheat compatibility.
+
+The separate PowerWash shortcut has AppID `2464988290` and game ID `10587044090606518272`. The
+Moonlighter shortcut remains independent.
+
+### Moonlighter
 
 Moonlighter is package `11bitstudios.20925BA3921E0_1.14.30.2_x64__gwy9gn5q9j1y6` on this machine.
 The observations below are specific to these attended trials, not a compatibility guarantee.

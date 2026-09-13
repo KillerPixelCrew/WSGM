@@ -140,6 +140,9 @@ internal static class Activation
                 UseShellExecute = false,
                 WorkingDirectory = System.IO.Path.GetDirectoryName(options.Target!) ?? Environment.CurrentDirectory,
             };
+            // Steam's ignore list includes its own virtual controllers. Controlled
+            // children must be able to enumerate those devices.
+            info.Environment.Remove("SDL_GAMECONTROLLER_IGNORE_DEVICES");
             if (!string.IsNullOrEmpty(options.GameArguments))
             {
                 info.Arguments = options.GameArguments;
