@@ -77,7 +77,22 @@ internal sealed class DesktopAppProcessBackend : IDesktopAppBackend
                 }
                 while (process.MainWindowHandle != 0);
             }
-            if (instance.Rule.ExitCommand is { } command)
+            if (instance.Rule.ExitWindowClass is { } windowClass)
+            {
+                nint window = 0;
+                bool posted = false;
+                while ((window = NativeMethods.FindWindowExW(0, window, windowClass, null)) != 0)
+                {
+                    NativeMethods.GetWindowThreadProcessId(window, out uint owner);
+                    if (owner != instance.ProcessId) { continue; }
+                    // The hidden event window handles a normal application exit. Never fall back
+                    // to Kill: that marks Wallpaper Engine's next launch as crash recovery.
+                    posted = NativeMethods.PostMessageW(window, 0x0010, 0, 0); // WM_CLOSE
+                    break;
+                }
+                if (!posted) { throw new InvalidOperationException($"Could not request {instance.Rule.Name} exit."); }
+            }
+            else if (instance.Rule.ExitCommand is { } command)
             {
                 string commandPath = Path.Combine(Path.GetDirectoryName(instance.ExecutablePath)!, command);
                 using Process request = Process.Start(new ProcessStartInfo(commandPath, instance.Rule.ExitArguments)
@@ -120,8 +135,9 @@ internal sealed class DesktopAppProcessBackend : IDesktopAppBackend
         {
             using Process? launched = Process.Start(new ProcessStartInfo(instance.ExecutablePath, instance.Rule.RestartArguments)
             {
-                UseShellExecute = true,
-                Verb = "runas",
+                UseShellExecute = !instance.Rule.CreateNoWindow,
+                Verb = instance.Rule.CreateNoWindow ? "" : "runas",
+                CreateNoWindow = instance.Rule.CreateNoWindow,
                 WindowStyle = ProcessWindowStyle.Hidden,
                 WorkingDirectory = Path.GetDirectoryName(instance.ExecutablePath)!,
             });
@@ -131,7 +147,8 @@ internal sealed class DesktopAppProcessBackend : IDesktopAppBackend
         else
         {
             result = await UnelevatedLauncher.TryStartViaScheduledTaskAsync(
-                instance.ExecutablePath, instance.Rule.RestartArguments, deadline, CancellationToken.None)
+                instance.ExecutablePath, instance.Rule.RestartArguments, deadline, CancellationToken.None,
+                Path.GetDirectoryName(instance.ExecutablePath))
                 .ConfigureAwait(false);
         }
         // Let a supervisor see its hook already running, and let a later same-path record observe

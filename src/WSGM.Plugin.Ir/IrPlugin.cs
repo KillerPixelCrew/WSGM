@@ -209,6 +209,14 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
             {
                 return new(request.OperationId, PluginActionOutcome.Rejected, "Plugin generation changed.");
             }
+            // The firmware closes idle TCP clients after two minutes. A cached identity cannot
+            // prove that socket is still alive. Start each explicit Wi-Fi action on a fresh link,
+            // before any emission, rather than discovering the stale connection with an IR write.
+            if (_transport == WifiTransport && _endpoint is { } previousEndpoint)
+            {
+                _endpoint = null;
+                await previousEndpoint.DisposeAsync().ConfigureAwait(false);
+            }
             string Arg(string key) => request.Arguments[key].Text ?? "";
             Publish("status", $"{request.ActionId} requested", request.OperationId);
             switch (request.ActionId)

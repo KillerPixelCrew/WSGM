@@ -13,6 +13,8 @@ internal sealed class FakeEndpoint : IIrEndpoint
     /// <summary>How many identity polls still report a running sequence.</summary>
     internal int SequencePolls;
     internal bool Cancelled;
+    internal bool Disposed;
+    internal bool FailPress;
     public IrEndpointIdentity? Identity { get; set; }
     public Task<IrEndpointIdentity> IdentifyAsync(CancellationToken token)
     {
@@ -36,6 +38,7 @@ internal sealed class FakeEndpoint : IIrEndpoint
     public Task PressAsync(string remote, string button, CancellationToken token)
     {
         RemoteCalls.Add($"press {remote}/{button}");
+        if (FailPress) { throw new IOException("The IR endpoint closed the network connection."); }
         return Task.CompletedTask;
     }
     public Task ClimateAsync(string remote, IrClimateRequest request, CancellationToken token)
@@ -54,7 +57,7 @@ internal sealed class FakeEndpoint : IIrEndpoint
         Cancelled = true;
         return Task.CompletedTask;
     }
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
     private IrEndpointIdentity Describe() => new("test", "fake", Firmware, 1, 1024, "wsgm-ir-abc123", 7521,
         Network is { Ssid.Length: > 0 }, Connected && Network is { Ssid.Length: > 0 },
         Connected && Network is { Ssid.Length: > 0 } ? "192.0.2.7" : "",

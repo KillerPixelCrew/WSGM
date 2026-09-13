@@ -161,10 +161,10 @@ absent or broken.
 ### Desktop integrations leave before Explorer
 
 `Core\DesktopAppLifecycle.cs` holds the hardcoded integration list. Each rule names exact primary
-processes, the exit command when one exists, restart arguments and any editor-close requirement.
-`DesktopAppProcessBackend` supplies the Windows operations; `ExplorerDesktopHost` owns the captured
-instances under its transition gate. Add future Explorer-hooking applications to this list rather
-than adding another boot or mode-switch branch.
+processes, an exit command or hidden event-window class, restart arguments and console/editor
+policy. `DesktopAppProcessBackend` supplies the Windows operations; `ExplorerDesktopHost` owns the
+captured instances under its transition gate. Add future Explorer-hooking applications to this list
+rather than adding another boot or mode-switch branch.
 
 Immediately before Explorer's exit, WSGM captures listed processes in its own Windows session,
 including their executable paths, PIDs, start times and elevation. Nothing is launched merely
@@ -173,11 +173,11 @@ unreadable process, failed exit or respawning integration refuses takeover. A pa
 restores the affected apps while retaining Explorer. Captured identity is checked again before
 stopping a process; services and unrelated processes are not selected by a substring match.
 
-| Integration      | Exit                                                                                                         | Desktop return                            |
-| ---------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------- |
-| DisplayFusion    | Its sibling `DisplayFusionCommand.exe -closeall`, then wait for exit                                         | Captured `DisplayFusion.exe`              |
-| Wallpaper Engine | Terminate the captured `wallpaper32.exe` or `wallpaper64.exe` tree                                           | Same executable with `-silent`            |
-| LittleBigMouse   | Close an open Avalonia editor first, allowing its save prompt; then terminate the captured UI and hook trees | Captured hook first, then the captured UI |
+| Integration      | Exit                                                                                                         | Desktop return                                        |
+| ---------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| DisplayFusion    | Its sibling `DisplayFusionCommand.exe -closeall`, then wait for exit                                         | Captured `DisplayFusion.exe`                          |
+| Wallpaper Engine | Post `WM_CLOSE` to its PID-owned `WPEEventWindow`, then wait for exit                                        | Same executable with `-silent`                        |
+| LittleBigMouse   | Close an open Avalonia editor first, allowing its save prompt; then terminate the captured UI and hook trees | Captured hook without a console, then the captured UI |
 
 DisplayFusion's
 [command-line guide](https://www.displayfusion.com/HelpGuide/DisplayFusionCommandLineTool/)
@@ -189,13 +189,14 @@ transition pass. The LittleBigMouse rule covers the current Avalonia UI and Hook
 
 Normal desktop restoration, failed-entry recovery and coordinated WSGM exit restart remembered
 applications only after Explorer is verified usable. Restarts preserve the captured elevation:
-normal apps use the existing unelevated launcher, and previously elevated apps use ShellExecute
-`runas`. This respects compatibility elevation flags that can reject direct process creation with
-error 740 even from the elevated resident. Both use original executable paths, a bounded wait and a
-running-instance check. WSGM's startup-app sequence and auto-relaunch watcher suppress listed
-integrations while the desktop is suspended. An uncertain launch is not dispatched again. Windows
-sign-out/shutdown does not restart them. Ownership is in memory for the resident session; the
-independent shell-anchor/watchdog crash recovery restores Explorer only.
+normal apps use the existing unelevated launcher with their installation directory, and previously
+elevated GUI apps use ShellExecute `runas`. Console-free helpers use direct process creation with
+`CreateNoWindow` from the elevated host. This respects compatibility elevation flags that can reject
+direct process creation with error 740 even from the elevated resident. Both use original executable
+paths, a bounded wait and a running-instance check. WSGM's startup-app sequence and auto-relaunch
+watcher suppress listed integrations while the desktop is suspended. An uncertain launch is not
+dispatched again. Windows sign-out/shutdown does not restart them. Ownership is in memory for the
+resident session; the independent shell-anchor/watchdog crash recovery restores Explorer only.
 
 ### Explorer is asked to exit through its own "Exit Explorer" command
 
@@ -326,6 +327,10 @@ the desktop, start Explorer through the anchor, run the configured leave actions
 monitoring and supply the windowed client. The layout goes back before Explorer does, as the scaling
 restore always has, because Explorer sizes its taskbar and desktop icons to whatever the displays
 say when it starts.
+
+Session plugin actions log their start and completion outcome without dumping their arguments. The
+IR plugin opens and identifies a fresh Wi-Fi connection for each explicit action because the
+endpoint closes idle clients after two minutes. An uncertain transmission is never retried.
 
 Game mode from the desktop is one cancellable transaction, `Shell\GameModeEntryTransaction.cs`.
 Everything before the Explorer exit is undoable, so the splash offers Cancel and a failure puts the

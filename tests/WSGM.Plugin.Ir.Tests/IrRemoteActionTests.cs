@@ -91,6 +91,43 @@ public sealed class IrRemoteActionTests
         });
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WifiReturnUsesAFreshIdentifiedConnectionAndNeverRetriesAPress(bool failReturn)
+    {
+        string folder = Path.Combine(Path.GetTempPath(), "wsgm-ir-tests-" + Guid.NewGuid().ToString("N"));
+        PluginContext context = new(new("wsgm.ir", "test"), 1, PluginSessionMode.Desktop,
+            DateTimeOffset.UtcNow.AddMinutes(1), folder);
+        FakeEndpoint entry = new() { Catalog = Catalog() };
+        FakeEndpoint leave = new() { Catalog = Catalog(), FailPress = failReturn };
+        int opened = 0;
+        try
+        {
+            Directory.CreateDirectory(folder);
+            await new IrPairing(new string('a', 48), "test.invalid", "192.0.2.1")
+                .SaveAsync(Path.Combine(folder, "endpoint.json"), default);
+            await using IrPlugin plugin = new(_ => ++opened == 1 ? entry : leave);
+            await plugin.StartAsync(new Host(), context, default);
+            await plugin.ConfigureAsync(new(1, PluginConfigurationOrigin.User,
+                new Dictionary<string, PluginValue> { ["transport"] = new(Text: "wifi") }), context, default);
+            Assert.Equal(PluginActionOutcome.Dispatched, (await Invoke(plugin, context, "remote-press",
+                ("remote", new(Text: "hdmi-switch")), ("button", new(Text: "port-1")))).Outcome);
+            // Simulate the firmware's idle close while the old identity remains cached.
+            entry.FailPress = true;
+            Assert.NotNull(entry.Identity);
+            PluginActionResult result = await Invoke(plugin, context, "remote-press",
+                ("remote", new(Text: "hdmi-switch")), ("button", new(Text: "port-3")));
+            Assert.Equal(failReturn ? PluginActionOutcome.Unconfirmed : PluginActionOutcome.Dispatched, result.Outcome);
+            Assert.True(entry.Disposed);
+            Assert.Equal(2, opened);
+            Assert.Equal(1, leave.Identifications);
+            Assert.Equal(["press hdmi-switch/port-1"], entry.RemoteCalls);
+            Assert.Equal(["press hdmi-switch/port-3"], leave.RemoteCalls);
+        }
+        finally { if (Directory.Exists(folder)) { Directory.Delete(folder, true); } }
+    }
+
     [Fact]
     public async Task CancellingAPostPressPauseDoesNotRepeatTheEmittedButton()
     {

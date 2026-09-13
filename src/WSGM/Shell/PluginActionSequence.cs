@@ -41,7 +41,7 @@ internal interface IPluginActionInvoker
 /// read. Leave, desktop startup and desktop wake run every step and report what failed, because
 /// each one is independently worth attempting and there is nothing to abort. Nothing is ever
 /// retried in either mode.</summary>
-internal sealed class PluginActionSequence(IPluginActionInvoker invoker)
+internal sealed class PluginActionSequence(IPluginActionInvoker invoker, Action<string>? log = null)
 {
     /// <summary>Runs steps in order, stopping at the first that did not succeed.</summary>
     /// <param name="steps">Configured steps.</param>
@@ -72,7 +72,10 @@ internal sealed class PluginActionSequence(IPluginActionInvoker invoker)
         foreach (PluginActionStep step in steps)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            string action = $"{step.Plugin?.PluginId}/{step.Plugin?.InstanceId} {step.ActionId}";
+            log?.Invoke($"Session action starting: {action}.");
             PluginActionStepResult result = await RunStepAsync(step, cancellationToken).ConfigureAwait(false);
+            log?.Invoke($"Session action completed: {action}: {result.Outcome}; {result.Detail}");
             results.Add(result);
             if (stopOnFailure && !result.Succeeded) { break; }
         }

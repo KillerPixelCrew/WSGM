@@ -13,7 +13,9 @@ internal sealed record DesktopAppRule(
     string? ExitCommand,
     string ExitArguments,
     string RestartArguments,
-    bool CloseMainWindowFirst = false);
+    bool CloseMainWindowFirst = false,
+    bool CreateNoWindow = false,
+    string? ExitWindowClass = null);
 
 /// <summary>An exact current-session process captured before desktop takeover.</summary>
 internal sealed record DesktopAppInstance(
@@ -33,13 +35,13 @@ internal interface IDesktopAppBackend
 internal sealed class DesktopAppLifecycle(IDesktopAppBackend backend, Action<string> warn)
 {
     // Add integrations here, with their primary process names rather than service/helper names.
-    // A null exit command means terminate the captured process tree; never sweep by substring.
+    // Without an exit command/window, terminate only the captured process tree.
     internal static IReadOnlyList<DesktopAppRule> Rules { get; } =
     [
         new("DisplayFusion", ["DisplayFusion"], "DisplayFusionCommand.exe", "-closeall", ""),
-        new("Wallpaper Engine", ["wallpaper32", "wallpaper64"], null, "", "-silent"),
+        new("Wallpaper Engine", ["wallpaper32", "wallpaper64"], null, "", "-silent", ExitWindowClass: "WPEEventWindow"),
         new("LittleBigMouse UI", ["LittleBigMouse.Ui.Avalonia"], null, "", "", CloseMainWindowFirst: true),
-        new("LittleBigMouse hook", ["LittleBigMouse.Hook"], null, "", ""),
+        new("LittleBigMouse hook", ["LittleBigMouse.Hook"], null, "", "", CreateNoWindow: true),
     ];
 
     private readonly List<DesktopAppInstance> _pending = [];

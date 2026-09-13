@@ -66,7 +66,9 @@ network, so pairing requires physical possession. The endpoint joins in the back
 poll `identify` for `wifiConnected` and `ip`. Firmware without network support answers `wifi` with
 `unsupported-operation`. The endpoint serves one network client; a new connection replaces the
 previous one, and a client idle for two minutes is closed. Identity fields that older firmware omits
-read as unconfigured on the host.
+read as unconfigured on the host. Each explicit host Wi-Fi action opens and identifies a fresh
+connection before endpoint work; cached identity is not evidence that an idle socket remains alive.
+This reconnection precedes any transmission and does not retry an uncertain operation.
 
 Payload fields:
 

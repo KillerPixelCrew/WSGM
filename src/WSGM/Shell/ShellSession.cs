@@ -1901,7 +1901,7 @@ public sealed class ShellSession : IAsyncDisposable
         Log.Info("Device Integration enabled from the overlay's prerequisites banner.");
     });
 
-    private PluginActionSequence ActionSequence() => new(new PluginHostActionInvoker(_pluginHost));
+    private PluginActionSequence ActionSequence() => new(new PluginHostActionInvoker(_pluginHost), Log.Info);
 
     /// <summary>Every action the running non-device instances declare, for the Settings lists.
     /// Device instances are excluded: their controls belong to the Device surfaces, and a session

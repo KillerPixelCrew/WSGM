@@ -8,10 +8,11 @@ public sealed class UnelevatedLauncherTests
     [Fact]
     public void DeElevationTaskEscapesExecutableAndArgumentsInXml()
     {
-        var xml = UnelevatedLauncher.BuildTaskXml("C:\\A&B\\WSGM.exe", "--open-<wifi>-settings");
+        var xml = UnelevatedLauncher.BuildTaskXml("C:\\A&B\\WSGM.exe", "--open-<wifi>-settings", "C:\\A&B");
 
         Assert.Contains("<Command>C:\\A&amp;B\\WSGM.exe</Command>", xml);
         Assert.Contains("<Arguments>--open-&lt;wifi&gt;-settings</Arguments>", xml);
+        Assert.Contains("<WorkingDirectory>C:\\A&amp;B</WorkingDirectory>", xml);
     }
 
     [Fact]

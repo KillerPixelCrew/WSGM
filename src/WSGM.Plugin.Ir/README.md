@@ -49,7 +49,10 @@ the preference override, which may carry an explicit `host:port`. Every request 
 carries the token; the endpoint answers `unauthorized` otherwise, so other LAN clients cannot blast
 commands, though the token travels unencrypted on the local network. The endpoint serves one host at
 a time and the newest connection replaces an older one, so a reconnecting WSGM never waits on a dead
-socket. Firmware 0.1.0 has no network support; Wi-Fi setup against it reports that explicitly.
+socket. The firmware closes idle clients after two minutes. Each explicit Wi-Fi action discards the
+previous connection and identifies a fresh connection before endpoint work, so a later desktop
+return does not send through an idle socket. An uncertain transmission is never retried. Firmware
+0.1.0 has no network support; Wi-Fi setup against it reports that explicitly.
 
 ## Library and actions
 

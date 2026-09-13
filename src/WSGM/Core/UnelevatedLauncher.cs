@@ -36,7 +36,8 @@ internal static class UnelevatedLauncher
         string exePath,
         string arguments,
         DateTimeOffset deadline,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? workingDirectory = null)
     {
         string suffix = $"{Environment.ProcessId}-{Random.Shared.Next():x8}";
         string taskName = $"WSGM_StartUnelevated_{suffix}";
@@ -51,7 +52,7 @@ internal static class UnelevatedLauncher
             }
 
             Directory.CreateDirectory(Log.Directory);
-            string taskXml = BuildTaskXml(exePath, arguments);
+            string taskXml = BuildTaskXml(exePath, arguments, workingDirectory);
             using (var writeCancellation = CreateBudgetCancellation(deadline, cancellationToken))
             {
                 await File.WriteAllTextAsync(
@@ -217,7 +218,7 @@ internal static class UnelevatedLauncher
         }
     }
 
-    internal static string BuildTaskXml(string exePath, string arguments = "")
+    internal static string BuildTaskXml(string exePath, string arguments = "", string? workingDirectory = null)
     {
         // InteractiveToken principal without a RunLevel element = the user's
         // filtered medium-IL token (RunLevel defaults to LeastPrivilege).
@@ -226,6 +227,9 @@ internal static class UnelevatedLauncher
         var argumentsElement = arguments.Length == 0
             ? ""
             : $"\n                  <Arguments>{System.Security.SecurityElement.Escape(arguments)}</Arguments>";
+        var directoryElement = string.IsNullOrEmpty(workingDirectory)
+            ? ""
+            : $"\n                  <WorkingDirectory>{System.Security.SecurityElement.Escape(workingDirectory)}</WorkingDirectory>";
         return $"""
             <?xml version="1.0" encoding="UTF-16"?>
             <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -244,7 +248,7 @@ internal static class UnelevatedLauncher
               </Settings>
               <Actions Context="Author">
                 <Exec>
-                  <Command>{System.Security.SecurityElement.Escape(exePath)}</Command>{argumentsElement}
+                  <Command>{System.Security.SecurityElement.Escape(exePath)}</Command>{argumentsElement}{directoryElement}
                 </Exec>
               </Actions>
             </Task>

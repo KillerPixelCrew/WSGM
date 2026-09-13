@@ -45,6 +45,12 @@ DisplayFusion's compatibility elevation requirement; elevated desktop apps now r
 ShellExecute `runas`. The warning-clean build and 34 focused tests passed; the corrected transition
 still needs an attended retry.
 
+The same return missed the configured HDMI switch Port 3 action. The saved action is correct, but
+the old log did not record its result. Wi-Fi actions now discard the cached connection before
+identification because firmware closes idle clients after two minutes; uncertain presses are never
+retried. Session actions log dispatch and outcome. All 35 IR tests and 18 focused session tests
+passed with a warning-clean build. Physical Port 3 acceptance remains an attended check.
+
 After delivery of #38/#39, #51/#53, #58/#59, #61, #65–#68, #22/#26/#35/#36 and, on 2026-09-11,
 #20/#28/#30/#31/#34/#70/#71/#72 and, that evening, #52, eight issues remain open. Issues #41, #42,
 #44, #45, #47 and #48 remain deferred; #21 and #40 are the 2.0 scope. #20 and #28 were closed on 2026-09-10 and
@@ -851,3 +857,5 @@ automated-test evidence closed it. Attended and live device validation is option
 maintainer-directed; the attended gates that once sat under these milestones were retired by
 maintainer decision on 2026-09-04, and their diagnostic recipes stay in git history. Never describe
 an attended pass as performed unless it actually ran.
+
+The 2026-09-13 desktop follow-up reproduced Wallpaper Engine's crash-recovery UI after forced termination. Closing its PID-owned hidden event window exited cleanly; its next silent launch showed no UI. DisplayFusion also restarted hidden in the isolated check. LittleBigMouse's hook now uses console-free creation; scheduled application restoration supplies the installation directory. The warning-clean build and 40 focused host tests passed. These isolated checks do not establish a full Game Mode or physical IR pass.

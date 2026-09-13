@@ -41,11 +41,15 @@ public sealed class PluginActionSequenceTests
             { "three", PluginActionOutcome.Unconfirmed },
         };
 
-        var results = await new PluginActionSequence(invoker)
+        List<string> log = [];
+        var results = await new PluginActionSequence(invoker, log.Add)
             .RunAllAsync([Step("one"), Step("two"), Step("three")], default);
 
         Assert.Equal(["one", "two", "three"], invoker.Invoked);
         Assert.Equal([false, true, false], results.Select(result => result.Succeeded));
+        Assert.Equal(6, log.Count);
+        Assert.Contains("Session action starting: wsgm.ir/blaster one.", log);
+        Assert.Contains(log, line => line.Contains("three: Unconfirmed", StringComparison.Ordinal));
     }
 
     [Fact]
