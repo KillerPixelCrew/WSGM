@@ -352,18 +352,6 @@ public sealed class ExplorerShellPolicyTests
     }
 
     [Fact]
-    public void CanResumeGameModeSafely_RejectsLateLaunchAndVisibleShellRaces()
-    {
-        ExplorerDesktopResult safe = FailedResult(launchDispatched: false, shellSurfacePresent: false);
-        ExplorerDesktopResult dispatched = FailedResult(launchDispatched: true, shellSurfacePresent: false);
-        ExplorerDesktopResult visible = FailedResult(launchDispatched: false, shellSurfacePresent: true);
-
-        Assert.True(safe.CanResumeGameModeSafely);
-        Assert.False(dispatched.CanResumeGameModeSafely);
-        Assert.False(visible.CanResumeGameModeSafely);
-    }
-
-    [Fact]
     public void InspectErrors_KeepIndependentWin32FailureCodes()
     {
         NativeShellProcessErrors errors = new(5, 6, 7, 8, 9);

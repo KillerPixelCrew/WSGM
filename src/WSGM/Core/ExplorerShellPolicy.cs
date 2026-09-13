@@ -12,8 +12,9 @@ internal static class ExplorerShellPolicy
         bool taskbarPresent,
         bool shellWindowPresent,
         uint taskbarOwnerProcessId,
-        uint shellOwnerProcessId) =>
-        taskbarPresent
+        uint shellOwnerProcessId,
+        bool responsive = true) =>
+        responsive && taskbarPresent
         && shellWindowPresent
         && taskbarOwnerProcessId != 0
         && taskbarOwnerProcessId == shellOwnerProcessId;

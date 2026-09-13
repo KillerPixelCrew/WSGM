@@ -26,6 +26,20 @@ recreated during selection. Picker tests now use real input. Connected Windows-d
 also contribute EDID/DisplayID timings without being enabled, retaining remembered driver modes.
 Read-only checks found the native high-refresh modes of the disabled G7, X32 and G93SC displays.
 
+## Desktop/Game Mode transition redesign (2026-09-13)
+
+The attended return failure left Explorer alive without a taskbar; a replacement then hung on the
+retired shell. Emergency recovery was confirmed usable by the maintainer. The redesign replaces
+process-count takeover with a retained shell-owner handle, orderly exit, a two-second retired-shell
+allowance and stable shell absence. Active/replacement desktops and unrelated folder processes are
+not force-closed during entry. Normal return and failed entry now share one exception-isolated
+sequence. Desktop requests survive entry; UI commits are awaited; pending layouts survive failed
+restoration; IR cleanup begins after desktop readiness and splash dismissal. Duplicate completed
+returns do not replay actions. The focused run passed 97 tests. The warning-clean Release solution build, 3,453 non-UI tests and
+2,559-test coverage run passed. The full gate stopped on existing docs/elevation.md formatting;
+the UI test host exited before discovery. The maintainer stopped further testing and requested
+immediate deployment. This is not a fresh attended transition pass.
+
 ## Current issue workoff
 
 Desktop integration takeover now has a shared hardcoded rule list for DisplayFusion, Wallpaper

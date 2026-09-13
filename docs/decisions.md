@@ -138,3 +138,11 @@ Settings behind the user's back. Details in `docs\boot-and-shell.md`, "Install m
 package has precompiled XAML that fails on Avalonia 12; its Unlicense text ships from
 `src\WSGM\Licenses\`. `FluentAvaloniaUI` 3.0.2 and an explicit `Avalonia.Controls.ColorPicker`
 12.1.1 pin keep the controls on the same Avalonia line.
+
+**Desktop recovery is a single transition (2026-09-13).** Normal return and failed Game Mode entry
+share ordered, independently guarded cleanup. They restore a responsive Explorer before optional IR
+actions and never redirect a failed desktop request back into Game Mode. The shell's window owners
+and responsiveness define readiness. After orderly exit has removed both shell surfaces for two
+seconds, WSGM may release the retained original process; it never force-closes an active or
+replacement shell during takeover. This replaces waiting for every Explorer process to disappear,
+which stranded the attended desktop after its taskbar had already exited.

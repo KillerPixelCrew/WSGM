@@ -90,6 +90,19 @@ public sealed class PluginActionSequenceTests
         Assert.False(PluginActionSequence.NeedsCompensation([]));
     }
 
+    [Fact]
+    public async Task CancellationBetweenStepsPreservesTheAlreadyDispatchedOutcome()
+    {
+        using CancellationTokenSource cancellation = new();
+        Invoker invoker = new() { { "one", PluginActionOutcome.Dispatched } };
+        invoker.AfterInvoke = cancellation.Cancel;
+        var results = await new PluginActionSequence(invoker)
+            .RunUntilFailureAsync([Step("one"), Step("two")], cancellation.Token);
+        Assert.Single(results);
+        Assert.True(PluginActionSequence.NeedsCompensation(results));
+        Assert.Equal(["one"], invoker.Invoked);
+    }
+
     private sealed class Invoker : IPluginActionInvoker, System.Collections.IEnumerable
     {
         private readonly Dictionary<string, PluginActionOutcome> _outcomes = [];
@@ -99,6 +112,7 @@ public sealed class PluginActionSequenceTests
         internal string? Hang { get; set; }
 
         internal string? Throw { get; set; }
+        internal Action? AfterInvoke { get; set; }
 
         internal void Add(string actionId, PluginActionOutcome outcome) => _outcomes[actionId] = outcome;
 
@@ -110,6 +124,7 @@ public sealed class PluginActionSequenceTests
             Invoked.Add(step.ActionId!);
             if (step.ActionId == Throw) { throw new InvalidOperationException("the endpoint went away"); }
             if (step.ActionId == Hang) { await Task.Delay(Timeout.Infinite, cancellationToken); }
+            AfterInvoke?.Invoke();
             return new(Guid.NewGuid(), _outcomes.GetValueOrDefault(step.ActionId!, PluginActionOutcome.Rejected));
         }
     }

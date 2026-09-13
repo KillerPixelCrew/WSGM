@@ -217,6 +217,40 @@ public sealed class GameModeEntryTransactionTests
         Assert.InRange(notCancellable, lastCancellable + 1, exit);
     }
 
+    [Fact]
+    public async Task APartialExplorerExitAlwaysRecoversAndNeverCommits()
+    {
+        Backend backend = new() { ExitExplorer = false, PreserveDesktop = false };
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(default);
+        Assert.Equal(GameModeEntryOutcome.DesktopPreserved, result.Outcome);
+        Assert.Contains("restore-desktop", backend.Calls);
+        Assert.DoesNotContain("commit", backend.Calls);
+    }
+
+    [Fact]
+    public async Task ADesktopRequestDuringExplorerExitIsHonouredAfterTheExit()
+    {
+        using CancellationTokenSource cancellation = new();
+        Backend backend = new() { OnExit = cancellation.Cancel };
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(cancellation.Token);
+        Assert.Equal(GameModeEntryOutcome.Cancelled, result.Outcome);
+        Assert.Contains("restore-desktop", backend.Calls);
+        Assert.DoesNotContain("big-picture", backend.Calls);
+    }
+
+    [Fact]
+    public async Task EntryWaitsForTheUiCommitAndRecoversIfItFails()
+    {
+        TaskCompletionSource commit = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Backend backend = new() { CommitGate = commit.Task, ThrowOnCommit = true };
+        var entry = new GameModeEntryTransaction(backend, Custom()).RunAsync(default);
+        Assert.False(entry.IsCompleted);
+        commit.SetResult();
+        Assert.Equal(GameModeEntryOutcome.Failed, (await entry).Outcome);
+        Assert.Equal(1, backend.Calls.Count(call => call == "restore-desktop"));
+        Assert.Equal(1, backend.Calls.Count(call => call == "leave-actions"));
+    }
+
     private sealed class Backend : IGameModeEntryBackend
     {
         private int _observations;
@@ -237,6 +271,9 @@ public sealed class GameModeEntryTransactionTests
         internal Action? OnWait { get; init; }
 
         internal Task ArmGate { get; init; } = Task.CompletedTask;
+        internal Task CommitGate { get; init; } = Task.CompletedTask;
+        internal Action? OnExit { get; init; }
+        internal bool ThrowOnCommit { get; init; }
 
         internal bool PrepareExplorer { get; init; } = true;
 
@@ -290,7 +327,7 @@ public sealed class GameModeEntryTransactionTests
             return Task.CompletedTask;
         }
 
-        public void ApplyDefaultPosture() => Calls.Add("default-posture");
+        public Task ApplyDefaultPostureAsync() { Calls.Add("default-posture"); return Task.CompletedTask; }
 
         public Task<IReadOnlyList<PluginActionStepResult>> RunEnterActionsAsync(
             CancellationToken cancellationToken)
@@ -323,10 +360,18 @@ public sealed class GameModeEntryTransactionTests
         public Task<bool> ExitExplorerAndWaitAsync()
         {
             Calls.Add("exit-explorer");
+            OnExit?.Invoke();
             return Task.FromResult(ExitExplorer);
         }
 
-        public Task<bool> MustPreserveDesktopAsync() => Task.FromResult(PreserveDesktop);
+        public async Task<bool> ReturnToDesktopAsync(DisplayLayout? layout, bool runLeaveActions)
+        {
+            Calls.Add("restore-desktop");
+            if (layout is not null) { await ApplyLayoutAsync(layout, default); }
+            if (runLeaveActions) { await RunLeaveActionsAsync(); }
+            await PersistPendingReturnAsync(null);
+            return true;
+        }
 
         public Task ArmSteamDetectionAsync()
         {
@@ -342,7 +387,12 @@ public sealed class GameModeEntryTransactionTests
 
         public void ExitBigPicture() => Calls.Add("exit-big-picture");
 
-        public void CommitGameMode() => Calls.Add("commit");
+        public async Task CommitGameModeAsync()
+        {
+            Calls.Add("commit");
+            await CommitGate;
+            if (ThrowOnCommit) { throw new InvalidOperationException("UI commit failed"); }
+        }
 
         private Task<DisplayArrangement> ObserveWithoutRecording() =>
             Task.FromResult(new DisplayArrangement(

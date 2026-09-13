@@ -207,20 +207,20 @@ disproven (2026-08-07): plain `Process.Kill`, which Winlogon respawns, and Resta
 `RmShutdown`, which wedged a freshly logged-on Explorer for about 30 s with error 351 and then
 respawned it.
 
-Explorer pids are snapshotted first. Any Explorer pid outside the snapshot is a Winlogon replacement
-and is never killed; killing it fights AutoRestartShell in a loop. Instead the orderly exit is
-retried once against the respawned shell, a fresh Explorer that honors it within seconds. Both
-attempts share one deadline: a fresh budget for the retry let a 15 s caller sit in the transition
-for more than twice that. If the replacement persists, the exit fails open: desktop mode is
-preserved and the user sees `Couldn't exit Windows Explorer safely`.
+The taskbar's exact process handle is retained before posting the command. File Explorer processes
+that do not own the desktop do not block takeover. A new taskbar owner is a replacement shell; WSGM
+gives it one orderly attempt within the same deadline.
 
-### A lingering remnant is reported and left alive
+After both `Shell_TrayWnd` and `GetShellWindow` disappear, the original process gets two seconds to
+finish. If it still holds the shell singleton, WSGM terminates that retained process only, without
+its children. An active or replacement desktop is never force-closed by this path. Success requires
+500 ms of stable shell absence after exit. On refusal or timeout, the shared desktop-return sequence
+restores the layout, shell and captured integrations before optional leave actions.
 
-A shell extension can hold the Explorer process open after the taskbar is gone. After eight seconds,
-WSGM logs the remaining process IDs and continues waiting within the original deadline. It never
-terminates those processes. Killing a remnant caused the reported restart loop; the maintainer
-confirmed that stopping DisplayFusion allowed the orderly exit on 2026-09-13. Success requires 500
-ms of stable absence. An expired deadline fails open to desktop recovery.
+This replaces the older wait-only policy after the attended 2026-09-13 failure: Explorer removed its
+taskbar but stayed alive, and a new Explorer then created unresponsive shell windows. Keeping that
+retired process alive stranded recovery. The maintainer requested the transition redesign; process
+existence is no longer treated as proof of a usable desktop.
 
 ## How Explorer is restored
 
@@ -231,10 +231,10 @@ launchers such as Mod Organizer 2 then fail `CREATE_BREAKAWAY_FROM_JOB` with err
 `docs\elevation.md`). So immediately before each orderly exit WSGM resolves the current
 `Shell_TrayWnd` owner. The normal parent route accepts it only if `GetShellWindow` names the same
 owner, its image is `%WINDIR%\explorer.exe`, it is in the current session, at medium integrity and
-not in a job. WSGM keeps that process as the `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` and starts one
-fixed-purpose medium, jobless anchor under it before the old shell exits
-(`Core\ExplorerShellAnchor.cs`; installed as the same payload under the image name
-`WSGM.ShellAnchor.exe`).
+able to supply a jobless child. WSGM keeps that process as the
+`PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` and starts one fixed-purpose medium, jobless anchor under it
+before the old shell exits (`Core\ExplorerShellAnchor.cs`; installed as the same payload under the
+image name `WSGM.ShellAnchor.exe`).
 
 The anchor accepts one authenticated per-session `start` command for the fixed Explorer path. WSGM
 owns the child handle, bounds every pipe operation, stops only that owned process on failed setup,
@@ -332,14 +332,19 @@ Session plugin actions log their start and completion outcome without dumping th
 IR plugin opens and identifies a fresh Wi-Fi connection for each explicit action because the
 endpoint closes idle clients after two minutes. An uncertain transmission is never retried.
 
-Game mode from the desktop is one cancellable transaction, `Shell\GameModeEntryTransaction.cs`.
-Everything before the Explorer exit is undoable, so the splash offers Cancel and a failure puts the
-desktop back exactly as it was; the exit is the boundary, and after it the button becomes "Switch to
-desktop" and later failures compensate forwards. Only when Explorer is verifiably gone does the
-transaction apply the layout, request Big Picture and commit the tray host, game-mode services and
-monitoring. If Explorer refuses to exit, desktop mode is kept. If desktop restoration fails before
-any Explorer launch was dispatched, rollback reopens Big Picture before recreating game-mode
-services; a dispatched or late shell suppresses that recreation so there are never two taskbars.
+Game mode from the desktop is one cancellable transaction, `Shell\GameModeEntryTransaction.cs`. The
+splash offers Cancel before Explorer exit and Switch to desktop afterwards. A desktop request is
+retained while an exit or layout operation settles; it is never discarded because entry owns the
+transition gate. The layout, splash arming and UI commit are awaited, so a UI exception enters
+recovery rather than escaping from a posted callback.
+
+Normal return and every failed entry use `Shell\DesktopReturnSequence.cs`: leave Big Picture,
+restore the desktop layout, retire the game tray, restore and verify Explorer, clear a successfully
+restored layout record, then run optional leave actions. Each phase catches its own failure. A
+failed layout remains recorded. A failed desktop return never redirects the user back into Game
+Mode. Shell readiness requires matching taskbar/desktop owners and responsive windows; surviving
+processes or window handles alone are insufficient. The splash closes when the desktop is ready,
+before slow IR actions finish. Repeated completed returns do not replay the leave list.
 
 Big Picture is requested after the exit and after the layout, which reverses the old order. That
 order was a latency optimisation, worth having when Steam was not already running. In a resident

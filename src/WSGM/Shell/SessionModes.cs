@@ -28,25 +28,13 @@ public sealed class SessionModes
     private DateTime _lastHomeLaunchUtc;
 
     private static readonly TimeSpan HomeLaunchCooldown = TimeSpan.FromSeconds(5);
-    // Budget for the WHOLE orderly exit: first attempt including ExplorerControl's
-    // linger grace plus the respawn retry, which shares this deadline rather than
-    // starting a fresh one (see docs\boot-and-shell.md). Fails open when explorer
-    // is genuinely wedged.
+    // Upper bound for an unresponsive exit. Healthy and retired-shell paths finish on observation.
     internal static readonly TimeSpan ExplorerExitTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>The warning shown when explorer refused its orderly exit and the
     /// session stayed in desktop mode (fail open, never a half game mode).</summary>
     public const string ExplorerExitFailedWarning =
-        "Couldn't exit Windows Explorer safely. Desktop mode was preserved.";
-
-    /// <summary>The warning shown when Explorer was recovered through the scheduler and is usable,
-    /// but its process semantics do not support launchers that require job breakaway.</summary>
-    public const string ExplorerDesktopDegradedWarning =
-        "Windows Explorer was restored in recovery mode. Sign out or reboot before launching games from desktop tools.";
-
-    /// <summary>The warning shown when no usable Explorer taskbar could be restored.</summary>
-    public const string ExplorerDesktopStartFailedWarning =
-        "Windows Explorer could not be restored. WSGM returned to Game Mode.";
+        "Game Mode entry stopped because Explorer did not finish leaving. Desktop recovery was requested.";
 
     /// <summary>The warning shown when a dispatched Explorer may still be initializing, so WSGM
     /// deliberately avoids creating a competing replacement taskbar.</summary>
@@ -94,6 +82,10 @@ public sealed class SessionModes
     /// <summary>Invoked once an entry transaction has settled, on every outcome, so the owner can
     /// dismiss the splash. Idempotent by contract.</summary>
     internal Action? GameModeEntrySettled { get; set; }
+    internal Action? DesktopReady { get; set; }
+    internal Func<bool>? IsGameMode { get; set; }
+    private int _desktopRequested;
+    private bool _desktopReturnComplete;
 
     /// <summary>Surfaces a shell-transition warning through the overlay's existing warning path.</summary>
     internal void ReportWarning(string warning) => SteamStartFailed?.Invoke(warning);
@@ -168,7 +160,11 @@ public sealed class SessionModes
     internal void EndTransition() => System.Threading.Volatile.Write(ref _explorerTransition, 0);
 
     /// <summary>Prevents another shell transition from starting during application teardown.</summary>
-    internal void RequestShutdown() => System.Threading.Volatile.Write(ref _shutdownRequested, 1);
+    internal void RequestShutdown()
+    {
+        System.Threading.Volatile.Write(ref _shutdownRequested, 1);
+        CancelGameModeEntry();
+    }
 
     /// <summary>Waits for the one already-running shell transition to leave its Explorer and UI
     /// boundaries. The application shutdown coordinator supplies the sole outer deadline.</summary>
@@ -215,6 +211,13 @@ public sealed class SessionModes
             Log.Info("Ignoring desktop-mode switch in preview-only SessionModes.");
             return;
         }
+        if (_entryCancellation is not null)
+        {
+            System.Threading.Interlocked.Exchange(ref _desktopRequested, 1);
+            CancelGameModeEntry();
+            return;
+        }
+        if (_desktopReturnComplete) { return; }
         if (!TryBeginTransition("desktop-mode switch"))
         {
             return;
@@ -226,140 +229,84 @@ public sealed class SessionModes
         }
         _ = System.Threading.Tasks.Task.Run(async () =>
         {
-            try
-            {
-                try
-                {
-                    ExitBigPicture();
-                    DisplayScale.ApplyDesktopMode(_config);
-                }
-                catch (Exception ex)
-                {
-                    Log.Error("Leaving Big Picture / restoring the display scale failed", ex);
-                }
-                // Before Explorer comes back, as the scaling restore above already is: Explorer
-                // sizes its taskbar and desktop icons to whatever the displays say at start.
-                if (GameModeEntryServices is { } leaveServices)
-                {
-                    try
-                    {
-                        if (await leaveServices.ApplyReturnLayoutAsync().ConfigureAwait(false) is { } warning)
-                        {
-                            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(
-                                () => SteamStartFailed?.Invoke(warning));
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Error("Restoring the desktop display layout failed", ex);
-                    }
-                }
-                try
-                {
-                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                    {
-                        // UI-thread owned: the listeners destroy the tray host window,
-                        // and that must still happen BEFORE explorer starts.
-                        DesktopModeStarting?.Invoke();
-                    });
-                }
-                catch (Exception ex)
-                {
-                    Log.Error("Desktop-mode teardown failed", ex);
-                }
-
-                ExplorerDesktopResult result = await RestoreDesktopSafelyAsync(
-                    desktopHost, "Explorer desktop restoration failed").ConfigureAwait(false);
-
-                string? rollbackSteamWarning = null;
-                if (result.Outcome is not ExplorerDesktopOutcome.Failed && GameModeEntryServices is { } services)
-                {
-                    // Every step runs and every failure is reported: each leave action is worth
-                    // attempting on its own, and there is nothing left to abort.
-                    try
-                    {
-                        foreach (PluginActionStepResult step in
-                            await services.RunLeaveActionsAsync().ConfigureAwait(false))
-                        {
-                            if (step.Succeeded) { continue; }
-                            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(
-                                () => SteamStartFailed?.Invoke($"Leave Game Mode action: {step.Detail}"));
-                        }
-                        await services.PersistPendingReturnAsync(null).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Error("Running the leave actions failed", ex);
-                    }
-                }
-                if (result.Outcome is ExplorerDesktopOutcome.Failed && result.CanResumeGameModeSafely)
-                {
-                    try
-                    {
-                        // Desktop mode closed Big Picture before the launch attempt. A safe rollback
-                        // must restore the complete game-mode transaction, not only its taskbar.
-                        rollbackSteamWarning =
-                            await RequestBigPictureWhilePausedAsync().ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Error("Restoring Big Picture after Explorer launch failure failed", ex);
-                        rollbackSteamWarning = BigPictureStartFailedWarning;
-                    }
-                }
-
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    if (result.Outcome is ExplorerDesktopOutcome.Failed)
-                    {
-                        if (result.CanResumeGameModeSafely)
-                        {
-                            ApplyGameModePosture();
-                            GameModeEntered?.Invoke();
-                            if (_monitor is not null)
-                            {
-                                _monitor.Paused = false;
-                            }
-                            SteamStartFailed?.Invoke(rollbackSteamWarning is null
-                                ? ExplorerDesktopStartFailedWarning
-                                : $"{ExplorerDesktopStartFailedWarning} {rollbackSteamWarning}");
-                        }
-                        else
-                        {
-                            // A dispatched or already-visible shell can still publish its taskbar
-                            // after our deadline. Leave game-only surfaces down to prevent dual
-                            // Shell_TrayWnd owners and give one explicit recovery instruction.
-                            SteamStartFailed?.Invoke(ExplorerDesktopPendingWarning);
-                        }
-                        return;
-                    }
-
-                    if (result.Outcome is ExplorerDesktopOutcome.Degraded)
-                    {
-                        SteamStartFailed?.Invoke(ExplorerDesktopDegradedWarning);
-                    }
-                    // Desktop steady state watches Steam again: the pause covers the transition
-                    // only, so the session can keep the client running the way game mode does.
-                    if (_monitor is not null)
-                    {
-                        _monitor.Paused = false;
-                    }
-                    EnsureSteamDesktop();
-                });
-            }
-            catch (Exception ex)
-            {
-                Log.Error("Desktop-mode transition failed", ex);
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                    SteamStartFailed?.Invoke(ExplorerDesktopPendingWarning));
-            }
-            finally
-            {
-                // The failed-restore rollback above may have requested Big Picture.
-                SteamUiBigPictureRequestSettled?.Invoke();
-                EndTransition();
-            }
+            try { await ReturnToDesktopAsync(null, runLeaveActions: true).ConfigureAwait(false); }
+            catch (Exception ex) { Log.Error("Desktop-mode transition failed", ex); }
+            finally { EndTransition(); }
         });
+    }
+
+    internal async System.Threading.Tasks.Task<bool> ReturnToDesktopAsync(
+        WindowsDeviceControl.DisplayLayout? layout, bool runLeaveActions)
+    {
+        var warnings = new System.Collections.Generic.List<string>();
+        var backend = new DesktopReturnBackend(this, _desktopHost!, layout, warnings);
+        bool restored = await DesktopReturnSequence.RunAsync(backend, runLeaveActions, (phase, ex) =>
+        {
+            Log.Error(phase + " failed", ex);
+            warnings.Add(phase + ": " + ex.Message);
+        }, Log.Info).ConfigureAwait(false);
+        try
+        {
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                _desktopReturnComplete = restored && warnings.Count == 0;
+                if (_monitor is not null) { _monitor.Paused = !restored; }
+                if (restored) { EnsureSteamDesktop(); }
+                if (!restored) { warnings.Add(ExplorerDesktopPendingWarning); }
+                if (warnings.Count > 0) { SteamStartFailed?.Invoke(string.Join(" ", warnings)); }
+            });
+        }
+        finally { SteamUiBigPictureRequestSettled?.Invoke(); }
+        return restored;
+    }
+
+    private sealed class DesktopReturnBackend(
+        SessionModes modes, ExplorerDesktopHost host, WindowsDeviceControl.DisplayLayout? layout,
+        System.Collections.Generic.List<string> warnings) : IDesktopReturnBackend
+    {
+        public System.Threading.Tasks.Task ExitBigPictureAsync()
+        {
+            modes.ExitBigPicture();
+            return System.Threading.Tasks.Task.CompletedTask;
+        }
+        public async System.Threading.Tasks.Task<bool> RestoreLayoutAsync()
+        {
+            DisplayScale.ApplyDesktopMode(modes._config);
+            if (modes.GameModeEntryServices is not { } services) { return true; }
+            if (layout is not null)
+            {
+                var result = await services.ApplyLayoutAsync(layout, System.Threading.CancellationToken.None)
+                    .ConfigureAwait(false);
+                if (!result.Applied) { warnings.Add("Desktop display layout: " + result.Detail); }
+                return result.Applied;
+            }
+            string? warning = await services.ApplyReturnLayoutAsync().ConfigureAwait(false);
+            if (warning is not null) { warnings.Add(warning); }
+            return warning is null;
+        }
+        public async System.Threading.Tasks.Task RetireGameModeAsync() =>
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => modes.DesktopModeStarting?.Invoke());
+        public async System.Threading.Tasks.Task<bool> RestoreExplorerAsync()
+        {
+            var result = await RestoreDesktopSafelyAsync(host, "Explorer desktop restoration failed")
+                .ConfigureAwait(false);
+            bool restored = result.Outcome is not ExplorerDesktopOutcome.Failed;
+            if (restored)
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => modes.DesktopReady?.Invoke());
+            }
+            return restored;
+        }
+        public async System.Threading.Tasks.Task RunLeaveActionsAsync()
+        {
+            if (modes.GameModeEntryServices is not { } services) { return; }
+            foreach (var step in await services.RunLeaveActionsAsync().ConfigureAwait(false))
+            {
+                if (!step.Succeeded) { warnings.Add("Leave Game Mode action: " + step.Detail); }
+            }
+        }
+        public System.Threading.Tasks.Task ClearPendingReturnAsync() =>
+            modes.GameModeEntryServices?.PersistPendingReturnAsync(null) ?? System.Threading.Tasks.Task.CompletedTask;
     }
 
     /// <summary>Starts the windowed Steam client a desktop session is expected to have, so it
@@ -409,10 +356,12 @@ public sealed class SessionModes
             Log.Info("Ignoring game-mode switch in preview-only SessionModes.");
             return;
         }
+        if (IsGameMode?.Invoke() == true) { StartOrFocusSteam(); return; }
         if (!TryBeginTransition("game-mode switch"))
         {
             return;
         }
+        _desktopReturnComplete = false;
         Log.Info("Entering game mode.");
         if (_monitor is not null)
         {
@@ -425,14 +374,12 @@ public sealed class SessionModes
         _ = System.Threading.Tasks.Task.Run(async () =>
         {
             SessionModesEntryBackend backend = new(this, desktopHost);
+            bool entered = false;
             try
             {
                 GameModeEntryTransaction transaction = new(backend, GameModeEntryServices?.ReadLaunch() ?? new());
                 GameModeEntryResult result = await transaction.RunAsync(cancellation.Token).ConfigureAwait(false);
-                if (result.Outcome is not GameModeEntryOutcome.Entered && backend.ExplorerWasRemoved)
-                {
-                    await RecoverDesktopAfterFailedGameModeCommitAsync(desktopHost).ConfigureAwait(false);
-                }
+                entered = result.Outcome == GameModeEntryOutcome.Entered;
                 if (result.Warning is { } warning)
                 {
                     await Avalonia.Threading.Dispatcher.UIThread
@@ -449,15 +396,25 @@ public sealed class SessionModes
             {
                 _entryCancellation = null;
                 cancellation.Dispose();
-                SteamUiBigPictureRequestSettled?.Invoke();
-                GameModeEntrySettled?.Invoke();
-                EndTransition();
+                try
+                {
+                    SteamUiBigPictureRequestSettled?.Invoke();
+                    GameModeEntrySettled?.Invoke();
+                }
+                finally
+                {
+                    EndTransition();
+                    if (System.Threading.Interlocked.Exchange(ref _desktopRequested, 0) != 0 && entered)
+                    {
+                        Avalonia.Threading.Dispatcher.UIThread.Post(EnterDesktopMode);
+                    }
+                }
             }
         });
     }
 
-    /// <summary>Cancels a Game Mode entry that has not yet reached the Explorer exit. Harmless at
-    /// any other time: after the boundary the transaction stops observing the token.</summary>
+    /// <summary>Requests desktop recovery from an active entry. An in-flight Explorer/display
+    /// operation settles first, then cancellation returns through the shared recovery sequence.</summary>
     internal void CancelGameModeEntry()
     {
         try { _entryCancellation?.Cancel(); }
@@ -489,57 +446,6 @@ public sealed class SessionModes
                 launchDispatched: true,
                 shellSurfacePresent: false,
                 elapsed: TimeSpan.Zero);
-        }
-    }
-
-    private async System.Threading.Tasks.Task RecoverDesktopAfterFailedGameModeCommitAsync(
-        ExplorerDesktopHost desktopHost)
-    {
-        try
-        {
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                if (_monitor is not null)
-                {
-                    _monitor.Paused = true;
-                }
-                DesktopModeStarting?.Invoke();
-            });
-        }
-        catch (Exception ex)
-        {
-            // Continue to the fail-open desktop restore even when one partially-created game-mode
-            // surface fails to tear down. Leaving the session without Explorer is the worse state.
-            Log.Error("Rolling back game-mode resources after commit failure failed", ex);
-        }
-
-        try
-        {
-            ExitBigPicture();
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Rolling Steam back after game-mode commit failure failed", ex);
-        }
-
-        ExplorerDesktopResult restored = await RestoreDesktopSafelyAsync(
-            desktopHost, "Restoring Explorer after game-mode commit failure failed")
-            .ConfigureAwait(false);
-
-        string warning = restored.Outcome switch
-        {
-            ExplorerDesktopOutcome.Degraded => ExplorerDesktopDegradedWarning,
-            ExplorerDesktopOutcome.Failed => ExplorerDesktopPendingWarning,
-            _ => ExplorerExitFailedWarning,
-        };
-        try
-        {
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                SteamStartFailed?.Invoke(warning));
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Reporting game-mode rollback result failed", ex);
         }
     }
 

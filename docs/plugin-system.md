@@ -283,10 +283,10 @@ shell did the opposite as a latency optimisation, which was worth having when St
 running. Here Steam is already up on the desktop, the splash covers the whole transaction, and a Big
 Picture window created before the layout would be built on the wrong display at the wrong scaling.
 
-Compensation before the boundary runs the leave actions whenever an entry step was dispatched or
-left uncertain, re-applies the return layout and clears the pending record. A step that was
-_rejected_ changed nothing, so it earns no compensation: an IR burst there would move a switch the
-user never asked to move.
+Entry recovery restores the desktop before running leave actions whenever an entry step was
+dispatched or left uncertain, re-applies the return layout and clears the pending record. A step
+that was _rejected_ changed nothing, so it earns no compensation: an IR burst there would move a
+switch the user never asked to move.
 
 The display wait has **no deadline**, only cancellation. The reference setup puts a TV behind an
 HDMI switch, so how long the display takes is up to a person and a piece of consumer hardware; a
@@ -313,10 +313,10 @@ Display waits and layout calls run off the UI thread. A deadline or cancellation
 stage, and `SessionModes.TransitionInProgress` refuses another transition until the transaction has
 settled on any outcome. Transition and Desktop action failures use the existing warning surface.
 
-Normal-level diagnostics record entry stages, required display identities and wait completion.
-Each layout operation logs its requested values, elapsed time, native result code, warnings,
-rollback outcome and observed arrangement under one operation identifier. A failed diagnostic
-readback cannot change the apply result or dispatch another write.
+Normal-level diagnostics record entry stages, required display identities and wait completion. Each
+layout operation logs its requested values, elapsed time, native result code, warnings, rollback
+outcome and observed arrangement under one operation identifier. A failed diagnostic readback cannot
+change the apply result or dispatch another write.
 
 Validation uses fake providers, source-generated config round trips, ordered transaction tests,
 admission checks and headless editor interactions. It does not represent a physical HDMI-switch,

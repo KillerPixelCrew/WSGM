@@ -652,6 +652,8 @@ public sealed class ShellSession : IAsyncDisposable
         if (!_overlayTestOnly)
         {
             _modes.GameModeEntryServices = new ShellGameModeEntryServices(this);
+            _modes.DesktopReady = () => _splash?.Dismiss("desktop restored");
+            _modes.IsGameMode = () => _inGameMode;
             // Settings opened from the tray or the overlay runs in this process, so its action
             // lists can offer what is actually running. A standalone --settings sees nothing here
             // and shows saved steps read-only, which is the truthful rendering.
@@ -660,6 +662,7 @@ public sealed class ShellSession : IAsyncDisposable
             {
                 _holdingEntrySplash = false;
                 _gameModeEntryActive = false;
+                if (!_inGameMode) { _splash?.Dismiss("desktop entry settled"); }
             });
         }
         _modes.SteamStartFailed += _ => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
@@ -927,6 +930,10 @@ public sealed class ShellSession : IAsyncDisposable
         // TaskbarCreated broadcast.
         _modes.DesktopModeStarting += () =>
         {
+            // Retire the actual shell window before optional plugin/card/UI notifications.
+            _trayHost?.Dispose();
+            _trayHost = null;
+            _overlay?.AttachTrayHost(null);
             _inGameMode = false;
             _desktopTray?.SetDesktop(true);
             _ = NotifyPluginModeAsync(WSGM.Plugin.Sdk.PluginSessionMode.Desktop);
@@ -939,9 +946,6 @@ public sealed class ShellSession : IAsyncDisposable
             // header and the same download queue (Claw, 2026-09-11).
             _ = SteamLibraryTabs.DisableAsync();
             _volumeButtons?.SetGameModeActive(false);
-            _overlay?.AttachTrayHost(null);
-            _trayHost?.Dispose();
-            _trayHost = null;
         };
         _modes.PrepareSteamUiForBigPictureAsync = PrepareSteamUiForBigPictureAsync;
         _modes.SteamUiBigPictureRequestSettled = () =>
@@ -1098,11 +1102,9 @@ public sealed class ShellSession : IAsyncDisposable
     private void EnterGameModeSurfaces()
     {
         _ = NotifyPluginModeAsync(WSGM.Plugin.Sdk.PluginSessionMode.Game);
-        _trayHost = TrayHost.Create();
-        if (_trayHost is not null)
-        {
-            _overlay?.AttachTrayHost(_trayHost);
-        }
+        _trayHost ??= TrayHost.Create()
+            ?? throw new InvalidOperationException("The Game Mode tray could not be created.");
+        _overlay?.AttachTrayHost(_trayHost);
         _volumeButtons?.SetGameModeActive(true);
         ApplyCardServices(gameModeActive: true);
     }
@@ -1359,11 +1361,8 @@ public sealed class ShellSession : IAsyncDisposable
             await Task.Delay(250, cancellationToken);
         }
 
-        // Already off the UI thread — the bounded exit wait never blocks the
-        // splash's spinner/fade. Logs its own outcome. The budget covers
-        // ExplorerControl's 8 s linger grace (waiting out a slow remnant is
-        // cheaper than terminating it — that is what Winlogon respawns) AND the
-        // respawn retry, which shares the same deadline.
+        // Boot and resident entry share the bounded orderly exit and retired-shell cleanup.
+        // Every failed exit returns through verified desktop recovery.
         cancellationToken.ThrowIfCancellationRequested();
         ExplorerPreparationResult preparation = _desktopHost is null
             ? new ExplorerPreparationResult(false, ExplorerShellRejection.ProcessUnavailable, "host-unavailable")
@@ -1395,22 +1394,8 @@ public sealed class ShellSession : IAsyncDisposable
         cancellationToken.ThrowIfCancellationRequested();
         if (!exited)
         {
-            bool explorerStillRunning;
-            try
-            {
-                explorerStillRunning = ExplorerControl.IsRunningInSession();
-            }
-            catch (Exception ex)
-            {
-                Log.Error("Checking Explorer after failed boot takeover failed", ex);
-                explorerStillRunning = false;
-            }
-            Log.Warn(explorerStillRunning
-                ? "Boot takeover failed open — explorer was preserved."
-                : "Boot takeover could not prove Explorer exited and no live shell remains — restoring desktop.");
-            return explorerStillRunning
-                ? BootTakeoverResult.DesktopPreserved
-                : BootTakeoverResult.DesktopRestoreRequired;
+            Log.Warn("Boot takeover did not complete; restoring and verifying the desktop.");
+            return BootTakeoverResult.DesktopRestoreRequired;
         }
 
         var enteredGameMode = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>

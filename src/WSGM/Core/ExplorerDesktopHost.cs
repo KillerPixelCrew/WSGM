@@ -12,7 +12,6 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan ReadinessStability = TimeSpan.FromMilliseconds(500);
-    private static readonly TimeSpan ExistingShellSettle = TimeSpan.FromSeconds(1);
     private readonly int _sessionId;
     // Anchor replacement, Explorer dispatch, and disposal share one owner. Disposal closes
     // admission before waiting so no caller can pass a stale disposed check and publish an anchor
@@ -200,15 +199,8 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
                 }
                 catch (Exception ex) { Log.Error("Explorer exit failed", ex); }
             }
-            if (!exited)
-            {
-                ExplorerDesktopObservation desktop = ObserveCurrentDesktop(_sessionId);
-                if (desktop.Initialized && CanCaptureShell(desktop))
-                {
-                    await _desktopApps.RestoreAsync(DateTimeOffset.UtcNow.AddSeconds(20)).ConfigureAwait(false);
-                    Volatile.Write(ref _desktopAppsSuspended, 0);
-                }
-            }
+            // The transition's shared desktop-return sequence owns every failed exit, including
+            // partial shutdown. Never infer a preserved desktop from a surviving Explorer PID.
             return exited;
         }
         finally
@@ -281,7 +273,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         if (existing.HasShellSurface)
         {
             ExplorerDesktopResult adopted = await WaitForDesktopAsync(
-                Earlier(deadline, DateTimeOffset.UtcNow + ExistingShellSettle),
+                deadline,
                 ExplorerDesktopRoute.ExistingShell,
                 createdProcessId: 0,
                 launchDispatched: false,
@@ -434,7 +426,9 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             taskbarPresent,
             shellPresent,
             taskbarOwner,
-            shellOwner);
+            shellOwner,
+            responsive: taskbarPresent && shellPresent
+                && IsResponsive(taskbar) && IsResponsive(shellWindow));
         ExplorerShellAcceptance acceptance = ExplorerShellPolicy.Evaluate(
             process,
             ExplorerPath,
@@ -453,6 +447,10 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             acceptance,
             outcome);
     }
+
+    private static bool IsResponsive(nint window) =>
+        NativeMethods.SendMessageTimeoutW(window, 0, 0, 0, NativeMethods.SmtoAbortIfHung,
+            100, out _) != 0;
 
     private async Task<ExplorerDesktopResult> WaitForDesktopAsync(
         DateTimeOffset deadline,
@@ -588,9 +586,6 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         }
     }
 
-    private static DateTimeOffset Earlier(DateTimeOffset first, DateTimeOffset second) =>
-        first <= second ? first : second;
-
     private static TimeSpan Remaining(DateTimeOffset deadline)
     {
         TimeSpan remaining = deadline - DateTimeOffset.UtcNow;
@@ -693,7 +688,4 @@ internal readonly record struct ExplorerDesktopResult
     /// <summary>Gets the elapsed restoration time.</summary>
     internal TimeSpan Elapsed { get; }
 
-    /// <summary>Gets whether recreating game-mode shell surfaces cannot race a dispatched or
-    /// already-visible Explorer restoration.</summary>
-    internal bool CanResumeGameModeSafely => !LaunchDispatched && !ShellSurfacePresent;
 }

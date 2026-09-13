@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 
 namespace WSGM.Core;
 
@@ -137,290 +136,89 @@ public static class ExplorerControl
     // Restart Manager both device-DISPROVEN) lives in docs\boot-and-shell.md.
     private const uint ExitExplorerMessage = 0x05B4;
 
-    private static readonly TimeSpan StableAbsence = TimeSpan.FromMilliseconds(500);
-
-    // How long a snapshotted remnant may outlive the destroyed taskbar before it
-    // is reported as lingering. The bounded wait never terminates Explorer; the derivation
-    // and device evidence live in docs\boot-and-shell.md.
-    private static readonly TimeSpan LingerGrace = TimeSpan.FromMilliseconds(8000);
-
-    // How long the respawn-retry waits for the replacement explorer to put up
-    // its taskbar before giving up (device logs: it is there in ~3 s).
-    private static readonly TimeSpan RespawnTaskbarWait = TimeSpan.FromSeconds(5);
     private static readonly object ExitGate = new();
 
-    /// <summary>Set by the exit core when its failure was a Winlogon respawn —
-    /// the one failure mode a single retry reliably recovers (device-observed:
-    /// every manual second attempt succeeded). Guarded by <see cref="ExitGate"/>.</summary>
-    private static bool _respawnCancelled;
-
-    /// <summary>The pid Winlogon respawned, so the retry can wait for THAT
-    /// shell's taskbar. Guarded by <see cref="ExitGate"/>.</summary>
-    private static uint _respawnProcessId;
-
-    /// <summary>Requests Explorer's orderly shell exit and verifies boundedly that
-    /// no current-session Explorer remains before a replacement tray is created.
-    /// Fails OPEN: on refusal, timeout, or a Winlogon respawn the caller must
-    /// preserve desktop mode — a replacement explorer is never killed (fighting
-    /// AutoRestartShell just loops). Lingering snapshotted processes are
-    /// left alive even after Explorer destroyed its taskbar (a shell
-    /// extension can hold the process open — device-observed). Serialized so the
-    /// boot takeover and an overlay mode switch can never race two exits.</summary>
-    /// <param name="timeout">Total budget for the exit and the stability check.</param>
-    /// <returns><see langword="true"/> only when Explorer exited without Winlogon
-    /// immediately replacing it.</returns>
+    /// <summary>Requests orderly exit of the actual desktop shell, then releases a stuck original
+    /// process only after both shell surfaces have disappeared. Folder-only Explorer processes do
+    /// not own the desktop and do not block Game Mode. A replacement shell gets one orderly attempt.</summary>
+    /// <param name="timeout">Total budget, including a replacement shell and readiness checks.</param>
+    /// <returns>Whether the desktop shell is stably absent.</returns>
     public static bool ExitExplorerAndWait(TimeSpan timeout)
     {
         lock (ExitGate)
         {
-            // ONE deadline for the whole operation, retry included (a fresh full
-            // budget for the retry more than doubled the caller's wait).
             var deadline = DateTime.UtcNow + timeout;
-            if (ExitExplorerAndWaitCore(timeout))
+            for (int attempt = 0; attempt < 2 && DateTime.UtcNow < deadline; attempt++)
             {
-                return true;
-            }
-            // A Winlogon respawn is the one failure a single retry reliably
-            // recovers; a second respawn ends the attempt for good, and a
-            // replacement is never killed (see docs\boot-and-shell.md).
-            if (!_respawnCancelled)
-            {
-                return false;
-            }
-            var remaining = deadline - DateTime.UtcNow;
-            var taskbarWait = remaining < RespawnTaskbarWait ? remaining : RespawnTaskbarWait;
-            if (taskbarWait <= TimeSpan.Zero)
-            {
-                Log.Warn("No budget left to retry the orderly Explorer exit; staying in desktop mode.");
-                return false;
-            }
-            if (!WaitForReplacementTaskbar(_respawnProcessId, taskbarWait))
-            {
-                Log.Warn("Respawned Explorer showed no taskbar to retry against; staying in desktop mode.");
-                return false;
-            }
-            remaining = deadline - DateTime.UtcNow;
-            if (remaining <= TimeSpan.Zero)
-            {
-                Log.Warn("No budget left to retry the orderly Explorer exit; staying in desktop mode.");
-                return false;
-            }
-            Log.Info($"Retrying orderly Explorer exit once against the respawned shell (pid {_respawnProcessId}, {remaining.TotalSeconds:F0}s left).");
-            return ExitExplorerAndWaitCore(remaining);
-        }
-    }
-
-    /// <summary>Waits until the taskbar belongs to the REPLACEMENT explorer, plus a
-    /// short settle. The owning-pid check is what makes this safe: the original
-    /// shell can still own a dying <c>Shell_TrayWnd</c>, and posting the retry into
-    /// the process that was already leaving did nothing.</summary>
-    /// <param name="replacementProcessId">The pid Winlogon started.</param>
-    /// <param name="timeout">How long to wait for its taskbar.</param>
-    private static bool WaitForReplacementTaskbar(uint replacementProcessId, TimeSpan timeout)
-    {
-        if (replacementProcessId == 0)
-        {
-            return false;
-        }
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            var taskbar = Interop.NativeMethods.FindWindowW("Shell_TrayWnd", null);
-            if (IsWindowOwnedByProcess(taskbar, replacementProcessId)
-                && IsCurrentSessionWindow(taskbar))
-            {
-                // Freshly created; give the message loop a moment before the
-                // exit command lands in it.
-                System.Threading.Thread.Sleep(500);
-                return true;
-            }
-            System.Threading.Thread.Sleep(200);
-        }
-        return false;
-    }
-
-    private static bool ExitExplorerAndWaitCore(TimeSpan timeout)
-    {
-        _respawnCancelled = false;
-        _respawnProcessId = 0;
-        var initialProcessIds = ExplorerProcessIdsInSession();
-        if (initialProcessIds.Count == 0)
-        {
-            return true;
-        }
-
-        var taskbar = Interop.NativeMethods.FindWindowW("Shell_TrayWnd", null);
-        if (!IsCurrentSessionWindow(taskbar))
-        {
-            Log.Warn("Cannot request orderly Explorer exit: current-session taskbar was not found.");
-            return false;
-        }
-        Interop.NativeMethods.GetWindowThreadProcessId(taskbar, out var taskbarProcessId);
-        if (!initialProcessIds.Contains(checked((int)taskbarProcessId)))
-        {
-            Log.Warn($"Cannot request orderly Explorer exit: taskbar owner pid {taskbarProcessId} is not Explorer.");
-            return false;
-        }
-
-        Log.Info($"Requesting orderly Explorer exit (pid {taskbarProcessId}).");
-        if (!Interop.NativeMethods.PostMessageW(taskbar, ExitExplorerMessage, 0, 0))
-        {
-            Log.Warn($"Orderly Explorer exit request failed (error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}).");
-            return false;
-        }
-
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            var currentProcessIds = ExplorerProcessIdsInSession();
-            var replacementProcessId = FindReplacementProcessId(initialProcessIds, currentProcessIds);
-            if (replacementProcessId != 0)
-            {
-                _respawnCancelled = true;
-                _respawnProcessId = checked((uint)replacementProcessId);
-                Log.Warn($"Winlogon restarted Explorer as pid {replacementProcessId}; takeover cancelled.");
-                return false;
-            }
-            if (currentProcessIds.Count == 0)
-            {
-                return WaitForStableExplorerAbsence(initialProcessIds, deadline);
-            }
-            if (!IsWindowOwnedByProcess(taskbar, taskbarProcessId))
-            {
-                Log.Info("Explorer acknowledged orderly exit and removed its taskbar.");
-                break;
-            }
-            System.Threading.Thread.Sleep(100);
-        }
-
-        var taskbarStillPresent = IsWindowOwnedByProcess(taskbar, taskbarProcessId);
-        var afterTaskbar = ExplorerProcessIdsInSession();
-        var replacementAfterTaskbar = FindReplacementProcessId(initialProcessIds, afterTaskbar);
-        // Continue waiting only when the orderly exit was
-        // acknowledged (taskbar destroyed) and Winlogon has not respawned a shell.
-        if (taskbarStillPresent || replacementAfterTaskbar != 0)
-        {
-            _respawnCancelled = !taskbarStillPresent;
-            if (_respawnCancelled)
-            {
-                _respawnProcessId = checked((uint)replacementAfterTaskbar);
-            }
-            Log.Warn(taskbarStillPresent
-                ? "Explorer did not honor the orderly exit request before timeout."
-                : $"Winlogon restarted Explorer as pid {replacementAfterTaskbar}; takeover cancelled.");
-            return false;
-        }
-
-        // Explorer acknowledged the orderly exit and is winding the shell down, but
-        // a shell extension or open folder window can keep the ORIGINAL process
-        // alive a moment. Let it leave on its own first: killing it mid-shutdown is
-        // what Winlogon respawns (the "two tries" symptom). Report a remnant
-        // still present after the grace period; no Explorer process is killed here.
-        var graceStart = DateTime.UtcNow;
-        var graceDeadline = graceStart + LingerGrace;
-        // The caller's budget can expire first — then the grace was NOT served
-        // and the remnant must not be killed (see below).
-        if (graceDeadline > deadline)
-        {
-            graceDeadline = deadline;
-        }
-        while (DateTime.UtcNow < graceDeadline)
-        {
-            afterTaskbar = ExplorerProcessIdsInSession();
-            replacementAfterTaskbar = FindReplacementProcessId(initialProcessIds, afterTaskbar);
-            if (replacementAfterTaskbar != 0)
-            {
-                _respawnCancelled = true;
-                _respawnProcessId = checked((uint)replacementAfterTaskbar);
-                Log.Warn($"Winlogon restarted Explorer as pid {replacementAfterTaskbar}; takeover cancelled.");
-                return false;
-            }
-            if (afterTaskbar.Count == 0)
-            {
-                // Left on its own — the graceful path Winlogon accepts.
-                return WaitForStableExplorerAbsence(initialProcessIds, deadline);
-            }
-            System.Threading.Thread.Sleep(100);
-        }
-
-        afterTaskbar = ExplorerProcessIdsInSession();
-        replacementAfterTaskbar = FindReplacementProcessId(initialProcessIds, afterTaskbar);
-        if (replacementAfterTaskbar != 0)
-        {
-            _respawnCancelled = true;
-            _respawnProcessId = checked((uint)replacementAfterTaskbar);
-            Log.Warn($"Winlogon restarted Explorer as pid {replacementAfterTaskbar}; takeover cancelled.");
-            return false;
-        }
-        if (afterTaskbar.Count > 0)
-        {
-            var lingered = DateTime.UtcNow - graceStart;
-            Log.Warn($"Explorer taskbar exited but original process(es) {string.Join(", ", afterTaskbar)} " +
-                     $"remain after {lingered.TotalMilliseconds:F0} ms; waiting without terminating them.");
-        }
-        return WaitForStableExplorerAbsence(initialProcessIds, deadline);
-    }
-
-    /// <summary>Success only after half a second of continuous explorer absence —
-    /// a Winlogon respawn shows up within that window and cancels the takeover.</summary>
-    private static bool WaitForStableExplorerAbsence(IReadOnlyCollection<int> initialProcessIds, DateTime deadline)
-    {
-        var stableSinceUtc = (DateTime?)null;
-        while (DateTime.UtcNow < deadline)
-        {
-            var currentProcessIds = ExplorerProcessIdsInSession();
-            var replacementProcessId = FindReplacementProcessId(initialProcessIds, currentProcessIds);
-            if (replacementProcessId != 0)
-            {
-                _respawnCancelled = true;
-                _respawnProcessId = checked((uint)replacementProcessId);
-                Log.Warn($"Winlogon restarted Explorer as pid {replacementProcessId}; takeover cancelled.");
-                return false;
-            }
-            if (currentProcessIds.Count == 0)
-            {
-                stableSinceUtc ??= DateTime.UtcNow;
-                if (DateTime.UtcNow - stableSinceUtc.Value >= StableAbsence)
+                nint taskbar = Interop.NativeMethods.FindWindowW("Shell_TrayWnd", null);
+                if (taskbar == 0) { return WaitForShellAbsence(deadline); }
+                if (!IsCurrentSessionWindow(taskbar)) { return false; }
+                Interop.NativeMethods.GetWindowThreadProcessId(taskbar, out uint owner);
+                using Process original = Process.GetProcessById(checked((int)owner));
+                // Keep the handle, not merely the PID: PID reuse cannot authorize termination.
+                _ = original.Handle;
+                if (!string.Equals(original.MainModule?.FileName, ExplorerPath, StringComparison.OrdinalIgnoreCase))
                 {
-                    Log.Info("Explorer exited cleanly without replacement.");
-                    return true;
+                    return false;
                 }
+                Log.Info($"Requesting orderly Explorer exit (pid {owner}).");
+                if (!Interop.NativeMethods.PostMessageW(taskbar, ExitExplorerMessage, 0, 0)) { return false; }
+                DateTime? absentSince = null;
+                bool replacement = false;
+                while (DateTime.UtcNow < deadline)
+                {
+                    nint currentTaskbar = Interop.NativeMethods.FindWindowW("Shell_TrayWnd", null);
+                    nint shell = Interop.NativeMethods.GetShellWindow();
+                    bool surfaces = currentTaskbar != 0 || shell != 0;
+                    if (currentTaskbar != 0 && !IsWindowOwnedByProcess(currentTaskbar, owner))
+                    {
+                        replacement = true;
+                        Log.Info("A replacement desktop appeared; requesting its orderly exit once.");
+                        break;
+                    }
+                    absentSince = surfaces ? null : absentSince ?? DateTime.UtcNow;
+                    TimeSpan absent = absentSince is { } since ? DateTime.UtcNow - since : TimeSpan.Zero;
+                    ExplorerExitAction action = ExplorerExitPolicy.Decide(surfaces, original.HasExited, absent);
+                    if (action == ExplorerExitAction.Complete)
+                    {
+                        Log.Info("Explorer desktop exited and remained absent.");
+                        return true;
+                    }
+                    if (action == ExplorerExitAction.ReleaseOriginal)
+                    {
+                        // Orderly shutdown already removed both surfaces. A stuck extension must
+                        // not strand the next Explorer behind the old process's shell singleton.
+                        Log.Warn($"Releasing retired Explorer pid {owner} after orderly shell shutdown.");
+                        original.Kill();
+                        int remainingMs = (int)Math.Max(0, (deadline - DateTime.UtcNow).TotalMilliseconds);
+                        if (!original.WaitForExit(Math.Min(2000, remainingMs))) { return false; }
+                        absentSince = null; // Observe Winlogon after releasing the original process.
+                    }
+                    System.Threading.Thread.Sleep(100);
+                }
+                if (!replacement) { break; }
+                System.Threading.Thread.Sleep(300);
             }
-            else
+            Log.Warn("Explorer desktop exit was not confirmed; desktop recovery is required.");
+            return false;
+        }
+    }
+
+    private static bool WaitForShellAbsence(DateTime deadline)
+    {
+        DateTime? absentSince = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            bool present = Interop.NativeMethods.FindWindowW("Shell_TrayWnd", null) != 0
+                || Interop.NativeMethods.GetShellWindow() != 0;
+            absentSince = present ? null : absentSince ?? DateTime.UtcNow;
+            if (absentSince is { } since && DateTime.UtcNow - since >= TimeSpan.FromMilliseconds(500))
             {
-                stableSinceUtc = null;
+                return true;
             }
             System.Threading.Thread.Sleep(100);
         }
-        Log.Warn("Explorer processes did not exit cleanly before timeout.");
         return false;
-    }
-
-    /// <summary>Explorer pids of the CURRENT session only (other RDP/FUS sessions
-    /// run their own).</summary>
-    private static List<int> ExplorerProcessIdsInSession()
-    {
-        var ids = new List<int>();
-        foreach (var pid in WindowFinder.FindProcessIds("explorer"))
-        {
-            ids.Add(checked((int)pid));
-        }
-        return ids;
-    }
-
-    /// <summary>Any current explorer PID that was not in the initial snapshot is a
-    /// Winlogon replacement (0 = none).</summary>
-    private static int FindReplacementProcessId(
-        IReadOnlyCollection<int> initialProcessIds, IReadOnlyCollection<int> currentProcessIds)
-    {
-        foreach (var id in currentProcessIds)
-        {
-            if (!initialProcessIds.Contains(id))
-            {
-                return id;
-            }
-        }
-        return 0;
     }
 
     private static bool IsWindowOwnedByProcess(nint window, uint processId)

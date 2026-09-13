@@ -17,7 +17,7 @@ internal enum GameModeEntryOutcome
     /// <summary>The user cancelled. The desktop is as it was.</summary>
     Cancelled,
 
-    /// <summary>A step failed before anything irreversible. The desktop is as it was.</summary>
+    /// <summary>Entry failed; the warning includes any recovery failure.</summary>
     Failed,
 
     /// <summary>Explorer could not be removed, so the desktop was deliberately kept.</summary>
@@ -64,16 +64,12 @@ internal interface IGameModeEntryBackend
     Task PersistPendingReturnAsync(DisplayLayout? layout);
 
     /// <summary>Applies the scaling posture Default entry uses.</summary>
-    void ApplyDefaultPosture();
+    Task ApplyDefaultPostureAsync();
 
     /// <summary>Runs the configured entry actions, stopping at the first failure.</summary>
     /// <param name="cancellationToken">Cancels the sequence.</param>
     /// <returns>One result per step that ran.</returns>
     Task<IReadOnlyList<PluginActionStepResult>> RunEnterActionsAsync(CancellationToken cancellationToken);
-
-    /// <summary>Runs every configured leave action, reporting failures.</summary>
-    /// <returns>One result per step.</returns>
-    Task<IReadOnlyList<PluginActionStepResult>> RunLeaveActionsAsync();
 
     /// <summary>Captures the Explorer anchor that a later restore needs.</summary>
     /// <returns>Whether the desktop can be safely taken over.</returns>
@@ -83,9 +79,8 @@ internal interface IGameModeEntryBackend
     /// <returns>True when Explorer is confirmed gone.</returns>
     Task<bool> ExitExplorerAndWaitAsync();
 
-    /// <summary>Whether the desktop must be kept because Explorer is, or may be, still there.</summary>
-    /// <returns>True when Game Mode must not commit.</returns>
-    Task<bool> MustPreserveDesktopAsync();
+    /// <summary>Returns through the shared desktop recovery sequence.</summary>
+    Task<bool> ReturnToDesktopAsync(DisplayLayout? layout, bool runLeaveActions);
 
     /// <summary>Arms the splash before requesting Steam, after all open-ended waits.</summary>
     Task ArmSteamDetectionAsync();
@@ -94,35 +89,29 @@ internal interface IGameModeEntryBackend
     /// <returns>A warning when it could not be started, otherwise null.</returns>
     Task<string?> RequestBigPictureAsync();
 
-    /// <summary>Takes Steam back out of Big Picture.</summary>
-    void ExitBigPicture();
-
     /// <summary>Brings up the game-mode surfaces and marks the session committed.</summary>
-    void CommitGameMode();
+    Task CommitGameModeAsync();
 }
 
-/// <summary>Enters Game Mode as one cancellable transaction.
-///
-/// The order matters more than any single step. Everything before Explorer leaves is undoable, so
-/// the user may cancel freely and a failure puts the desktop back exactly as it was. Once Explorer
-/// is gone there is no desktop to return to cheaply, so that exit is the boundary: after it the
-/// splash button stops saying Cancel and starts offering a way back to the desktop, and every later
-/// failure compensates forwards instead of pretending nothing happened.
-///
-/// Big Picture is requested after Explorer leaves and after the layout is applied, which is the
-/// opposite of what the desktop-only shell used to do. Requesting it first was a latency
-/// optimisation worth having when Steam was not already running; here Steam is already up on the
-/// desktop, the splash covers the whole transaction anyway, and a Big Picture window created before
-/// the layout would be built on the wrong display at the wrong scaling.</summary>
+/// <summary>Enters Game Mode with one recovery path. Desktop requests are honoured between
+/// operations, including after Explorer exit; a write already in flight settles before recovery.
+/// Big Picture starts after the display layout, and the UI commit is awaited.</summary>
 internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, GameModeLaunchConfiguration launch)
 {
     /// <summary>Runs the entry.</summary>
-    /// <param name="cancellationToken">Cancels the entry; honoured until the boundary.</param>
+    /// <param name="cancellationToken">Requests desktop recovery after any in-flight operation settles.</param>
     /// <returns>How the attempt ended.</returns>
     internal async Task<GameModeEntryResult> RunAsync(CancellationToken cancellationToken)
     {
         IReadOnlyList<PluginActionStepResult> entered = [];
         DisplayLayout? returnLayout = null;
+        bool recoveryAttempted = false;
+        async Task RecoverAsync()
+        {
+            if (recoveryAttempted) { return; }
+            recoveryAttempted = true;
+            await RecoverDesktopAsync(entered, returnLayout).ConfigureAwait(false);
+        }
         try
         {
             backend.SetCancellable(true);
@@ -141,7 +130,7 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
                 entered = await backend.RunEnterActionsAsync(cancellationToken).ConfigureAwait(false);
                 if (entered.FirstOrDefault(step => !step.Succeeded) is { } failed)
                 {
-                    await CompensateBeforeBoundaryAsync(entered, returnLayout).ConfigureAwait(false);
+                    await RecoverAsync().ConfigureAwait(false);
                     return new(GameModeEntryOutcome.Failed, $"Game Mode entry action: {failed.Detail}");
                 }
             }
@@ -165,7 +154,7 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
             bool prepared = await backend.PrepareExplorerExitAsync().ConfigureAwait(false);
             if (!prepared)
             {
-                await CompensateBeforeBoundaryAsync(entered, returnLayout).ConfigureAwait(false);
+                await RecoverAsync().ConfigureAwait(false);
                 return new(GameModeEntryOutcome.DesktopPreserved, SessionModes.ExplorerTakeoverRefusedWarning);
             }
 
@@ -187,12 +176,13 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
             backend.SetCancellable(false);
             backend.SetStatus("Leaving the Windows desktop");
             bool exited = await backend.ExitExplorerAndWaitAsync().ConfigureAwait(false);
-            if (!exited && await backend.MustPreserveDesktopAsync().ConfigureAwait(false))
+            if (!exited)
             {
-                await CompensateBeforeBoundaryAsync(entered, returnLayout).ConfigureAwait(false);
+                await RecoverAsync().ConfigureAwait(false);
                 return new(GameModeEntryOutcome.DesktopPreserved, SessionModes.ExplorerExitFailedWarning);
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             string? layoutWarning = null;
             if (launch is { Kind: GameModeLaunchKind.Custom, GameLayout: { } game })
             {
@@ -206,25 +196,27 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
             }
             else
             {
-                backend.ApplyDefaultPosture();
+                await backend.ApplyDefaultPostureAsync().ConfigureAwait(false);
             }
 
             backend.SetStatus("Starting Steam Big Picture");
             await backend.ArmSteamDetectionAsync().ConfigureAwait(false);
             string? steamWarning = await backend.RequestBigPictureAsync().ConfigureAwait(false);
 
-            backend.CommitGameMode();
+            cancellationToken.ThrowIfCancellationRequested();
+            await backend.CommitGameModeAsync().ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             return new(GameModeEntryOutcome.Entered, layoutWarning ?? steamWarning);
         }
         catch (OperationCanceledException)
         {
-            await CompensateBeforeBoundaryAsync(entered, returnLayout).ConfigureAwait(false);
+            await RecoverAsync().ConfigureAwait(false);
             return new(GameModeEntryOutcome.Cancelled);
         }
         catch (Exception ex)
         {
             Log.Error("Game Mode entry failed", ex);
-            await CompensateBeforeBoundaryAsync(entered, returnLayout).ConfigureAwait(false);
+            await RecoverAsync().ConfigureAwait(false);
             return new(GameModeEntryOutcome.Failed, "Game Mode entry failed: " + ex.Message);
         }
     }
@@ -248,32 +240,11 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
         new([.. arrangement.Targets.Where(target => target is { Active: true, Current: not null })
             .Select(target => target.Current!)]);
 
-    /// <summary>Undoes an entry that never crossed the boundary.
-    ///
-    /// The leave actions run whenever an entry action was dispatched or left uncertain, because the
-    /// only thing that reverses "the switch was told to select this PC" is telling it to select the
-    /// other one. A rejected action changed nothing and is not worth an IR burst.</summary>
-    private async Task CompensateBeforeBoundaryAsync(
+    private async Task RecoverDesktopAsync(
         IReadOnlyList<PluginActionStepResult> entered, DisplayLayout? returnLayout)
     {
-        try
-        {
-            if (PluginActionSequence.NeedsCompensation(entered) && launch.LeaveActions.Count > 0)
-            {
-                backend.SetStatus("Undoing the entry actions");
-                await backend.RunLeaveActionsAsync().ConfigureAwait(false);
-            }
-            if (returnLayout is not null)
-            {
-                DisplayLayoutResult restored = await backend
-                    .ApplyLayoutAsync(returnLayout, CancellationToken.None).ConfigureAwait(false);
-                if (!restored.Applied) { Log.Warn("Restoring the desktop layout: " + restored.Detail); }
-            }
-            await backend.PersistPendingReturnAsync(null).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Compensating a cancelled Game Mode entry failed", ex);
-        }
+        bool restored = await backend.ReturnToDesktopAsync(returnLayout,
+            PluginActionSequence.NeedsCompensation(entered)).ConfigureAwait(false);
+        if (!restored) { throw new InvalidOperationException(SessionModes.ExplorerDesktopPendingWarning); }
     }
 }

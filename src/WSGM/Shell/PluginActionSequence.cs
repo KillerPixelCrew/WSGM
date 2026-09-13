@@ -71,7 +71,9 @@ internal sealed class PluginActionSequence(IPluginActionInvoker invoker, Action<
         List<PluginActionStepResult> results = [];
         foreach (PluginActionStep step in steps)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            // Keep outcomes already observed. Throwing between steps discards the evidence
+            // needed to compensate actions that have already reached the appliance.
+            if (cancellationToken.IsCancellationRequested) { break; }
             string action = $"{step.Plugin?.PluginId}/{step.Plugin?.InstanceId} {step.ActionId}";
             log?.Invoke($"Session action starting: {action}.");
             PluginActionStepResult result = await RunStepAsync(step, cancellationToken).ConfigureAwait(false);

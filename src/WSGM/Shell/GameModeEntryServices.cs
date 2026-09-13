@@ -73,10 +73,6 @@ internal interface IGameModeEntryServices
 internal sealed class SessionModesEntryBackend(SessionModes modes, ExplorerDesktopHost desktopHost)
     : IGameModeEntryBackend
 {
-    private bool _prepared;
-
-    /// <summary>Whether Explorer was confirmed removed by this attempt.</summary>
-    internal bool ExplorerWasRemoved { get; private set; }
 
     /// <inheritdoc />
     public void SetStatus(string line) => modes.GameModeEntryServices?.SetStatus(line);
@@ -110,17 +106,11 @@ internal sealed class SessionModesEntryBackend(SessionModes modes, ExplorerDeskt
         modes.GameModeEntryServices?.PersistPendingReturnAsync(layout) ?? Task.CompletedTask;
 
     /// <inheritdoc />
-    public void ApplyDefaultPosture() =>
-        Avalonia.Threading.Dispatcher.UIThread.Post(modes.ApplyGameModePosture);
+    public Task ApplyDefaultPostureAsync() => Task.Run(modes.ApplyGameModePosture);
 
     /// <inheritdoc />
     public Task<IReadOnlyList<PluginActionStepResult>> RunEnterActionsAsync(CancellationToken cancellationToken) =>
         modes.GameModeEntryServices?.RunEnterActionsAsync(cancellationToken)
-        ?? Task.FromResult<IReadOnlyList<PluginActionStepResult>>([]);
-
-    /// <inheritdoc />
-    public Task<IReadOnlyList<PluginActionStepResult>> RunLeaveActionsAsync() =>
-        modes.GameModeEntryServices?.RunLeaveActionsAsync()
         ?? Task.FromResult<IReadOnlyList<PluginActionStepResult>>([]);
 
     /// <inheritdoc />
@@ -130,8 +120,7 @@ internal sealed class SessionModesEntryBackend(SessionModes modes, ExplorerDeskt
         // it still exists. A contaminated or unknown shell is preserved instead.
         ExplorerPreparationResult preparation = await desktopHost.PrepareForExplorerExitAsync()
             .ConfigureAwait(false);
-        _prepared = preparation.Prepared;
-        return _prepared;
+        return preparation.Prepared;
     }
 
     /// <inheritdoc />
@@ -141,7 +130,6 @@ internal sealed class SessionModesEntryBackend(SessionModes modes, ExplorerDeskt
         {
             bool exited = await desktopHost.ExitExplorerAndWaitAsync(SessionModes.ExplorerExitTimeout)
                 .ConfigureAwait(false);
-            ExplorerWasRemoved = exited;
             return exited;
         }
         catch (Exception ex)
@@ -152,31 +140,8 @@ internal sealed class SessionModesEntryBackend(SessionModes modes, ExplorerDeskt
     }
 
     /// <inheritdoc />
-    public async Task<bool> MustPreserveDesktopAsync()
-    {
-        if (!_prepared) { return true; }
-        bool preserve;
-        try
-        {
-            preserve = ExplorerControl.IsRunningInSession();
-        }
-        catch (Exception ex)
-        {
-            // Failure cannot prove Explorer is absent. Preserve the usable desktop instead of
-            // risking a tray-host collision.
-            Log.Error("Checking Explorer state after its exit attempt failed", ex);
-            return true;
-        }
-        if (preserve) { return true; }
-
-        // Exit returned failure without a living shell. Fail open by restoring through the
-        // already-captured anchor; never commit game mode on an unproven exit.
-        ExplorerDesktopResult restored = await desktopHost.RestoreDesktopAsync(TimeSpan.FromSeconds(20))
-            .ConfigureAwait(false);
-        return restored.Outcome is not ExplorerDesktopOutcome.Failed
-            || restored.LaunchDispatched
-            || restored.ShellSurfacePresent;
-    }
+    public Task<bool> ReturnToDesktopAsync(DisplayLayout? layout, bool runLeaveActions) =>
+        modes.ReturnToDesktopAsync(layout, runLeaveActions);
 
     /// <inheritdoc />
     public async Task<string?> RequestBigPictureAsync()
@@ -193,13 +158,6 @@ internal sealed class SessionModesEntryBackend(SessionModes modes, ExplorerDeskt
     }
 
     /// <inheritdoc />
-    public void ExitBigPicture()
-    {
-        try { modes.ExitBigPicture(); }
-        catch (Exception ex) { Log.Error("Rolling Steam back failed", ex); }
-    }
-
-    /// <inheritdoc />
-    public void CommitGameMode() =>
-        Avalonia.Threading.Dispatcher.UIThread.Post(modes.CommitGameMode);
+    public async Task CommitGameModeAsync() =>
+        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(modes.CommitGameMode);
 }

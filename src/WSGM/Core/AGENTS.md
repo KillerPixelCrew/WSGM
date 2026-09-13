@@ -11,8 +11,9 @@ remains in its feature scope.
 - A mutation uses the strict load path. If an existing configuration is unreadable, abort instead of
   writing defaults over its recovery snapshots.
 - Recovery operations must be idempotent and usable before normal application initialization.
-- ExplorerControl exits Explorer through its orderly exit command and fails open. Do not replace
-  that path with Process.Kill or Restart Manager shutdown.
+- ExplorerControl requests orderly exit first. After both shell surfaces disappear for two seconds,
+  it may release only the retained original process. Never terminate an active/replacement shell or
+  sweep folder processes during takeover. Every failed exit uses verified desktop recovery.
 - One owner creates and disposes each long-lived integration. Do not let views acquire hardware,
   Steam, RTSS, or input resources.
 - There is one installed device package slot. With integration disabled, skip Device plugin lifecycle,

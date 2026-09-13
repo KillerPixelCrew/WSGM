@@ -23,9 +23,12 @@ anchor. Early `--restore-shell` runs before normal composition and calls
 `ExplorerControl.StartExplorerAndVerify`, including its scheduled-task de-elevation repair when
 needed.
 
-Explorer exit uses its orderly `0x05B4` command and leaves lingering processes alive when its deadline
-expires. The separate terminal elevation repair can still remove an elevated Explorer before
-scheduled-task restart. Never kill a lingering or replacement Explorer during Game Mode takeover.
+Explorer exit uses its orderly `0x05B4` command. After both shell surfaces disappear for two
+seconds, the retained original process may be released to avoid blocking the next shell on a stale
+singleton. Never terminate an active or replacement desktop, or unrelated folder processes, during
+takeover. A failed exit always runs the shared desktop-return sequence; a surviving PID is not
+recovery. Both matching shell owners and responsive windows are required before reporting a usable
+desktop.
 
 During service-boot takeover, the splash's Desktop action sets sticky `BootTakeoverCancellation`,
 pauses the Steam monitor, and lets the boot worker release the `SessionModes` transition gate before
@@ -95,9 +98,9 @@ Verify phase-level exception isolation rather than assuming a failure list prove
 current `ShellSession.ShutdownAsync` has a broad final `try` around transition waits, tray
 retirement, Explorer recovery, and later service cleanup; an unexpected early exception can skip
 later phases. Safety-critical restoration needs independent guards or a guaranteed recovery
-`finally`, with failures accumulated only after every required phase ran. Also inspect
-`EnterGameModeSurfaces` on duplicate entry: assigning the result of a refused `TrayHost.Create()`
-can lose the reference to the still-live tray owner.
+`finally`, with failures accumulated only after every required phase ran. `EnterGameModeSurfaces`
+retains an existing tray owner on duplicate entry and rejects a failed creation; commit is awaited
+so the transition can recover from that failure.
 
 ## Threads and hot paths
 
