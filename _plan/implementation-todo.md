@@ -44,6 +44,13 @@ The reusable [launcher handoff findings](../docs/steam-launcher-handoff.md) docu
 creation timing, IPC, foreground ownership, and input API validation. Both issues remain deferred;
 automatic classification and production launch routing are not implemented.
 
+The maintainer may test a protected multiplayer title in the days after 2026-09-14. No title or
+result is recorded yet; anti-cheat compatibility remains unverified. The packaged Win32 spike still
+performs delayed remote setup in the game. Removing that setup for a helper-only comparison is a
+proposed follow-up, not an implemented change. Capture the exact game/anti-cheat, Steam and launcher
+build/options with any attended result under #48; #47 must not infer compatibility from package
+classification or Valve DLL signatures.
+
 ## Display and Device usability follow-up (2026-09-13)
 
 The approved design is implemented: manual display arrangement with per-display inspection,

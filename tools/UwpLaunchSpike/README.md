@@ -231,8 +231,15 @@ These launcher modes are a design decision under #48. The spike does not impleme
 selection UI or VIIPER session switching. The recorded trial ran with an elevated wrapper and a
 low-integrity AppContainer game; the minimum necessary wrapper privileges remain unverified.
 
-Anti-cheat compatibility is unverified. This spike injects a custom DLL and hooks code inside the
-game; the use of Steam's genuine renderer does not establish approval for the custom bridge. The
-Moonlighter result does not establish safety for protected multiplayer titles. Keep this approach
-disabled for those titles unless compatibility is explicitly established. The spike does not
-currently implement anti-cheat detection or an enforced protected-title denylist.
+Anti-cheat compatibility is unverified. Moonlighter uses a custom injected DLL and game-side hooks.
+The PowerWash route uses Valve DLLs without that bridge, but still performs remote setup in the
+helper and delayed environment writes/DLL loads in the game. It is not only launch ordering, and the
+proposed helper-only comparison has not been implemented. Production defaults remain unchanged; the
+spike has no automatic anti-cheat detection or enforced protected-title denylist.
+
+On September 14 the maintainer indicated they may perform an attended protected-multiplayer test in
+the next few days. No title has been selected and no such result has been reported. Record the exact
+game, anti-cheat, Steam and launcher versions/options using the
+[launcher handoff evidence checklist](../../docs/steam-launcher-handoff.md#remaining-limits). This
+planned test does not change the current status: working overlay/input in the recorded titles,
+anti-cheat compatibility unverified.

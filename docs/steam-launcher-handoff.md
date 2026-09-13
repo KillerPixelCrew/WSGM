@@ -90,6 +90,16 @@ when Steam already loaded the renderer. No custom AppContainer bridge is used, b
 alone do not establish acceptance of this external loading path by every anti-cheat. A helper-only
 comparison with no later custom game-process writes is the next simplification to validate.
 
+On September 14 the maintainer indicated they may test a protected multiplayer title in the next few
+days. That attended test is planned, not completed. Current status remains: **overlay and input work
+in the two recorded titles; anti-cheat compatibility is unverified**. No game or anti-cheat has been
+selected for that future test, and the helper-only simplification is not implemented.
+
+Record the tested game/build, package runtime, anti-cheat and version if known, Steam version,
+launcher build and exact options, and whether delayed descendant setup was enabled. Record launch,
+gameplay input, overlay/QAM, Alt-Tab recovery, exit, and any protection-system response separately.
+Keep any resulting compatibility finding specific to that configuration and observation window.
+
 The PowerWash trial used both Steam-client preloading and early renderer injection. It does not
 establish that every preloaded component is necessary. The supervisor also retained delayed
 environment/injection checks for descendants; removing those needs a separate comparison. Minimum
