@@ -16,14 +16,13 @@ internal sealed class SettingsLeaseReconciler
     private bool _busy;
 
     internal static bool ShouldHold(
-        bool gameModeSurface,
         bool leaseEnabled,
         bool closed,
         bool minimized,
         bool active,
         bool hasChildSurface,
         bool handoffPending)
-        => gameModeSurface && leaseEnabled && !closed && !minimized
+        => leaseEnabled && !closed && !minimized
            && (handoffPending || active || hasChildSurface);
 
     internal SettingsLeaseAction SetDesired(bool desired)
@@ -32,11 +31,11 @@ internal sealed class SettingsLeaseReconciler
         return Next();
     }
 
-    internal SettingsLeaseAction InheritClaim(bool leaseApplied)
+    internal SettingsLeaseAction InheritClaim()
     {
         _desired = true;
         _claimed = true;
-        if (!leaseApplied && !_busy)
+        if (!_busy)
         {
             _busy = true;
             return SettingsLeaseAction.Acquire;

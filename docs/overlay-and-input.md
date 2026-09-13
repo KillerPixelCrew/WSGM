@@ -145,7 +145,10 @@ direction auto-repeat) and full-state `StateChanged` (for chords), feeding `Game
 activate, mirrors arrow keys with a 250 ms dedupe and skips TextBoxes.
 
 `Overlay\TouchSwipeMonitor` observes the raw HID digitizer (`RIDEV_INPUTSINK`) for four configurable
-edge swipes and for tap-outside dismissal. Settings exposes each binding:
+edge swipes and for tap-outside dismissal. The same shared raw-input window observes mouse
+button-down edges for click-outside dismissal, including on the desktop. Mouse movement, wheel
+input, button release and touch-promoted clicks do not dismiss. Input still reaches the clicked
+application; no global mouse hook intercepts it. Settings exposes each edge binding:
 
 | Edge   | Action                                                       |
 | ------ | ------------------------------------------------------------ |

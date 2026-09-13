@@ -166,6 +166,13 @@ named owner claim in `SteamInputBlocker` and the lease is released when the last
 `AcquireFor` registers the owner before it attempts the native acquire. Every deactivate and close
 path must therefore call `ReleaseFor`, even when Steam was unavailable and `IsApplied` stayed false.
 
+Settings follows this focused-surface rule in Desktop mode too, including the standalone
+`--settings` shortcut, so Steam's desktop profile cannot swallow controller navigation or chord
+capture. Minimizing, losing focus, or closing releases its claim; the saved lease opt-out still
+applies. Registering an owner uses a separate short lock from native acquire/release. Settings
+confirms the native lease on its worker rather than reading it synchronously during handoff, so an
+unavailable Steam pipe cannot block the UI for its connection timeout.
+
 In the overlay-to-Settings handoff, Settings registers its owner first and the deferred overlay
 close removes the overlay's. Abandoning either name leaves the controller blocked after the visible
 surface is gone (device-observed, 2026-08-15). Settings ignores the transient deactivation caused by

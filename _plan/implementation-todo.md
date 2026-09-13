@@ -227,7 +227,7 @@ stops here rather than at zero:
 
 - #59 is implemented: Tools offers current resolution/refresh and supported mode drafts with explicit Apply. Windows Device Control owns fresh enumeration, exact-route revalidation, readback and rollback. A headless picker test and warning-clean builds pass. Physical mode changes remain for field review.
 
-- #38/#39 are implemented: Desktop notification icon, Settings focus, Game Mode entry and coordinated Exit; Start Menu and optional Desktop shortcuts start or activate the resident session. The activation test and 21 existing shutdown tests pass; the build is warning-clean. Installer and live tray review remain for field validation.
+- #38/#39 are implemented: Desktop notification icon, Settings focus, Game Mode entry and coordinated Exit; The WSGM Start menu and optional Desktop shortcuts start or activate the resident session; separate WSGM Settings shortcuts open --settings. Focused Settings leases Steam Input in both Desktop and Game Mode; its handoff claim does not wait on native acquisition. The activation test and 21 existing shutdown tests pass; the build is warning-clean. Installer and live tray review remain for field validation.
 
 - #58 is implemented: Overlay Tools shares the session-owned brightness service with Steam QAM, including with CEF disabled. Confirmed reads update a retained slider without writes; unavailable displays disable it. Seven service tests and one headless UI test pass. Live hardware review remains.
 

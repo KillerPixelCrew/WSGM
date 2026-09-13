@@ -33,7 +33,7 @@ public partial class SettingsWindow : Window
     private bool _quickSetupScanComplete;
     internal Task SteamAutostartScan { get; private set; } = Task.CompletedTask;
 
-    // When Settings is the on-screen surface in game mode it must hold the Steam
+    // When Settings is the focused surface it must hold the Steam
     // Input lease, exactly like the overlay: without it Steam's desktop profile
     // stays live over this window, grabs the pad from SDL and injects its own
     // desktop bindings; see docs\steam-input.md — the ghost/double input.
@@ -71,7 +71,7 @@ public partial class SettingsWindow : Window
     /// controller navigation and the shortcut recorders.</summary>
     /// <param name="gameModeSurface">True when opened as the on-screen surface in
     /// game mode (from the overlay), which makes the window hold a Steam Input
-    /// lease for its lifetime. The desktop settings paths leave it false.</param>
+    /// lease during the overlay handoff. Every Settings window leases while focused.</param>
     public SettingsWindow(bool gameModeSurface = false)
         : this(new SettingsViewModel(), gameModeSurface) { }
 
@@ -120,22 +120,19 @@ public partial class SettingsWindow : Window
         // it from SDL system-wide, and the controller user would be stranded in a
         // settings window they can no longer navigate. Same rule as
         // OverlayController.AcquireSteamInputLease (docs\steam-input.md).
-        if (_gameModeSurface)
+        // From the view model, which already loaded config.json for this
+        // window — a second ConfigStore.Load here takes the cross-process
+        // mutex again on the UI thread for a value that is already in memory.
+        _leaseEnabled = _viewModel.SteamInputLeaseEnabled;
+        Activated += (_, _) => UpdateLeaseDesired();
+        Deactivated += (_, _) => UpdateLeaseDesired();
+        PropertyChanged += (_, e) =>
         {
-            // From the view model, which already loaded config.json for this
-            // window — a second ConfigStore.Load here takes the cross-process
-            // mutex again on the UI thread for a value that is already in memory.
-            _leaseEnabled = _viewModel.SteamInputLeaseEnabled;
-            Activated += (_, _) => UpdateLeaseDesired();
-            Deactivated += (_, _) => UpdateLeaseDesired();
-            PropertyChanged += (_, e) =>
+            if (e.Property == WindowStateProperty)
             {
-                if (e.Property == WindowStateProperty)
-                {
-                    UpdateLeaseDesired();
-                }
-            };
-        }
+                UpdateLeaseDesired();
+            }
+        };
         // Every other GamepadNavigation host handles Escape itself; Settings did not,
         // and GamepadNavigation's keyboard-Escape branch arms its cross-source
         // suppression window whether or not anything acted on the key — so an Escape
@@ -545,13 +542,12 @@ public partial class SettingsWindow : Window
         _ = window.ShowDialog(this);
     }
 
-    /// <summary>Whether the lease should be held right now: only in game mode with
+    /// <summary>Whether the lease should be held right now: with
     /// the user opt-in, while this window is open, not minimized, and either active
     /// or driving one of its child surfaces (the splash preview, the on-screen
     /// keyboard dialog) by pad. Reads UI state — UI thread only.</summary>
     private bool ShouldHoldLease()
         => SettingsLeaseReconciler.ShouldHold(
-            _gameModeSurface,
             _leaseEnabled,
             _closed,
             WindowState == WindowState.Minimized,
@@ -585,14 +581,15 @@ public partial class SettingsWindow : Window
         // ClaimFor is deliberately claim-only: a cold injection belongs on the
         // reconciler's worker, never the UI thread. With a live handoff, this name
         // keeps the same native lease continuously applied while the overlay lets go.
-        SteamInputBlocker.ClaimFor(_leaseOwner);
-        var held = SteamInputBlocker.IsApplied;
+        _services.ClaimSteamInput(_leaseOwner);
         SettingsLeaseAction action;
         lock (_leaseSync)
         {
             // Shown as the foreground surface — do not gate the initial state on
             // IsActive, which can still be false at Opened and would drop the lease.
-            action = _leaseReconciler.InheritClaim(held);
+            // Confirm on the worker even when a lease was already applied: reading IsApplied
+            // takes the native-operation lock and can stall this UI behind a pipe timeout.
+            action = _leaseReconciler.InheritClaim();
         }
         RunLeaseAction(action);
     }
@@ -630,7 +627,7 @@ public partial class SettingsWindow : Window
         // SteamInputBlocker is a no-op when the lease is already held (the handoff
         // case) and injects only on a real 0-held transition; it logs its own
         // outcome and never throws.
-        SteamInputBlocker.AcquireFor(_leaseOwner);
+        _services.AcquireSteamInput(_leaseOwner);
         SettingsLeaseAction action;
         lock (_leaseSync)
         {
@@ -646,7 +643,7 @@ public partial class SettingsWindow : Window
     {
         // ReleaseFor, not ReleaseBestEffort: the quick-access panel may have been
         // re-summoned over this window and still own the lease.
-        SteamInputBlocker.ReleaseFor(_leaseOwner, "settings surface inactive");
+        _services.ReleaseSteamInput(_leaseOwner, "settings surface inactive");
         SettingsLeaseAction action;
         lock (_leaseSync)
         {

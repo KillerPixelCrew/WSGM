@@ -171,6 +171,7 @@ internal static partial class NativeMethods
     internal const ushort HidUsagePageGenericDesktop = 0x01;
     internal const ushort HidUsagePageDigitizer = 0x0D;
     internal const ushort HidUsageTouchScreen = 0x04;
+    internal const ushort HidUsageMouse = 0x02;
     internal const ushort HidUsageX = 0x30;
     internal const ushort HidUsageY = 0x31;
     internal const ushort HidUsageTipSwitch = 0x42;
@@ -184,6 +185,7 @@ internal static partial class NativeMethods
     internal const uint RidInput = 0x10000003;
     internal const uint RidiPreparsedData = 0x20000005;
     internal const uint RimTypeHid = 2;
+    internal const uint RimTypeMouse = 0;
     internal const int HidpStatusSuccess = 0x00110000;
     internal const int HidpInput = 0;
 
@@ -206,6 +208,17 @@ internal static partial class NativeMethods
         public nint hDevice;
         public nint wParam;
     }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct CursorPoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetCursorPos(out CursorPoint point);
 
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

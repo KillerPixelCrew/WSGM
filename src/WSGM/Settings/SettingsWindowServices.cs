@@ -13,13 +13,17 @@ internal sealed record SettingsWindowServices(
     Action BeginImportSession,
     Action EndImportSession,
     Func<Task> RefreshDeviceOwner,
-    Func<string> ReadSavedAccent)
+    Func<string> ReadSavedAccent,
+    Action<string> ClaimSteamInput,
+    Action<string> AcquireSteamInput,
+    Action<string, string> ReleaseSteamInput)
 {
     internal static SettingsWindowServices Create(SettingsViewModel viewModel)
     {
         GamepadService gamepad = new();
         return new(gamepad, gamepad.Start, gamepad.Stop,
             SplashTheme.BeginImportSession, SplashTheme.EndImportSession,
-            viewModel.RefreshDeviceOwnerStatusAsync, () => ConfigStore.Load().AccentColor);
+            viewModel.RefreshDeviceOwnerStatusAsync, () => ConfigStore.Load().AccentColor,
+            SteamInputBlocker.ClaimFor, SteamInputBlocker.AcquireFor, SteamInputBlocker.ReleaseFor);
     }
 }

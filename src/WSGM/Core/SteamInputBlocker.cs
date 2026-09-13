@@ -15,6 +15,7 @@ public static class SteamInputBlocker
     public const string DynamicRecoveryWarning = "Steam Input could not dynamically locate Steam's controller-release code. Please report this on GitHub — the Steam Input hook may need updating.";
 
     private static readonly object Sync = new();
+    private static readonly object OwnersSync = new();
 
     // The lease itself is process-wide, but several WSGM surfaces can need it at
     // the same time (the quick-access panel/taskbar and the settings window opened
@@ -112,20 +113,20 @@ public static class SteamInputBlocker
     // The Settings handoff must register its name synchronously before the overlay's
     // deferred close drops the old one, but it must not perform a cold injection on
     // the UI thread. Its reconciler follows this quick claim with AcquireFor on a
-    // worker when no native lease was available to inherit.
+    // worker to confirm the native lease without waiting on Sync from the UI thread.
     internal static void ClaimFor(string owner)
     {
-        lock (Sync)
-        {
-            ClaimForCore(owner);
-        }
+        ClaimForCore(owner);
     }
 
     private static void ClaimForCore(string owner)
     {
-        if (Owners.Add(owner))
+        lock (OwnersSync)
         {
-            Log.Info($"Steam Input lease claimed by {owner} ({Owners.Count} owner(s)).");
+            if (Owners.Add(owner))
+            {
+                Log.Info($"Steam Input lease claimed by {owner} ({Owners.Count} owner(s)).");
+            }
         }
     }
 
@@ -139,14 +140,17 @@ public static class SteamInputBlocker
     {
         lock (Sync)
         {
-            Owners.Remove(owner);
-            if (Owners.Count > 0)
+            lock (OwnersSync)
             {
-                Log.Info($"Steam Input lease kept ({reason}; {owner} let go, still owned by " +
-                         $"{string.Join(", ", Owners)}).");
-                return;
+                Owners.Remove(owner);
+                if (Owners.Count > 0)
+                {
+                    Log.Info($"Steam Input lease kept ({reason}; {owner} let go, still owned by " +
+                             $"{string.Join(", ", Owners)}).");
+                    return;
+                }
             }
-            ReleaseBestEffort(reason);
+            ReleaseCore(reason, clearOwners: false);
         }
     }
 
@@ -155,11 +159,15 @@ public static class SteamInputBlocker
     /// Unconditional: this is the recovery/shutdown form, so it drops every
     /// recorded owner claim as well. Surface owners use <see cref="ReleaseFor"/>.</summary>
     /// <param name="reason">Why the lease is released; logged for device diagnosis.</param>
-    public static void ReleaseBestEffort(string reason)
+    public static void ReleaseBestEffort(string reason) => ReleaseCore(reason, clearOwners: true);
+
+    // A surface can claim while native release runs. Preserve that claim: its queued acquire
+    // confirms the lease after release completes. Only unconditional shutdown clears all owners.
+    private static void ReleaseCore(string reason, bool clearOwners)
     {
         lock (Sync)
         {
-            Owners.Clear();
+            if (clearOwners) { lock (OwnersSync) { Owners.Clear(); } }
             if (_lease is null)
             {
                 return;

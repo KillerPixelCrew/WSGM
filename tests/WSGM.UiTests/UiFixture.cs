@@ -26,6 +26,9 @@ internal sealed class UiFixture : IDisposable
     internal List<string> Calls { get; } = [];
     internal AppConfig Saved { get; private set; } = new() { AccentColor = "#4CC2FF", QuickSetupRevision = QuickSetup.CurrentRevision };
     internal Func<SettingsViewModel.SaveRequest, Task<SettingsViewModel.SaveResult>>? Persist { get; set; }
+    internal Action<string> ClaimSteamInput { get; set; } = _ => { };
+    internal Action<string> AcquireSteamInput { get; set; } = _ => { };
+    internal Action<string, string> ReleaseSteamInput { get; set; } = (_, _) => { };
     internal Func<IReadOnlyList<SteamAutostartSource>> ScanSteamAutostart { get; set; } = () => [];
     internal Func<IReadOnlyList<SteamAutostartSource>, SteamAutostartTakeoverResult> ApplySteamAutostart { get; set; } =
         _ => throw new InvalidOperationException("Unexpected Steam autostart write.");
@@ -51,7 +54,7 @@ internal sealed class UiFixture : IDisposable
         AccentPalette.Apply(Application.Current!, AccentPalette.Parse("#4CC2FF"));
     }
 
-    internal SettingsWindow Settings(int width = 1280, int height = 800)
+    internal SettingsWindow Settings(int width = 1280, int height = 800, bool gameModeSurface = false)
     {
         SettingsViewModel.SettingsServices services = new(
             () => Displays,
@@ -79,8 +82,10 @@ internal sealed class UiFixture : IDisposable
         var windowServices = new SettingsWindowServices(new(),
             () => Calls.Add("input-start"), () => Calls.Add("input-stop"),
             () => Calls.Add("window-import-begin"), () => Calls.Add("window-import-end"),
-            () => { Calls.Add("device-read"); return Task.CompletedTask; }, () => Saved.AccentColor);
-        SettingsWindow window = new(model, windowServices) { Width = width, Height = height };
+            () => { Calls.Add("device-read"); return Task.CompletedTask; }, () => Saved.AccentColor,
+            owner => ClaimSteamInput(owner), owner => AcquireSteamInput(owner),
+            (owner, reason) => ReleaseSteamInput(owner, reason));
+        SettingsWindow window = new(model, windowServices, gameModeSurface) { Width = width, Height = height };
         Show(window);
         return window;
     }

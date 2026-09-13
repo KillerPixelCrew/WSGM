@@ -29,7 +29,9 @@ manually changing the external system's current state is not.
   render.
 - Input-lease and on-screen-keyboard handoffs are paired and released on close, cancellation,
   failure, or disposal.
-- A game-mode window registers its named Steam Input claim before acquisition and releases the claim
+- Every focused Settings window uses a named Steam Input lease, including standalone Desktop
+  Settings and shortcut capture. Native acquire/release stays on workers; a handoff claim must not
+  wait for the native-operation lock. A game-mode window registers its claim before acquisition and releases the claim
   even if native acquisition failed. During overlay handoff, claim before the overlay's deferred
   release and acknowledge close before ending the temporary deactivation exemption.
 - Required text credentials need a controller-accessible OnScreenKeyboard path; gamepad navigation

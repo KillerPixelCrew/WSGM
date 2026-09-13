@@ -9,6 +9,23 @@ namespace WSGM.Tests;
 /// refreshes.</summary>
 public sealed class QuickAccessSheetTests
 {
+    [Theory]
+    [InlineData(0x0001, 0u, true)]
+    [InlineData(0x0004, 0u, true)]
+    [InlineData(0x0010, 0u, true)]
+    [InlineData(0x0002, 0u, false)]
+    [InlineData(0x0400, 0u, false)]
+    [InlineData(0, 0u, false)]
+    [InlineData(0x0001, 0xFF515780u, false)]
+    public void OutsideDismissObservesClicksWithoutRepeatingPromotedTouch(ushort flags, uint extra, bool expected)
+    {
+        byte[] packet = new byte[24];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(4), flags);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(20), extra);
+        Assert.Equal(expected, TouchSwipeMonitor.IsMouseClick(packet));
+        Assert.False(TouchSwipeMonitor.IsMouseClick(packet.AsSpan(0, 23)));
+    }
+
     // The SteamOS map: left/right are Steam's, top/bottom are WSGM's. The bottom
     // edge is explorer's in desktop mode and stays ignored there.
     [Theory]

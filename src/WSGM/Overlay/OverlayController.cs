@@ -1373,7 +1373,7 @@ public sealed class OverlayController : IDisposable
         return _radioPanel is not null;
     }
 
-    /// <summary>Tap-outside dismissal via the raw-input observer, for whichever
+    /// <summary>Tap/click-outside dismissal via the raw-input observer, for whichever
     /// surface is open. Deliberately NOT implemented as dismiss-on-deactivate: the
     /// window-switching actions hand the foreground to another window while the
     /// surface must stay open for further presses.</summary>
@@ -1387,7 +1387,7 @@ public sealed class OverlayController : IDisposable
         {
             if (!HitsWindow(_radioPanel, x, y))
             {
-                Log.Info($"Touch at {x},{y} outside radio panel {WindowRect(_radioPanel)} — dismissing.");
+                Log.Info($"Pointer at {x},{y} outside radio panel {WindowRect(_radioPanel)} — dismissing.");
                 CloseRadioPanel();
             }
             return;
@@ -1396,7 +1396,7 @@ public sealed class OverlayController : IDisposable
         {
             if (!HitsWindow(_audioPanel, x, y))
             {
-                Log.Info($"Touch at {x},{y} outside audio panel {WindowRect(_audioPanel)} — dismissing.");
+                Log.Info($"Pointer at {x},{y} outside audio panel {WindowRect(_audioPanel)} — dismissing.");
                 CloseAudioPanel();
             }
             return;
@@ -1405,7 +1405,7 @@ public sealed class OverlayController : IDisposable
         {
             if (!HitsWindow(_ejectPanel, x, y))
             {
-                Log.Info($"Touch at {x},{y} outside eject panel {WindowRect(_ejectPanel)} — dismissing.");
+                Log.Info($"Pointer at {x},{y} outside eject panel {WindowRect(_ejectPanel)} — dismissing.");
                 CloseEjectPanel();
             }
             return;
@@ -1414,7 +1414,7 @@ public sealed class OverlayController : IDisposable
             && !HitsWindow(_overlay, x, y)
             && (_keyboardWindow is null || !HitsWindow(_keyboardWindow, x, y)))
         {
-            Log.Info($"Touch at {x},{y} outside quick access {WindowRect(_overlay)} — dismissing.");
+            Log.Info($"Pointer at {x},{y} outside quick access {WindowRect(_overlay)} — dismissing.");
             CloseOverlay();
         }
     }

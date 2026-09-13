@@ -143,6 +143,8 @@ Source: "{#DevicePackagesPublishDir}\*"; DestDir: "{autopf}\WSGM\DevicePlugins\.
 Source: "{#DeviceToolsPublishDir}\*"; DestDir: "{app}\Tools"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: devicelab
 
 [Icons]
+Name: "{userprograms}\{#AppName} Settings"; Filename: "{app}\WSGM.exe"; Parameters: "--settings"; IconFilename: "{app}\WSGM.exe"; Comment: "Configure WSGM"
+Name: "{userdesktop}\{#AppName} Settings"; Filename: "{app}\WSGM.exe"; Parameters: "--settings"; IconFilename: "{app}\WSGM.exe"; Tasks: desktopicon; Comment: "Configure WSGM"
 Name: "{userprograms}\{#AppName}"; Filename: "{app}\WSGM.exe"; Parameters: "--shell --activate"; IconFilename: "{app}\WSGM.exe"; Comment: "Open WSGM"
 Name: "{userdesktop}\{#AppName}"; Filename: "{app}\WSGM.exe"; Parameters: "--shell --activate"; IconFilename: "{app}\WSGM.exe"; Tasks: desktopicon; Comment: "Open WSGM"
 

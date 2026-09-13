@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -29,8 +30,8 @@ public enum ScreenEdge
 /// events by observing the touch digitizer through Raw Input (WM_INPUT on a
 /// message-only window, RIDEV_INPUTSINK).
 ///
-/// Purely observational: only the touch-screen HID device class is registered
-/// (never mouse or keyboard), nothing is consumed, and no window takes part in
+/// Purely observational: touch-screen and mouse input are registered without suppressing
+/// legacy delivery. Nothing is consumed, and no window takes part in
 /// hit-testing — the foreground game keeps receiving every event untouched.
 /// Contact coordinates are parsed straight from the raw HID reports and scaled
 /// from the digitizer's logical range to primary-screen physical pixels (the
@@ -103,12 +104,29 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     public event Action<ScreenEdge>? Triggered;
 
     /// <summary>Raised on the Avalonia UI thread with primary-screen pixel
-    /// coordinates for every NEW touch contact while <see cref="WatchTaps"/> is on.
-    /// Lets the overlay dismiss itself on taps outside its bounds.</summary>
+    /// coordinates for every new touch contact or mouse click while <see cref="WatchTaps"/> is on.
+    /// Lets the overlay dismiss itself on taps or clicks outside its bounds.</summary>
     public event Action<int, int>? TappedAt;
 
     /// <summary>Enables <see cref="TappedAt"/> (overlay open).</summary>
     public bool WatchTaps { get; set; }
+
+    // RAWMOUSE has a 24-byte layout: button flags at offset 4, extra information at 20.
+    // Only button-down edges dismiss. Touch-promoted mouse input is already handled by the
+    // digitizer path and must not dismiss a second surface from the same contact.
+    internal static bool IsMouseClick(ReadOnlySpan<byte> mouse)
+    {
+        if (mouse.Length < 24) { return false; }
+        ushort buttons = BinaryPrimitives.ReadUInt16LittleEndian(mouse[4..]);
+        uint extra = BinaryPrimitives.ReadUInt32LittleEndian(mouse[20..]);
+        return (buttons & 0x0015) != 0
+            && (extra & NativeMethods.MiWpSignatureMask) != NativeMethods.MiWpSignature;
+    }
+
+    private void DispatchTap(int x, int y) => Dispatcher.UIThread.Post(() =>
+    {
+        if (!_disposed && WatchTaps) { TappedAt?.Invoke(x, y); }
+    });
 
     /// <summary>Creates a monitor and joins the shared process-wide raw-input registration.</summary>
     public TouchSwipeMonitor()
@@ -141,14 +159,21 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                 dwFlags = NativeMethods.RidevInputSink | NativeMethods.RidevDevNotify,
                 hwndTarget = _sharedHwnd,
             },
+            new NativeMethods.RawInputDevice
+            {
+                usUsagePage = NativeMethods.HidUsagePageGenericDesktop,
+                usUsage = NativeMethods.HidUsageMouse,
+                dwFlags = NativeMethods.RidevInputSink,
+                hwndTarget = _sharedHwnd,
+            },
         };
-        if (!NativeMethods.RegisterRawInputDevices(devices, 1, (uint)Marshal.SizeOf<NativeMethods.RawInputDevice>()))
+        if (!NativeMethods.RegisterRawInputDevices(devices, (uint)devices.Length, (uint)Marshal.SizeOf<NativeMethods.RawInputDevice>()))
         {
             Log.Warn($"Raw touch input registration failed (Win32 error {Marshal.GetLastWin32Error()}).");
         }
         else
         {
-            Log.Info($"Raw touch input registered (HID digitizer sink, foreground {DescribeForeground()}).");
+            Log.Info($"Raw touch input registered (HID digitizer and mouse sinks, foreground {DescribeForeground()}).");
         }
     }
 
@@ -271,7 +296,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         var headerSize = (uint)sizeof(NativeMethods.RawInputHeader);
         uint size = 0;
         if (NativeMethods.GetRawInputData(hRawInput, NativeMethods.RidInput, 0, ref size, headerSize) != 0 ||
-            size == 0)
+            size < headerSize)
         {
             return;
         }
@@ -290,6 +315,15 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             }
 
             var header = *(NativeMethods.RawInputHeader*)buffer;
+            if (header.dwType == NativeMethods.RimTypeMouse)
+            {
+                if (WatchTaps && IsMouseClick(new ReadOnlySpan<byte>(buffer + headerSize, checked((int)(size - headerSize))))
+                    && NativeMethods.GetCursorPos(out var point))
+                {
+                    DispatchTap(point.X, point.Y);
+                }
+                return;
+            }
             if (header.dwType != NativeMethods.RimTypeHid)
             {
                 return;
@@ -543,13 +577,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
 
         if (watchTaps)
         {
-            Dispatcher.UIThread.Post(() =>
-            {
-                if (!_disposed && WatchTaps)
-                {
-                    TappedAt?.Invoke(x, y);
-                }
-            });
+            DispatchTap(x, y);
         }
 
         if (!_armed)
@@ -712,8 +740,15 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                         dwFlags = NativeMethods.RidevRemove,
                         hwndTarget = 0,
                     },
+                    new NativeMethods.RawInputDevice
+                    {
+                        usUsagePage = NativeMethods.HidUsagePageGenericDesktop,
+                        usUsage = NativeMethods.HidUsageMouse,
+                        dwFlags = NativeMethods.RidevRemove,
+                        hwndTarget = 0,
+                    },
                 };
-                if (!NativeMethods.RegisterRawInputDevices(devices, 1, (uint)Marshal.SizeOf<NativeMethods.RawInputDevice>()))
+                if (!NativeMethods.RegisterRawInputDevices(devices, (uint)devices.Length, (uint)Marshal.SizeOf<NativeMethods.RawInputDevice>()))
                 {
                     Log.Warn($"Raw touch input de-registration failed (Win32 error {Marshal.GetLastWin32Error()}); last touch monitor disposed.");
                 }

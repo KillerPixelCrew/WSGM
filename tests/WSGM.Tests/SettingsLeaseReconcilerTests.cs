@@ -7,7 +7,6 @@ public sealed class SettingsLeaseReconcilerTests
     [Fact]
     public void ShouldHold_OverlayStillClosing_IgnoresTransientSettingsDeactivation()
         => Assert.True(SettingsLeaseReconciler.ShouldHold(
-            gameModeSurface: true,
             leaseEnabled: true,
             closed: false,
             minimized: false,
@@ -18,7 +17,6 @@ public sealed class SettingsLeaseReconcilerTests
     [Fact]
     public void ShouldHold_HandoffCompleteAndSettingsInactive_ReleasesClaim()
         => Assert.False(SettingsLeaseReconciler.ShouldHold(
-            gameModeSurface: true,
             leaseEnabled: true,
             closed: false,
             minimized: false,
@@ -55,7 +53,8 @@ public sealed class SettingsLeaseReconcilerTests
     {
         var reconciler = new SettingsLeaseReconciler();
 
-        Assert.Equal(SettingsLeaseAction.None, reconciler.InheritClaim(leaseApplied: true));
+        Assert.Equal(SettingsLeaseAction.Acquire, reconciler.InheritClaim());
+        Assert.Equal(SettingsLeaseAction.None, reconciler.CompleteAcquireFor());
 
         Assert.Equal(SettingsLeaseAction.Release, reconciler.SetDesired(false));
     }
@@ -65,7 +64,7 @@ public sealed class SettingsLeaseReconcilerTests
     {
         var reconciler = new SettingsLeaseReconciler();
 
-        Assert.Equal(SettingsLeaseAction.Acquire, reconciler.InheritClaim(leaseApplied: false));
+        Assert.Equal(SettingsLeaseAction.Acquire, reconciler.InheritClaim());
         Assert.Equal(SettingsLeaseAction.None, reconciler.CompleteAcquireFor());
 
         Assert.Equal(SettingsLeaseAction.Release, reconciler.SetDesired(false));
