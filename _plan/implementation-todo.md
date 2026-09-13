@@ -40,6 +40,14 @@ returns do not replay actions. The focused run passed 97 tests. The warning-clea
 the UI test host exited before discovery. The maintainer stopped further testing and requested
 immediate deployment. This is not a fresh attended transition pass.
 
+The first deployed attempt refused Explorer before exit because a new 100 ms responsiveness probe
+timed out on a valid shell owner. Launch-parent capture now uses matching shell ownership and
+process/token checks without a UI-response gate or extra stability wait. Restoration retains its
+responsiveness checks with a 500 ms message allowance. The maintainer requested no more tests;
+this follow-up is built and deployed directly. The local leave configuration now requests HDMI 3
+twice before the switch power cycle and twice after it, with IR connect first. Hisense On remains
+only a local entry action. Physical switching is not inferred from an IR emission acknowledgement.
+
 ## Current issue workoff
 
 Desktop integration takeover now has a shared hardcoded rule list for DisplayFusion, Wallpaper

@@ -30,6 +30,10 @@ takeover. A failed exit always runs the shared desktop-return sequence; a surviv
 recovery. Both matching shell owners and responsive windows are required before reporting a usable
 desktop.
 
+Launch-parent capture checks matching shell owners, process identity and token semantics without a
+UI-responsiveness gate or extra stability delay. A brief message timeout during display changes is
+not grounds to refuse entry. Responsiveness and stable ownership verify the restored desktop.
+
 During service-boot takeover, the splash's Desktop action sets sticky `BootTakeoverCancellation`,
 pauses the Steam monitor, and lets the boot worker release the `SessionModes` transition gate before
 desktop restoration. Calling `EnterDesktopMode` directly while takeover owns that gate recreates the

@@ -146,3 +146,9 @@ and responsiveness define readiness. After orderly exit has removed both shell s
 seconds, WSGM may release the retained original process; it never force-closes an active or
 replacement shell during takeover. This replaces waiting for every Explorer process to disappear,
 which stranded the attended desktop after its taskbar had already exited.
+
+**Launch-parent capture is independent of UI responsiveness (2026-09-13).** The first deployed
+redesign refused a valid medium, jobless Explorer after one 100 ms message timeout, before any
+Explorer exit request. Capturing the actual matching shell owner now checks identity and token
+semantics without a UI-response gate or extra stability delay. Desktop restoration still verifies
+responsive windows and stable ownership before reporting success.

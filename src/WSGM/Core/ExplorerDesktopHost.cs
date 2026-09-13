@@ -61,29 +61,16 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
                 new ExplorerShellAcceptance(false, ExplorerShellRejection.NotReady),
                 ExplorerDesktopOutcome.Failed));
 
-        ExplorerDesktopObservation shell = ObserveCurrentDesktop(_sessionId);
+        // Capturing a launch parent needs the real shell owner and its token, not a fast UI
+        // response. Display changes and desktop hooks can briefly occupy Explorer's UI thread.
+        ExplorerDesktopObservation shell = ObserveCurrentDesktop(_sessionId, requireResponsive: false);
         LogObservation("Explorer capture", shell);
         if (!CanCaptureShell(shell))
         {
             string detail = $"current-shell-{shell.Acceptance.Rejection}";
             Log.Warn($"Explorer takeover refused before orderly exit: {shell.Acceptance.Rejection}. "
-                + "The current desktop was preserved; sign out or reboot once if it came from an older WSGM build.");
+                + "The current desktop was preserved.");
             return new(false, shell.Acceptance.Rejection, detail);
-        }
-
-        uint capturedProcessId = shell.Process.ProcessId;
-        Stopwatch captureStability = Stopwatch.StartNew();
-        while (captureStability.Elapsed < ReadinessStability)
-        {
-            await Task.Delay(PollInterval, cancellationToken).ConfigureAwait(false);
-            shell = ObserveCurrentDesktop(_sessionId);
-            if (!CanCaptureShell(shell) || shell.Process.ProcessId != capturedProcessId)
-            {
-                LogObservation("Explorer capture changed before anchor creation", shell);
-                Log.Warn("Explorer takeover refused: the canonical taskbar owner did not remain "
-                    + "stable before the orderly exit request.");
-                return new(false, ExplorerShellRejection.NotReady, "current-shell-not-stable");
-            }
         }
 
         if (!NativeShellProcess.TryOpenLaunchParent(
@@ -399,8 +386,10 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
     }
 
     /// <summary>Observes both shell surfaces and requires GetShellWindow and Shell_TrayWnd to have
-    /// the same owner before treating Explorer as initialized.</summary>
-    internal static ExplorerDesktopObservation ObserveCurrentDesktop(int expectedSessionId)
+    /// the same owner. Restored desktops also require responsive windows; launch-parent capture
+    /// only needs the process identity and token.</summary>
+    internal static ExplorerDesktopObservation ObserveCurrentDesktop(
+        int expectedSessionId, bool requireResponsive = true)
     {
         nint taskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null);
         bool taskbarPresent = taskbar != 0 && NativeMethods.IsWindow(taskbar);
@@ -427,8 +416,8 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             shellPresent,
             taskbarOwner,
             shellOwner,
-            responsive: taskbarPresent && shellPresent
-                && IsResponsive(taskbar) && IsResponsive(shellWindow));
+            responsive: !requireResponsive || (taskbarPresent && shellPresent
+                && IsResponsive(taskbar) && IsResponsive(shellWindow)));
         ExplorerShellAcceptance acceptance = ExplorerShellPolicy.Evaluate(
             process,
             ExplorerPath,
@@ -450,7 +439,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
 
     private static bool IsResponsive(nint window) =>
         NativeMethods.SendMessageTimeoutW(window, 0, 0, 0, NativeMethods.SmtoAbortIfHung,
-            100, out _) != 0;
+            500, out _) != 0;
 
     private async Task<ExplorerDesktopResult> WaitForDesktopAsync(
         DateTimeOffset deadline,
