@@ -96,13 +96,13 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
             () => SteamAutostartService.Scan(),
             sources => SteamAutostartService.Apply(sources, allowElevation: true));
 
-        /// <summary>Asks one active display what it supports, so the answers can be remembered and
+        /// <summary>Asks one connected display what it advertises, so the answers can be remembered and
         /// offered again after it is unplugged. Every query is optional: a display that refuses one
         /// of them still contributes the rest.</summary>
         [System.Runtime.Versioning.SupportedOSPlatform("windows")]
         private static DisplayCatalogFacts ReadWindowsDisplayFacts(DisplayTargetIdentity target)
         {
-            IReadOnlyList<DisplayMode> modes = DisplayModes.Read(target)?.Supported ?? [];
+            IReadOnlyList<DisplayMode> modes = DisplayModes.Read(target)?.Supported ?? DisplayEdid.ReadModes(target);
             bool hdr = DisplayColor.TryReadHdr(target, out _, out bool supported) && supported;
             int maximum = DisplayScaling.TryReadRange(target, out _, out _, out int highest) ? highest : 0;
             return new(modes, hdr, maximum);
@@ -1965,13 +1965,13 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
             }
             existing.Target = observed.Target;
             existing.LastSeen = arrangement.CapturedAt;
-            if (!observed.Active) { continue; }
-            // Only an active display can be asked what it supports, which is the whole reason the
-            // answers are remembered: an unplugged television has none of this to give.
+            // Disabled sources still expose monitor EDID. Retain the broader driver-mode list
+            // remembered while active rather than replacing it with descriptor-only timings.
             if ((factsByDisplay is null ? _services.ReadDisplayFacts(observed.Target)
                 : factsByDisplay.GetValueOrDefault(observed.Target.DevicePath)) is { } facts)
             {
-                if (facts.Modes.Count > 0) { existing.Modes = [.. facts.Modes]; }
+                if (facts.Modes.Count > 0)
+                { existing.Modes = observed.Active ? [.. facts.Modes] : [.. existing.Modes.Concat(facts.Modes).Distinct()]; }
                 existing.HdrSupported |= facts.HdrSupported;
                 existing.MaximumDpiPercent = Math.Max(existing.MaximumDpiPercent, facts.MaximumDpiPercent);
             }

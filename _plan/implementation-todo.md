@@ -21,6 +21,11 @@ separate process that could not acquire from elevated Steam. Settings launches n
 resident session and its existing input owner; the lease library and deployed shim are unchanged.
 Focused activation and Settings lifecycle checks cover delivery, repeated requests and disposal.
 
+The display follow-up fixes resolution and refresh selections resetting when their item lists were
+recreated during selection. Picker tests now use real input. Connected Windows-disabled displays
+also contribute EDID/DisplayID timings without being enabled, retaining remembered driver modes.
+Read-only checks found the native high-refresh modes of the disabled G7, X32 and G93SC displays.
+
 ## Current issue workoff
 
 After delivery of #38/#39, #51/#53, #58/#59, #61, #65–#68, #22/#26/#35/#36 and, on 2026-09-11,

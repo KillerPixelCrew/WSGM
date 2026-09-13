@@ -263,12 +263,23 @@ display whether or not it is connected, badges the absent ones, and offers Forge
 catalog. Discovery runs on a worker and refreshes rows in place without discarding either draft. New
 custom layouts start from the observed arrangement; Game Mode starts at 100% scaling.
 
+Connected displays disabled in Windows are queried through their monitor interface's EDID, including
+DisplayID detailed timings for high-refresh and ultrawide modes. Those advertised candidates are
+merged with remembered driver modes, so refreshing an inactive screen does not discard its broader
+saved list. The normal layout apply still validates the requested arrangement. Discovery never
+enables a screen to obtain its modes. A read-only check on Windows build 26200 on 2026-09-13
+returned 3840x2160 at 165 Hz for the disabled G7, 2560x1440 at 165 Hz for the disabled X32, and
+5120x1440 at 240 Hz for the disabled G93SC.
+
 The Game Mode and Desktop selectors choose independent drafts. A numbered arrangement supports
 selection and drag positioning; the inspector separates resolution, refresh rate, scale, HDR,
 primary selection and placement. It stays editable when a display is disabled. Disabled values
 remain in the open draft; the saved runtime layout contains enabled outputs. Undo restores one edit
 or copy operation. Saving stages the next transition and never changes the current desktop. Invalid
-enabled layouts block saving. Disconnected displays use their remembered modes.
+enabled layouts block saving. Disconnected displays use their remembered modes. Resolution and
+refresh choices keep the same item list while a selection changes; rebuilding that list during the
+ComboBox commit reset the chosen value. UI regressions select through the actual pickers, including
+while the source is disabled in Windows.
 
 CCD discovery bounds possible routes separately from the number of monitors. A read-only check on
 2026-09-13 found 284 possible routes, 568 mode records and three active displays on the desktop,

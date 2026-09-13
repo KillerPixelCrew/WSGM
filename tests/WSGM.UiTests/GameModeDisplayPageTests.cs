@@ -15,6 +15,41 @@ namespace WSGM.UiTests;
 public sealed class GameModeDisplayPageTests
 {
     [AvaloniaFact]
+    public void WindowsDisabledDisplayOffersModesAndKeepsTheSelectedResolutionAndRefresh()
+    {
+        using UiFixture fixture = new()
+        {
+            Displays = new([new(Tv, Available: true, Active: false, Current: null)], "disabled", DateTimeOffset.UnixEpoch),
+        };
+        fixture.DisplayFacts[Tv.DevicePath] = new(
+            [new(3840, 2160, 120), new(1920, 1080, 120), new(1920, 1080, 60)], true, 225);
+        SettingsWindow window = Open(fixture);
+        SettingsViewModel model = Model(window);
+        model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
+        Dispatcher.UIThread.RunJobs();
+        DisplayLayoutEditorRow row = Assert.Single(model.GameLayout.Rows);
+        Assert.False(row.Active);
+        Assert.True(row.HasModes);
+        ComboBox resolution = window.GetVisualDescendants().OfType<ComboBox>().Single(control => control.Name == "ResolutionChoice");
+        UiFixture.Click(window, resolution);
+        UiFixture.Key(window, Key.Down);
+        UiFixture.Key(window, Key.Enter);
+        Assert.Equal(new DisplayResolution(1920, 1080), row.Resolution);
+        ComboBox refresh = window.GetVisualDescendants().OfType<ComboBox>().Single(control => control.Name == "RefreshChoice");
+        UiFixture.Click(window, refresh);
+        UiFixture.Key(window, Key.Down);
+        UiFixture.Key(window, Key.Enter);
+        Assert.Equal(60, row.RefreshHz);
+        model.RefreshDisplaysCommand.Execute(null);
+        Assert.Equal(new DisplayMode(1920, 1080, 60), row.Mode);
+        Assert.False(row.Active);
+        UiFixture.Click(window, window.GetVisualDescendants().OfType<CheckBox>()
+            .Single(control => Equals(control.Content, "Use in this layout")));
+        Assert.Equal(new DisplayMode(1920, 1080, 60), row.Mode);
+        Assert.True(model.CanSaveLayouts);
+    }
+
+    [AvaloniaFact]
     public void FreshCustomLayoutCanBeEditedWithoutCopyingAndDisabledDisplaysKeepTheirInspector()
     {
         using UiFixture fixture = new() { Displays = Desktop(Tv) };
@@ -35,7 +70,12 @@ public sealed class GameModeDisplayPageTests
         Assert.True(resolution.IsEffectivelyVisible);
         Assert.True(resolution.IsEffectivelyEnabled);
         Assert.False(model.CanSaveLayouts);
-        row.Resolution = new DisplayResolution(1920, 1080);
+        Assert.Equal(new DisplayResolution(3840, 2160), resolution.SelectedItem);
+        UiFixture.Click(window, resolution);
+        Assert.True(resolution.IsDropDownOpen);
+        UiFixture.Key(window, Key.Down);
+        UiFixture.Key(window, Key.Enter);
+        Assert.Equal(new DisplayResolution(1920, 1080), row.Resolution);
         Assert.Equal(60, row.RefreshHz);
         UiFixture.Click(window, enabled);
         Assert.Equal(new DisplayMode(1920, 1080, 60), Assert.Single(model.GameLayout.Rows).Mode);

@@ -80,7 +80,7 @@ public sealed partial class SettingsViewModel
     {
         DisplayArrangement arrangement = _services.CaptureDisplays();
         Dictionary<string, DisplayCatalogFacts?> facts = [];
-        foreach (DisplayTargetObservation display in arrangement.Targets.Where(target => target.Active && target.Available))
+        foreach (DisplayTargetObservation display in arrangement.Targets.Where(target => target.Available))
         {
             try { facts[display.Target.DevicePath] = _services.ReadDisplayFacts(display.Target); }
             catch (Exception ex) when (ex is not OutOfMemoryException)

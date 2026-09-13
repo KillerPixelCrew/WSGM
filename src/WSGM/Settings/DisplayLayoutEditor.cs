@@ -10,7 +10,7 @@ using WSGM.Core;
 namespace WSGM.Settings;
 
 /// <summary>What discovery learned about one display beyond its current placement.</summary>
-/// <param name="Modes">Modes the driver advertised.</param>
+/// <param name="Modes">Modes advertised by the driver or monitor EDID.</param>
 /// <param name="HdrSupported">Whether the display reported advanced-colour support.</param>
 /// <param name="MaximumDpiPercent">Highest scaling percentage it offered, or zero when unknown.</param>
 internal sealed record DisplayCatalogFacts(
@@ -26,6 +26,8 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
     private DisplayMode? _mode;
     private int _dpiPercent = 100;
     private bool _hdrEnabled;
+    private IReadOnlyList<DisplayResolution> _resolutions = [];
+    private IReadOnlyList<int> _refreshRates = [];
 
     internal DisplayLayoutEditorRow(KnownDisplay display, bool present)
     {
@@ -33,6 +35,7 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
         Present = present;
         Modes = [.. display.Modes];
         _mode = Modes.FirstOrDefault();
+        RefreshModeChoices();
     }
 
     /// <inheritdoc />
@@ -74,7 +77,7 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
     /// <summary>Gets whether advanced colour can be chosen for this display.</summary>
     public bool HdrSupported => Display.HdrSupported;
 
-    /// <summary>Gets the modes the driver advertised the last time the display was active.</summary>
+    /// <summary>Gets remembered driver modes and timings advertised by the monitor EDID.</summary>
     public IReadOnlyList<DisplayMode> Modes { get; private set; }
 
     internal void Refresh(bool present)
@@ -91,8 +94,7 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
     public bool HasModes => Modes.Count > 0 || Mode is not null;
 
     /// <summary>Gets the resolutions remembered for this display, including a saved mode.</summary>
-    public IReadOnlyList<DisplayResolution> Resolutions => [.. AvailableModes
-        .Select(mode => new DisplayResolution(mode.Width, mode.Height)).Distinct()];
+    public IReadOnlyList<DisplayResolution> Resolutions => _resolutions;
 
     private IEnumerable<DisplayMode> AvailableModes => Mode is { } mode ? Modes.Append(mode) : Modes;
 
@@ -109,8 +111,27 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
     }
 
     /// <summary>Gets refresh rates belonging to the selected resolution.</summary>
-    public IReadOnlyList<int> RefreshRates => [.. AvailableModes.Where(mode =>
-        mode.Width == Mode?.Width && mode.Height == Mode?.Height).Select(mode => mode.RefreshHz).Distinct().OrderDescending()];
+    public IReadOnlyList<int> RefreshRates => _refreshRates;
+
+    private void RefreshModeChoices()
+    {
+        DisplayResolution[] resolutions = [.. AvailableModes
+            .Select(mode => new DisplayResolution(mode.Width, mode.Height)).Distinct()];
+        int[] rates = [.. AvailableModes.Where(mode => mode.Width == Mode?.Width && mode.Height == Mode?.Height)
+            .Select(mode => mode.RefreshHz).Distinct().OrderDescending()];
+        // Replacing ItemsSource during a ComboBox selection resets its selection and can write
+        // the first option back into the draft. Publish only an actual change in choices.
+        if (!_resolutions.SequenceEqual(resolutions))
+        {
+            _resolutions = resolutions;
+            PropertyChanged?.Invoke(this, new(nameof(Resolutions)));
+        }
+        if (!_refreshRates.SequenceEqual(rates))
+        {
+            _refreshRates = rates;
+            PropertyChanged?.Invoke(this, new(nameof(RefreshRates)));
+        }
+    }
 
     /// <summary>Gets or sets a refresh rate from the selected resolution's supported modes.</summary>
     public int? RefreshHz
@@ -249,7 +270,8 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
         if (name == nameof(HdrEnabled)) { PropertyChanged?.Invoke(this, new(nameof(HdrIndex))); }
         if (name == nameof(Mode))
         {
-            foreach (string related in new[] { nameof(Resolution), nameof(Resolutions), nameof(RefreshRates), nameof(RefreshHz) })
+            RefreshModeChoices();
+            foreach (string related in new[] { nameof(Resolution), nameof(RefreshHz), nameof(HasModes) })
             { PropertyChanged?.Invoke(this, new(related)); }
         }
         PropertyChanged?.Invoke(this, new(nameof(LayoutState)));
@@ -258,12 +280,13 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
 
     private void RaiseAll()
     {
+        RefreshModeChoices();
         foreach (string name in new[]
         {
             nameof(Active), nameof(IsPrimary), nameof(X), nameof(Y), nameof(Mode),
             nameof(DpiPercent), nameof(HdrEnabled), nameof(DisplayName), nameof(NeedsRebind),
             nameof(RebindText),
-            nameof(Resolution), nameof(Resolutions), nameof(RefreshRates), nameof(RefreshHz), nameof(Scales),
+            nameof(Resolution), nameof(RefreshHz), nameof(Scales),
             nameof(LayoutState), nameof(InspectorTitle), nameof(ConnectionText), nameof(HdrIndex), nameof(HasModes),
         })
         {
