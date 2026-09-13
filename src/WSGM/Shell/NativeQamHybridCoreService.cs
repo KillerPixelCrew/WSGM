@@ -30,8 +30,9 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
                 _requiresRead = false;
                 if (!status.Supported)
                 {
-                    // Published as unavailable rather than withheld: the row is registered for the
-                    // session, and a silently absent control cannot be told from a broken one.
+                    // Published as unavailable rather than withheld. No options hides the row, and
+                    // the reason still reaches the component host's render outcomes, so an absent
+                    // control can be told from a broken one.
                     return new(false, [], string.Empty,
                         "This processor has one kind of core, so there is nothing to choose.");
                 }

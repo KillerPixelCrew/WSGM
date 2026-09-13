@@ -4875,7 +4875,31 @@
     // still reports success. This is the difference between "the host did not add it" and "the host added
     // it and the device had nothing to show".
     const renderOutcomes = {};
+    // Which of the host's own rows drew something on their last render. A section header exists for
+    // the rows under it, so a section whose rows all returned null is only a title: with no device
+    // coordinator, Power limits and Controller were exactly that. Valve's rows report nothing here
+    // and count as drawn.
+    const drawnKinds = new Set();
+    let layoutQueued = false;
+    const setDrawn = (kind, drawn) => {
+      if (drawnKinds.has(kind) === drawn) return;
+      if (drawn) drawnKinds.add(kind);
+      else drawnKinds.delete(kind);
+      // Recorded while a row renders, so the panel roots hear about it afterwards instead of being
+      // updated from inside another component's render.
+      if (layoutQueued) return;
+      layoutQueued = true;
+      queueMicrotask(() => {
+        layoutQueued = false;
+        notify();
+      });
+    };
+    const drew = (kind, outcome = "rendered") => {
+      setDrawn(kind, true);
+      renderOutcomes[kind] = outcome;
+    };
     const note = (kind, reason) => {
+      setDrawn(kind, false);
       // "no state" is what every render sees while a delivery is being rejected, and the wrapper
       // re-renders on each host notification, so the generic reason must not overwrite the precise
       // one the subscription recorded.
@@ -5385,9 +5409,15 @@
         refreshRates: refreshUsable ? Object.freeze(refreshRates) : Object.freeze([]),
       });
     };
+    // The last state each kind accepted. A row mounted again when the panel reopens starts from it,
+    // so it draws on its first render rather than reporting nothing until the replay arrives, which
+    // would flash its section out of layout and back.
+    const acceptedStates = new Map();
     const useSemanticState = (controlRuntime, kind, normalize) => {
       const definition = definitions[kind];
-      const [state, setState] = controlRuntime.react.useState(null);
+      const [state, setState] = controlRuntime.react.useState(
+        () => acceptedStates.get(kind) ?? null,
+      );
       controlRuntime.react.useEffect(
         () =>
           subscribe(definition.patchId, (value) => {
@@ -5399,6 +5429,7 @@
             if (normalized === null && value) {
               renderOutcomes[kind] = "state received but rejected by validation";
             }
+            acceptedStates.set(kind, normalized);
             setState(normalized);
           }),
         [],
@@ -5509,7 +5540,7 @@
         if (!state.available)
           return note("vrr", "unavailable: " + (state.statusText || "no reason"));
         if (!controlRuntime.toggle) return note("vrr", "Steam ToggleField was not resolved");
-        renderOutcomes.vrr = "rendered";
+        drew("vrr");
         const definition = definitions.vrr;
         return controlRuntime.react.createElement(controlRuntime.toggle, {
           // Valve's own token for the row, so the label matches the client's language even though
@@ -5546,7 +5577,7 @@
         // Deliberately outside createControlRuntime's guard, so a client whose ToggleField cannot
         // be located loses only this row. That silence is exactly what needed a name.
         if (!controlRuntime.toggle) return note("autoTdp", "Steam ToggleField was not resolved");
-        renderOutcomes.autoTdp = "rendered";
+        drew("autoTdp");
         const definition = definitions.autoTdp;
         const setEnabled = (enabled) => {
           if (typeof enabled !== "boolean" || enabled === state.enabled) return;
@@ -5613,9 +5644,13 @@
         const state = useSemanticState(controlRuntime, kind, normalizePowerProfileState);
         const [pending, setPending] = controlRuntime.react.useState(false);
         if (!state) return note(kind, "no state");
+        // No options is nothing to choose. The reason goes to renderOutcomes rather than onto an
+        // empty, disabled dropdown.
+        if (!state.options.length)
+          return note(kind, "no options: " + (state.statusText || "no reason"));
         const options = state.options.map((option) => ({ data: option.id, label: option.label }));
         const definition = definitions[kind];
-        renderOutcomes[kind] = "rendered";
+        drew(kind);
         return controlRuntime.react.createElement(controlRuntime.dropdown, {
           label: "Windows power profile",
           icon: controlRuntime.icon("power"),
@@ -5657,9 +5692,12 @@
         const state = useSemanticState(controlRuntime, kind, normalizePowerProfileState);
         const [pending, setPending] = controlRuntime.react.useState(false);
         if (!state) return note(kind, "no state");
+        // A processor with one kind of core publishes no options, and has nothing to show here.
+        if (!state.options.length)
+          return note(kind, "no options: " + (state.statusText || "no reason"));
         const options = state.options.map((option) => ({ data: option.id, label: option.label }));
         const definition = definitions[kind];
-        renderOutcomes[kind] = "rendered";
+        drew(kind);
         return controlRuntime.react.createElement(controlRuntime.dropdown, {
           label: "Processor cores",
           icon: controlRuntime.icon("cores"),
@@ -5752,7 +5790,7 @@
                 .finally(() => setPending(false));
             },
           });
-        renderOutcomes.powerPreset = "rendered";
+        drew("powerPreset");
         // What is in effect, and why. The scope and the status belong to that one fact, so they are
         // its description rather than two more unlabelled lines: every other row in this host puts
         // its status there, and three stacked bare divs were the one place the panel stopped
@@ -5803,7 +5841,7 @@
             "controllerTarget",
             `selected '${selected}' is not among ${options.length} available target(s)`,
           );
-        renderOutcomes.controllerTarget = "rendered";
+        drew("controllerTarget");
         const definition = definitions.controllerTarget;
         const setTarget = (option) => {
           if (!option || !options.some((candidate) => candidate.data === option.data)) return;
@@ -5840,7 +5878,7 @@
           return note("resolution", "unavailable: " + (state.statusText || "no reason"));
         if (state.options.length < 2)
           return note("resolution", `only ${state.options.length} option(s)`);
-        renderOutcomes.resolution = "rendered";
+        drew("resolution");
         const definition = definitions.resolution;
         const options = state.options.map((option) => ({ data: option, label: option }));
         const setResolution = (option) => {
@@ -5900,7 +5938,7 @@
         if (!state.available)
           return note("frameLimit", "unavailable: " + (state.statusText || "no reason"));
         if (value === null) return note("frameLimit", "no observed or desired fps");
-        renderOutcomes.frameLimit = "rendered";
+        drew("frameLimit");
         const definition = definitions.frameLimit;
         const send = (command, nextValue) =>
           void request(
@@ -6213,7 +6251,8 @@
             ),
           );
         }
-        note("powerLimit", `rendered ${rows.length} row(s)`);
+        if (!rows.length) return note("powerLimit", "no usable power limit");
+        drew("powerLimit", `rendered ${rows.length} row(s)`);
         return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, ...rows);
       };
     const createDeviceControlsControl = (controlRuntime) =>
@@ -6443,7 +6482,7 @@
         }
         if (!rows.length && !chargingRows.length)
           return note("deviceControls", "no compatible charge or lighting rows");
-        renderOutcomes.deviceControls = `rendered ${rows.length + chargingRows.length} row(s)`;
+        drew("deviceControls", `rendered ${rows.length + chargingRows.length} row(s)`);
         return controlRuntime.react.createElement(
           controlRuntime.react.Fragment,
           null,
@@ -6612,10 +6651,27 @@
         ? controlRuntime.react.createElement("div", { style: SectionTitleStyle }, icon, title)
         : title;
     };
+    // A section whose rows all draw nothing stays mounted, so those rows keep their subscriptions and
+    // can bring it back when state arrives; it is only taken out of layout. `contents` leaves a shown
+    // section a direct flex item of Valve's panel, as it was before it had a wrapper.
+    const SectionShown = Object.freeze({ display: "contents" });
+    const SectionHidden = Object.freeze({ display: "none" });
+    const hostSection = (controlRuntime, key, title, shown, rows) =>
+      controlRuntime.react.createElement(
+        "div",
+        { key, style: shown ? SectionShown : SectionHidden },
+        controlRuntime.react.createElement(
+          controlRuntime.section,
+          { title: sectionTitle(controlRuntime, title) },
+          ...rows,
+        ),
+      );
     const appendControls = (controlRuntime, tree, placement = "perf") => {
       // Rendered React elements from Steam's own untyped runtime.
       const controls = [];
       const groups = new Map();
+      // Groups with at least one row that drew. Valve's components report nothing, so theirs count.
+      const drawnGroups = new Set();
       const groupFor = (kind) =>
         ({
           valveProfileHeader: "Profile scope",
@@ -6664,6 +6720,7 @@
         const group = groupFor(kind);
         if (!groups.has(group)) groups.set(group, []);
         groups.get(group).push(element);
+        if (kind.startsWith("valve") || drawnKinds.has(kind)) drawnGroups.add(group);
       }
       if (
         placement === "quickSettings" &&
@@ -6686,13 +6743,12 @@
       // different tab's tree would be hiding rows this code has never even looked at.
       if (placement === "quickSettings") {
         const section = groups.has("Display")
-          ? controlRuntime.react.createElement(
-              controlRuntime.section,
-              {
-                key: "steam-ui-quick-settings-section",
-                title: sectionTitle(controlRuntime, "Display"),
-              },
-              ...(groups.get("Display") || []),
+          ? hostSection(
+              controlRuntime,
+              "steam-ui-quick-settings-section",
+              "Display",
+              drawnGroups.has("Display"),
+              groups.get("Display"),
             )
           : null;
         appendDiagnostics[placement] = {
@@ -6742,11 +6798,7 @@
         ]
           .filter((title) => groups.has(title))
           .map((title) =>
-            controlRuntime.react.createElement(
-              controlRuntime.section,
-              { key: title, title: sectionTitle(controlRuntime, title) },
-              ...groups.get(title),
-            ),
+            hostSection(controlRuntime, title, title, drawnGroups.has(title), groups.get(title)),
           ),
       );
       // Shape of what Steam's performance root returned, so the rows it renders can be identified

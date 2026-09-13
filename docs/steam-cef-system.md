@@ -325,10 +325,12 @@ containing `#QuickAccess_Tab_Settings_Section_Other_Title` and
 `#QuickAccess_ReorderControllers_Button`. The wrappers use titled native `PanelSection` groups after
 Valve's Performance tree. Quick Settings places Display before the native controls, then Charging
 and RGB lighting after them. Performance groups profile scope, power profiles, display/frame rate,
-power limits, controller and reset. Steam's two FPS-counter rows are hidden only while WSGM has rows
-to add. The wrap is one transform on the toolkit's shared `useMemo` claim, which the Screensaver
-settings rows use too; `useMemo` is handed back when the last transform on it is removed. RGB
-brightness stays visible; Edit color reveals the zone and HSV sliders only when needed.
+power limits, controller and reset. A section whose WSGM rows all draw nothing, such as Power limits
+and Controller without a device, stays mounted but out of layout. Steam's two FPS-counter rows are
+hidden only while WSGM has rows to add. The wrap is one transform on the toolkit's shared `useMemo`
+claim, which the Screensaver settings rows use too; `useMemo` is handed back when the last transform
+on it is removed. RGB brightness stays visible; Edit color reveals the zone and HSV sliders only
+when needed.
 
 Rows and section headers carry a glyph from `icons.ts`, drawn by the toolkit on a 24x24 grid rather
 than taken from the client, filled with `currentColor` so it inherits the row's colour. A row passes
@@ -467,7 +469,9 @@ and reconnect checks remain attended.
 Without a device coordinator the TDP, AutoTDP, device-control and controller-target services publish
 an unavailable state and refuse writes with the reason; audio, network, Bluetooth and resolution
 modules are not declared at all without their managers. A perf control is hidden by omitting its
-field; a component that cannot mount reports why in `renderOutcomes`.
+field; a component that cannot mount reports why in `renderOutcomes`. The power-profile and
+processor-core dropdowns hide when they publish no options, which is how a processor with one kind
+of core shows no core row.
 
 `state received but rejected by validation` is the outcome to look for when a row that used to draw
 stops drawing: the host published something the injected half refused, so the control returns null
