@@ -93,6 +93,14 @@ operation identifies the endpoint again before doing anything else. Endpoint ref
 learn timeout or an overflowing capture are shown as plain instructions in Tools. Plugin suspend
 closes the connection. Device replacement does not erase the host library.
 
+The built-in button action accepts an optional `delay-ms` from 0 to 5000 (default 0). After the
+endpoint acknowledges the press, the plugin waits before completing the action and admitting the
+next one. For a three-second HDMI-switch power cycle, configure separate button actions for Port 3,
+Power with `delay-ms: 3000`, then Power with no delay. Leave actions run after the desktop layout
+and Explorer restoration. Power is a toggle when that is what the remote declares; an IR
+acknowledgement does not report the switch's actual power state. Cancellation interrupts the pause
+without repeating the press.
+
 ## Firmware remotes
 
 Firmware 0.4.0 can carry complete remotes. Each is a folder under `Firmware/remotes/`, for tracked

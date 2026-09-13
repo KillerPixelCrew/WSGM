@@ -70,7 +70,8 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         new("import", "Restore command library backup", []),
         new("remote-refresh", "Read built-in remotes", []),
         new("remote-press", "Press a built-in remote button",
-            [Text("remote", "Remote id"), Text("button", "Button id")]),
+            [Text("remote", "Remote id"), Text("button", "Button id"),
+             new("delay-ms", "Wait after pressing (ms)", PluginSettingKind.Number, new(Number: 0), 0, 5000)]),
         new("remote-run", "Run a built-in remote sequence",
             [Text("remote", "Remote id"), Text("sequence", "Sequence id"),
              new("wait", "Wait for the sequence to finish", PluginSettingKind.Boolean, new(Boolean: true))]),
@@ -431,7 +432,9 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     return new(request.OperationId, PluginActionOutcome.Rejected,
                         $"\"{remote.Name}\" has no button \"{button}\".");
                 }
+                int delay = IntegerArgument(request, "delay-ms", 0, 5000);
                 await endpoint.PressAsync(remote.Id, button, token).ConfigureAwait(false);
+                await Task.Delay(delay, token).ConfigureAwait(false);
                 break;
             case "remote-run":
                 string sequence = Arg("sequence");

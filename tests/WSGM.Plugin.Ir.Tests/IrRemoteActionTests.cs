@@ -69,6 +69,65 @@ public sealed class IrRemoteActionTests
     }
 
     [Fact]
+    public async Task APostPressPauseKeepsTheNextButtonBehindThePowerOffInterval()
+    {
+        FakeEndpoint endpoint = new() { Catalog = Catalog() };
+        await WithPlugin(endpoint, async (plugin, context) =>
+        {
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+            Task<PluginActionResult> off = Invoke(plugin, context, "remote-press",
+                ("remote", new(Text: "hdmi-switch")), ("button", new(Text: "power")),
+                ("delay-ms", new(Number: 3000))).AsTask();
+            Task<PluginActionResult> on = Invoke(plugin, context, "remote-press",
+                ("remote", new(Text: "hdmi-switch")), ("button", new(Text: "power"))).AsTask();
+
+            Assert.False(off.IsCompleted);
+            Assert.False(on.IsCompleted);
+            Assert.Single(endpoint.RemoteCalls);
+            Assert.Equal(PluginActionOutcome.Dispatched, (await off).Outcome);
+            Assert.True(elapsed.Elapsed >= TimeSpan.FromMilliseconds(3000));
+            Assert.Equal(PluginActionOutcome.Dispatched, (await on).Outcome);
+            Assert.Equal(["press hdmi-switch/power", "press hdmi-switch/power"], endpoint.RemoteCalls);
+        });
+    }
+
+    [Fact]
+    public async Task CancellingAPostPressPauseDoesNotRepeatTheEmittedButton()
+    {
+        FakeEndpoint endpoint = new() { Catalog = Catalog() };
+        await WithPlugin(endpoint, async (plugin, context) =>
+        {
+            using CancellationTokenSource cancellation = new();
+            Task<PluginActionResult> press = plugin.ExecuteActionAsync(new(Guid.NewGuid(), "remote-press",
+                PluginActionOrigin.SessionAutomation, Arguments(plugin, "remote-press",
+                    ("remote", new(Text: "hdmi-switch")), ("button", new(Text: "power")),
+                    ("delay-ms", new(Number: 3000)))), context, cancellation.Token).AsTask();
+            Assert.Single(endpoint.RemoteCalls);
+            Assert.False(press.IsCompleted);
+            cancellation.Cancel();
+            Assert.Equal(PluginActionOutcome.Unconfirmed, (await press).Outcome);
+            Assert.Single(endpoint.RemoteCalls);
+        });
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(5001)]
+    [InlineData(0.5)]
+    public async Task InvalidPostPressPauseDoesNotEmit(double delay)
+    {
+        FakeEndpoint endpoint = new() { Catalog = Catalog() };
+        await WithPlugin(endpoint, async (plugin, context) =>
+        {
+            PluginActionResult result = await Invoke(plugin, context, "remote-press",
+                ("remote", new(Text: "hdmi-switch")), ("button", new(Text: "power")),
+                ("delay-ms", new(Number: delay)));
+            Assert.Equal(PluginActionOutcome.Unconfirmed, result.Outcome);
+            Assert.Empty(endpoint.RemoteCalls);
+        });
+    }
+
+    [Fact]
     public async Task AnUnknownIdIsRefusedAfterARefreshRatherThanEmitted()
     {
         FakeEndpoint endpoint = new() { Catalog = Catalog() };

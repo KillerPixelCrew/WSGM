@@ -627,6 +627,8 @@ complete. Build order follows the list.
       free-text ids are validated against the endpoint's own catalog with one refresh on a miss.
       Old firmware, unknown ids, undeclared climate states and a busy endpoint are refusals that
       emit nothing. 28 plugin tests pass; no IR was emitted.
+      The 2026-09-13 follow-up adds a cancellable 0–5000 ms pause after a built-in button press,
+      keeping subsequent actions behind the pause for configurable HDMI-switch power cycling.
 - [x] **Add editable display layouts to Windows Device Control.** Capture the current arrangement
       into an editable layout: active targets, primary, position, resolution, refresh rate and HDR,
       keyed by stable target identity. Never make a user hand-author raw `DISPLAYCONFIG_*` data.
