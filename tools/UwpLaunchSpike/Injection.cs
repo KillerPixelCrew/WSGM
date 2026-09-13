@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 
 namespace Wsgm.UwpSpike;
@@ -12,8 +13,8 @@ namespace Wsgm.UwpSpike;
 /// load itself was refused.
 ///
 /// The AppContainer case is the one that catches people out. A low-integrity packaged
-/// process can only map a file whose ACL admits its package, so a DLL sitting in a normal
-/// Program Files directory is unreadable to it no matter what rights the injector holds.
+/// process needs file access under its package token. The injector's own file access does
+/// not establish that the game can load the same path.
 /// That is why the ReShade UWP route stages its DLL and grants
 /// <c>ALL APPLICATION PACKAGES</c> read and execute on it. This does the same, on a copy,
 /// so nothing in Steam's own installation is modified.
@@ -23,11 +24,13 @@ internal sealed class Injection(SpikeLog log)
     private const string AllApplicationPackagesSid = "S-1-15-2-1";
 
     private readonly HashSet<string> attempted = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<int> pending = [];
 
     internal void InjectAll(IReadOnlyList<string> dlls, ProcessReport target)
     {
         foreach (var dll in dlls)
         {
+            if (pending.Contains(target.Pid)) { break; }
             var key = $"{target.Pid}|{dll}";
             if (!attempted.Add(key))
             {
@@ -58,6 +61,8 @@ internal sealed class Injection(SpikeLog log)
             return;
         }
 
+        if (pending.Contains(target.Pid)) { return; }
+
         // Second attempt: a staged copy the package is allowed to read. If the first
         // attempt failed only because of the file ACL, this one succeeds and the
         // difference between the two is the finding.
@@ -84,6 +89,7 @@ internal sealed class Injection(SpikeLog log)
 
         var remote = IntPtr.Zero;
         var thread = IntPtr.Zero;
+        var running = false;
         try
         {
             var kernel32 = Native.GetModuleHandleW("kernel32.dll");
@@ -119,6 +125,8 @@ internal sealed class Injection(SpikeLog log)
             var wait = Native.WaitForSingleObject(thread, 15_000);
             if (wait != 0)
             {
+                running = true;
+                pending.Add(target.Pid);
                 log.Warn($"injection: the remote LoadLibraryW thread did not finish (wait result 0x{wait:X}).");
                 return false;
             }
@@ -141,20 +149,17 @@ internal sealed class Injection(SpikeLog log)
         finally
         {
             if (thread != IntPtr.Zero) { Native.CloseHandle(thread); }
-            if (remote != IntPtr.Zero) { Native.VirtualFreeEx(process, remote, UIntPtr.Zero, Native.MemRelease); }
+            if (remote != IntPtr.Zero && !running) { Native.VirtualFreeEx(process, remote, UIntPtr.Zero, Native.MemRelease); }
             Native.CloseHandle(process);
         }
     }
 
     /// Calls a zero-argument export inside the game.
     ///
-    /// This is the step that a LoadLibrary cannot cover. Balatro's working overlay comes from
-    /// the game itself calling SteamAPI_Init, which loads steamclient64.dll and registers the
-    /// process with the running client; both the overlay and Steam Input hang off that
-    /// registration. A packaged title that is not a Steam build never makes that call, so
-    /// mapping Steam's DLLs into it achieves nothing on its own. CreateRemoteThread can only
-    /// pass a single pointer argument, which is exactly enough for an export that takes none.
-    internal void CallExport(string dll, string export, ProcessReport target)
+    /// Used for bridge initialization and explicit comparison exports. Return conventions
+    /// belong to the named export: zero means success for the bridge, while SteamAPI_Init
+    /// uses a Boolean result. Overlay registration does not inherently require SteamAPI_Init.
+    internal uint? CallExport(string dll, string export, ProcessReport target)
     {
         log.Section($"Remote call: {Path.GetFileName(dll)}!{export} in pid {target.Pid}");
 
@@ -162,7 +167,7 @@ internal sealed class Injection(SpikeLog log)
         if (remoteBase == IntPtr.Zero)
         {
             log.Error($"remote call: {Path.GetFileName(dll)} is not loaded in pid {target.Pid}; inject it first.");
-            return;
+            return null;
         }
 
         // The export's address is found locally and translated by relative virtual address,
@@ -171,7 +176,7 @@ internal sealed class Injection(SpikeLog log)
         if (local == IntPtr.Zero)
         {
             log.Error($"remote call: could not load {dll} locally to resolve {export} (error {Marshal.GetLastWin32Error()}).");
-            return;
+            return null;
         }
 
         IntPtr remoteExport;
@@ -181,7 +186,7 @@ internal sealed class Injection(SpikeLog log)
             if (localExport == IntPtr.Zero)
             {
                 log.Error($"remote call: {dll} has no export named {export} (error {Marshal.GetLastWin32Error()}).");
-                return;
+                return null;
             }
 
             var rva = localExport.ToInt64() - local.ToInt64();
@@ -197,7 +202,7 @@ internal sealed class Injection(SpikeLog log)
         if (process == IntPtr.Zero)
         {
             log.Error($"remote call: OpenProcess failed (error {Marshal.GetLastWin32Error()}).");
-            return;
+            return null;
         }
 
         var thread = IntPtr.Zero;
@@ -207,19 +212,19 @@ internal sealed class Injection(SpikeLog log)
             if (thread == IntPtr.Zero)
             {
                 log.Error($"remote call: CreateRemoteThread failed (error {Marshal.GetLastWin32Error()}).");
-                return;
+                return null;
             }
 
             var wait = Native.WaitForSingleObject(thread, 20_000);
             if (wait != 0)
             {
                 log.Warn($"remote call: {export} did not return within 20s (wait 0x{wait:X}). It may be blocking on the Steam pipe.");
-                return;
+                return null;
             }
 
             Native.GetExitCodeThread(thread, out var exitCode);
-            log.Info($"remote call: {export} returned {exitCode} (0x{exitCode:X8}). "
-                + (exitCode == 0 ? "Zero is failure for SteamAPI_Init." : "Non-zero is success for SteamAPI_Init."));
+            log.Info($"remote call: {export} returned {exitCode} (0x{exitCode:X8}).");
+            return exitCode;
         }
         finally
         {
@@ -323,7 +328,7 @@ internal sealed class Injection(SpikeLog log)
             }
 
             log.Info($"remote env: set {applied} of {variables.Count} variable(s) inside pid {pid}.");
-            return applied > 0;
+            return applied == variables.Count;
         }
         finally
         {
@@ -351,6 +356,7 @@ internal sealed class Injection(SpikeLog log)
         }
 
         var thread = IntPtr.Zero;
+        var running = false;
         try
         {
             var buffer = new byte[total];
@@ -385,6 +391,7 @@ internal sealed class Injection(SpikeLog log)
 
             if (Native.WaitForSingleObject(thread, 10_000) != 0)
             {
+                running = true;
                 log.Warn($"remote env: the stub for {name} did not finish.");
                 return false;
             }
@@ -402,7 +409,7 @@ internal sealed class Injection(SpikeLog log)
         finally
         {
             if (thread != IntPtr.Zero) { Native.CloseHandle(thread); }
-            Native.VirtualFreeEx(process, block, UIntPtr.Zero, Native.MemRelease);
+            if (!running) { Native.VirtualFreeEx(process, block, UIntPtr.Zero, Native.MemRelease); }
         }
     }
 
@@ -421,8 +428,8 @@ internal sealed class Injection(SpikeLog log)
             log.Info($"injection: staged a copy at {staged}");
 
             // Grant on the containing directory as well: the loader has to traverse it.
-            Grant(directory, "(OI)(CI)(RX)");
-            Grant(staged, "(RX)");
+            Grant(directory, directory: true);
+            Grant(staged, directory: false);
             ReportAcl(staged);
             return staged;
         }
@@ -433,51 +440,38 @@ internal sealed class Injection(SpikeLog log)
         }
     }
 
-    private void Grant(string path, string rights)
+    private void Grant(string path, bool directory)
     {
-        var result = RunIcacls([path, "/grant", $"*{AllApplicationPackagesSid}:{rights}"]);
-        log.Info($"injection: icacls grant on {path} -> {result}");
+        var sid = new SecurityIdentifier(AllApplicationPackagesSid);
+        if (directory)
+        {
+            var info = new DirectoryInfo(path);
+            var acl = info.GetAccessControl();
+            acl.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.ReadAndExecute,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            info.SetAccessControl(acl);
+        }
+        else
+        {
+            var info = new FileInfo(path);
+            var acl = info.GetAccessControl();
+            acl.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.ReadAndExecute, AccessControlType.Allow));
+            info.SetAccessControl(acl);
+        }
+
+        log.Info($"injection: granted package read/execute on {path}");
     }
 
     private void ReportAcl(string path)
     {
-        var result = RunIcacls([path]);
-        log.Info($"injection: acl of {path}:");
-        foreach (var line in result.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            log.Line("            " + line.TrimEnd());
-        }
-    }
-
-    private static string RunIcacls(string[] arguments)
-    {
         try
         {
-            var info = new ProcessStartInfo("icacls.exe")
-            {
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-            };
-            foreach (var argument in arguments)
-            {
-                info.ArgumentList.Add(argument);
-            }
-
-            using var process = Process.Start(info);
-            if (process is null)
-            {
-                return "icacls could not be started";
-            }
-
-            var output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
-            process.WaitForExit(10_000);
-            return output.Trim();
+            var acl = new FileInfo(path).GetAccessControl(AccessControlSections.Access);
+            log.Info($"injection: acl of {path}: {acl.GetSecurityDescriptorSddlForm(AccessControlSections.Access)}");
         }
         catch (Exception ex)
         {
-            return $"icacls failed: {ex.Message}";
+            log.Warn($"injection: ACL inspection failed: {ex.Message}");
         }
     }
 

@@ -152,3 +152,12 @@ redesign refused a valid medium, jobless Explorer after one 100 ms message timeo
 Explorer exit request. Capturing the actual matching shell owner now checks identity and token
 semantics without a UI-response gate or extra stability delay. Desktop restoration still verifies
 responsive windows and stable ownership before reporting success.
+
+**The future packaged-game launcher offers two explicit input modes (2026-09-14).** Under deferred
+[#48](https://github.com/KillerPixelCrew/WSGM/issues/48), Steam integration for single-player games
+uses the overlay and input bridge demonstrated by the Moonlighter spike. Controller-only mode
+switches VIIPER to its Xbox 360 target without custom game injection. Valve controller users in
+Desktop Mode can therefore lack controller support for multiplayer games on this route; the
+maintainer accepts that limitation. Controller-only must not silently enable the injection route.
+Neither mode carries a general anti-cheat compatibility guarantee. These are launcher design
+decisions, not shipped per-game options or an expansion of the 2.0 milestone.

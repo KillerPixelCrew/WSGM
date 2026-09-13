@@ -26,6 +26,15 @@ process tree, after investigating native Steam handoff. The public
 are research leads, not current-client or packaged-game validation. This return-to-game change
 does not implement injection, wrapper lifetime tracking or packaged-game handoff.
 
+The separate [UWP launch spike](../tools/UwpLaunchSpike/README.md) passed an attended Moonlighter
+trial on 2026-09-14: controller input, QAM, and repeated Alt-Tab away/back. It bridges Steam's IPC
+objects into the AppContainer, routes Unity's WinRT gamepad factory queries through Steam, and
+corrects foreground attribution from the frame to the game-owned CoreWindow. This validates the
+spike on the reference machine; production integration, crash recovery and broader packaged-game
+support remain deferred under #48.
+The eventual launcher will offer explicit single-player Steam integration and controller-only
+VIIPER Xbox modes; this selection and its session switching are not implemented by the spike.
+
 ## Display and Device usability follow-up (2026-09-13)
 
 The approved design is implemented: manual display arrangement with per-display inspection,

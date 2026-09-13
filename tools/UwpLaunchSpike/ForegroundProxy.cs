@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 
 namespace Wsgm.UwpSpike;
@@ -20,6 +21,7 @@ namespace Wsgm.UwpSpike;
 internal sealed class ForegroundProxy : IDisposable
 {
     private const string ClassName = "WsgmUwpSpikeForegroundProxy";
+    private const uint ReconcileForegroundMessage = 0x8001;
 
     private readonly SpikeLog log;
     private readonly ManualResetEventSlim ready = new(false);
@@ -27,14 +29,18 @@ internal sealed class ForegroundProxy : IDisposable
 
     // The delegate has to outlive the window: the class keeps only a raw function pointer.
     private readonly Native.WindowProc procedure;
+    private readonly WinEventProc foregroundChanged;
 
     private IntPtr window;
     private int targetPid;
+    private IntPtr foregroundHook;
+    private int reconciliationPending;
 
     internal ForegroundProxy(SpikeLog log)
     {
         this.log = log;
         procedure = WindowProcedure;
+        foregroundChanged = ForegroundChanged;
         thread = new Thread(Pump)
         {
             IsBackground = true,
@@ -52,6 +58,19 @@ internal sealed class ForegroundProxy : IDisposable
     {
         Interlocked.Exchange(ref targetPid, pid);
         Native.AllowSetForegroundWindow((uint)pid);
+        ReconcileForeground();
+    }
+
+    /// Uses the supervisor's existing sample when a UWP foreground event is missed or
+    /// arrives before the CoreWindow has been attached to its frame.
+    internal void ReconcileForeground()
+    {
+        var proxyWindow = window;
+        if (proxyWindow == IntPtr.Zero || Interlocked.Exchange(ref reconciliationPending, 1) != 0) { return; }
+        if (!Native.PostMessageW(proxyWindow, ReconcileForegroundMessage, IntPtr.Zero, IntPtr.Zero))
+        {
+            Interlocked.Exchange(ref reconciliationPending, 0);
+        }
     }
 
     private void Pump()
@@ -92,6 +111,11 @@ internal sealed class ForegroundProxy : IDisposable
 
             Native.SetLayeredWindowAttributes(window, 0, 0, Native.Lwa_Alpha);
             Native.ShowWindow(window, Native.SwShowNa);
+            foregroundHook = SetWinEventHook(3, 3, IntPtr.Zero, foregroundChanged, 0, 0, 0);
+            if (foregroundHook == IntPtr.Zero)
+            {
+                log.Warn($"foreground proxy: foreground event hook failed ({Marshal.GetLastWin32Error()}).");
+            }
             log.Info($"foreground proxy: window 0x{window.ToInt64():X} is up; activating it raises the game.");
             ready.Set();
 
@@ -103,15 +127,52 @@ internal sealed class ForegroundProxy : IDisposable
         }
         finally
         {
+            if (foregroundHook != IntPtr.Zero) { UnhookWinEvent(foregroundHook); }
             ready.Set();
             Marshal.FreeHGlobal(classNamePointer);
         }
+    }
+
+    private void ForegroundChanged(IntPtr hook, uint eventId, IntPtr foreground, int objectId, int childId, uint eventThread, uint eventTime)
+    {
+        var pid = Volatile.Read(ref targetPid);
+        if (pid == 0 || foreground == IntPtr.Zero || foreground != GetForegroundWindow()) { return; }
+        var className = new StringBuilder(128);
+        GetClassNameW(foreground, className, className.Capacity);
+        if (!className.ToString().Equals("ApplicationFrameWindow", StringComparison.Ordinal)) { return; }
+        var coreWindow = CoreWindowIn(foreground, pid);
+        if (coreWindow == IntPtr.Zero || foreground != GetForegroundWindow()) { return; }
+        var raised = Native.SetForegroundWindow(coreWindow);
+        log.Info($"foreground proxy: game frame 0x{foreground.ToInt64():X} -> CoreWindow 0x{coreWindow.ToInt64():X} pid {pid}; SetForegroundWindow={raised}");
+    }
+
+    private static IntPtr CoreWindowIn(IntPtr parent, int pid)
+    {
+        var found = IntPtr.Zero;
+        bool Inspect(IntPtr candidate, IntPtr ignored)
+        {
+            Native.GetWindowThreadProcessId(candidate, out var owner);
+            if (owner != (uint)pid) { return true; }
+            var className = new StringBuilder(128);
+            GetClassNameW(candidate, className, className.Capacity);
+            if (!className.ToString().Equals("Windows.UI.Core.CoreWindow", StringComparison.Ordinal)) { return true; }
+            found = candidate;
+            return false;
+        }
+
+        Inspect(parent, IntPtr.Zero);
+        if (found == IntPtr.Zero) { EnumChildWindows(parent, Inspect, IntPtr.Zero); }
+        return found;
     }
 
     private IntPtr WindowProcedure(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam)
     {
         switch (message)
         {
+            case ReconcileForegroundMessage:
+                Interlocked.Exchange(ref reconciliationPending, 0);
+                ForegroundChanged(foregroundHook, 3, GetForegroundWindow(), 0, 0, 0, 0);
+                break;
             case Native.WmActivate when wParam != IntPtr.Zero:
             case Native.WmSetFocus:
             case Native.WmNcActivate when wParam != IntPtr.Zero:
@@ -151,6 +212,8 @@ internal sealed class ForegroundProxy : IDisposable
             Native.ShowWindow(target, Native.SwRestore);
         }
 
+        if (target == GetForegroundWindow()) { return; }
+
         var raised = Native.SetForegroundWindow(target);
         log.Info($"foreground proxy: activation (message 0x{message:X}) forwarded to pid {pid} "
             + $"window 0x{target.ToInt64():X}; SetForegroundWindow={raised}");
@@ -167,10 +230,8 @@ internal sealed class ForegroundProxy : IDisposable
                 continue;
             }
 
-            if (candidate.Title.Length > 0)
-            {
-                return candidate.Handle;
-            }
+            var coreWindow = CoreWindowIn(candidate.Handle, pid);
+            if (coreWindow != IntPtr.Zero) { return coreWindow; }
 
             if (best == IntPtr.Zero)
             {
@@ -180,6 +241,19 @@ internal sealed class ForegroundProxy : IDisposable
 
         return best;
     }
+
+    private delegate void WinEventProc(IntPtr hook, uint eventId, IntPtr window, int objectId, int childId, uint thread, uint time);
+    private delegate bool EnumChildProc(IntPtr window, IntPtr parameter);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetWinEventHook(uint minimum, uint maximum, IntPtr module, WinEventProc callback, uint process, uint thread, uint flags);
+    [DllImport("user32.dll")]
+    private static extern bool UnhookWinEvent(IntPtr hook);
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassNameW(IntPtr window, StringBuilder name, int count);
+    [DllImport("user32.dll")]
+    private static extern bool EnumChildWindows(IntPtr parent, EnumChildProc callback, IntPtr parameter);
 
     public void Dispose()
     {

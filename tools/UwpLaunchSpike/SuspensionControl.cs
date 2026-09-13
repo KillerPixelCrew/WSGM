@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -10,13 +9,10 @@ namespace Wsgm.UwpSpike;
 /// Takes the packaged title out of Process Lifetime Management so Windows stops
 /// suspending it.
 ///
-/// This is the difference between a UWP title behaving like a game and behaving like a
-/// phone app. PLM suspends a packaged app as soon as it loses the foreground: a measured
-/// run found all 66 of Moonlighter's threads in Suspended wait the moment focus went
-/// elsewhere. While suspended the process has no enumerable window, SetForegroundWindow
-/// cannot wake it, and any injected overlay is frozen along with everything else - which
-/// accounts for the game not coming back from Steam's Resume and for an injected overlay
-/// doing nothing.
+/// Earlier trials observed suspended game threads after focus loss. Missing window
+/// enumeration was a separate manifestation of UWP window filtering, not proof of
+/// suspension. This exemption keeps the game available while the attended spike examines
+/// overlay and input behavior across foreground transitions.
 ///
 /// IPackageDebugSettings::EnableDebugging is the supported way out: it is what a debugger
 /// attaches with, and a package marked for debugging is exempt from suspension. The
@@ -26,7 +22,6 @@ internal sealed class SuspensionControl : IDisposable
     private readonly SpikeLog log;
     private object? settings;
     private string? packageFullName;
-    private bool environmentAccepted = true;
 
     internal SuspensionControl(SpikeLog log) => this.log = log;
 
@@ -101,91 +96,30 @@ internal sealed class SuspensionControl : IDisposable
         }
     }
 
-    /// <param name="fullName">The package to exempt.</param>
-    /// <param name="environment">Variables to hand the package's next launch, as
-    /// name=value pairs. This is how Steam's own launch variables reach a title the
-    /// Windows broker starts, since such a process inherits nothing from this wrapper.</param>
-    internal void ExemptFromSuspension(string fullName, IReadOnlyList<string> environment)
+    /// <param name="fullName">The package to exempt. Environment forwarding is separate.</param>
+    internal void ExemptFromSuspension(string fullName)
     {
-        if (packageFullName is not null)
-        {
-            return;
-        }
-
-        var block = EnvironmentBlock(environment);
+        if (packageFullName is not null) { return; }
         try
         {
             settings = new Native.PackageDebugSettings();
-            var debug = (Native.IPackageDebugSettings)settings;
-            var hresult = debug.EnableDebugging(fullName, null, block);
-
-            // Separating the two jobs this call does: if it only refuses the environment
-            // block, the suspension exemption is still worth having, and knowing which
-            // argument was rejected is the finding.
-            if (hresult < 0 && block != IntPtr.Zero)
+            var result = ((Native.IPackageDebugSettings)settings).EnableDebugging(fullName, null, IntPtr.Zero);
+            if (result < 0)
             {
-                log.Warn($"suspension: EnableDebugging with an environment block failed with 0x{hresult:X8}; "
-                    + "retrying without it to see whether the environment is what it rejects.");
-                environmentAccepted = false;
-                hresult = debug.EnableDebugging(fullName, null, IntPtr.Zero);
-            }
-
-            if (hresult < 0)
-            {
-                log.Warn($"suspension: EnableDebugging({fullName}) failed with 0x{hresult:X8}; "
-                    + "Windows will keep suspending the game whenever it loses the foreground.");
+                log.Warn($"suspension: EnableDebugging({fullName}) failed with 0x{result:X8}.");
                 Release();
                 return;
             }
 
             packageFullName = fullName;
             log.Info($"suspension: {fullName} is exempt from PLM suspension for this session.");
-            if (environment.Count > 0 && !environmentAccepted)
-            {
-                log.Warn("suspension: the environment block was rejected, so Steam's launch variables "
-                    + "did NOT reach the game. The renderer will have no session to attach to.");
-            }
-            else if (environment.Count > 0)
-            {
-                log.Info($"suspension: handed {environment.Count} variable(s) to the package launch:");
-                foreach (var variable in environment)
-                {
-                    log.Line("            " + variable);
-                }
-            }
         }
         catch (Exception ex)
         {
-            log.Warn($"suspension: could not reach IPackageDebugSettings: {ex.GetType().Name}: {ex.Message}");
+            log.Warn($"suspension: could not reach IPackageDebugSettings: {ex.Message}");
             Release();
         }
-        finally
-        {
-            if (block != IntPtr.Zero)
-            {
-                Marshal.FreeHGlobal(block);
-            }
-        }
     }
-
-    /// A PZZWSTR: name=value pairs, each NUL-terminated, the whole run closed by a second NUL.
-    private static IntPtr EnvironmentBlock(IReadOnlyList<string> variables)
-    {
-        if (variables.Count == 0)
-        {
-            return IntPtr.Zero;
-        }
-
-        var text = new StringBuilder();
-        foreach (var variable in variables)
-        {
-            text.Append(variable).Append('\0');
-        }
-
-        text.Append('\0');
-        return Marshal.StringToHGlobalUni(text.ToString());
-    }
-
     /// Asks PLM to resume the package, for the case where it was already suspended before
     /// the exemption was in place.
     internal void Resume()

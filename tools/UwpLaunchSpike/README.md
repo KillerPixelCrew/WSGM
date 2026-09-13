@@ -1,241 +1,190 @@
 # UWP launch supervisor spike
 
-Research scaffold for issue 48: a persistent Steam-owned wrapper that activates an Xbox App /
-MSIX title, keeps running for the whole session so Steam holds the shortcut in a running state,
-and records what actually happened to process lineage, security context, and Steam overlay
-injection.
+Exploratory work for issue #48, outside `WSGM.slnx` and `build.ps1`. Steam launches a persistent
+wrapper; Windows activates the packaged game; the wrapper observes and optionally injects into that
+game. This is not a completed WSGM feature.
 
-This is exploratory instrumentation, not a WSGM feature. It is deliberately outside `WSGM.slnx`
-and outside `build.ps1`, so `eng/verify.ps1` does not build or gate it.
-
-## What it answers
-
-The issue has two competing hypotheses for why Xbox titles do not get the Steam overlay:
-
-1. **Process tree.** Steam only follows render processes inside the launch tree of the executable
-   it started, and package activation puts the game out of tree.
-2. **Security boundary.** Steam finds the process but cannot open it with injector rights.
-
-The transcript separates the two. For every process it tracks it records the parent chain and
-creation time (hypothesis 1) alongside integrity level, AppContainer identity, mitigation
-policies, and the exact `OpenProcess` masks this unelevated wrapper can obtain (hypothesis 2).
-It also reports the moment `gameoverlayrenderer64.dll` appears in any tracked process, and
-whether Steam injected into the wrapper itself instead of the game.
-
-## Build
+## Build and launch
 
 ```powershell
-dotnet publish tools\UwpLaunchSpike\WSGM.UwpLaunchSpike.csproj -c Release -o publish\uwp-spike
+dotnet publish tools/UwpLaunchSpike/WSGM.UwpLaunchSpike.csproj -c Release -o publish/uwp-spike
+./tools/UwpLaunchSpike/build-bridge.ps1 -OutputDirectory publish/uwp-spike
 ```
 
-Self-contained, so the published folder can be pointed at from a Steam shortcut without depending
-on an installed runtime.
+The optional native bridge uses MSVC, CMake, and the MinHook source from the already restored
+`minhook-sys-0.1.1` Cargo crate. `-MinHookSource` can select that source explicitly. Its license is
+copied beside the DLL. Close the game and wait for the wrapper to exit before publishing there; use
+`publish/uwp-spike-investigation` while a trial is running.
 
-## Run
+The current Steam shortcut points at `publish/uwp-spike/WsgmUwpSpike.exe` with:
 
-```powershell
-publish\uwp-spike\WsgmUwpSpike.exe --aumid "11bitstudios.20925BA3921E0_gwy9gn5q9j1y6!App" --probe-rights
+```text
+--aumid "11bitstudios.20925BA3921E0_gwy9gn5q9j1y6!App" --inject-steam-client --inject-steam-overlay --probe-rights --hide-console --ipc-bridge
 ```
 
-Find an AUMID with `Get-StartApps`, or the package family with `Get-AppxPackage`.
+`--ipc-bridge` is opt-in. Removing it restores the direct injection experiment. The steamclient
+stack remains a comparison option; a non-Steam overlay does not inherently require SteamAPI_Init.
+Use `--help` for the complete flags. Launch modes are `aam` (default), `shell`, `powershell`, and
+`exe` (a normal Win32 child supplied through `--target`). `--observe <pid|name>` reads an existing
+process without activating or injecting into it.
 
-Modes, which are the experiment matrix from the issue:
+Transcripts go to `%LOCALAPPDATA%/WSGM/uwp-spike`. With the bridge enabled, the renderer's own log
+is redirected through a brokered file handle to `<transcript>.renderer-<pid>.log`. The normal Steam
+renderer log otherwise describes the wrapper and can be misleading.
 
-| `--mode` | What it tests |
-| --- | --- |
-| `aam` (default) | `IApplicationActivationManager::ActivateApplication`, no script interpreter in the chain |
-| `shell` | Explorer-mediated `shell:AppsFolder\<AUMID>` activation |
-| `powershell` | `powershell.exe -Command Start-Process shell:AppsFolder\...`, the shape most existing Xbox-to-Steam wrappers use |
-| `exe` | A conventional Win32 child via `--target`, the control case for intact lineage |
+Do not attach a debugger or these investigation tools to Steam CEF. The maintainer reported a
+CEF-related Steam failure during this investigation and explicitly prohibited that route. Use native
+process/window/handle observations and file logs. Do not change the live shortcut through CEF. The
+previous shortcut options are recorded locally in `publish/uwp-spike-shortcut-recovery.json` for
+this session.
 
-Other flags worth knowing: `--probe-rights` performs the injector-grade `OpenProcess` probe,
-`--hide-console` hides the window and stops writing to it, `--no-contain` lets the game outlive
-the wrapper, `--match` adds an image-name hint when package identity alone does not find the game,
-and `--log` redirects the transcript.
+## Attended findings on 2026-09-13 and 2026-09-14
 
-The transcript never depends on the console. A Steam-launched run stalled on its first console
-write and produced nothing at all, so the file is written first and console output is skipped
-entirely when the console is hidden or stdout is redirected.
+Moonlighter is package `11bitstudios.20925BA3921E0_1.14.30.2_x64__gwy9gn5q9j1y6` on this machine.
+The observations below are specific to these attended trials, not a compatibility guarantee.
 
-Transcripts default to `%LOCALAPPDATA%\WSGM\uwp-spike\<timestamp>-<mode>.log`.
+- AAM starts the game outside Steam's descendant tree. The wrapper receives Steam's launch
+  environment; the broker-created game does not inherit it.
+- Injector rights and direct loading of Steam's renderer succeed. Moonlighter is a low-integrity
+  AppContainer. RTSS also loads into it.
+- The game has a `Windows.UI.Core.CoreWindow`. Depending on the transition it is hosted in an
+  `ApplicationFrameWindow` owned by ApplicationFrameHost or appears as a top-level CoreWindow.
+  Ordinary enumeration filtered these windows out. The wrapper now declares
+  [disableWindowFiltering](https://learn.microsoft.com/en-us/windows/win32/sbscs/application-manifests#disablewindowfiltering)
+  and finds the game-owned window or its correctly associated frame. Empty enumeration was not
+  evidence that the game had no window or was suspended.
+- Steam's renderer explicitly hooks `IDXGIFactory2::CreateSwapChainForCoreWindow` and the game swap
+  chain. The game's renderer log confirmed those hooks in the 23:19:55 launch.
+- Before the bridge, Steam IPC objects inside the game lived under
+  `\Sessions\1\AppContainerNamedObjects\<package SID>`. Steam's corresponding objects lived under
+  `\Sessions\1\BaseNamedObjects`. Identical short names referred to different objects. A probe using
+  the game's impersonation token also received `STATUS_ACCESS_DENIED` opening Steam's desktop input
+  and PID-stream objects. A temporary symbolic-link probe succeeded as the desktop user but did not
+  solve that token access restriction; its handles were closed.
+- The first bridge trial at 23:11 registered Moonlighter PID 7260 in Steam's process log and started
+  `gameoverlayui64.exe -pid 7260` with the correct shortcut ID. The maintainer still saw neither a
+  working overlay nor controller input. Initially owned stream mutexes had been left in the private
+  namespace; the next native build corrected that omission.
+- With the corrected mutex bridge at 23:15, the observed stream handles all used the desktop
+  namespace. The maintainer saw QAM briefly, still had no controller input, and reported failure
+  after Alt-Tab. Steam selected the game's layout during some CoreWindow foreground intervals, then
+  selected other layouts during foreground changes. Registration is not a functional pass.
+- The separate renderer log exposed `Failed creating CEF paint event: 5`. Bridging the exact
+  `SteamWebHelper_GPUProcRenderEvent` object removed that error in the 23:22 launch. The maintainer
+  confirmed that QAM then survived Alt-Tab, but controller input still failed.
+- Moonlighter's loaded UnityPlayer and GameAssembly reference `Windows.Gaming.Input.Gamepad`. Native
+  inspection in PID 7704 proved that `combase!RoGetActivationFactory` was detoured into Steam's
+  renderer. A direct `IGamepadStatics` request returned Steam's gamepad implementation;
+  `IActivationFactory` followed by `QueryInterface(IGamepadStatics)` returned Windows' original
+  implementation and an empty list. The GameAssembly activation path uses that second form.
+- At 23:45:32, raising the CoreWindow selected shortcut `2692480092` (signed `-1602487204`) in
+  `Steam/logs/controller.txt`. The injected diagnostic then read real button and stick changes from
+  Steam's gamepad inside the game. This proved input transport independently of gameplay.
+- The 23:54 launch added the factory-query bridge and initially raised the CoreWindow. The
+  maintainer confirmed working gameplay input. One Alt-Tab broke it: the game frame became
+  foreground and Steam retained layout `413080`. At 23:57:20, explicitly triggering the existing
+  CoreWindow correction restored the shortcut layout, and the maintainer confirmed input recovered
+  in the same process without reinjection.
+- The 00:00:55 follow-up launch on September 14 (PID 6156) used the supervisor's existing foreground
+  sample to request correction when a frame remained foreground. Its log recorded successful
+  frame-to-CoreWindow corrections at 00:01:07 and 00:01:13; Steam returned to the shortcut layout.
+  The maintainer confirmed that controller input, repeated Alt-Tab away/back, and QAM all worked.
+  This build also restricted factory routing to game-side callers after a diagnostic exposed
+  duplicate wrapping of Steam's own queries in the previous build.
 
-## Adding it to Steam
+## How the bridge works
 
-Add the published exe as a non-Steam game and put the AUMID and flags in Launch Options, for
-example:
+Before loading Steam's renderer, the wrapper creates an unnamed mapping and two unnamed events, then
+duplicates their handles into the game. It injects `WsgmUwpBridge.dll` and calls its known
+`InitializeBridge` export outside DllMain. The DLL installs MinHook detours for named mapping,
+mutex, event, and renderer-log file creation/opening. Calls must originate in Steam's renderer;
+unrelated game calls use the originals.
 
-```
---aumid "11bitstudios.20925BA3921E0_gwy9gn5q9j1y6!App" --probe-rights --hide-console
-```
+A request names one allowed Steam object for this game PID and shortcut ID, or the shared input,
+PID-reporting, detour-reporting, and UI-paint objects observed in the trials. The desktop worker
+opens the object and duplicates its handle into the game. It does not rewrite Steam's ACLs, change
+the game's token, create a substitute rendering window, or inject into ApplicationFrameHost.
+Requests are serialized and event-driven. A timed-out native request disables further exchanges
+instead of reusing an uncertain reply slot or silently returning to private objects.
 
-`--hide-console` matters for a Steam-launched run: a visible console window takes the foreground
-away from the game at exactly the moment the overlay would attach, which is the thing being
-measured. The transcript records everything the console would have shown.
+Initially owned mutexes are created without ownership in the broker, then acquired by the game
+thread before the hook returns. This is an experimental compromise: it does not make creation and
+game-thread acquisition atomic across processes. Further lifecycle and concurrency validation is
+required before production use.
 
-`eng\add-uwp-spike-shortcut.ps1` writes the same entry into `shortcuts.vdf` directly:
+The broker retains the target process handle and stops when that process or the wrapper exits.
+Duplicated game handles and the native hooks last for the game process lifetime. Do not unload the
+bridge from a running game. A fresh game process is required for another injection setup.
 
-```powershell
-.\eng\add-uwp-spike-shortcut.ps1 -Aumid "11bitstudios.20925BA3921E0_gwy9gn5q9j1y6!App" -DryRun
-.\eng\add-uwp-spike-shortcut.ps1 -Aumid "11bitstudios.20925BA3921E0_gwy9gn5q9j1y6!App"
-```
+After renderer injection, `InitializeInputBridge` verifies that a direct WinRT gamepad-statics
+request reaches Steam. It then intercepts queries on the original Gamepad activation factory from
+GameAssembly, UnityPlayer, or the C++/CX runtime. Requests for `IGamepadStatics` and
+`IGamepadStatics2` go through Steam's activation hook. Steam and combase keep their original factory
+queries so Steam does not wrap its own emulated controller twice. This caller scope is specific to
+the inspected Unity title, not general UWP support. Factory references and hooks remain until game
+exit; `InputBridgeRoutes` reports the number of successful redirected queries.
 
-Steam must be closed for the real write, because Steam holds `shortcuts.vdf` in memory and
-rewrites it on exit. `-DryRun` only parses and reports, so it is safe while Steam is open. The
-previous file is backed up next to itself before every write.
+The build also produces `WsgmUwpInputProbe.dll` for attended native diagnostics. `CaptureInput`
+accepts an 8192-byte caller-owned buffer and reports the two factory paths, interface method owners,
+controller counts, and readings. `StartInputTrace` optionally installs pass-through enumeration
+counters. Keep the buffer allocated until its remote call has completed, and keep the DLL loaded
+until game exit. Neither probe accesses Steam CEF.
 
-With Steam already running, adding the entry through the live client instead avoids a restart.
+## Activation and lifetime findings
 
+`IPackageDebugSettings.EnableDebugging` with no debugger exempts the package from normal PLM
+suspension. Its environment parameter was rejected with `E_INVALIDARG` in the recorded runs; that
+failed experiment is no longer retried. The wrapper uses remote `SetEnvironmentVariableW` for
+environment forwarding. The previous raw PEB environment replacement caused startup exits and is no
+longer used. Early forwarding is not repeated by the supervisor.
 
-## Reading a transcript
+AAM duration is not process age: in the 22:46 trial activation took over four seconds, but the game
+was created only 84 ms before it returned. The renderer arrived around 380 ms after game creation.
+That timestamp alone did not establish whether it preceded swap-chain creation.
 
-- **Wrapper context.** `ancestors` shows whether `steam.exe` is the direct parent. `steam env`
-  shows which of `SteamAppId` / `SteamGameId` / `SteamOverlayGameId` reached the wrapper. The
-  wrapper's own module list shows whether Steam injected the overlay into the wrapper.
-- **Activation.** The `HRESULT` and the process id the activation returned, if any.
-- **Supervision.** One block per process that appeared, then `OVERLAY:` lines when and if Steam's
-  renderer shows up, then the exit lines.
+The foreground proxy forwards Steam's return-to-game activation to the game-owned CoreWindow.
+Foreground events and the existing supervisor sample also correct a foreground frame, but only when
+its child CoreWindow belongs to the tracked game PID. The proxy rechecks foreground before raising
+the child, so a queued check does not raise the game over another app. It adds no polling loop and
+does not render an overlay. Only the game's binaries enter the kill-on-close job; shared
+RuntimeBroker and ApplicationFrameHost processes are excluded. On ordinary wrapper exit,
+`DisableDebugging` restores package lifetime management. Forced termination can skip that COM
+cleanup, so the debug exemption is not crash-safe yet.
 
-Exit codes: `0` a game ran and ended, `1` no completed session, `2` bad arguments, `3` activation
-failed.
+## CreateProcess package-attribute alternative
 
-## First measurements
+The proposed package attribute is real, but its value is `0x00020008`, not `0x00020017`. The primary
+[NtCoreLib implementation](https://github.com/googleprojectzero/sandbox-attacksurface-analysis-tools/blob/main/NtCoreLib/Win32/Process/Interop/Win32ProcessAttributes.cs)
+uses attribute number 8. On this machine, `UpdateProcThreadAttribute` accepted it, while
+`CreateProcess` and the exploratory `CreateProcessAsUser` call returned error 5 before creating
+Moonlighter. The probe requested `CREATE_SUSPENDED` and would discard only its own new process. No
+game was created by these probes. This does not prove that all direct activation variants are
+impossible; package activation requirements remain distinct from supplying identity.
 
-Moonlighter (`11bitstudios.20925BA3921E0_gwy9gn5q9j1y6!App`), 2026-09-13, `--mode aam`, wrapper
-started from a terminal rather than from Steam, so this says nothing yet about overlay injection:
+## Validation and remaining work
 
-- `ActivateApplication` returned the real game pid directly. There is no bootstrapper and no
-  GameLaunchHelper in this title; `Moonlighter.exe` is the process from the first moment.
-- The game's parent was `svchost.exe`, not the wrapper. Direct package activation with no
-  PowerShell in the chain still leaves the game out of the wrapper's process tree, so removing the
-  script interpreter alone does not restore lineage.
-- The game runs at **low integrity inside an AppContainer** with `signature=StoreSignedOnly`
-  (raw `0x2`, no audit bits). That policy reads like a hard block on any DLL that is not Store
-  signed. **It is not one in practice** — see the RTSS result below, which falsifies that reading.
-- The injector-grade `OpenProcess` masks all succeeded, but that run's wrapper was itself at high
-  integrity. The rights probe only means something from a medium-integrity wrapper, which is what
-  a Steam-launched run gives.
+Managed Release publish and native Release compilation are available independently of WSGM's gate.
+Follow the repository's manual-first policy. A compiler pass, loaded DLL, matching object namespace,
+or running overlay UI is not proof of working overlay/input.
 
-First Steam-launched run, same title and mode, observed from the client rather than from a
-transcript (the wrapper stalled on its first console write and left a zero-byte file, since
-fixed):
+The maintainer passed launch, controller input, QAM, and repeated Alt-Tab away/back in the September
+14 trial. This is a Moonlighter spike result on this machine. Production integration, automatic
+injection policy, crash recovery, and general UWP compatibility remain out of scope; issue #48
+remains open.
 
-- **The wrapper works as Steam's lifetime anchor.** Steam launched it, held the shortcut in a
-  running state for as long as the wrapper lived, and offered Stop. That is the part of the
-  architecture the issue was least sure about, and it holds.
-- **No Steam Overlay and no Steam Input reached the game.** Consistent with both obstacles above.
-- **Stopping the shortcut in Steam did not stop the game.** Steam terminated the wrapper, and
-  Moonlighter kept running out of tree with Steam showing the shortcut as stopped. The wrapper now
-  puts the title's own binaries in a kill-on-close job object, so the kernel ends the game when
-  the wrapper dies however it dies. Nested assignment succeeds even though a packaged app already
-  sits in a system-managed job. `--no-contain` turns it off.
+The maintainer selected two explicit modes for the eventual launcher:
 
-Injection and lifetime results, same title, wrapper started from a terminal:
+- **Steam integration for single-player:** use the overlay and input bridge demonstrated here.
+- **Controller only:** switch VIIPER to its Xbox 360 target without custom game injection. Valve
+  controller users in Desktop Mode may consequently lack multiplayer controller support; this is an
+  accepted limitation. Do not silently fall back to injection.
 
-- **The signature policy is not the wall.** RTSS loaded its own unsigned-by-Store
-  `RTSSHooks64.dll` into the game 1.1s after launch, in the AppContainer, with
-  `StoreSignedOnly` set. Whatever that policy gates, it is not third-party DLL loading here.
-- **Steam's overlay renderer loads into the game.** A remote `LoadLibraryW` of
-  `GameOverlayRenderer64.dll` from Steam's own install path returned a module base. No ACL work
-  was needed: Steam's directory already carries an inherited `ALL APPLICATION PACKAGES (RX)` ACE,
-  which is the permission the ReShade UWP route has to add by hand. Loading it is not sufficient
-  on its own - the overlay did not become usable - so the renderer DLL is necessary but not the
-  whole overlay.
-- **Windows suspends the title whenever it loses the foreground.** All 66 threads sat in
-  Suspended wait while another window had focus. That is ordinary PLM behaviour for a packaged
-  app, and it explains why the game has no enumerable window from a background probe and why
-  Steam's Resume cannot raise it: `SetForegroundWindow` does not wake a suspended package. It
-  does not explain overlay or input failing during play, when the game does have focus.
-- **A packaged process inherits nothing from the wrapper**, so none of Steam's launch variables
-  reach it. `IPackageDebugSettings::EnableDebugging` takes both the suspension exemption and an
-  environment block for the package's next launch, which is the one supported route for handing
-  `SteamAppId` / `SteamGameId` / `SteamOverlayGameId` to a broker-started title. The wrapper now
-  does both before activating, and `--observe` dumps a working overlay process for comparison.
+These launcher modes are a design decision under #48. The spike does not implement the per-game
+selection UI or VIIPER session switching. The recorded trial ran with an elevated wrapper and a
+low-integrity AppContainer game; the minimum necessary wrapper privileges remain unverified.
 
-Control case, Balatro launched normally from Steam and read with `--observe`:
-
-| Module | Location |
-| --- | --- |
-| `steam_api64.dll` | the game's own folder |
-| `steamclient64.dll` | Steam root |
-| `tier0_s64.dll`, `vstdlib_s64.dll` | Steam root, pulled in by steamclient |
-| `gameoverlayrenderer64.dll` | Steam root |
-
-Its parent is `steam.exe`, and it runs with intact lineage and a normal window.
-
-Read that table carefully, because the obvious conclusion from it is wrong. `steam_api64.dll` and
-`steamclient64.dll` are there because Balatro is a Steam build that calls `SteamAPI_Init` for its
-own purposes. **The overlay does not depend on that call**: an ordinary non-Steam shortcut ships no
-`steam_api64.dll` and never makes it, yet gets the overlay anyway. The renderer negotiates with the
-client over the pipe once both ends are up.
-
-So the missing piece for a packaged title is not the Steam API, it is the launch environment. Steam
-hands `SteamAppId` / `SteamGameId` / `SteamOverlayGameId` to whatever it starts, including the id it
-calculates for a non-Steam shortcut, and the wrapper receives them - but a broker-activated package
-inherits nothing from the wrapper, so the injected renderer comes up with no session to attach to.
-`EnableDebugging`'s environment block is the one supported way to close that, and the wrapper now
-uses it. `--call` and `--steam-api-init` exist to test the Steam-API hypothesis anyway, since a
-measurement beats a deduction; the runs above are what happens when they are not used.
-
-First Steam-launched run with injection, and what it settled:
-
-- **Steam hands the wrapper the whole set.** `SteamAppId=2692480092`,
-  `SteamGameId=SteamOverlayGameId=11564113940304625664` (`0xA080000040800000`: the calculated
-  shortcut id with the shortcut type tag), plus `SteamClientLaunch`, `SteamEnv`, `SteamPath`,
-  `SteamTenfoot`, `SteamGamepadUI`. Nothing has to be computed; Steam provides it.
-- **Steam injects its renderer into the wrapper**, which has all of that environment and draws
-  nothing. That is the architecture in one line: the overlay attaches to the process Steam
-  launched, and the rendering happens in another process that has none of it.
-- **`EnableDebugging` cannot carry the environment.** It answers `E_INVALIDARG` for any
-  environment block and succeeds the moment one is not passed, so that parameter is the
-  environment for the debugger command line, not for the app. The suspension exemption still
-  works; environment forwarding through it does not.
-
-What replaces it is `EnvironmentPatch`, which edits the game's own environment block through its
-PEB. `GetEnvironmentVariableW` reads `ProcessParameters->Environment` on every call, so repointing
-it changes what code loaded afterwards sees - and the renderer is injected after. Verified
-mechanically against a live game: a 5892-byte block read, merged, and replaced with 44 variables.
-
-Patching that block has a timing rule that has to be respected, found the hard way:
-
-| Environment patch | Game |
-| --- | --- |
-| none | runs normally |
-| ~30ms after the process appears | dies 1.1s later, every time |
-| 8s after the process appears | runs on, 27s+ observed, with the variables in place |
-
-Same bytes in every case, so it is a startup race rather than anything wrong with the block: the
-loader and the packaged-app runtime are still bringing the process up in that window. Hence
-`--env-delay`, defaulting to 8s, with injection held until 2s after it so the renderer never loads
-before the variables it reads exist. The suspension exemption is not implicated - a run with
-`EnableDebugging` active and no patch ran 50s untouched.
-
-With the whole stack in - `tier0_s64`, `vstdlib_s64`, `steamclient64`, then the renderer, all
-loading successfully, with Steam's variables present - there was still no overlay. Two reasons,
-both now measured rather than guessed.
-
-**Injection was about eleven seconds too late.** The overlay hooks device creation and the present
-call, so it has to be loaded before the game builds its swapchain; the published guidance for
-injecting it by hand says the same, that it must run during process initialisation and cannot be
-run after the game has started. `ActivateApplication` returns the process id milliseconds after
-creation, so the wrapper now acts on that directly instead of waiting for the supervisor's first
-poll. Environment variables go in through a remote `SetEnvironmentVariableW` call rather than a
-PEB block swap, which is both correct at that moment and survivable: 5 of 5 variables set at
-process start with the game still running, where replacing the block wholesale killed it.
-
-**The game's window belongs to a third process.** The foreground while Moonlighter runs is
-`ApplicationFrameWindow` owned by `ApplicationFrameHost.exe` - not the wrapper Steam tracks, and
-not `Moonlighter.exe` where the renderer lives. Steam chooses both its overlay surface and its
-Steam Input target from the tracked app's window, which is why controller input arrives in Big
-Picture behind the game. Three processes hold the three things that normally sit in one.
-
-Still open: whether a renderer loaded before device creation, in a process carrying the session
-variables, actually draws - and whether the split window ownership defeats it regardless.
-
-## Caveats
-
-- Run it unelevated. `ActivateApplication` is refused from a high-integrity process, and the whole
-  point of the rights probe is to measure what a normal-integrity wrapper can reach.
-- Process identification uses package family plus launch lineage plus `--match`. A title that
-  hands off to a process with none of the three will not be tracked; add `--match` for it and say
-  so in the findings.
-- Nothing here injects anything. It only observes.
+Anti-cheat compatibility is unverified. This spike injects a custom DLL and hooks code inside the
+game; the use of Steam's genuine renderer does not establish approval for the custom bridge. The
+Moonlighter result does not establish safety for protected multiplayer titles. Keep this approach
+disabled for those titles unless compatibility is explicitly established. The spike does not
+currently implement anti-cheat detection or an enforced protected-title denylist.

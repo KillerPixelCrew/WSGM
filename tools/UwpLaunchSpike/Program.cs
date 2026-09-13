@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Threading;
 
@@ -64,11 +65,10 @@ internal static class Program
             log.Info("console window hidden");
         }
 
-        // Both of these have to happen before activation: PLM decides suspension policy and
-        // the broker builds the process environment at launch, so a later call reaches a
-        // process that is already running with neither.
+        // Set package lifetime policy before activation. Steam variables are forwarded
+        // separately once activation has identified the game process.
         using var suspension = new SuspensionControl(log);
-        if (options.PackageFamily is { } family && (options.NoSuspend || options.SteamEnvironment.Count > 0))
+        if (options.PackageFamily is { } family && options.NoSuspend)
         {
             log.Section("Package lifetime");
             var fullName = SuspensionControl.ResolveFullName(family);
@@ -78,7 +78,7 @@ internal static class Program
             }
             else
             {
-                suspension.ExemptFromSuspension(fullName, options.SteamEnvironment);
+                suspension.ExemptFromSuspension(fullName);
             }
         }
 
@@ -95,45 +95,95 @@ internal static class Program
         }
 
         var injection = options.Inject.Count > 0 ? new Injection(log) : null;
-
-        // The renderer hooks device creation, so it has to be in before the game builds
-        // its swapchain. ActivateApplication hands back the process id immediately, which
-        // is milliseconds after creation - waiting for the supervisor's first poll was
-        // putting the renderer in around eleven seconds late, long past any hook point.
-        if (options.Early && injection is not null && result.SeedPid > 0)
+        OverlayObjectBroker? broker = null;
+        try
         {
-            log.Section("Early attach");
-            log.Info($"early: acting on pid {result.SeedPid} straight from the activation, before the first poll.");
-            if (options.PassSteamEnvironment)
+
+            // Attach as soon as activation identifies the game. AAM duration is not game
+            // process age; renderer logs establish whether graphics hooks actually landed.
+            if (options.Early && injection is not null && result.SeedPid > 0)
             {
-                injection.SetRemoteEnvironment(result.SeedPid, options.SteamEnvironment);
+                log.Section("Early attach");
+                log.Info($"early: acting on pid {result.SeedPid} straight from the activation, before the first poll.");
+                var seed = ProcessProbe.Snapshot().FirstOrDefault(entry => entry.Pid == result.SeedPid);
+                if (seed is null)
+                {
+                    log.Warn($"early: pid {result.SeedPid} was gone before it could be described.");
+                }
+                else
+                {
+                    var report = ProcessProbe.Describe(seed, "<activation>", probeRights: false);
+                    if (options.IpcBridge)
+                    {
+                        var bridgePath = Path.Combine(AppContext.BaseDirectory, "WsgmUwpBridge.dll");
+                        if (report.IsAppContainer != true || report.InterestingModules.Any(module => Path.GetFileName(module).Equals("GameOverlayRenderer64.dll", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            log.Error("IPC bridge requires a fresh AppContainer game without the renderer already loaded. Leaving this game untouched.");
+                            return 4;
+                        }
+
+                        if (!File.Exists(bridgePath))
+                        {
+                            log.Error($"IPC bridge missing: {bridgePath}. Build Bridge/CMakeLists.txt first.");
+                            return 4;
+                        }
+
+                        broker = OverlayObjectBroker.Start(seed.Pid, options.SteamEnvironment, injection, log);
+                        if (broker is null) { return 4; }
+                        injection.InjectAll([bridgePath], report);
+                        if (injection.CallExport(bridgePath, "InitializeBridge", report) != 0)
+                        {
+                            log.Error("IPC bridge initialization failed; renderer injection skipped.");
+                            return 4;
+                        }
+                    }
+
+                    if (options.PassSteamEnvironment)
+                    {
+                        injection.SetRemoteEnvironment(result.SeedPid, options.SteamEnvironment);
+                    }
+
+                    injection.InjectAll(options.Inject, report);
+                    if (options.IpcBridge)
+                    {
+                        var bridgePath = Path.Combine(AppContext.BaseDirectory, "WsgmUwpBridge.dll");
+                        var inputResult = injection.CallExport(bridgePath, "InitializeInputBridge", report);
+                        if (inputResult != 0)
+                        {
+                            log.Warn($"Steam Input activation bridge did not initialize (result {inputResult}); overlay bridge remains active.");
+                        }
+                    }
+                    foreach (var call in options.Call)
+                    {
+                        var separator = call.LastIndexOf('!');
+                        if (separator > 0 && separator < call.Length - 1)
+                        {
+                            injection.CallExport(call[..separator], call[(separator + 1)..], report);
+                        }
+                    }
+
+                    earlyDone = true;
+                }
             }
 
-            var seed = ProcessProbe.Snapshot().FirstOrDefault(entry => entry.Pid == result.SeedPid);
-            if (seed is null)
-            {
-                log.Warn($"early: pid {result.SeedPid} was gone before it could be described.");
-            }
-            else
-            {
-                injection.InjectAll(options.Inject, ProcessProbe.Describe(seed, "<activation>", probeRights: false));
-                earlyDone = true;
-            }
+            log.Section("Supervision");
+            using var containment = options.Contain ? new GameContainment(log) : null;
+            using var proxy = options.Proxy ? new ForegroundProxy(log) : null;
+
+            // Injection and the environment are already done when the early attach ran; the
+            // supervisor must not repeat either.
+            var supervisor = new Supervisor(options, log, containment, proxy, injection, earlyDone ? result.SeedPid : 0);
+            var completed = supervisor.Run(result.SeedPid, cancellation.Token);
+
+            log.Section("Result");
+            log.Info(completed ? "Game session ended; wrapper exiting with 0." : "Wrapper exiting without a completed game session.");
+            log.Info($"Transcript: {log.Path}");
+            return completed ? 0 : 1;
         }
-
-        log.Section("Supervision");
-        using var containment = options.Contain ? new GameContainment(log) : null;
-        using var proxy = options.Proxy ? new ForegroundProxy(log) : null;
-
-        // Injection and the environment are already done when the early attach ran; the
-        // supervisor must not repeat either.
-        var supervisor = new Supervisor(options, log, containment, proxy, earlyDone ? null : injection);
-        var completed = supervisor.Run(result.SeedPid, cancellation.Token);
-
-        log.Section("Result");
-        log.Info(completed ? "Game session ended; wrapper exiting with 0." : "Wrapper exiting without a completed game session.");
-        log.Info($"Transcript: {log.Path}");
-        return completed ? 0 : 1;
+        finally
+        {
+            broker?.Dispose();
+        }
     }
 
     /// Reports on a process that is already running. The point is the control case: a game

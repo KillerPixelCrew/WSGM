@@ -10,7 +10,7 @@ namespace Wsgm.UwpSpike;
 
 /// Stays alive for the whole game session so Steam keeps the shortcut in a running
 /// state, while tracking the processes the activation actually produced.
-internal sealed class Supervisor(Options options, SpikeLog log, GameContainment? containment, ForegroundProxy? proxy, Injection? injection)
+internal sealed class Supervisor(Options options, SpikeLog log, GameContainment? containment, ForegroundProxy? proxy, Injection? injection, int earlyPid = 0)
 {
     private readonly Dictionary<int, TimeSpan> injectAt = [];
     private readonly Dictionary<int, TimeSpan> envAt = [];
@@ -53,12 +53,12 @@ internal sealed class Supervisor(Options options, SpikeLog log, GameContainment?
                     // Scheduled, not immediate: the renderer reads these at load so the
                     // environment must land before injection, but editing the block while
                     // the process was still starting killed the game about a second in.
-                    if (options.PassSteamEnvironment && options.SteamEnvironment.Count > 0)
+                    if (report.Pid != earlyPid && options.PassSteamEnvironment && options.SteamEnvironment.Count > 0)
                     {
                         envAt[report.Pid] = clock.Elapsed + options.EnvironmentDelay;
                     }
 
-                    if (injection is not null && options.Inject.Count > 0)
+                    if (report.Pid != earlyPid && injection is not null && options.Inject.Count > 0)
                     {
                         injectAt[report.Pid] = clock.Elapsed + options.InjectDelay;
                     }
@@ -92,7 +92,7 @@ internal sealed class Supervisor(Options options, SpikeLog log, GameContainment?
                 if (envAt.TryGetValue(pid, out var envDue) && clock.Elapsed >= envDue)
                 {
                     envAt.Remove(pid);
-                    EnvironmentPatch.Apply(pid, options.SteamEnvironment, log);
+                    (injection ?? new Injection(log)).SetRemoteEnvironment(pid, options.SteamEnvironment);
                 }
 
                 if (injectAt.TryGetValue(pid, out var due) && clock.Elapsed >= due)
@@ -173,10 +173,8 @@ internal sealed class Supervisor(Options options, SpikeLog log, GameContainment?
     /// overlay getting in where Steam's does not says the obstacle is Steam's, not Windows'.
     /// Whatever currently owns the foreground, and which process it belongs to.
     ///
-    /// Steam picks the window it draws the overlay over, and the one it routes Steam Input
-    /// to, from the app it is tracking. The tracked app here is the wrapper, and the game
-    /// showed no enumerable window at all for a whole session while input went to Big
-    /// Picture behind it. This says who really owns the screen when the game is up.
+    /// The CoreWindow and its ApplicationFrameHost frame have different owning processes.
+    /// Compare these transitions with Steam's controller.txt activation lines.
     private void NoteForeground(Dictionary<int, ProcessEntry> byPid)
     {
         var handle = Native.GetForegroundWindow();
@@ -188,6 +186,10 @@ internal sealed class Supervisor(Options options, SpikeLog log, GameContainment?
         Native.GetWindowThreadProcessId(handle, out var owner);
         var className = new StringBuilder(256);
         Native.GetClassNameW(handle, className, className.Capacity);
+        if (className.ToString().Equals("ApplicationFrameWindow", StringComparison.Ordinal))
+        {
+            proxy?.ReconcileForeground();
+        }
         var title = new StringBuilder(512);
         Native.GetWindowTextW(handle, title, title.Capacity);
         var name = byPid.TryGetValue((int)owner, out var entry) ? entry.Name : "<unknown>";

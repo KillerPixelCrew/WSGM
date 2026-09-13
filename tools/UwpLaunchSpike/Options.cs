@@ -29,6 +29,8 @@ internal sealed class Options
 
     internal bool HideConsole { get; private set; }
 
+    internal bool IpcBridge { get; private set; }
+
     internal bool Contain { get; private set; } = true;
 
     internal bool Proxy { get; private set; } = true;
@@ -140,6 +142,9 @@ internal sealed class Options
                 case "--hide-console":
                     options.HideConsole = true;
                     break;
+                case "--ipc-bridge":
+                    options.IpcBridge = true;
+                    break;
                 case "--no-contain":
                     options.Contain = false;
                     break;
@@ -214,6 +219,11 @@ internal sealed class Options
 
         if (!options.HelpRequested && failure is null && options.Observe is null)
         {
+            if (options.IpcBridge && (!options.Early || options.Mode != LaunchMode.Aam || options.Inject.Count == 0))
+            {
+                failure = "--ipc-bridge requires AAM activation, early attach, and an injection target.";
+            }
+
             if (options.Mode == LaunchMode.Exe)
             {
                 if (string.IsNullOrWhiteSpace(options.Target))
@@ -343,6 +353,8 @@ internal sealed class Options
                                  injection is held until 2s after this.
           --observe <name|pid>   Report on an already-running process and exit. Use it on a
                                  game where the Steam overlay works, as the control case.
+          --ipc-bridge          Broker Steam renderer IPC objects from the desktop. Requires
+                                 WsgmUwpBridge.dll beside the wrapper and a fresh game launch.
           --log <path>           Transcript path (default %LOCALAPPDATA%\WSGM\uwp-spike).
           --help                 Show this text.
         """;
