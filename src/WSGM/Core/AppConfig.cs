@@ -662,16 +662,22 @@ public sealed class AppConfig
 
     /// <summary>Whether Screenscraper.fr is searched alongside SteamGridDB.</summary>
     /// <remarks>
-    /// Off by default because it needs credentials WSGM cannot supply: Screenscraper issues
-    /// developer ids per application and enforces per-user quotas, so there is no equivalent of
-    /// SteamGridDB's free personal key that a shipped build could carry.
+    /// On by default. WSGM ships registered developer credentials (see
+    /// <see cref="ScreenscraperCredentials"/>), so unlike SteamGridDB's key there is nothing the
+    /// user has to obtain first. A configuration written before the credentials shipped keeps its
+    /// stored value, which was false, and is turned on from Settings.
     /// </remarks>
-    public bool ScreenscraperEnabled { get; set; }
+    public bool ScreenscraperEnabled { get; set; } = true;
 
-    /// <summary>The Screenscraper developer id, registered at screenscraper.fr.</summary>
+    /// <summary>Optional Screenscraper developer id, replacing the one WSGM ships.</summary>
+    /// <remarks>
+    /// For a user who would rather not share the shipped credentials' quota. Only honoured together
+    /// with <see cref="ScreenscraperDevPassword"/>; see <see cref="ScreenscraperCredentials"/>.
+    /// </remarks>
     public string ScreenscraperDevId { get; set; } = "";
 
-    /// <summary>The Screenscraper developer password that goes with the id.</summary>
+    /// <summary>The Screenscraper developer password that goes with
+    /// <see cref="ScreenscraperDevId"/>.</summary>
     public string ScreenscraperDevPassword { get; set; } = "";
 
     /// <summary>Optional Screenscraper user account, which raises the request quota.</summary>

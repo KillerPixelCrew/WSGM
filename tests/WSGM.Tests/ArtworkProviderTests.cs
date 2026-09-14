@@ -23,25 +23,50 @@ public sealed class ArtworkProviderTests
     }
 
     [Fact]
-    public void ScreenscraperStaysOffUntilItIsBothEnabledAndCredentialed()
+    public void ScreenscraperIsReadyOutOfTheBoxAndOnlyTheSwitchTurnsItOff()
     {
-        // Two separate reasons, reported separately: WSGM cannot ship Screenscraper credentials
-        // because it issues developer ids per application, so "off" and "no credentials" are
-        // genuinely different states a user has to be able to tell apart.
+        // WSGM ships the developer credentials Screenscraper issues per application, so unlike
+        // SteamGridDB there is no credential state to report: a default configuration is ready, and
+        // the only way to not search it is to have said so.
         ScreenscraperProvider provider = new();
 
+        Assert.True(provider.GetStatus(new AppConfig()).IsReady);
         Assert.Equal(
             ArtworkProviderReadiness.Disabled,
-            provider.GetStatus(new AppConfig()).Readiness);
+            provider.GetStatus(new AppConfig { ScreenscraperEnabled = false }).Readiness);
+    }
+
+    [Fact]
+    public void ScreenscraperFallsBackToTheShippedPairUnlessBothOverridesAreSet()
+    {
+        // A half-filled override would pair the user's id with WSGM's password, which Screenscraper
+        // answers as a credential rejection the user cannot explain from what they typed.
+        (string shippedId, string shippedPassword) = ScreenscraperCredentials.Resolve(new AppConfig());
+
+        Assert.NotEqual("", shippedId);
+        Assert.NotEqual("", shippedPassword);
         Assert.Equal(
-            ArtworkProviderReadiness.MissingCredentials,
-            provider.GetStatus(new AppConfig { ScreenscraperEnabled = true }).Readiness);
-        Assert.True(provider.GetStatus(new AppConfig
-        {
-            ScreenscraperEnabled = true,
-            ScreenscraperDevId = "id",
-            ScreenscraperDevPassword = "secret",
-        }).IsReady);
+            (shippedId, shippedPassword),
+            ScreenscraperCredentials.Resolve(new AppConfig { ScreenscraperDevId = "id" }));
+        Assert.Equal(
+            (shippedId, shippedPassword),
+            ScreenscraperCredentials.Resolve(new AppConfig { ScreenscraperDevPassword = "secret" }));
+        Assert.Equal(
+            ("id", "secret"),
+            ScreenscraperCredentials.Resolve(new AppConfig
+            {
+                ScreenscraperDevId = " id ",
+                ScreenscraperDevPassword = " secret ",
+            }));
+    }
+
+    [Fact]
+    public void ScreenscraperSoftNameCarriesNoSpaceForTheUrlsItComesBackIn()
+    {
+        // Screenscraper echoes softname into the media URLs it returns, so a space in it arrives
+        // inside URLs WSGM would then have to repair.
+        Assert.StartsWith("WSGM", ScreenscraperCredentials.SoftName, System.StringComparison.Ordinal);
+        Assert.DoesNotContain(' ', ScreenscraperCredentials.SoftName);
     }
 
     [Fact]

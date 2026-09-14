@@ -560,12 +560,28 @@ grid. Every refusal is named on screen — a rate limit, a missing credential, a
 — so an empty result never silently reads as "this game has no artwork".
 
 The providers differ in exactly the ways that shaped the contract. SteamGridDB takes a free personal
-key and can be addressed by Steam app id. Screenscraper issues developer credentials per
-application, so WSGM cannot ship any and the user supplies their own; it indexes emulated systems by
-ROM, so a Steam app id means nothing to it and it answers only title searches. Its media vocabulary
-(`box-2D`, `wheel`, `fanart`, `screenmarquee`) does not line up one-to-one with Steam's slots, so
-that mapping and its world-region-first preference live inside the provider. Its documented quota
-failures are distinct: HTTP 429 is the thread or minute quota, 430 the daily one.
+key and can be addressed by Steam app id, and without that key it is not ready. Screenscraper issues
+developer credentials per application, and WSGM ships a registered pair, so it is on by default and
+readiness is only the switch in Settings. It indexes emulated systems by ROM, so a Steam app id
+means nothing to it and it answers only title searches. Its media vocabulary (`box-2D`, `wheel`,
+`fanart`, `screenmarquee`) does not line up one-to-one with Steam's slots, so that mapping and its
+world-region-first preference live inside the provider. Its documented quota failures are distinct:
+HTTP 429 is the thread or minute quota, 430 the daily scrape quota, 431 a day's worth of lookups for
+titles it does not hold.
+
+The shipped credentials are shared by every install, which makes those quotas ordinary rather than
+theoretical, and 431 the one that binds: a ROM database asked about a Steam library misses most of
+the time, and misses count. Nothing walks the library in the background — the provider is reached
+only from an artwork changer the user opened — and every quota message names the free personal
+account that raises the limit.
+
+The pair lives XOR-folded in `Core\ScreenscraperCredentials.cs` with its key alongside. That is
+obfuscation against string scans, not secrecy, and deliberately not a build secret: a public
+installer yields the credentials to anyone who unpacks it either way, so injecting them at build
+time would only cost local developer builds the feature. `ScreenscraperDevId` and
+`ScreenscraperDevPassword` replace the shipped pair when both are set, so a user can spend their own
+allowance instead. The developer debug password is not shipped at all: it is read from
+`WSGM_SCREENSCRAPER_DEBUG` and compiled out of Release.
 
 Applying is provider-independent and unchanged: one `SetCustomArtworkForApp` call, whichever source
 supplied the bytes.
@@ -594,8 +610,8 @@ WSGM focus action runs after cancellation.
 | `SteamAutoRelaunch`                                                 | false   | Relaunch Big Picture 10 s after Steam exits.                                         |
 | `SteamLaunchUnelevated`                                             | false   | De-elevated Steam launch through the scheduled task.                                 |
 | `SteamGridDbApiKey`                                                 | empty   | Bearer key for artwork search.                                                       |
-| `ScreenscraperEnabled`                                              | false   | Search Screenscraper.fr alongside SteamGridDB.                                       |
-| `ScreenscraperDevId`, `ScreenscraperDevPassword`                    | empty   | Screenscraper developer credentials; it issues them per application, so none ships.  |
+| `ScreenscraperEnabled`                                              | true    | Search Screenscraper.fr alongside SteamGridDB. Credentials ship, so no setup.        |
+| `ScreenscraperDevId`, `ScreenscraperDevPassword`                    | empty   | Optional developer credentials replacing the shipped pair. Both, or neither.         |
 | `ScreenscraperUser`, `ScreenscraperUserPassword`                    | empty   | Optional Screenscraper account, which only raises the request quota.                 |
 | `LeftEdgeSteamMenu`, `RightEdgeSteamQuickAccess`                    | true    | Edge swipes send Ctrl+1 and Ctrl+2.                                                  |
 

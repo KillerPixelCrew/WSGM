@@ -75,7 +75,7 @@ public sealed class ArtworkView : OverlaySubView
         // from someone who configured only the other source.
         if (!ArtworkSearch.Providers.Any(p => p.GetStatus(config).IsReady))
         {
-            Navigate(RenderNoKey);
+            Navigate(RenderNoSource);
             return;
         }
 
@@ -134,12 +134,12 @@ public sealed class ArtworkView : OverlaySubView
     /// landing on a detached <see cref="Image"/>.</summary>
     public void Close() => _navigationGeneration++;
 
-    private void RenderNoKey()
+    private void RenderNoSource()
     {
         var stack = NewStack("Change Artwork");
-        stack.Children.Add(Caption("This needs a free SteamGridDB API key. Add yours in "
-            + "Settings → Steam, then reopen this."));
-        stack.Children.Add(Caption($"Get one at {SteamGridDb.KeyPageUrl}"));
+        stack.Children.Add(Caption("Every artwork source is switched off. Turn Screenscraper.fr "
+            + "back on, or add a free SteamGridDB API key, in Settings → Steam, then reopen this."));
+        stack.Children.Add(Caption($"Get a key at {SteamGridDb.KeyPageUrl}"));
         stack.Children.Add(SectionLabel(""));
         stack.Children.Add(Row("Close", "Back to Tools", Icons.ExitFullscreen,
             RequestClose));

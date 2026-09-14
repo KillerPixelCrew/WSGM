@@ -86,10 +86,11 @@ public sealed class SteamGridDbProvider : IArtworkProvider
 /// </summary>
 /// <remarks>
 /// Screenscraper differs from SteamGridDB in the two ways that shaped the abstraction. It needs
-/// credentials — a registered developer id and password, and optionally a user account whose level
-/// decides the quota — where SteamGridDB needs only a key. And it is organised around emulated
-/// systems and ROM names rather than Steam app ids, so it can answer a title search but has nothing
-/// to say about a Steam app id.
+/// credentials — a registered developer id and password, which WSGM ships (see
+/// <see cref="ScreenscraperCredentials"/>), and optionally a user account whose level decides the
+/// quota — where SteamGridDB needs only a key. And it is organised around emulated systems and ROM
+/// names rather than Steam app ids, so it can answer a title search but has nothing to say about a
+/// Steam app id.
 /// <para>
 /// Its media vocabulary is its own and does not line up one-to-one with Steam's artwork slots, so
 /// the mapping lives here rather than leaking into the picker. Regional variants are preferred
@@ -97,15 +98,24 @@ public sealed class SteamGridDbProvider : IArtworkProvider
 /// </para>
 /// <para>
 /// Rate limiting is explicit in this API: HTTP 429 means the concurrent-thread or per-minute quota
-/// is spent and 430 means the daily scrape quota is gone. Both are reported as provider failures
-/// rather than as empty results, so one provider running out cannot read as the game having no art.
+/// is spent, 430 the daily scrape quota, and 431 too many lookups in a day for titles Screenscraper
+/// does not hold. All three are reported as provider failures rather than as empty results, so one
+/// provider running out cannot read as the game having no art.
+/// </para>
+/// <para>
+/// 431 is the one to watch. Screenscraper is a ROM database being asked about a Steam library, so a
+/// miss is the ordinary outcome rather than the exceptional one, and the misses count. That is also
+/// why the provider is only ever consulted for a search the user opened themselves: nothing here
+/// walks the library in the background, and the shipped credentials' allowance is shared by every
+/// WSGM install. Each quota message names the free personal account that lifts it.
 /// </para>
 /// </remarks>
 public sealed class ScreenscraperProvider : IArtworkProvider
 {
     private const string ApiBase = "https://api.screenscraper.fr/api2";
 
-    /// <summary>Where a user registers for the developer credentials this provider needs.</summary>
+    /// <summary>Where a user registers an account that raises the quota, or their own
+    /// developer credentials if they would rather not share the shipped ones.</summary>
     public const string AccountPageUrl = "https://www.screenscraper.fr/";
 
     private const int MaxJsonResponseBytes = 4 * 1024 * 1024;
@@ -140,20 +150,16 @@ public sealed class ScreenscraperProvider : IArtworkProvider
     public string DisplayName => "Screenscraper.fr";
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Credentials are never missing here, unlike SteamGridDB: WSGM ships a developer pair and the
+    /// user's own only replaces it. The switch in Settings is the whole of the readiness question.
+    /// </remarks>
     public ArtworkProviderStatus GetStatus(AppConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
-        if (!config.ScreenscraperEnabled)
-        {
-            return new ArtworkProviderStatus(ArtworkProviderReadiness.Disabled, "Turned off in Settings.");
-        }
-
-        return (config.ScreenscraperDevId ?? "").Trim().Length > 0
-            && (config.ScreenscraperDevPassword ?? "").Trim().Length > 0
+        return config.ScreenscraperEnabled
             ? ArtworkProviderStatus.Ready
-            : new ArtworkProviderStatus(
-                ArtworkProviderReadiness.MissingCredentials,
-                $"No developer credentials. Register at {AccountPageUrl} and set them in Settings.");
+            : new ArtworkProviderStatus(ArtworkProviderReadiness.Disabled, "Turned off in Settings.");
     }
 
     /// <inheritdoc />
@@ -265,12 +271,13 @@ public sealed class ScreenscraperProvider : IArtworkProvider
 
     private static string Credentials(AppConfig config)
     {
+        (string devId, string devPassword) = ScreenscraperCredentials.Resolve(config);
         var parts = new List<string>
         {
             "output=json",
-            "softname=WSGM",
-            $"devid={Uri.EscapeDataString((config.ScreenscraperDevId ?? "").Trim())}",
-            $"devpassword={Uri.EscapeDataString((config.ScreenscraperDevPassword ?? "").Trim())}",
+            $"softname={Uri.EscapeDataString(ScreenscraperCredentials.SoftName)}",
+            $"devid={Uri.EscapeDataString(devId)}",
+            $"devpassword={Uri.EscapeDataString(devPassword)}",
         };
 
         // The user account is optional and only raises the quota, so its absence is not a refusal.
@@ -280,6 +287,13 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         {
             parts.Add($"ssid={Uri.EscapeDataString(user)}");
             parts.Add($"sspassword={Uri.EscapeDataString(password)}");
+        }
+
+        // Present only in a local build that was given one. It costs a slot in a daily allowance of
+        // 100 against the developer account, so it is never sent on a user's behalf.
+        if (ScreenscraperCredentials.DebugPassword is { } debug)
+        {
+            parts.Add($"devdebugpassword={Uri.EscapeDataString(debug)}");
         }
         return string.Join('&', parts);
     }
@@ -353,7 +367,10 @@ public sealed class ScreenscraperProvider : IArtworkProvider
                 {
                     401 or 403 => "Screenscraper rejected the credentials.",
                     429 => "Screenscraper thread or minute quota reached. Try again shortly.",
-                    430 => "Screenscraper daily scrape quota is used up.",
+                    430 => "Screenscraper daily scrape quota is used up. "
+                        + "A free Screenscraper account, set in Settings, raises it.",
+                    431 => "Screenscraper stopped answering for today after too many titles it "
+                        + "does not have. A free Screenscraper account, set in Settings, raises it.",
                     _ => $"Screenscraper returned HTTP {(int)response.StatusCode}.",
                 });
             }

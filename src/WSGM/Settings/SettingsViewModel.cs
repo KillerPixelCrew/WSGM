@@ -1411,15 +1411,16 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Gets or sets whether Screenscraper.fr is searched alongside SteamGridDB.</summary>
     /// <remarks>
-    /// Off unless the user turns it on, because Screenscraper needs developer credentials WSGM
-    /// cannot ship: it issues developer ids per application rather than offering a free personal
-    /// key. See <see cref="Core.ScreenscraperProvider.AccountPageUrl"/>.
+    /// On unless the user turns it off. WSGM ships the developer credentials Screenscraper issues
+    /// per application, so there is nothing to obtain first, unlike SteamGridDB's personal key. See
+    /// <see cref="Core.ScreenscraperCredentials"/>.
     /// </remarks>
     public bool ScreenscraperEnabled { get => _screenscraperEnabled; set { _screenscraperEnabled = value; Raise(nameof(ScreenscraperEnabled)); } }
 
     private string _screenscraperDevId = "";
 
-    /// <summary>Gets or sets the Screenscraper developer id.</summary>
+    /// <summary>Gets or sets an optional Screenscraper developer id replacing the shipped one.
+    /// Honoured only together with <see cref="ScreenscraperDevPassword"/>.</summary>
     public string ScreenscraperDevId { get => _screenscraperDevId; set { _screenscraperDevId = value; Raise(nameof(ScreenscraperDevId)); } }
 
     private string _screenscraperDevPassword = "";
