@@ -569,11 +569,11 @@ world-region-first preference live inside the provider. Its documented quota fai
 HTTP 429 is the thread or minute quota, 430 the daily scrape quota, 431 a day's worth of lookups for
 titles it does not hold.
 
-All three are counted against the account an `ssid` names, or against the requesting IP when there is
-none — never against the shipped developer pair, which carries no allowance of its own. A user can
-therefore only spend their own budget, which is also why the debug mode offers `forceip`. 431 is the
-one that binds in practice: a ROM database asked about a Steam library misses most of the time, and
-misses count. Nothing walks the library in the background — the provider is reached only from an
+All three are counted against the account an `ssid` names, or against the requesting IP when there
+is none — never against the shipped developer pair, which carries no allowance of its own. A user
+can therefore only spend their own budget, which is also why the debug mode offers `forceip`. 431 is
+the one that binds in practice: a ROM database asked about a Steam library misses most of the time,
+and misses count. Nothing walks the library in the background — the provider is reached only from an
 artwork changer the user opened — and every quota message names the free personal account that
 raises the limit and the thread count.
 

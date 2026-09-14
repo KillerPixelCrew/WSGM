@@ -231,13 +231,12 @@ launchers such as Mod Organizer 2 then fail `CREATE_BREAKAWAY_FROM_JOB` with err
 `docs\elevation.md`). So immediately before each orderly exit WSGM resolves the current
 `Shell_TrayWnd` owner. The normal parent route accepts it only if `GetShellWindow` names the same
 owner, its image is `%WINDIR%\explorer.exe`, it is in the current session, at medium integrity and
-able to supply a jobless child. Capturing this launch parent does not require an idle UI thread or
-a separate stability wait: display changes and desktop hooks can briefly delay Explorer messages.
-Responsive windows and stable ownership remain required when verifying desktop restoration.
-WSGM keeps that process as the
-`PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` and starts one fixed-purpose medium, jobless anchor under it
-before the old shell exits (`Core\ExplorerShellAnchor.cs`; installed as the same payload under the
-image name `WSGM.ShellAnchor.exe`).
+able to supply a jobless child. Capturing this launch parent does not require an idle UI thread or a
+separate stability wait: display changes and desktop hooks can briefly delay Explorer messages.
+Responsive windows and stable ownership remain required when verifying desktop restoration. WSGM
+keeps that process as the `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` and starts one fixed-purpose
+medium, jobless anchor under it before the old shell exits (`Core\ExplorerShellAnchor.cs`; installed
+as the same payload under the image name `WSGM.ShellAnchor.exe`).
 
 The anchor accepts one authenticated per-session `start` command for the fixed Explorer path. WSGM
 owns the child handle, bounds every pipe operation, stops only that owned process on failed setup,

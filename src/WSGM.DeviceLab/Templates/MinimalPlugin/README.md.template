@@ -1,8 +1,8 @@
 # {{DISPLAY_NAME_MD}}
 
-This starter is copied from Device Lab's checked-in minimal plugin template. It contains exact
-identity detection, the six-field package manifest, and safe in-memory examples of partial
-capability availability, cancellation, canonical input/output, diagnostics, and stop restoration.
+This starter came from Device Lab's minimal plugin template. It has exact identity detection, the
+six-field package manifest, and safe in-memory examples of partial capability availability,
+cancellation, canonical input and output, diagnostics, and restoring state on stop.
 
 - Manufacturer: `{{MANUFACTURER_MD}}`
 - Baseboard: `{{BOARD_MD}}`
@@ -11,22 +11,31 @@ capability availability, cancellation, canonical input/output, diagnostics, and 
 - USB: `{{USB_MD}}`
 - SDK API: `{{API_VERSION}}`
 
-Replace the clearly named `example.*` capability and in-memory state in `DevicePlugin.cs` with
-device-owned transports and services. Every write must snapshot the original value, validate current
-bounds, read back the result, and restore temporary changes during deactivation. The generated
-project references the exact SDK used by Device Lab: a source project when scaffolding inside the
-WSGM checkout, or the shipped SDK assembly otherwise. Keep that explicit reference valid if the
-scaffold is moved to another machine. The checked-in `example.*` implementation is hardware-free
-teaching code. It is safe for local detection/lifecycle tests, but replace it with verified device
-behavior before installation. The demo toggle reports `AppliedUnverified`, leaves readback absent,
-and publishes unknown state quality because an in-memory assignment proves nothing about hardware.
+## What to do next
+
+Replace the clearly named `example.*` capability and its in-memory state in `DevicePlugin.cs` with
+real device-owned transports and services. Every write has to snapshot the original value, validate
+the current bounds, read the result back, and restore temporary changes when the plugin deactivates.
+
+The `example.*` implementation is hardware-free teaching code. It is fine for local detection and
+lifecycle tests, but replace it with verified device behaviour before you install anything. Notice
+that the demo toggle reports `AppliedUnverified`, leaves readback absent and publishes unknown state
+quality, because an in-memory assignment proves nothing about hardware.
+
+The generated project references the exact SDK Device Lab used: a source project when you scaffold
+inside the WSGM checkout, or the shipped SDK assembly otherwise. Keep that reference valid if you
+move the scaffold to another machine.
+
+## Licence
 
 This plugin is your own work and you choose its licence. It links `WSGM.Device.Sdk`, which is MIT,
-so nothing here obliges you to any particular one — a closed-source vendor plugin is fine. The
+so nothing here obliges you to any particular one, and a closed-source vendor plugin is fine. The
 starter ships an MIT `LICENSE.txt` because that constrains you least; put your name in it, or
 replace it outright. WSGM itself is GPL-3.0-or-later, but you are not linking WSGM.
 
-Build, copy the produced DLL beside `plugin.wsgm.json`, then run:
+## Build and validate
+
+Build, copy the produced DLL beside `plugin.wsgm.json`, then:
 
 ```powershell
 dotnet build {{ROOT_NAMESPACE}}.csproj -c Release -r win-x64
@@ -41,22 +50,26 @@ The hardware action is separate and always attended:
 wsgm-device test hardware <package-directory> --from <inventory.json> --state-dir <new-directory> --action haptic
 ```
 
-Use `--action controller`, or use
+Use `--action controller`, or
 `--action capability --capability <id> --value <semantic-value> [--instance <id>]`, for the other
-explicit attended actions.
+attended actions.
 
-After validation, close the WSGM shell. Installation makes this directory trusted
-hardware code that may later inherit WSGM's elevation, so inspect the exact files first. Install or
-replace the sole protected plugin slot with the installed WSGM maintenance command (it requests
-elevation and refuses a machine-wide WSGM/Device Lab hardware owner):
+## Installing
+
+Close the WSGM shell first. Installing makes this directory trusted hardware code that may later
+inherit WSGM's elevation, so inspect the exact files before you do it.
+
+Install or replace the single protected plugin slot with the installed WSGM maintenance command. It
+requests elevation and refuses to run while a machine-wide WSGM or Device Lab hardware owner is
+active:
 
 ```powershell
 & "$env:LOCALAPPDATA\WSGM\bin\WSGM.exe" --install-device-plugin <package-directory>
 if ($LASTEXITCODE -ne 0) { throw 'WSGM rejected the plugin installation; inspect wsgm.log.' }
 ```
 
-The package directory must be separate from the protected installed slot. Pass exactly this command
-and directory; maintenance flags cannot be combined with normal WSGM modes.
+The package directory has to be separate from the protected installed slot. Pass exactly this
+command and directory; maintenance flags cannot be combined with normal WSGM modes.
 
-See `docs/device-plugin-authoring.md` in the WSGM repository for the complete workflow and safety
-contract.
+For the complete workflow and the safety contract, see `docs/device-plugin-authoring.md` in the WSGM
+repository.
