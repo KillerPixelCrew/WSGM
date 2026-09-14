@@ -80,16 +80,11 @@
                     <StackPanel Spacing="6">
                         <CheckBox Content="Also search Screenscraper.fr"
                                   IsChecked="{Binding ScreenscraperEnabled}" />
-                        <TextBlock Text="A second artwork source, useful where SteamGridDB has little for a title. It works out of the box: WSGM ships its own Screenscraper developer credentials. Their daily allowance is shared by every WSGM install, so a free screenscraper.fr account below raises your own limit and is worth setting if you hit one."
+                        <TextBlock Text="A second artwork source, useful where SteamGridDB has little for a title, and strongest on retro and emulated games. Nothing to set up. The daily allowance is shared by every WSGM install, so if you run into it, a free screenscraper.fr account below raises your own limit."
                                    Classes="caption" TextWrapping="Wrap" />
                         <TextBox Text="{Binding ScreenscraperUser}" PlaceholderText="Account name (optional)" />
                         <TextBox Text="{Binding ScreenscraperUserPassword}" PasswordChar="•"
                                  PlaceholderText="Account password (optional)" />
-                        <TextBlock Text="Own developer credentials, if you have them. Both fields, or neither."
-                                   Classes="caption" TextWrapping="Wrap" />
-                        <TextBox Text="{Binding ScreenscraperDevId}" PlaceholderText="Developer ID (optional)" />
-                        <TextBox Text="{Binding ScreenscraperDevPassword}" PasswordChar="•"
-                                 PlaceholderText="Developer password (optional)" />
                     </StackPanel>
                 </Border>
             </StackPanel>

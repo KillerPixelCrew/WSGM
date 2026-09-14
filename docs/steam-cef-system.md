@@ -578,9 +578,10 @@ account that raises the limit.
 The pair lives XOR-folded in `Core\ScreenscraperCredentials.cs` with its key alongside. That is
 obfuscation against string scans, not secrecy, and deliberately not a build secret: a public
 installer yields the credentials to anyone who unpacks it either way, so injecting them at build
-time would only cost local developer builds the feature. `ScreenscraperDevId` and
-`ScreenscraperDevPassword` replace the shipped pair when both are set, so a user can spend their own
-allowance instead. The developer debug password is not shipped at all: it is read from
+time would only cost local developer builds the feature. It is the application's identity rather
+than a user setting, and Settings does not offer to replace it — no frontend that talks to this API
+exposes its own. The only Screenscraper credential a user supplies is the free personal account that
+raises their quota. The developer debug password is not shipped at all: it is read from
 `WSGM_SCREENSCRAPER_DEBUG` and compiled out of Release.
 
 Applying is provider-independent and unchanged: one `SetCustomArtworkForApp` call, whichever source
@@ -611,7 +612,6 @@ WSGM focus action runs after cancellation.
 | `SteamLaunchUnelevated`                                             | false   | De-elevated Steam launch through the scheduled task.                                 |
 | `SteamGridDbApiKey`                                                 | empty   | Bearer key for artwork search.                                                       |
 | `ScreenscraperEnabled`                                              | true    | Search Screenscraper.fr alongside SteamGridDB. Credentials ship, so no setup.        |
-| `ScreenscraperDevId`, `ScreenscraperDevPassword`                    | empty   | Optional developer credentials replacing the shipped pair. Both, or neither.         |
 | `ScreenscraperUser`, `ScreenscraperUserPassword`                    | empty   | Optional Screenscraper account, which only raises the request quota.                 |
 | `LeftEdgeSteamMenu`, `RightEdgeSteamQuickAccess`                    | true    | Edge swipes send Ctrl+1 and Ctrl+2.                                                  |
 

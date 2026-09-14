@@ -669,18 +669,11 @@ public sealed class AppConfig
     /// </remarks>
     public bool ScreenscraperEnabled { get; set; } = true;
 
-    /// <summary>Optional Screenscraper developer id, replacing the one WSGM ships.</summary>
-    /// <remarks>
-    /// For a user who would rather not share the shipped credentials' quota. Only honoured together
-    /// with <see cref="ScreenscraperDevPassword"/>; see <see cref="ScreenscraperCredentials"/>.
-    /// </remarks>
-    public string ScreenscraperDevId { get; set; } = "";
-
-    /// <summary>The Screenscraper developer password that goes with
-    /// <see cref="ScreenscraperDevId"/>.</summary>
-    public string ScreenscraperDevPassword { get; set; } = "";
-
     /// <summary>Optional Screenscraper user account, which raises the request quota.</summary>
+    /// <remarks>
+    /// The only Screenscraper credential a user supplies. The developer pair is the application's
+    /// identity and ships with the build; a free personal account is what lifts that shared quota.
+    /// </remarks>
     public string ScreenscraperUser { get; set; } = "";
 
     /// <summary>The password for <see cref="ScreenscraperUser"/>.</summary>

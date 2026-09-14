@@ -37,27 +37,16 @@ public sealed class ArtworkProviderTests
     }
 
     [Fact]
-    public void ScreenscraperFallsBackToTheShippedPairUnlessBothOverridesAreSet()
+    public void ScreenscraperUnfoldsItsShippedCredentialsIntactly()
     {
-        // A half-filled override would pair the user's id with WSGM's password, which Screenscraper
-        // answers as a credential rejection the user cannot explain from what they typed.
-        (string shippedId, string shippedPassword) = ScreenscraperCredentials.Resolve(new AppConfig());
-
-        Assert.NotEqual("", shippedId);
-        Assert.NotEqual("", shippedPassword);
-        Assert.Equal(
-            (shippedId, shippedPassword),
-            ScreenscraperCredentials.Resolve(new AppConfig { ScreenscraperDevId = "id" }));
-        Assert.Equal(
-            (shippedId, shippedPassword),
-            ScreenscraperCredentials.Resolve(new AppConfig { ScreenscraperDevPassword = "secret" }));
-        Assert.Equal(
-            ("id", "secret"),
-            ScreenscraperCredentials.Resolve(new AppConfig
-            {
-                ScreenscraperDevId = " id ",
-                ScreenscraperDevPassword = " secret ",
-            }));
+        // The pair is stored XOR-folded so it does not sit in the binary as plain text. That is a
+        // reversible transform, and a wrong key or a truncated array would fail as an authentication
+        // rejection at runtime rather than as anything visible at build time.
+        Assert.NotEqual("", ScreenscraperCredentials.DevId);
+        Assert.NotEqual("", ScreenscraperCredentials.DevPassword);
+        Assert.All(
+            ScreenscraperCredentials.DevId + ScreenscraperCredentials.DevPassword,
+            c => Assert.InRange(c, '!', '~'));
     }
 
     [Fact]

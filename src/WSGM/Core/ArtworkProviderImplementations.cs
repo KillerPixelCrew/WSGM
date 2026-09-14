@@ -85,12 +85,12 @@ public sealed class SteamGridDbProvider : IArtworkProvider
 /// Screenscraper.fr behind the shared provider contract.
 /// </summary>
 /// <remarks>
-/// Screenscraper differs from SteamGridDB in the two ways that shaped the abstraction. It needs
-/// credentials — a registered developer id and password, which WSGM ships (see
-/// <see cref="ScreenscraperCredentials"/>), and optionally a user account whose level decides the
-/// quota — where SteamGridDB needs only a key. And it is organised around emulated systems and ROM
-/// names rather than Steam app ids, so it can answer a title search but has nothing to say about a
-/// Steam app id.
+/// Screenscraper differs from SteamGridDB in the two ways that shaped the abstraction. Its
+/// credentials are the application's own — a registered developer pair that ships with the build
+/// (see <see cref="ScreenscraperCredentials"/>), plus an optional user account whose level decides
+/// the quota — where SteamGridDB needs a key the user obtains. And it is organised around emulated
+/// systems and ROM names rather than Steam app ids, so it can answer a title search but has nothing
+/// to say about a Steam app id.
 /// <para>
 /// Its media vocabulary is its own and does not line up one-to-one with Steam's artwork slots, so
 /// the mapping lives here rather than leaking into the picker. Regional variants are preferred
@@ -107,15 +107,15 @@ public sealed class SteamGridDbProvider : IArtworkProvider
 /// miss is the ordinary outcome rather than the exceptional one, and the misses count. That is also
 /// why the provider is only ever consulted for a search the user opened themselves: nothing here
 /// walks the library in the background, and the shipped credentials' allowance is shared by every
-/// WSGM install. Each quota message names the free personal account that lifts it.
+/// WSGM install. Each quota message names the free personal account that lifts it, which is the
+/// only Screenscraper credential a user has any reason to supply.
 /// </para>
 /// </remarks>
 public sealed class ScreenscraperProvider : IArtworkProvider
 {
     private const string ApiBase = "https://api.screenscraper.fr/api2";
 
-    /// <summary>Where a user registers an account that raises the quota, or their own
-    /// developer credentials if they would rather not share the shipped ones.</summary>
+    /// <summary>Where a user registers the free account that raises their quota.</summary>
     public const string AccountPageUrl = "https://www.screenscraper.fr/";
 
     private const int MaxJsonResponseBytes = 4 * 1024 * 1024;
@@ -271,13 +271,12 @@ public sealed class ScreenscraperProvider : IArtworkProvider
 
     private static string Credentials(AppConfig config)
     {
-        (string devId, string devPassword) = ScreenscraperCredentials.Resolve(config);
         var parts = new List<string>
         {
             "output=json",
             $"softname={Uri.EscapeDataString(ScreenscraperCredentials.SoftName)}",
-            $"devid={Uri.EscapeDataString(devId)}",
-            $"devpassword={Uri.EscapeDataString(devPassword)}",
+            $"devid={Uri.EscapeDataString(ScreenscraperCredentials.DevId)}",
+            $"devpassword={Uri.EscapeDataString(ScreenscraperCredentials.DevPassword)}",
         };
 
         // The user account is optional and only raises the quota, so its absence is not a refusal.

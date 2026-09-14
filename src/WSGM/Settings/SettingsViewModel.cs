@@ -230,8 +230,6 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
         SteamLaunchUnelevated = _config.SteamLaunchUnelevated;
         SteamGridDbApiKey = _config.SteamGridDbApiKey;
         ScreenscraperEnabled = _config.ScreenscraperEnabled;
-        ScreenscraperDevId = _config.ScreenscraperDevId;
-        ScreenscraperDevPassword = _config.ScreenscraperDevPassword;
         ScreenscraperUser = _config.ScreenscraperUser;
         ScreenscraperUserPassword = _config.ScreenscraperUserPassword;
         StartupDelayMs = _config.StartupDelayMs;
@@ -1417,17 +1415,6 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     /// </remarks>
     public bool ScreenscraperEnabled { get => _screenscraperEnabled; set { _screenscraperEnabled = value; Raise(nameof(ScreenscraperEnabled)); } }
 
-    private string _screenscraperDevId = "";
-
-    /// <summary>Gets or sets an optional Screenscraper developer id replacing the shipped one.
-    /// Honoured only together with <see cref="ScreenscraperDevPassword"/>.</summary>
-    public string ScreenscraperDevId { get => _screenscraperDevId; set { _screenscraperDevId = value; Raise(nameof(ScreenscraperDevId)); } }
-
-    private string _screenscraperDevPassword = "";
-
-    /// <summary>Gets or sets the Screenscraper developer password.</summary>
-    public string ScreenscraperDevPassword { get => _screenscraperDevPassword; set { _screenscraperDevPassword = value; Raise(nameof(ScreenscraperDevPassword)); } }
-
     private string _screenscraperUser = "";
 
     /// <summary>Gets or sets the optional Screenscraper account name, which raises the quota.</summary>
@@ -1676,8 +1663,6 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
         config.SteamLaunchUnelevated = SteamLaunchUnelevated;
         config.SteamGridDbApiKey = (SteamGridDbApiKey ?? "").Trim();
         config.ScreenscraperEnabled = ScreenscraperEnabled;
-        config.ScreenscraperDevId = (ScreenscraperDevId ?? "").Trim();
-        config.ScreenscraperDevPassword = (ScreenscraperDevPassword ?? "").Trim();
         config.ScreenscraperUser = (ScreenscraperUser ?? "").Trim();
         config.ScreenscraperUserPassword = (ScreenscraperUserPassword ?? "").Trim();
         config.StartupDelayMs = StartupDelayMs;
@@ -2147,8 +2132,6 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
         config.SteamLaunchUnelevated = values.SteamLaunchUnelevated;
         config.SteamGridDbApiKey = values.SteamGridDbApiKey;
         config.ScreenscraperEnabled = values.ScreenscraperEnabled;
-        config.ScreenscraperDevId = values.ScreenscraperDevId;
-        config.ScreenscraperDevPassword = values.ScreenscraperDevPassword;
         config.ScreenscraperUser = values.ScreenscraperUser;
         config.ScreenscraperUserPassword = values.ScreenscraperUserPassword;
         config.StartupDelayMs = values.StartupDelayMs;

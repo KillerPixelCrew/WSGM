@@ -2,9 +2,7 @@ using System;
 
 namespace WSGM.Core;
 
-/// <summary>
-/// The Screenscraper.fr developer credentials WSGM ships, and the user overrides that replace them.
-/// </summary>
+/// <summary>The Screenscraper.fr developer credentials WSGM identifies itself with.</summary>
 /// <remarks>
 /// Screenscraper issues developer credentials per application rather than per user, so a build that
 /// shipped without them offered an artwork source nobody could turn on: registering an application
@@ -19,10 +17,10 @@ namespace WSGM.Core;
 /// build-time secret would buy is local developer builds silently losing the feature.
 /// </para>
 /// <para>
-/// The quota attached to the shipped pair is shared by every WSGM install, so
-/// <see cref="AppConfig.ScreenscraperDevId"/> stays available for anyone who would rather spend
-/// their own. A personal account (<see cref="AppConfig.ScreenscraperUser"/>) is the lighter answer
-/// and raises the quota without any developer registration at all.
+/// These are the application's identity, not a user setting, and no other frontend exposes its own.
+/// The quota they carry is shared by every WSGM install, and the answer to spending it is the
+/// personal account in <see cref="AppConfig.ScreenscraperUser"/>: a free registration that raises
+/// the limit for the user who sets it, with no developer registration involved.
 /// </para>
 /// </remarks>
 public static class ScreenscraperCredentials
@@ -68,23 +66,11 @@ public static class ScreenscraperCredentials
         null;
 #endif
 
-    /// <summary>Resolves the developer credentials a request should carry.</summary>
-    /// <param name="config">The configuration whose overrides are consulted.</param>
-    /// <returns>The user's own pair when they supplied one, otherwise the pair WSGM ships.</returns>
-    /// <remarks>
-    /// Both or neither. A half-filled override would otherwise pair the user's id with WSGM's
-    /// password, and Screenscraper would answer with a credential rejection they had no way to
-    /// explain from what they had typed.
-    /// </remarks>
-    public static (string Id, string Password) Resolve(AppConfig config)
-    {
-        ArgumentNullException.ThrowIfNull(config);
-        string id = (config.ScreenscraperDevId ?? "").Trim();
-        string password = (config.ScreenscraperDevPassword ?? "").Trim();
-        return id.Length > 0 && password.Length > 0
-            ? (id, password)
-            : (Unfold(FoldedDevId), Unfold(FoldedDevPassword));
-    }
+    /// <summary>The registered developer id WSGM sends as <c>devid</c>.</summary>
+    public static string DevId { get; } = Unfold(FoldedDevId);
+
+    /// <summary>The developer password that goes with <see cref="DevId"/>.</summary>
+    public static string DevPassword { get; } = Unfold(FoldedDevPassword);
 
     private static string Unfold(byte[] folded)
     {
