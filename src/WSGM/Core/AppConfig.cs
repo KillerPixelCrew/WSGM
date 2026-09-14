@@ -671,8 +671,9 @@ public sealed class AppConfig
 
     /// <summary>Optional Screenscraper user account, which raises the request quota.</summary>
     /// <remarks>
-    /// The only Screenscraper credential a user supplies. The developer pair is the application's
-    /// identity and ships with the build; a free personal account is what lifts that shared quota.
+    /// The only Screenscraper credential a user supplies; the developer pair is the application's
+    /// identity and ships with the build. Without an account, Screenscraper counts the daily
+    /// allowance against the requesting IP, and a free registration lifts that and the thread limit.
     /// </remarks>
     public string ScreenscraperUser { get; set; } = "";
 

@@ -18,9 +18,11 @@ namespace WSGM.Core;
 /// </para>
 /// <para>
 /// These are the application's identity, not a user setting, and no other frontend exposes its own.
-/// The quota they carry is shared by every WSGM install, and the answer to spending it is the
-/// personal account in <see cref="AppConfig.ScreenscraperUser"/>: a free registration that raises
-/// the limit for the user who sets it, with no developer registration involved.
+/// They carry no quota of their own to spend: Screenscraper counts requests against the account an
+/// <c>ssid</c> names, or against the requesting IP when there is none, which is why its debug mode
+/// offers a <c>forceip</c> lever at all. One user's scraping therefore cannot exhaust another's, and
+/// <see cref="AppConfig.ScreenscraperUser"/> is a free registration that lifts the anonymous
+/// per-IP allowance for whoever sets it.
 /// </para>
 /// </remarks>
 public static class ScreenscraperCredentials

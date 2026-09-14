@@ -104,11 +104,10 @@ public sealed class SteamGridDbProvider : IArtworkProvider
 /// </para>
 /// <para>
 /// 431 is the one to watch. Screenscraper is a ROM database being asked about a Steam library, so a
-/// miss is the ordinary outcome rather than the exceptional one, and the misses count. That is also
-/// why the provider is only ever consulted for a search the user opened themselves: nothing here
-/// walks the library in the background, and the shipped credentials' allowance is shared by every
-/// WSGM install. Each quota message names the free personal account that lifts it, which is the
-/// only Screenscraper credential a user has any reason to supply.
+/// miss is the ordinary outcome rather than the exceptional one, and the misses count. All three are
+/// counted against the account an <c>ssid</c> names, or against the requesting IP when there is
+/// none, never against the shipped developer pair — so a user can only ever spend their own
+/// allowance, and each quota message names the free personal account that raises it.
 /// </para>
 /// </remarks>
 public sealed class ScreenscraperProvider : IArtworkProvider

@@ -80,7 +80,7 @@
                     <StackPanel Spacing="6">
                         <CheckBox Content="Also search Screenscraper.fr"
                                   IsChecked="{Binding ScreenscraperEnabled}" />
-                        <TextBlock Text="A second artwork source, useful where SteamGridDB has little for a title, and strongest on retro and emulated games. Nothing to set up. The daily allowance is shared by every WSGM install, so if you run into it, a free screenscraper.fr account below raises your own limit."
+                        <TextBlock Text="A second artwork source, useful where SteamGridDB has little for a title, and strongest on retro and emulated games. Nothing to set up. Screenscraper allows a limited number of searches per day, counted against your connection unless you sign in; a free screenscraper.fr account below raises that limit and searches faster."
                                    Classes="caption" TextWrapping="Wrap" />
                         <TextBox Text="{Binding ScreenscraperUser}" PlaceholderText="Account name (optional)" />
                         <TextBox Text="{Binding ScreenscraperUserPassword}" PasswordChar="•"
