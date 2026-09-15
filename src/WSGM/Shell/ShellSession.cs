@@ -420,10 +420,7 @@ public sealed class ShellSession : IAsyncDisposable
                 _steamUi?.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
                 _steamUi?.ApplySurfaceObservation(_config.Cef.Enabled);
                 _steamUi?.ApplyNetworkIndicator(_wifiIndicatorEnabled);
-                _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
-                _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
-                _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
-                _steamUi?.ApplyScreensaverTimeouts(_screensaverTimeoutsEnabled);
+                ApplySteamUiSurfacePreferences();
                 // DisableAsync clears the profile. Restore it explicitly instead of depending on
                 // a device publication that may have already arrived during the retraction.
                 ApplyGlyphConfig(_config);
@@ -1069,10 +1066,7 @@ public sealed class ShellSession : IAsyncDisposable
                 _overlay.SteamOwnership = () => _steamControllerHandoff;
             }
             _steamUi.ApplyNetworkIndicator(_wifiIndicatorEnabled);
-            _steamUi.ApplyDownloadSort(_downloadSortEnabled);
-            _steamUi.ApplyLibraryBadge(_libraryBadgeEnabled);
-            _steamUi.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
-            _steamUi.ApplyScreensaverTimeouts(_screensaverTimeoutsEnabled);
+            ApplySteamUiSurfacePreferences();
             ApplyGlyphConfig(_config);
             if (_deviceCoordinator is not null)
             {
@@ -1116,10 +1110,7 @@ public sealed class ShellSession : IAsyncDisposable
             RequestSteamUiTransportGateCheck();
             EnterGameModeSurfaces();
             _steamUi?.ApplyNetworkIndicator(_wifiIndicatorEnabled);
-            _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
-            _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
-            _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
-            _steamUi?.ApplyScreensaverTimeouts(_screensaverTimeoutsEnabled);
+            ApplySteamUiSurfacePreferences();
             // Returning from desktop mode disabled tabs/badge and cancelled the boot
             // sync; re-inject without requiring an overlay open.
             KickTabBootSync();
@@ -1590,6 +1581,16 @@ public sealed class ShellSession : IAsyncDisposable
         }
     }
 
+    /// <summary>Re-applies the Steam UI surfaces that work without native Quick Access from the
+    /// session's saved preferences, after the host was created or retracted them.</summary>
+    private void ApplySteamUiSurfacePreferences()
+    {
+        _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
+        _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
+        _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
+        _steamUi?.ApplyScreensaverTimeouts(_screensaverTimeoutsEnabled);
+    }
+
     /// <summary>Starts or retracts the injected download-queue sort buttons to match a
     /// reloaded configuration, so the toggle applies without a re-logon.</summary>
     /// <param name="enabled">Whether the sort buttons should be injected.</param>
@@ -1721,10 +1722,7 @@ public sealed class ShellSession : IAsyncDisposable
                     }
                     ApplyCardServices(_inGameMode);
                     KickTabBootSync();
-                    _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
-                    _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
-                    _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
-                    _steamUi?.ApplyScreensaverTimeouts(_screensaverTimeoutsEnabled);
+                    ApplySteamUiSurfacePreferences();
                     ApplyGlyphConfig(_config);
                 });
             });
