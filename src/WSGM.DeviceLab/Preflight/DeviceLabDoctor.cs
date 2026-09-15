@@ -5,6 +5,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Security.Principal;
+using WSGM.DeviceLab.Application;
 
 namespace WSGM.DeviceLab.Preflight;
 
@@ -263,17 +264,7 @@ internal static class DeviceLabDoctor
                 $".wsgm-device-doctor-{Guid.NewGuid():N}.tmp");
             try
             {
-                using (FileStream stream = new(
-                    probePath,
-                    FileMode.CreateNew,
-                    FileAccess.Write,
-                    FileShare.None,
-                    bufferSize: 1,
-                    FileOptions.WriteThrough))
-                {
-                    stream.WriteByte(0);
-                    stream.Flush(flushToDisk: true);
-                }
+                DurableFile.WriteNew(probePath, stream => stream.WriteByte(0), bufferSize: 1);
 
                 File.Delete(probePath);
                 return (true, Directory.Exists(outputPath)

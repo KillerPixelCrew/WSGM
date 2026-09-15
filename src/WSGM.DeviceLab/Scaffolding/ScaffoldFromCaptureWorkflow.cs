@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using WSGM.Device.Sdk;
 using WSGM.Device.Sdk.Packaging;
+using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Preflight;
@@ -164,9 +165,7 @@ internal static partial class ScaffoldFromCaptureWorkflow
                     throw new IOException("A template output escaped the scaffold directory.");
                 }
 
-                using FileStream file = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-                file.Write(Encoding.UTF8.GetBytes(content));
-                file.Flush(flushToDisk: true);
+                DurableFile.WriteNew(path, file => file.Write(Encoding.UTF8.GetBytes(content)));
             }
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -178,7 +177,7 @@ internal static partial class ScaffoldFromCaptureWorkflow
         }
         catch
         {
-            TryDeleteTemporaryDirectory(temporary);
+            DurableFile.TryDeleteDirectory(temporary);
             throw;
         }
 
@@ -393,25 +392,6 @@ internal static partial class ScaffoldFromCaptureWorkflow
         .Replace("\r\n", "\n", StringComparison.Ordinal)
         .Replace('\r', '\n')
         .TrimEnd() + "\n";
-
-    private static void TryDeleteTemporaryDirectory(string path)
-    {
-        try
-        {
-            if (Directory.Exists(path))
-            {
-                Directory.Delete(path, recursive: true);
-            }
-        }
-        catch (IOException)
-        {
-            // Preserve the original scaffold failure.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Preserve the original scaffold failure.
-        }
-    }
 
     [GeneratedRegex("[^a-z0-9]+")]
     private static partial Regex NonIdentifier();

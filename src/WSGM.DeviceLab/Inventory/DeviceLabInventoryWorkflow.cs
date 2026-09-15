@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text;
 using System.Threading;
+using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Preflight;
 
@@ -152,19 +152,7 @@ internal static class DeviceLabInventoryWorkflow
                     recheckedDirectory.Reason ?? fileDecision.Reason);
             }
 
-            using (FileStream stream = new(
-                tempPath,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None,
-                bufferSize: 4096,
-                FileOptions.WriteThrough))
-            using (StreamWriter writer = new(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
-            {
-                writer.Write(json);
-                writer.Flush();
-                stream.Flush(flushToDisk: true);
-            }
+            DurableFile.WriteNewText(tempPath, json);
 
             cancellationToken.ThrowIfCancellationRequested();
             File.Move(tempPath, outputPath);

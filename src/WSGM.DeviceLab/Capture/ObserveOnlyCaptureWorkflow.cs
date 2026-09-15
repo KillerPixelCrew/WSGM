@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Preflight;
 
@@ -404,17 +405,11 @@ internal static class ObserveOnlyCaptureWorkflow
         {
             cancellationToken.ThrowIfCancellationRequested();
             Directory.CreateDirectory(directory);
-            using (FileStream output = new(
+            DurableFile.WriteNew(
                 temporaryPath,
-                FileMode.CreateNew,
-                FileAccess.ReadWrite,
-                FileShare.None,
-                64 * 1024,
-                FileOptions.WriteThrough))
-            {
-                CaptureBundleWriter.Write(output, plan.Bundle, cancellationToken);
-                output.Flush(flushToDisk: true);
-            }
+                output => CaptureBundleWriter.Write(output, plan.Bundle, cancellationToken),
+                bufferSize: 64 * 1024,
+                FileAccess.ReadWrite);
 
             cancellationToken.ThrowIfCancellationRequested();
             publishFile(temporaryPath, decision.FullPath);
@@ -593,12 +588,7 @@ internal static class ObserveOnlyCaptureWorkflow
             Directory.CreateDirectory(directory);
         }
 
-        using FileStream stream = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough);
-        using StreamWriter writer = new(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-        writer.Write(content);
-        writer.WriteLine();
-        writer.Flush();
-        stream.Flush(flushToDisk: true);
+        DurableFile.WriteNewText(path, content + Environment.NewLine);
     }
 
     private static void WriteNewNdjson(
@@ -612,24 +602,18 @@ internal static class ObserveOnlyCaptureWorkflow
             Directory.CreateDirectory(directory);
         }
 
-        using FileStream stream = new(
-            path,
-            FileMode.CreateNew,
-            FileAccess.Write,
-            FileShare.None,
-            4096,
-            FileOptions.WriteThrough);
-        foreach (CaptureStreamEvent captureEvent in events)
+        DurableFile.WriteNew(path, stream =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            byte[] json = JsonSerializer.SerializeToUtf8Bytes(
-                captureEvent,
-                DeviceLabCompactJson.CaptureStreamEvent);
-            stream.Write(json);
-            stream.WriteByte((byte)'\n');
-        }
-
-        stream.Flush(flushToDisk: true);
+            foreach (CaptureStreamEvent captureEvent in events)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                byte[] json = JsonSerializer.SerializeToUtf8Bytes(
+                    captureEvent,
+                    DeviceLabCompactJson.CaptureStreamEvent);
+                stream.Write(json);
+                stream.WriteByte((byte)'\n');
+            }
+        });
     }
 
     private static string SafeName(string sourceId)

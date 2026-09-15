@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Preflight;
 
@@ -141,7 +142,7 @@ internal static class FixtureExtractionWorkflow
         }
         catch
         {
-            TryDeleteTemporaryDirectory(temporary);
+            DurableFile.TryDeleteDirectory(temporary);
             throw;
         }
         return manifest;
@@ -170,16 +171,17 @@ internal static class FixtureExtractionWorkflow
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        using FileStream output = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-        int offset = 0;
-        while (offset < bytes.Length)
+        DurableFile.WriteNew(path, output =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            int length = Math.Min(64 * 1024, bytes.Length - offset);
-            output.Write(bytes, offset, length);
-            offset += length;
-        }
-        output.Flush(flushToDisk: true);
+            int offset = 0;
+            while (offset < bytes.Length)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int length = Math.Min(64 * 1024, bytes.Length - offset);
+                output.Write(bytes, offset, length);
+                offset += length;
+            }
+        });
     }
 
     /// <summary>Turns one source or analyzer identifier into a distinct filesystem-safe name.</summary>
@@ -227,24 +229,5 @@ internal static class FixtureExtractionWorkflow
         }
 
         return output.ToArray();
-    }
-
-    private static void TryDeleteTemporaryDirectory(string path)
-    {
-        try
-        {
-            if (Directory.Exists(path))
-            {
-                Directory.Delete(path, recursive: true);
-            }
-        }
-        catch (IOException)
-        {
-            // Preserve the original extraction failure.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Preserve the original extraction failure.
-        }
     }
 }
