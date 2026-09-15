@@ -1,14 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
-using Avalonia.Data.Converters;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -598,65 +596,4 @@ public partial class AppearancePage : UserControl
             }
         }
     }
-}
-
-/// <summary>Display names for the splash editor's enum selectors. One place names
-/// every member the ComboBoxes offer, so a new enum member cannot silently render
-/// as its raw identifier in one selector and a friendly name in another.</summary>
-public sealed class SplashEnumName : IValueConverter
-{
-    /// <summary>Gets the shared stateless instance referenced from page XAML.</summary>
-    public static readonly SplashEnumName Instance = new();
-
-    /// <summary>Maps one splash enum value to its selector label.</summary>
-    /// <param name="value">The enum value being rendered.</param>
-    /// <param name="targetType">Ignored; the result is always a string.</param>
-    /// <param name="parameter">Ignored.</param>
-    /// <param name="culture">Ignored; the labels are not localized.</param>
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
-        value switch
-        {
-            SplashSpinnerStyle style => style switch
-            {
-                SplashSpinnerStyle.Ring => "Ring (classic)",
-                SplashSpinnerStyle.LiArc => "Arc",
-                SplashSpinnerStyle.LiArcs => "Arcs",
-                SplashSpinnerStyle.LiArcsRing => "Arcs ring",
-                SplashSpinnerStyle.LiDoubleBounce => "Double bounce",
-                SplashSpinnerStyle.LiFlipPlane => "Flip plane",
-                SplashSpinnerStyle.LiPulse => "Pulse",
-                SplashSpinnerStyle.LiRing => "Ring",
-                SplashSpinnerStyle.LiThreeDots => "Three dots",
-                SplashSpinnerStyle.LiWave => "Wave",
-                SplashSpinnerStyle.SweepLine => "Sweep line",
-                SplashSpinnerStyle.Off => "Off",
-                _ => style.ToString(),
-            },
-            SweepEdge edge => edge.ToString(),
-            SplashPlacementMode mode => mode switch
-            {
-                SplashPlacementMode.Anchor => "Anchored",
-                SplashPlacementMode.Absolute => "Absolute",
-                SplashPlacementMode.WithText => "With text",
-                _ => mode.ToString(),
-            },
-            SplashPlacementAnchor anchor => anchor switch
-            {
-                SplashPlacementAnchor.TopLeft => "Top left",
-                SplashPlacementAnchor.TopCenter => "Top center",
-                SplashPlacementAnchor.TopRight => "Top right",
-                SplashPlacementAnchor.CenterLeft => "Center left",
-                SplashPlacementAnchor.Center => "Center",
-                SplashPlacementAnchor.CenterRight => "Center right",
-                SplashPlacementAnchor.BottomLeft => "Bottom left",
-                SplashPlacementAnchor.BottomCenter => "Bottom center",
-                SplashPlacementAnchor.BottomRight => "Bottom right",
-                _ => anchor.ToString(),
-            },
-            _ => value?.ToString() ?? "",
-        };
-
-    /// <summary>The selectors bind SelectedItem, not the label; converting back does nothing.</summary>
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
-        Avalonia.Data.BindingOperations.DoNothing;
 }

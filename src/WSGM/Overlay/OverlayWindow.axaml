@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ov="using:WSGM.Overlay"
         xmlns:c="using:WSGM.Controls"
+        xmlns:core="using:WSGM.Core"
         xmlns:sh="using:WSGM.Shell"
         xmlns:li="using:LoadingIndicators.Avalonia"
         xmlns:fa="using:FluentAvalonia.UI.Controls"
@@ -262,13 +263,16 @@
                              once in the constructor (they differ for the CEF and
                              clipboard paths) and must NOT be bound, or a binding
                              re-evaluation would wipe the result text. -->
-                        <c:CardButton x:Name="DeelevateFixButton" Click="OnApplyDeelevation"
+                        <c:CardButton x:Name="DeelevateFixButton" Click="OnApplyLaunchFix"
+                                      CommandParameter="{x:Static core:LaunchWrapperMode.Deelevate}"
                                       Tag="steam.launch.deelevate"
                                       IconGeometry="{x:Static c:Icons.ArrowDown}" />
-                        <c:CardButton x:Name="InputLeaseFixButton" Click="OnApplySteamInputBlock"
+                        <c:CardButton x:Name="InputLeaseFixButton" Click="OnApplyLaunchFix"
+                                      CommandParameter="{x:Static core:LaunchWrapperMode.InputLease}"
                                       Tag="steam.launch.input-lease"
                                       IconGeometry="{x:Static c:Icons.BlockedCircle}" />
-                        <c:CardButton x:Name="BothFixesButton" Click="OnApplyBothWrappers"
+                        <c:CardButton x:Name="BothFixesButton" Click="OnApplyLaunchFix"
+                                      CommandParameter="{x:Static core:LaunchWrapperMode.Both}"
                                       Tag="steam.launch.both"
                                       IconGeometry="{x:Static c:Icons.Rocket}" />
                         <c:CardButton x:Name="CustomLaunchButton" Click="OnPickCustomLaunchAction"
@@ -277,7 +281,8 @@
                                       IconGeometry="{x:Static c:Icons.FolderPlus}"
                                       Title="Replace launch action"
                                       Description="Run an EXE, CMD, BAT, or PowerShell script" />
-                        <c:CardButton x:Name="RemoveFixesButton" Click="OnRemoveLaunchWrappers"
+                        <c:CardButton x:Name="RemoveFixesButton" Click="OnApplyLaunchFix"
+                                      CommandParameter="{x:Static core:LaunchWrapperMode.None}"
                                       Tag="steam.launch.restore"
                                       IsVisible="{Binding ShowRemoveLaunchWrapper}"
                                       IconGeometry="{x:Static c:Icons.Close}"
@@ -621,25 +626,29 @@
 
                     <StackPanel x:Name="PanelPowerTimeouts" Spacing="4" IsVisible="False" Width="720" HorizontalAlignment="Left">
                         <TextBlock Text="IDLE TIMEOUTS" Classes="eyebrow" Margin="2,0,2,2" />
-                        <c:CardButton Click="OnCycleDisplayDc"
+                        <c:CardButton Click="OnCyclePowerTimeout"
+                                      CommandParameter="{x:Static core:PowerTimeoutKind.DisplayDc}"
                                       Tag="system.timeout.display-dc"
                                       IconGeometry="{x:Static c:Icons.Monitor}"
                                       Title="Screen off — battery"
                                       Description="{Binding DisplayDcDescription}"
                                       TrailingText="{Binding DisplayDcTimeout}" />
-                        <c:CardButton Click="OnCycleDisplayAc"
+                        <c:CardButton Click="OnCyclePowerTimeout"
+                                      CommandParameter="{x:Static core:PowerTimeoutKind.DisplayAc}"
                                       Tag="system.timeout.display-ac"
                                       IconGeometry="{x:Static c:Icons.Monitor}"
                                       Title="Screen off — plugged in"
                                       Description="{Binding DisplayAcDescription}"
                                       TrailingText="{Binding DisplayAcTimeout}" />
-                        <c:CardButton Click="OnCycleSleepDc"
+                        <c:CardButton Click="OnCyclePowerTimeout"
+                                      CommandParameter="{x:Static core:PowerTimeoutKind.SleepDc}"
                                       Tag="system.timeout.sleep-dc"
                                       IconGeometry="{x:Static c:Icons.Moon}"
                                       Title="Standby — battery"
                                       Description="Idle time before the device sleeps"
                                       TrailingText="{Binding SleepDcTimeout}" />
-                        <c:CardButton Click="OnCycleSleepAc"
+                        <c:CardButton Click="OnCyclePowerTimeout"
+                                      CommandParameter="{x:Static core:PowerTimeoutKind.SleepAc}"
                                       Tag="system.timeout.sleep-ac"
                                       IconGeometry="{x:Static c:Icons.Moon}"
                                       Title="Standby — plugged in"

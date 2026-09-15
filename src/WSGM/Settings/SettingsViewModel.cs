@@ -2061,29 +2061,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
-    /// <summary>Applies the UI-owned fields over a FRESH load and saves that.
-    /// While this window is open, the elevated one-shots (UAC, lock-on-wake) and
-    /// the shell persist registry snapshots and display-scale state to the
-    /// same file; serializing the startup-time _config would reset every one of
-    /// those fields to defaults on disk, breaking exact restore on uninstall.
-    /// The config mutex only serializes individual reads/writes — it cannot
-    /// merge — so the merge has to happen here.</summary>
-    public void Save()
-    {
-        _services.BeginImportSession();
-        try
-        {
-            SaveResult result = _services.Persist(CaptureSaveRequest()).GetAwaiter().GetResult();
-            CompletePersistedSave(result);
-            _services.ApplySteamInput(result.Config).GetAwaiter().GetResult();
-            Raise(nameof(SteamInputShimStatusText));
-        }
-        finally
-        {
-            _services.EndImportSession();
-        }
-    }
-
     /// <summary>Applies an immutable UI-thread snapshot onto a fresh on-disk load.</summary>
     internal static void ApplyCapturedValues(
         AppConfig config,

@@ -3136,17 +3136,15 @@ public partial class OverlayWindow : Window
         RemoveFixesButton.Description = "Remove WSGM changes and restore the original";
     }
 
-    private void OnApplyDeelevation(object? sender, RoutedEventArgs e)
-        => StartLaunchFix(LaunchWrapperMode.Deelevate, DeelevateFixButton);
-
-    private void OnApplySteamInputBlock(object? sender, RoutedEventArgs e)
-        => StartLaunchFix(LaunchWrapperMode.InputLease, InputLeaseFixButton);
-
-    private void OnApplyBothWrappers(object? sender, RoutedEventArgs e)
-        => StartLaunchFix(LaunchWrapperMode.Both, BothFixesButton);
-
-    private void OnRemoveLaunchWrappers(object? sender, RoutedEventArgs e)
-        => StartLaunchFix(LaunchWrapperMode.None, RemoveFixesButton);
+    /// <summary>Starts the launch fix a row names in its CommandParameter. Pinned mirrors raise the
+    /// click on their source row, so the sender is always the row that owns the result text.</summary>
+    private void OnApplyLaunchFix(object? sender, RoutedEventArgs e)
+    {
+        if (sender is CardButton { CommandParameter: LaunchWrapperMode mode } row)
+        {
+            StartLaunchFix(mode, row);
+        }
+    }
 
     private async void OnPickCustomLaunchAction(object? sender, RoutedEventArgs e)
     {
@@ -3826,17 +3824,14 @@ public partial class OverlayWindow : Window
             _ => "HcTextMutedBrush",
         }) as Avalonia.Media.IBrush;
 
-    private void OnCycleDisplayDc(object? sender, RoutedEventArgs e)
-        => PowerTimeoutCycleRequested?.Invoke(Core.PowerTimeoutKind.DisplayDc);
-
-    private void OnCycleDisplayAc(object? sender, RoutedEventArgs e)
-        => PowerTimeoutCycleRequested?.Invoke(Core.PowerTimeoutKind.DisplayAc);
-
-    private void OnCycleSleepDc(object? sender, RoutedEventArgs e)
-        => PowerTimeoutCycleRequested?.Invoke(Core.PowerTimeoutKind.SleepDc);
-
-    private void OnCycleSleepAc(object? sender, RoutedEventArgs e)
-        => PowerTimeoutCycleRequested?.Invoke(Core.PowerTimeoutKind.SleepAc);
+    /// <summary>Cycles the idle timeout a row names in its CommandParameter.</summary>
+    private void OnCyclePowerTimeout(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button { CommandParameter: Core.PowerTimeoutKind kind })
+        {
+            PowerTimeoutCycleRequested?.Invoke(kind);
+        }
+    }
 
     private void OnRestart(object? sender, RoutedEventArgs e)
     {

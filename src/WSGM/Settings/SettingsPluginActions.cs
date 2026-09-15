@@ -20,10 +20,6 @@ internal static class SettingsPluginActions
     internal static void Publish(Func<IReadOnlyList<SettingsViewModel.PluginActionOption>> source) =>
         _source = source;
 
-    /// <summary>Withdraws the source, so a Settings window outliving the session shows nothing
-    /// rather than reaching into a disposed host.</summary>
-    internal static void Withdraw() => _source = null;
-
     /// <summary>Reads the declared actions, or an empty list when this process has no host.</summary>
     /// <returns>One entry per action of every running instance.</returns>
     internal static IReadOnlyList<SettingsViewModel.PluginActionOption> Read()
