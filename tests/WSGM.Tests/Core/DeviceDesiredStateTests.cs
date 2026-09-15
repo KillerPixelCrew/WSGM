@@ -3,9 +3,10 @@ using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Tests;
 
-public sealed class DeviceDesiredStateWriterTests
+public sealed class DeviceDesiredStateTests
 {
     private const string Machine = "claw-8a2vm";
+
     private const string Fan = "fan.mode";
 
     private static CapabilityValue Choice(string option) => new()
@@ -165,5 +166,27 @@ public sealed class DeviceDesiredStateWriterTests
         Assert.Equal("sport", preference.AcPolicy?.ChoiceValue);
         Assert.Equal("eco", preference.DcPolicy?.ChoiceValue);
         Assert.Equal("silent", Assert.Single(preference.HardwareProfiles).Value?.ChoiceValue);
+    }
+
+    [Fact]
+    public void DesiredStateUsesTheFrozenLayerPrecedence()
+    {
+        DeviceCapabilityPreference preference = new()
+        {
+            CapabilityId = "power.primary-limit",
+            GlobalDefault = CapabilityValue.Integer(10),
+            AcPolicy = CapabilityValue.Integer(12),
+            HardwareProfiles = [new DeviceNamedDesiredValue { ProfileId = "balanced", Value = CapabilityValue.Integer(15) }],
+            ApplicationOverrides = [new DeviceApplicationDesiredValue { ApplicationId = "game", Value = CapabilityValue.Integer(18) }],
+        };
+
+        Assert.Equal(18, DeviceDesiredStateResolver.Resolve(
+            preference, true, "balanced", "game").Value?.IntegerValue);
+        Assert.Equal(15, DeviceDesiredStateResolver.Resolve(
+            preference, true, "balanced", null).Value?.IntegerValue);
+        Assert.Equal(12, DeviceDesiredStateResolver.Resolve(
+            preference, true, null, null).Value?.IntegerValue);
+        Assert.Equal(10, DeviceDesiredStateResolver.Resolve(
+            preference, false, null, null).Value?.IntegerValue);
     }
 }

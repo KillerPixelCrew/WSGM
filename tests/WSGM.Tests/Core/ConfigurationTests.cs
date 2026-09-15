@@ -1,6 +1,7 @@
 using System.Text.Json;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Input;
 
 namespace WSGM.Tests;
 
@@ -1201,5 +1202,96 @@ public sealed class ConfigurationTests
 
         Assert.False(restored!.SteamInputLeaseEnabled);
         Assert.True(restored.SteamInputManagementEnabled);
+    }
+
+    [Fact]
+    public void MissingBottomBindingIsDisabledWithoutChangingTopBinding()
+    {
+        var gestures = JsonSerializer.Deserialize<GestureConfig>("{}")!;
+        Assert.False(gestures.BottomEdge);
+        Assert.True(gestures.TopEdge);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ExplicitBottomChoiceSurvivesConfigurationRoundTrip(bool enabled)
+    {
+        var json = JsonSerializer.Serialize(new GestureConfig { BottomEdge = enabled });
+        Assert.Equal(enabled, JsonSerializer.Deserialize<GestureConfig>(json)!.BottomEdge);
+    }
+
+    [Fact]
+    public void NewConfigurationsKeepBottomDisabledAndTopAvailable()
+    {
+        var gestures = new GestureConfig();
+
+        Assert.False(gestures.BottomEdge);
+        Assert.True(gestures.TopEdge);
+        Assert.True(gestures.LeftEdgeSteamMenu);
+        Assert.True(gestures.RightEdgeSteamQuickAccess);
+    }
+
+    [Fact]
+    public void NormalizeDropsBlankAndDuplicatePins()
+    {
+        var config = new AppConfig { QuickAccessPins = ["system.keep-awake", "", " ", "system.keep-awake", "home.steam"] };
+
+        ConfigStore.Normalize(config);
+
+        Assert.Equal(["system.keep-awake", "home.steam"], config.QuickAccessPins);
+    }
+
+    [Fact]
+    public void NormalizeRepairsANullPinList()
+    {
+        var config = new AppConfig { QuickAccessPins = null! };
+
+        ConfigStore.Normalize(config);
+
+        Assert.NotNull(config.QuickAccessPins);
+        Assert.Empty(config.QuickAccessPins);
+    }
+
+    [Fact]
+    public void NormalizeKeepsExistingNestedSectionsAndCollections()
+    {
+        var apps = new List<StartupAppConfig>();
+        var hotkey = new HotkeyConfig { Enabled = true, VirtualKey = 0x41 };
+        var chord = new GamepadChordConfig { Enabled = true, Buttons = (int)GamepadButtons.A };
+        var gestures = new GestureConfig { BottomEdge = true };
+        var textPlacement = new SplashElementPlacement { Anchor = SplashPlacementAnchor.BottomCenter };
+        var spinnerPlacement = new SplashElementPlacement { Mode = SplashPlacementMode.Absolute, X = 10, Y = 20 };
+        var logoPlacement = new SplashElementPlacement { Mode = SplashPlacementMode.Anchor };
+        var splash = new SplashConfig
+        {
+            Text = "Custom",
+            TextPlacement = textPlacement,
+            SpinnerPlacement = spinnerPlacement,
+            LogoPlacement = logoPlacement,
+        };
+        var config = new AppConfig
+        {
+            StartupApps = apps,
+            Hotkey = hotkey,
+            GamepadChord = chord,
+            Gestures = gestures,
+            Splash = splash,
+            AccentColor = "#FF123456",
+        };
+
+        var normalized = ConfigStore.Normalize(config);
+
+        Assert.Same(config, normalized);
+        Assert.Same(apps, normalized.StartupApps);
+        Assert.Same(hotkey, normalized.Hotkey);
+        Assert.Same(chord, normalized.GamepadChord);
+        Assert.Same(gestures, normalized.Gestures);
+        Assert.Same(splash, normalized.Splash);
+        Assert.Same(textPlacement, normalized.Splash.TextPlacement);
+        Assert.Same(spinnerPlacement, normalized.Splash.SpinnerPlacement);
+        Assert.Same(logoPlacement, normalized.Splash.LogoPlacement);
+        Assert.Equal("Custom", normalized.Splash.Text);
+        Assert.Equal("#FF123456", normalized.AccentColor);
     }
 }

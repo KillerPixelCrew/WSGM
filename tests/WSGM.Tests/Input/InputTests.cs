@@ -114,4 +114,20 @@ public sealed class InputTests
 
         Assert.Equal(0u, (uint)released);
     }
+
+    [Theory]
+    [InlineData((GamepadButtons)0, false, "None")]
+    [InlineData(GamepadButtons.RightTrigger | GamepadButtons.L4 | GamepadButtons.QuickAccess, false, "R2 + L4 + Quick Access")]
+    [InlineData(GamepadButtons.DPadUp | GamepadButtons.RightPadPress, true, "Hold D-Up + R-Pad")]
+    public void GamepadDescriptionsCoverEmptyAndExtendedButtons(GamepadButtons buttons, bool hold, string expected)
+        => Assert.Equal(expected, GamepadService.Describe(buttons, hold));
+
+    [Fact]
+    public void PadSnapshotKeepsItsControllerIdentityAndButtons()
+    {
+        var snapshot = new SdlGamepads.PadSnapshot(42, GamepadButtons.A | GamepadButtons.Start);
+
+        Assert.Equal(42u, snapshot.Id);
+        Assert.Equal(GamepadButtons.A | GamepadButtons.Start, snapshot.Buttons);
+    }
 }

@@ -82,4 +82,12 @@ public sealed class ConsoleToolTests
 
         public void Dispose() => Disposed = true;
     }
+
+    [Theory]
+    [InlineData("", "")]
+    [InlineData("/run", "/run")]
+    [InlineData("/run /quiet", "/run")]
+    [InlineData("  /run", "")]
+    public void FirstTokenReturnsTheLeadingSpaceDelimitedToken(string arguments, string expected)
+        => Assert.Equal(expected, ConsoleTool.FirstToken(arguments));
 }

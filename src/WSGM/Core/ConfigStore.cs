@@ -365,7 +365,7 @@ public static class ConfigStore
         // would NRE in SelfElevation before the crash-loop breaker has recorded the
         // start — the shell would then die at every sign-in with nothing disarming it.
         // RemoveAll repairs in place: Normalize must hand back the caller's own list
-        // instances (RegressionCoverageTests pins that), and rebuilding them would
+        // instances (ConfigurationTests pins that), and rebuilding them would
         // allocate on every config load just to drop elements that are almost never there.
         config.StartupApps.RemoveAll(static app => app is null);
         foreach (var app in config.StartupApps)

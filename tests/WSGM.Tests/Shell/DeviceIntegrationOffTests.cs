@@ -119,4 +119,30 @@ public sealed class DeviceIntegrationOffTests
 
         Assert.Equal(expected, ShellSession.ShouldRunAutoTdp(config));
     }
+
+    [Fact]
+    public void OldConfigurationDefaultsToDeviceIntegrationDisabled()
+    {
+        AppConfig config = ConfigStore.Normalize(new AppConfig { DeviceIntegration = null! });
+
+        Assert.False(config.DeviceIntegration.Enabled);
+        Assert.Equal(ManagedControllerTarget.SteamDeckComposite,
+            config.DeviceIntegration.ControllerTarget);
+    }
+
+    [Fact]
+    public void DisablingTheMasterDoesNotEraseTheControllerPreference()
+    {
+        AppConfig config = ConfigStore.Normalize(new AppConfig
+        {
+            DeviceIntegration = new DeviceIntegrationConfig
+            {
+                Enabled = false,
+                ControllerManagementEnabled = true,
+            },
+        });
+
+        Assert.False(config.DeviceIntegration.Enabled);
+        Assert.True(config.DeviceIntegration.ControllerManagementEnabled);
+    }
 }

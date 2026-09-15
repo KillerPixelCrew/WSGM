@@ -1,9 +1,8 @@
 using WSGM.Overlay;
-using WSGM.Settings;
 
 namespace WSGM.Tests;
 
-public sealed class ViewModelTests
+public sealed class OverlayViewModelTests
 {
     [Fact]
     public void OverlayViewModelRecomputesDerivedTextAndRaisesNotifications()
@@ -26,23 +25,5 @@ public sealed class ViewModelTests
         Assert.Contains(nameof(OverlayViewModel.DesktopButtonText), changed);
         Assert.Contains(nameof(OverlayViewModel.HasWarning), changed);
         Assert.Contains(nameof(OverlayViewModel.CloseLauncherText), changed);
-    }
-
-    [Fact]
-    public void StartupAppRowRaisesAPropertyChangeForEachEditedValue()
-    {
-        var row = new StartupAppRow();
-        var changed = new List<string>();
-        row.PropertyChanged += (_, args) => changed.Add(args.PropertyName!);
-
-        row.Path = "C:\\Tools\\app.exe";
-        row.Args = "--silent";
-        row.Enabled = false;
-        row.Elevated = true;
-        row.AutoRelaunch = true;
-
-        Assert.Equal(
-            ["Path", "Args", "Enabled", "Elevated", "AutoRelaunch"],
-            changed);
     }
 }

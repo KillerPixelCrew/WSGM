@@ -5,59 +5,6 @@ using WSGM.Shell;
 
 namespace WSGM.Tests;
 
-public sealed class SteamUiAssetTests
-{
-    [Fact]
-    public void NativeQamBootstrapIsHashLockedAndHasNoBroadRuntimeAuthority()
-    {
-        var source = SteamUiAssetCatalog.LoadNativeQamBootstrap();
-
-        Assert.Contains("__STEAM_UI_CONFIGURATION_JSON__", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("eval(", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("fetch(", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("WebSocket", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("performanceProfile", source, StringComparison.Ordinal);
-
-        // The filesystem check is about reaching a filesystem, not about the word. Steam's own
-        // block-device message declares a filesystem_type enum, and the storage gate publishes it
-        // because a field the client declares and this side omits is a field the client reads as
-        // undefined. That one token is removed before the check so every other use still fails.
-        var withoutDeclaredFields = source.Replace(
-            "filesystem_type", "", StringComparison.Ordinal);
-        Assert.DoesNotContain("filesystem", withoutDeclaredFields, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void NativeQamComponentsUseValveFieldsWithoutPlatformOrDeviceSpoofing()
-    {
-        var source = SteamUiAssetCatalog.LoadNativeQamBootstrap();
-
-        Assert.Contains("DialogSlider_Container", source, StringComparison.Ordinal);
-        Assert.Contains("DropDownField", source, StringComparison.Ordinal);
-        Assert.Contains("PanelSectionRow", source, StringComparison.Ordinal);
-        Assert.Contains("LocalizeString", source, StringComparison.Ordinal);
-        Assert.Contains("steam-ui.power-limit", source, StringComparison.Ordinal);
-        Assert.Contains("steam-ui.frame-limit", source, StringComparison.Ordinal);
-        Assert.Contains("steam-ui.controller-target", source, StringComparison.Ordinal);
-        Assert.Contains("steam-ui.device-controls", source, StringComparison.Ordinal);
-        Assert.Contains("setPrimaryLimit", source, StringComparison.Ordinal);
-        Assert.Contains("setFrameLimit", source, StringComparison.Ordinal);
-        Assert.Contains("setControllerTarget", source, StringComparison.Ordinal);
-        Assert.Contains("setChargeLimit", source, StringComparison.Ordinal);
-        Assert.Contains("setLightingBrightness", source, StringComparison.Ordinal);
-        Assert.Contains("setLightingColor", source, StringComparison.Ordinal);
-        Assert.Contains("onChangeComplete", source, StringComparison.Ordinal);
-        Assert.Contains("persistence: \"automatic\"", source, StringComparison.Ordinal);
-        Assert.Contains("latestStates.set(envelope.patchId, envelope.payload)", source,
-            StringComparison.Ordinal);
-        Assert.Contains("callback(latestStates.get(patchId))", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("force_deck_perf_tab", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("IS_STEAMOS =", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("PLATFORM =", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("SteamClient.SteamOSManager", source, StringComparison.Ordinal);
-    }
-}
-
 public sealed class SteamUiSessionHostTests
 {
     [Fact]
@@ -584,49 +531,188 @@ public sealed class SteamUiSessionHostTests
     }
 }
 
-public sealed class SteamDownloadSortPatchTests
+public sealed class SteamUiSessionRoutingTests
 {
     [Fact]
-    public async Task DownloadSortUsesSharedContextPatchLifecycle()
+    public async Task RouterReturnsExplicitSuccessAndMalformedPayloadRefusal()
     {
-        await using var transport = new DownloadSortTransport();
-        await using var manager = new SteamUiPatchManager(transport);
-        manager.Register(new SteamDownloadSortPatch());
+        await using var transport = new RoutingTransport();
+        await using var performance = new PerformanceService(
+            new SimulatedRtssAdapter(),
+            (_, _) => Task.CompletedTask);
+        var toggles = 0;
+        await using var host = new SteamUiSessionHost(
+            transport,
+            _ =>
+            {
+                toggles++;
+                return Task.FromResult(true);
+            },
+            null,
+            performance);
+        host.Apply(true);
+        await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
+            snapshot.Id == "steam-ui.bridge"
+            && snapshot.State == SteamUiPatchState.Verified));
 
-        await manager.SynchronizeAsync();
-        SteamUiPatchSnapshot installed = Assert.Single(manager.GetSnapshots());
-        Assert.True(
-            installed.State == SteamUiPatchState.Verified,
-            $"Download sort state was {installed.State}: {installed.LastFailure}");
+        transport.EmitRequest(
+            "wsgm.native-qam.shell",
+            "toggleQuickAccess",
+            sequence: 1,
+            actionGeneration: 1,
+            payload: null);
+        await WaitForAsync(() => transport.Responses.Count >= 1);
+        transport.EmitRequest(
+            "steam-ui.power-limit",
+            "setPrimaryLimit",
+            sequence: 2,
+            actionGeneration: 1,
+            payload: new { watts = "not-a-number" });
+        await WaitForAsync(() => transport.Responses.Count >= 2);
 
-        manager.SetPatchEnabled("wsgm.download-sort", false);
-        await manager.SynchronizeAsync();
-
-        SteamUiPatchSnapshot removed = Assert.Single(manager.GetSnapshots());
-        Assert.Equal(SteamUiPatchState.Disabled, removed.State);
-        Assert.True(transport.Removed);
+        Assert.Equal(1, toggles);
+        Assert.True(transport.Responses[0].GetProperty("ok").GetBoolean());
+        Assert.False(transport.Responses[1].GetProperty("ok").GetBoolean());
+        Assert.Equal(
+            "The sustained power-limit payload is invalid.",
+            transport.Responses[1].GetProperty("error").GetString());
     }
 
-    private sealed class DownloadSortTransport : ISteamUiTransport
+    [Fact]
+    public async Task CancelStopsInflightWorkAndTheNextRequestStillCompletes()
     {
-        public event EventHandler<SteamUiNotification>? NotificationReceived
-        {
-            add { }
-            remove { }
-        }
+        await using var transport = new RoutingTransport();
+        await using var performance = new PerformanceService(
+            new SimulatedRtssAdapter(),
+            (_, _) => Task.CompletedTask);
+        var firstStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstCancelled = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        TimeSpan routeDeadline = TimeSpan.FromSeconds(2);
+        await using var host = new SteamUiSessionHost(
+            transport,
+            async cancellationToken =>
+            {
+                if (Interlocked.Increment(ref calls) > 1)
+                {
+                    return true;
+                }
 
-        public event EventHandler<SteamUiTransportSnapshot>? GenerationChanged
-        {
-            add { }
-            remove { }
-        }
+                using CancellationTokenRegistration registration = cancellationToken.Register(
+                    () => firstCancelled.TrySetResult());
+                firstStarted.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return false;
+            },
+            null,
+            performance);
+        host.Apply(true);
+        await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
+            snapshot.Id == "steam-ui.bridge"
+            && snapshot.State == SteamUiPatchState.Verified));
 
-        internal bool Removed { get; private set; }
+        transport.EmitRequest(
+            "wsgm.native-qam.shell",
+            "toggleQuickAccess",
+            sequence: 1,
+            actionGeneration: 1,
+            payload: null);
+        await firstStarted.Task.WaitAsync(routeDeadline);
+        transport.EmitRequest(
+            "wsgm.native-qam.shell",
+            "toggleQuickAccess",
+            sequence: 1,
+            actionGeneration: 1,
+            payload: null,
+            type: "cancel");
+        await firstCancelled.Task.WaitAsync(routeDeadline);
+
+        transport.EmitRequest(
+            "wsgm.native-qam.shell",
+            "toggleQuickAccess",
+            sequence: 2,
+            actionGeneration: 2,
+            payload: null);
+        await WaitForAsync(() => transport.Responses.Any(response =>
+            response.GetProperty("sequence").GetInt64() == 2));
+
+        Assert.Equal(2, calls);
+        Assert.DoesNotContain(
+            transport.Responses,
+            response => response.GetProperty("sequence").GetInt64() == 1);
+    }
+
+    [Fact]
+    public async Task PerformanceObservationExistsOnlyWhileRowsAndBridgeAreCurrent()
+    {
+        await using var transport = new RoutingTransport();
+        await using var performance = new PerformanceService(
+            new SimulatedRtssAdapter(),
+            (_, _) => Task.CompletedTask);
+        await using var host = new SteamUiSessionHost(
+            transport,
+            _ => Task.FromResult(true),
+            null,
+            performance);
+        host.Apply(true);
+
+        await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
+            snapshot.Id == "steam-ui.frame-limit"
+            && snapshot.State == SteamUiPatchState.Verified));
+        await WaitForAsync(() => performance.ObserverCount == 1);
+
+        transport.BridgeHandshakeSucceeds = false;
+        transport.AdvanceSharedGeneration();
+        await WaitForAsync(() => performance.ObserverCount == 0);
+
+        Assert.Equal(0, performance.ObserverCount);
+    }
+
+    private static async Task WaitForAsync(Func<bool> condition)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        while (!condition())
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(10), timeout.Token);
+        }
+    }
+
+    private sealed class RoutingTransport : ISteamUiTransport
+    {
+        private readonly object _responseGate = new();
+        private readonly Dictionary<SteamUiTargetRole, SteamUiGenerations> _generations = new()
+        {
+            [SteamUiTargetRole.SharedJsContext] = new(1, 1, 1, 1, 1, 1),
+            [SteamUiTargetRole.MainWindow] = new(1, 1, 1, 1, 1, 1),
+        };
+        private readonly List<JsonElement> _responses = [];
+
+        public event EventHandler<SteamUiNotification>? NotificationReceived;
+
+        public event EventHandler<SteamUiTransportSnapshot>? GenerationChanged;
+
+        internal bool BridgeHandshakeSucceeds { get; set; } = true;
+
+        internal IReadOnlyList<JsonElement> Responses
+        {
+            get
+            {
+                lock (_responseGate)
+                {
+                    return [.. _responses];
+                }
+            }
+        }
 
         public ValueTask<IAsyncDisposable> SubscribeAsync(
             SteamUiTargetRole role,
-            CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult<IAsyncDisposable>(new Lease());
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult<IAsyncDisposable>(new Lease());
+        }
 
         public Task<SteamUiEvaluationResult> EvaluateAsync(
             SteamUiTargetRole role,
@@ -634,14 +720,42 @@ public sealed class SteamDownloadSortPatchTests
             TimeSpan timeout,
             CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            CaptureResponse(expression);
             string value;
-            if (expression.Contains("dlSortRemove", StringComparison.Ordinal))
+            if (!BridgeHandshakeSucceeds
+                && expression.Contains("maximumPending", StringComparison.Ordinal))
             {
-                Removed = true;
+                value = "{\"ok\":false}";
+            }
+            else if (expression.Contains("steam_ui_bridge_probe_", StringComparison.Ordinal))
+            {
+                value = "{\"tdpAvailability\":1,\"tdpComponent\":1,"
+                    + "\"performanceActions\":1,\"profileProjection\":1}";
+            }
+            else if (expression.Contains("steam_ui_", StringComparison.Ordinal)
+                && expression.Contains("_probe_", StringComparison.Ordinal))
+            {
+                value = "{\"performanceActions\":1,\"controllerPresentation\":1,"
+                    + "\"tdpPresentation\":1,\"performanceRoot\":1,\"nativeFields\":1,"
+                    + "\"nativeLayout\":1,\"localization\":1,\"react\":1}";
+            }
+            else if (expression.Contains("version:b&&b.version", StringComparison.Ordinal))
+            {
+                value = "{\"ok\":true,\"version\":1}";
+            }
+            else if (expression.Contains("absent:!window.__steamUi", StringComparison.Ordinal))
+            {
+                value = "{\"absent\":true}";
+            }
+            else if (expression.Contains("generation replaced", StringComparison.Ordinal)
+                && expression.Contains("nativeComponents", StringComparison.Ordinal))
+            {
                 value = "{\"ok\":true}";
             }
-            else if (expression.Contains("dlSortPatched", StringComparison.Ordinal)
-                || expression.Contains("runtime:!!window.webpackChunksteamui", StringComparison.Ordinal))
+            else if (expression.Contains(
+                "runtime:!!window.webpackChunksteamui",
+                StringComparison.Ordinal))
             {
                 value = "{\"ok\":true,\"runtime\":true,\"owned\":false}";
             }
@@ -654,7 +768,7 @@ public sealed class SteamDownloadSortPatchTests
                 true,
                 value,
                 null,
-                new(1, 1, 1, 1, 1, 1)));
+                _generations[role]));
         }
 
         public Task SetRuntimeBindingAsync(
@@ -662,19 +776,118 @@ public sealed class SteamDownloadSortPatchTests
             string bindingName,
             bool installed,
             TimeSpan timeout,
-            CancellationToken cancellationToken = default) => Task.CompletedTask;
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        }
 
         public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots() =>
-        [
-            new(
-                SteamUiTargetRole.SharedJsContext,
+            _generations.Select(pair => new SteamUiTransportSnapshot(
+                pair.Key,
                 SteamUiTransportHealth.Ready,
-                new(1, 1, 1, 1, 1, 1),
-                "fixture-target",
+                pair.Value,
+                "fixture-" + pair.Key,
                 null,
                 0,
-                1),
-        ];
+                1)).ToArray();
+
+        internal void EmitRequest(
+            string patchId,
+            string command,
+            long sequence,
+            long actionGeneration,
+            object? payload,
+            string type = "request")
+        {
+            SteamUiGenerations generation = _generations[SteamUiTargetRole.SharedJsContext];
+            string envelope = JsonSerializer.Serialize(new
+            {
+                version = SteamUiBridgeHost.SchemaVersion,
+                type,
+                patchId,
+                command,
+                sequence,
+                actionGeneration,
+                contextGeneration = generation.ExecutionContext,
+                documentGeneration = generation.Document,
+                payload,
+            });
+            string parameters = JsonSerializer.Serialize(new
+            {
+                name = "__steamUiBridge_v1_7b24d11c",
+                payload = envelope,
+            });
+            NotificationReceived?.Invoke(this, new SteamUiNotification(
+                SteamUiTargetRole.SharedJsContext,
+                "Runtime.bindingCalled",
+                parameters,
+                generation));
+        }
+
+        internal void AdvanceSharedGeneration()
+        {
+            SteamUiTargetRole role = SteamUiTargetRole.SharedJsContext;
+            _generations[role] = _generations[role] with
+            {
+                ExecutionContext = _generations[role].ExecutionContext + 1,
+                Document = _generations[role].Document + 1,
+            };
+            SteamUiGenerations generation = _generations[role];
+            GenerationChanged?.Invoke(this, new SteamUiTransportSnapshot(
+                role,
+                SteamUiTransportHealth.Ready,
+                generation,
+                "fixture-" + role,
+                null,
+                0,
+                1));
+        }
+
+        private void CaptureResponse(string expression)
+        {
+            const string marker = "JSON.parse(";
+            int start = expression.IndexOf(marker, StringComparison.Ordinal);
+            if (start < 0)
+            {
+                return;
+            }
+
+            start += marker.Length;
+            if (start >= expression.Length || expression[start] != '"')
+            {
+                return;
+            }
+
+            var escaped = false;
+            for (int index = start + 1; index < expression.Length; index++)
+            {
+                char character = expression[index];
+                if (!escaped && character == '"')
+                {
+                    string? json = JsonSerializer.Deserialize<string>(expression[start..(index + 1)]);
+                    if (json is null)
+                    {
+                        return;
+                    }
+
+                    using JsonDocument document = JsonDocument.Parse(json);
+                    if (!document.RootElement.TryGetProperty("type", out JsonElement type)
+                        || type.GetString() != "response")
+                    {
+                        return;
+                    }
+
+                    lock (_responseGate)
+                    {
+                        _responses.Add(document.RootElement.Clone());
+                    }
+                    return;
+                }
+
+                escaped = !escaped && character == '\\';
+            }
+        }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 

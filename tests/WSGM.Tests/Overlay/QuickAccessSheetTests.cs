@@ -41,38 +41,6 @@ public sealed class QuickAccessSheetTests
         ScreenEdge edge, bool explorerRunning, OverlayController.SwipeAction expected)
         => Assert.Equal(expected, OverlayController.DecideSwipe(edge, explorerRunning));
 
-    [Fact]
-    public void NewConfigurationsKeepBottomDisabledAndTopAvailable()
-    {
-        var gestures = new GestureConfig();
-
-        Assert.False(gestures.BottomEdge);
-        Assert.True(gestures.TopEdge);
-        Assert.True(gestures.LeftEdgeSteamMenu);
-        Assert.True(gestures.RightEdgeSteamQuickAccess);
-    }
-
-    [Fact]
-    public void NormalizeDropsBlankAndDuplicatePins()
-    {
-        var config = new AppConfig { QuickAccessPins = ["system.keep-awake", "", " ", "system.keep-awake", "home.steam"] };
-
-        ConfigStore.Normalize(config);
-
-        Assert.Equal(["system.keep-awake", "home.steam"], config.QuickAccessPins);
-    }
-
-    [Fact]
-    public void NormalizeRepairsANullPinList()
-    {
-        var config = new AppConfig { QuickAccessPins = null! };
-
-        ConfigStore.Normalize(config);
-
-        Assert.NotNull(config.QuickAccessPins);
-        Assert.Empty(config.QuickAccessPins);
-    }
-
     [Theory]
     [InlineData("steam.artwork", true)]
     [InlineData("steam.card-manager", false)]
@@ -313,5 +281,16 @@ public sealed class QuickAccessSheetTests
         entry.IsMinimized = true;
         entry.IsActive = true;
         Assert.Equal([nameof(AppSwitcherEntry.Title), nameof(AppSwitcherEntry.IsMinimized), nameof(AppSwitcherEntry.IsActive)], changed);
+    }
+
+    [Fact]
+    public void WindowEntryPreservesTheActivationTargetAndPresentationState()
+    {
+        var entry = new AppSwitcherEntry((nint)123, "Steam", isSteam: true, icon: null);
+
+        Assert.Equal((nint)123, entry.Hwnd);
+        Assert.Equal("Steam", entry.Title);
+        Assert.True(entry.IsSteam);
+        Assert.True(entry.HasNoIcon);
     }
 }
