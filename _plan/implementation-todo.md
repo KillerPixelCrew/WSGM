@@ -26,6 +26,13 @@ answers, and explicit boundary summaries. The ZIP save step is part of the finis
 after cancellation. The new binary replaces the same download. Hardware and Windows UI acceptance
 are still pending; automated suites remain deferred.
 
+0.2.1 admits the ROG Xbox Ally X RC73XA. A remote inventory (BIOS RC73XA.317, EC 3.14) was refused
+by the RC72LA gate; it reported the same 0B05:1B4C controller, an empty system SKU, BMI320
+accelerometer and gyro sensors, a Windows Dynamic Lighting collection, an FF31:0080 collection
+without an output report, and no HID gamepad collection. Lighting and rumble are therefore expected
+to report unavailable on it. The RC73YA Xbox Ally stays refused. This binary was published on Linux
+with Windows targeting; Windows UI and hardware acceptance are still pending.
+
 ## ROG Ally X scaffold (2026-09-15)
 
 `src/WSGM.Device.Asus.RogAllyX` now contains a Device API 3 entry type, package manifest and MIT

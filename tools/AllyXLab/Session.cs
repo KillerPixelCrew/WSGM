@@ -31,7 +31,7 @@ internal sealed class Session
             SourceSnapshot = typeof(Session).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false).Cast<System.Reflection.AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "SourceSnapshot")?.Value,
             Schema = 2,
             Tool = "AllyXLab",
-            Version = "0.2.0",
+            Version = "0.2.1",
             StartedUtc = DateTime.UtcNow,
             ExeSha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(Environment.ProcessPath!))),
             Notice = "No machine/user name, serial number, raw PnP path or arbitrary keyboard input is intentionally collected. ASUS raw reports may contain device-specific payloads; review before sharing."

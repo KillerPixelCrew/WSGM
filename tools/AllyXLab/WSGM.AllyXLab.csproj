@@ -15,7 +15,7 @@
     <DebugType>none</DebugType>
     <AssemblyName>AllyXLab</AssemblyName>
     <RootNamespace>WSGM.AllyXLab</RootNamespace>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <RuntimeFrameworkVersion>10.0.12</RuntimeFrameworkVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>

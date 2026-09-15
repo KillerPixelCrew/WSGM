@@ -1,6 +1,7 @@
 # ROG Ally X Lab
 
-A standalone, attended Windows x64 tester for the original ASUS ROG Ally X RC72LA. Send
+A standalone, attended Windows x64 tester for the ASUS ROG Ally X (RC72LA) and ROG Xbox Ally X
+(RC73XA). Send
 `AllyXLab.exe` to the tester. It includes .NET and needs no WSGM installation, Python, PowerShell
 script, or separate plugin. Windows requests administrator access when it starts.
 
@@ -83,9 +84,12 @@ incomplete worker runs in `recovery-required.json` beside the session directorie
 
 ## Boundaries
 
-The read-only inventory can run on another Windows PC. Every other workflow requires the reviewed
-ASUS RC72LA model/board family, a nonempty SKU and BIOS, and the exact ASUS vendor endpoint. This
-bring-up family gate is not the production plugin's future firmware allowlist.
+The read-only inventory can run on another Windows PC. Every other workflow requires a reviewed
+model and board, a nonempty BIOS and the exact ASUS vendor endpoint. The original Ally X needs the
+RC72LA model with an RC72L or RC72LA board and a nonempty SKU. The Xbox Ally X needs the RC73XA
+model and board; its firmware reports no system SKU (RC73XA.317 inventory), so it has no SKU
+requirement. The Xbox Ally RC73YA is not admitted, because its 20 W performance profile is below the
+25 W power step. This bring-up family gate is not the production plugin's future firmware allowlist.
 
 Ordinary steps run in a separate copy of the same executable with a 60-second supervisor deadline.
 The guided rumble session uses one worker with the bounds described above. Hardware writes require
@@ -99,7 +103,12 @@ curves. If any original state is unavailable, writes are refused. Applied and re
 read separately. The tool refuses restoration of an AC power envelope after a power-source change.
 RGB and rumble have operator-confirmed baselines and explicit zero-output cleanup instead of a
 fabricated readback. The RGB test uses HHD's output-report path only, without falling back to HC's
-feature-report recipe.
+feature-report recipe. On the Xbox Ally X the tester is also asked to turn off Windows Dynamic
+Lighting; the tool never writes the Dynamic Lighting interface itself.
+
+The RC73XA inventory showed the FF31:0080 collection without an output report and no HID gamepad
+collection. On that firmware the lighting and rumble steps are expected to report unavailable rather
+than pick another interface.
 
 No controller mode or button remapping is written: neither inspected reference establishes exact
 readback/restoration of arbitrary original mappings. Capture native rear-button/chord behavior

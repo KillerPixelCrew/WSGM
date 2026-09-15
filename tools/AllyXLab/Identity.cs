@@ -3,16 +3,42 @@ using System.Management;
 
 namespace WSGM.AllyXLab;
 
+/// <summary>The Ally X models this bring-up tool admits.</summary>
+internal enum AllyXModel { None, RogAllyX, XboxAllyX }
+
 internal sealed record Identity(string Manufacturer, string Model, string Board, string Sku, string Bios, string Ec, string Os)
 {
     internal string Fingerprint => SessionLog.Token($"{Manufacturer}|{Model}|{Board}|{Sku}|{Bios}|{Ec}");
     // A bring-up family gate, deliberately not the production plugin's firmware allowlist.
     internal bool IsAllyX => Manufacturer.Contains("ASUS", StringComparison.OrdinalIgnoreCase)
         || Manufacturer.Contains("ASUSTeK", StringComparison.OrdinalIgnoreCase);
-    internal bool MatchesModel => IsAllyX
-        && (Model.StartsWith("ROG Ally X RC72LA", StringComparison.OrdinalIgnoreCase) || Model.Equals("RC72LA", StringComparison.OrdinalIgnoreCase))
-        && (Board.Equals("RC72LA", StringComparison.OrdinalIgnoreCase) || Board.Equals("RC72L", StringComparison.OrdinalIgnoreCase))
-        && !string.IsNullOrWhiteSpace(Bios) && !string.IsNullOrWhiteSpace(Sku);
+    // Each model is gated on its own model and board. The Xbox Ally X firmware reports no system SKU
+    // (RC73XA.317 inventory, 2026-09-15), so only the original Ally X keeps the SKU requirement. The
+    // Xbox Ally RC73YA is not admitted: its 20 W performance profile is below the 25 W power step.
+    internal AllyXModel Variant
+    {
+        get
+        {
+            if (!IsAllyX || string.IsNullOrWhiteSpace(Bios))
+            {
+                return AllyXModel.None;
+            }
+
+            if ((Model.StartsWith("ROG Ally X RC72LA", StringComparison.OrdinalIgnoreCase) || Model.Equals("RC72LA", StringComparison.OrdinalIgnoreCase))
+                && (Board.Equals("RC72LA", StringComparison.OrdinalIgnoreCase) || Board.Equals("RC72L", StringComparison.OrdinalIgnoreCase))
+                && !string.IsNullOrWhiteSpace(Sku))
+            {
+                return AllyXModel.RogAllyX;
+            }
+
+            return Model.StartsWith("ROG Xbox Ally X RC73XA", StringComparison.OrdinalIgnoreCase)
+                && Board.Equals("RC73XA", StringComparison.OrdinalIgnoreCase)
+                ? AllyXModel.XboxAllyX
+                : AllyXModel.None;
+        }
+    }
+
+    internal bool MatchesModel => Variant != AllyXModel.None;
 
     internal static Identity Read()
     {

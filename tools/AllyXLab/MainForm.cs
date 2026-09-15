@@ -24,7 +24,7 @@ internal sealed class MainForm : Form
 
     internal MainForm()
     {
-        Text = "ROG Ally X Lab · guided test · 0.2.0";
+        Text = "ROG Ally X Lab · guided test · 0.2.1";
         Size = new Size(920, 720); MinimumSize = new Size(850, 620);
         AutoScaleMode = AutoScaleMode.Dpi;
         StartPosition = FormStartPosition.CenterScreen;
@@ -182,8 +182,8 @@ internal sealed class MainForm : Form
             }
 
             ReadEndpoints(inventory);
-            var identity = inventory.Events.First(e => e.Kind == "identity").Data;
-            if (!((JsonElement)identity).Deserialize<Identity>()!.MatchesModel)
+            var identity = ((JsonElement)inventory.Events.First(e => e.Kind == "identity").Data).Deserialize<Identity>()!;
+            if (!identity.MatchesModel)
             {
                 throw new InvalidOperationException("This identity is not yet supported. We saved the inventory; please send it back so we can review it.");
             }
@@ -234,7 +234,9 @@ internal sealed class MainForm : Form
             {
                 await Unavailable("Lighting", "We could not uniquely identify the supported lighting interface. The inventory has been saved for review.");
             }
-            else if (await Ask("Prepare the lights", "Set lighting OFF using the OEM controls, then close that manager again. The tests will flash colors and return brightness to OFF. The remembered color/mode may change; restore those with OEM controls afterward.", ("ready", "Lights are off — begin"), ("skip", "Skip lighting")) == "ready")
+            else if (await Ask("Prepare the lights", "Set lighting OFF using the OEM controls, then close that manager again. "
+                + (identity.Variant == AllyXModel.XboxAllyX ? "Also turn off Dynamic Lighting in Windows Settings under Personalization, so Windows does not repaint the lights during the test. " : "")
+                + "The tests will flash colors and return brightness to OFF. The remembered color/mode may change; restore those with OEM controls afterward.", ("ready", "Lights are off — begin"), ("skip", "Skip lighting")) == "ready")
             {
                 string[] zones = ["both rings", "left ring outer half", "left ring inner half", "right ring inner half", "right ring outer half"];
                 string[] colors = ["red", "green", "blue"];

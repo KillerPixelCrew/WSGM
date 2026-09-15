@@ -49,7 +49,7 @@ internal static class Worker
 
             string[] conflicts = Identity.ConflictingApps();
             log.Add("other-managers", conflicts);
-            log.Add("provenance", new { Version = "0.2.0", Hhd = "5b49c5d904257e042a704ade958fac0ba57af4b1", Hc = "1d85da30861f700868e48ae8f498a5c455896f7c", Evidence = "Experimental attended Ally X bring-up, not production support" });
+            log.Add("provenance", new { Version = "0.2.1", Hhd = "5b49c5d904257e042a704ade958fac0ba57af4b1", Hc = "1d85da30861f700868e48ae8f498a5c455896f7c", Evidence = "Experimental attended Ally X bring-up, not production support" });
             if (request.Action == ActionKind.Inventory)
             {
                 using var sensors = new Sensors(log);
@@ -58,7 +58,7 @@ internal static class Worker
             }
             if (!identity.MatchesModel || !endpoints.Any(e => e.Vendor))
             {
-                throw new InvalidOperationException("Identity gate requires ASUS ROG Ally X RC72LA, RC72L/RC72LA board, nonempty SKU/BIOS and ASUS 0B05:1B4C vendor usage FF31:0080. Export inventory if this legitimate device is refused; there is no override.");
+                throw new InvalidOperationException("Identity gate requires ASUS ROG Ally X RC72LA (RC72L/RC72LA board, nonempty SKU) or ROG Xbox Ally X RC73XA (RC73XA board), a nonempty BIOS and ASUS 0B05:1B4C vendor usage FF31:0080. Export inventory if this legitimate device is refused; there is no override.");
             }
 
             if (Limits.Mutates(request.Action) && conflicts.Length > 0)

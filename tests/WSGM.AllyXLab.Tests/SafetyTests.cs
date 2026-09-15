@@ -67,15 +67,29 @@ public sealed class SafetyTests
     }
 
     [Fact]
-    public void IdentityDoesNotAdmitOriginalOrXboxAllyOrMissingFirmware()
+    public void IdentityAdmitsTheOriginalAllyXOnlyWithItsBoardSkuAndFirmware()
     {
         Identity ally = new("ASUSTeK COMPUTER INC.", "ROG Ally X RC72LA_RC72LA", "RC72LA", "test-sku", "test-bios", "test", "Windows");
-        Assert.True(ally.MatchesModel);
+        Assert.Equal(AllyXModel.RogAllyX, ally.Variant);
         Assert.False((ally with { Model = "ROG Xbox Ally X RC73XA" }).MatchesModel);
         Assert.False((ally with { Board = "RC71L" }).MatchesModel);
+        Assert.False((ally with { Board = "RC73XA" }).MatchesModel);
         Assert.False((ally with { Manufacturer = "Another vendor" }).MatchesModel);
         Assert.False((ally with { Bios = "" }).MatchesModel);
         Assert.False((ally with { Sku = "" }).MatchesModel);
+    }
+
+    [Fact]
+    public void IdentityAdmitsTheXboxAllyXWithoutASkuButNotTheXboxAlly()
+    {
+        // As inventoried on BIOS RC73XA.317: the system SKU is empty.
+        Identity xbox = new("ASUSTeK COMPUTER INC.", "ROG Xbox Ally X RC73XA_RC73XA", "RC73XA", "", "RC73XA.317", "3.14", "Windows");
+        Assert.Equal(AllyXModel.XboxAllyX, xbox.Variant);
+        Assert.False((xbox with { Model = "ROG Xbox Ally RC73YA_RC73YA", Board = "RC73YA" }).MatchesModel);
+        Assert.False((xbox with { Board = "RC72LA" }).MatchesModel);
+        Assert.False((xbox with { Model = "ROG Ally X RC72LA_RC72LA" }).MatchesModel);
+        Assert.False((xbox with { Manufacturer = "Another vendor" }).MatchesModel);
+        Assert.False((xbox with { Bios = "" }).MatchesModel);
     }
 
     [Fact]
