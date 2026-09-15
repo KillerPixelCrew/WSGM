@@ -50,7 +50,22 @@ public partial class OverlayWindow
         return panel;
     }
 
-    private static IEnumerable<DevicePinSection> DevicePinSections(DeviceOverlaySnapshot snapshot)
+    // Several steps of one render or pin lookup read the same device snapshot; its pin sections are
+    // derived once per snapshot instance rather than once per step.
+    private (DeviceOverlaySnapshot Snapshot, DevicePinSection[] Sections)? _pinSections;
+
+    private DevicePinSection[] DevicePinSections(DeviceOverlaySnapshot snapshot)
+    {
+        if (_pinSections is { } cached && ReferenceEquals(cached.Snapshot, snapshot))
+        {
+            return cached.Sections;
+        }
+        DevicePinSection[] sections = [.. BuildDevicePinSections(snapshot)];
+        _pinSections = (snapshot, sections);
+        return sections;
+    }
+
+    private static IEnumerable<DevicePinSection> BuildDevicePinSections(DeviceOverlaySnapshot snapshot)
     {
         foreach (var section in snapshot.PluginSections)
         {

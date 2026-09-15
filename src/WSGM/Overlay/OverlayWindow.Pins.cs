@@ -27,6 +27,13 @@ public partial class OverlayWindow
 
     private IReadOnlyList<string> _pins = [];
 
+    // The pin list the current mirrors were built for. Mirrors follow their source rows through
+    // property changes, so while the list is unchanged a render only revisits the pinned sections.
+    private string[]? _mirroredPins;
+    private CardButton? _pinGhost;
+    private int _loggedPinRendered = -1;
+    private int _loggedPinTotal = -1;
+
     /// <summary>The Tag prefix that marks a Quick access clone; X on one unpins.</summary>
     private const string PinTagPrefix = "pin:";
 
@@ -118,29 +125,51 @@ public partial class OverlayWindow
         }
         string? focusedKey = CurrentSemanticFocusKey();
         Control? restoreFocus = null;
-        ReleasePinMirrors();
-        PinnedGrid.Children.Clear();
+        bool mirrorsCurrent = _mirroredPins is not null && _mirroredPins.SequenceEqual(_pins, StringComparer.Ordinal);
+        if (!mirrorsCurrent)
+        {
+            ReleasePinMirrors();
+            PinnedGrid.Children.Clear();
+        }
         List<Control> valueControls = [];
         foreach (var id in _pins)
         {
-            Control? row = _pinnable.TryGetValue(id, out var source)
-                ? CreatePinMirror(id, source)
-                : CreatePinnedSection(id);
-            if (row is null)
+            Control? row;
+            if (_pinnable.TryGetValue(id, out var source))
             {
-                continue;
+                row = mirrorsCurrent
+                    ? PinnedGrid.Children.FirstOrDefault(child => Equals(child.Tag, PinTagPrefix + id))
+                    : CreatePinMirror(id, source);
+                if (row is null)
+                {
+                    continue;
+                }
+                if (!mirrorsCurrent)
+                {
+                    row.Margin = new Thickness(0, 0, 10, 10);
+                    PinnedGrid.Children.Add(row);
+                }
             }
-            row.Margin = new Thickness(0, 0, 10, 10);
-            if (row is CardButton) { PinnedGrid.Children.Add(row); }
-            else { valueControls.Add(row); }
+            else
+            {
+                row = CreatePinnedSection(id);
+                if (row is null)
+                {
+                    continue;
+                }
+                row.Margin = new Thickness(0, 0, 10, 10);
+                valueControls.Add(row);
+            }
             if (string.Equals(row.Tag as string, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = row;
             }
         }
+        _mirroredPins = [.. _pins];
         // Host controls own subscriptions and user selections. Keep them attached across
         // telemetry refreshes; removing a pin is what ends that view's lifetime.
-        foreach (var stale in PinnedSectionsGrid.Children.Where(row => !valueControls.Contains(row)).ToArray())
+        HashSet<Control> current = [.. valueControls];
+        foreach (var stale in PinnedSectionsGrid.Children.Where(row => !current.Contains(row)).ToArray())
         {
             PinnedSectionsGrid.Children.Remove(stale);
         }
@@ -152,17 +181,15 @@ public partial class OverlayWindow
         }
         // Once sections are present their headers explain pinning. Avoid an empty
         // action row above a front page containing only sections.
-        CardButton ghost = new()
+        if (valueControls.Count == 0)
         {
-            IconGeometry = Icons.Pin,
-            Title = "Pin a section",
-            Description = "Use Pin section in a heading to show its controls here",
-            IsEnabled = false,
-            Margin = new Thickness(0, 0, 10, 10),
-        };
-        ghost.Classes.Add("tile");
-        ghost.Classes.Add("ghost");
-        if (valueControls.Count == 0) { PinnedGrid.Children.Add(ghost); }
+            _pinGhost ??= CreatePinGhost();
+            if (!PinnedGrid.Children.Contains(_pinGhost)) { PinnedGrid.Children.Add(_pinGhost); }
+        }
+        else if (_pinGhost is not null)
+        {
+            PinnedGrid.Children.Remove(_pinGhost);
+        }
         PinnedGrid.IsVisible = PinnedGrid.Children.Count > 0;
         UpdatePinnedIndicators();
         if (restoreFocus is null && PanelQuickAccess.IsVisible && !AnySubView && focusedKey is not null)
@@ -170,7 +197,13 @@ public partial class OverlayWindow
             restoreFocus = PinnedSectionsGrid.GetLogicalDescendants().OfType<Control>()
                 .FirstOrDefault(control => control.Focusable && Equals(control.Tag, focusedKey));
         }
-        Log.Change("overlay.pins", $"Quick access pins: {PinnedGrid.Children.Count + PinnedSectionsGrid.Children.Count - (valueControls.Count == 0 ? 1 : 0)} of {_pins.Count} rendered.");
+        int rendered = PinnedGrid.Children.Count + PinnedSectionsGrid.Children.Count - (valueControls.Count == 0 ? 1 : 0);
+        if (rendered != _loggedPinRendered || _pins.Count != _loggedPinTotal)
+        {
+            _loggedPinRendered = rendered;
+            _loggedPinTotal = _pins.Count;
+            Log.Change("overlay.pins", $"Quick access pins: {rendered} of {_pins.Count} rendered.");
+        }
         if (restoreFocus is not null)
         {
             if (restoreFocus.Focusable) { restoreFocus.Focus(NavigationMethod.Directional); }
@@ -195,11 +228,27 @@ public partial class OverlayWindow
     private void UpdatePinnedIndicators()
     {
         var pinned = _pins.ToHashSet(StringComparer.Ordinal);
-        foreach (var header in this.GetLogicalDescendants().OfType<SectionPinHeader>()) { header.Refresh(pinned.Contains(header.SectionId)); }
-        foreach (CardButton button in this.GetLogicalDescendants().OfType<CardButton>())
+        // One walk of the logical tree for both kinds of indicator.
+        foreach (ILogical node in this.GetLogicalDescendants())
         {
-            if (button is not PluginWidgetPinControls) { button.IsPinned = IsOriginalPinnedRow(button.Tag, pinned); }
+            if (node is SectionPinHeader header) { header.Refresh(pinned.Contains(header.SectionId)); }
+            if (node is CardButton button && button is not PluginWidgetPinControls) { button.IsPinned = IsOriginalPinnedRow(button.Tag, pinned); }
         }
+    }
+
+    private static CardButton CreatePinGhost()
+    {
+        CardButton ghost = new()
+        {
+            IconGeometry = Icons.Pin,
+            Title = "Pin a section",
+            Description = "Use Pin section in a heading to show its controls here",
+            IsEnabled = false,
+            Margin = new Thickness(0, 0, 10, 10),
+        };
+        ghost.Classes.Add("tile");
+        ghost.Classes.Add("ghost");
+        return ghost;
     }
 
     /// <summary>Determines whether a tagged card is an original row in the active pin set.</summary>
@@ -237,6 +286,7 @@ public partial class OverlayWindow
             source.PropertyChanged -= handler;
         }
         _pinMirrors.Clear();
+        _mirroredPins = null;
     }
 
     private static void MirrorPinnedRow(CardButton clone, CardButton source)
@@ -260,19 +310,32 @@ public partial class OverlayWindow
             : capability.CapabilityId;
 
     /// <summary>Static actions and whole sections are the pin targets.</summary>
-    private bool IsPinnable(string id) => _pinnable.ContainsKey(id) || _controlPinFactories.ContainsKey(id)
+    private bool IsPinnable(string id, Func<DeviceOverlaySnapshot?> deviceSnapshot) => _pinnable.ContainsKey(id) || _controlPinFactories.ContainsKey(id)
         || id == "section.performance" && _performanceSource?.Snapshot().Visible is true
         || _pins.Contains(id) && id.StartsWith("section.", StringComparison.Ordinal)
-        || _deviceBridge?.Snapshot() is { } snapshot && DevicePinSections(snapshot).Any(section => section.Id == id);
+        || deviceSnapshot() is { } snapshot && DevicePinSections(snapshot).Any(section => section.Id == id);
 
     /// <summary>Resolves the row id a row or its Quick access mirror stands for.</summary>
     private bool TryGetPinId(Control? control, out string id)
     {
+        // One device snapshot for the whole ancestor walk instead of one per node.
+        DeviceOverlaySnapshot? snapshot = null;
+        bool snapshotRead = false;
+        DeviceOverlaySnapshot? DeviceSnapshot()
+        {
+            if (!snapshotRead)
+            {
+                snapshot = _deviceBridge?.Snapshot();
+                snapshotRead = true;
+            }
+            return snapshot;
+        }
+
         for (Visual? node = control; node is not null; node = node.GetVisualParent())
         {
             if (node is not Control { Tag: string tag }) { continue; }
             id = tag.StartsWith(PinTagPrefix, StringComparison.Ordinal) ? tag[PinTagPrefix.Length..] : tag;
-            if (IsPinnable(id)) { return true; }
+            if (IsPinnable(id, DeviceSnapshot)) { return true; }
         }
         id = "";
         return false;

@@ -280,7 +280,8 @@ public partial class OverlayWindow
         // The tiles belong to the tree that was just cleared. Dropping the references here, before
         // anything can rebuild them, is what stops the input test writing to detached controls.
         _glyphTiles.Clear();
-        if (DeviceOverlaySectionPages.Build(snapshot, performance).Count == 0)
+        var sectionPages = DeviceOverlaySectionPages.Build(snapshot, performance);
+        if (sectionPages.Count == 0)
         {
             DeviceCapabilityList.Children.Add(new TextBlock
             {
@@ -300,7 +301,7 @@ public partial class OverlayWindow
             ? RenderDeviceSection(snapshot, section, focusedKey)
             : openPluginSection is { } pluginSectionId
                 ? RenderDevicePluginSection(snapshot, pluginSectionId, focusedKey)
-                : RenderDeviceSectionMenu(snapshot, performance, focusedKey);
+                : RenderDeviceSectionMenu(snapshot, performance, sectionPages, focusedKey);
 
         // A Device page that renders nothing is indistinguishable from a device that published
         // nothing, and the difference is the whole diagnosis. Reported on every render, not only
@@ -337,6 +338,7 @@ public partial class OverlayWindow
     private DescriptorStatusRow? RenderDeviceSectionMenu(
         DeviceOverlaySnapshot snapshot,
         PerformanceOverlaySnapshot? performance,
+        IReadOnlyList<DeviceOverlaySectionEntry> sectionPages,
         string? focusedKey)
     {
         DescriptorStatusRow? restoreFocus = null;
@@ -364,9 +366,7 @@ public partial class OverlayWindow
         // A grid of tile cards rather than a stretched stack: the sheet is wide, and
         // a full-width row per section read as the old sidebar scaled up.
         var grid = new Avalonia.Controls.Primitives.UniformGrid { Columns = 2 };
-        foreach (DeviceOverlaySectionEntry entry in DeviceOverlaySectionPages.Build(
-            snapshot,
-            performance))
+        foreach (DeviceOverlaySectionEntry entry in sectionPages)
         {
             if (!snapshot.Visible && (entry.Section == DeviceOverlaySection.PowerAndThermals
                 || entry.PluginSectionId == DeviceSections.PowerId)) { continue; }
