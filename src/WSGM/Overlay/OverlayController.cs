@@ -549,26 +549,44 @@ public sealed class OverlayController : IDisposable
 
     private void StopWakeLockRefresh() => _wakeLockRefresh?.Stop();
 
-    private void RefreshWakeLockIndicator()
+    private bool _wakeLockQueryRunning;
+
+    private void RefreshWakeLockIndicator() => _ = RefreshWakeLockIndicatorAsync();
+
+    /// <summary>Queries the power-request list on the pool and applies it on the UI thread. A tick
+    /// that arrives while a query is still running is skipped rather than queued.</summary>
+    private async Task RefreshWakeLockIndicatorAsync()
     {
-        if (_disposed || _overlay is null || _overlayViewModel is null || _keepAwake is null)
+        if (_wakeLockQueryRunning || _disposed || _overlay is null || _overlayViewModel is null || _keepAwake is null)
         {
             return;
         }
-        var (entries, error) = WindowsDeviceControl.PowerRequestList.Query();
-        if (error != _lastWakeLockError)
+        _wakeLockQueryRunning = true;
+        try
         {
-            // Log transitions only — this ticks every 1.5 s while the panel is open.
-            _lastWakeLockError = error;
-            if (error is not null)
+            var (entries, error) = await Task.Run(WindowsDeviceControl.PowerRequestList.Query);
+            if (_disposed || _overlay is not { } overlay || _overlayViewModel is not { } viewModel)
             {
-                Log.Warn($"Wake lock indicator unavailable: {error}.");
+                return;
             }
+            if (error != _lastWakeLockError)
+            {
+                // Log transitions only — this ticks every 1.5 s while the panel is open.
+                _lastWakeLockError = error;
+                if (error is not null)
+                {
+                    Log.Warn($"Wake lock indicator unavailable: {error}.");
+                }
+            }
+            var (state, summary) = WakeLockStatus.Compute(
+                entries, (uint)Environment.ProcessId);
+            viewModel.WakeLockSummary = summary;
+            overlay.SetKeepAwakeStatus(state);
         }
-        var (state, summary) = WakeLockStatus.Compute(
-            entries, (uint)Environment.ProcessId);
-        _overlayViewModel.WakeLockSummary = summary;
-        _overlay.SetKeepAwakeStatus(state);
+        finally
+        {
+            _wakeLockQueryRunning = false;
+        }
     }
 
     private bool _leaseReleased;

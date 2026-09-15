@@ -554,25 +554,34 @@ public sealed class ArtworkView : OverlaySubView
             {
                 return;
             }
-            await Dispatcher.UIThread.InvokeAsync(() =>
+            // Decoded on the pool like the current-art preview; only the swap touches the UI thread.
+            Bitmap? bitmap = await Task.Run(() =>
             {
                 try
                 {
                     using var stream = new MemoryStream(bytes);
-                    var bitmap = Bitmap.DecodeToWidth(stream, 300);
-                    if (generation == _navigationGeneration)
-                    {
-                        (image.Source as IDisposable)?.Dispose();
-                        image.Source = bitmap;
-                    }
-                    else
-                    {
-                        bitmap.Dispose();
-                    }
+                    return Bitmap.DecodeToWidth(stream, 300);
                 }
                 catch (Exception ex)
                 {
                     Log.Warn($"Artwork: thumb decode failed: {ex.Message}");
+                    return null;
+                }
+            });
+            if (bitmap is null)
+            {
+                return;
+            }
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (generation == _navigationGeneration)
+                {
+                    (image.Source as IDisposable)?.Dispose();
+                    image.Source = bitmap;
+                }
+                else
+                {
+                    bitmap.Dispose();
                 }
             });
         }

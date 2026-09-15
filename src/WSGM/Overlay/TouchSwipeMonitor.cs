@@ -58,6 +58,10 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     // when the last monitor is disposed (the Settings test overlay's monitor must
     // never take the live shell's edge swipes down with it).
     private static readonly List<TouchSwipeMonitor> Instances = [];
+
+    // Replaced under Gate on every add and remove, so the window procedure reads the monitors
+    // without taking the lock or copying the list for each WM_INPUT.
+    private static TouchSwipeMonitor[] _instanceSnapshot = [];
     private static nint _sharedHwnd;
 
     private sealed class DeviceCaps
@@ -138,6 +142,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                 CreateSharedWindowAndRegister();
             }
             Instances.Add(this);
+            Volatile.Write(ref _instanceSnapshot, [.. Instances]);
         }
     }
 
@@ -242,11 +247,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     {
         if (hwnd == _sharedHwnd)
         {
-            TouchSwipeMonitor[] monitors;
-            lock (Gate)
-            {
-                monitors = [.. Instances];
-            }
+            TouchSwipeMonitor[] monitors = Volatile.Read(ref _instanceSnapshot);
             try
             {
                 if (message == NativeMethods.WmInput)
@@ -294,6 +295,23 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     private void ProcessRawInput(nint hRawInput)
     {
         var headerSize = (uint)sizeof(NativeMethods.RawInputHeader);
+        // Read straight into the reusable buffer. Once it has grown to the largest message seen, every
+        // WM_INPUT costs one call instead of a size query followed by the read.
+        fixed (byte* buffer = _inputBuffer)
+        {
+            uint capacity = (uint)_inputBuffer.Length;
+            uint read = NativeMethods.GetRawInputData(hRawInput, NativeMethods.RidInput, (nint)buffer, ref capacity, headerSize);
+            if (read != unchecked((uint)-1))
+            {
+                if (read >= headerSize)
+                {
+                    ProcessRawInputBuffer(buffer, read, headerSize);
+                }
+                return;
+            }
+        }
+
+        // The buffer was too small for this message: size it, then read again.
         uint size = 0;
         if (NativeMethods.GetRawInputData(hRawInput, NativeMethods.RidInput, 0, ref size, headerSize) != 0 ||
             size < headerSize)
@@ -314,6 +332,13 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                 return;
             }
 
+            ProcessRawInputBuffer(buffer, size, headerSize);
+        }
+    }
+
+    private void ProcessRawInputBuffer(byte* buffer, uint size, uint headerSize)
+    {
+        {
             var header = *(NativeMethods.RawInputHeader*)buffer;
             if (header.dwType == NativeMethods.RimTypeMouse)
             {
@@ -600,10 +625,13 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         _startedAt = (ulong)Environment.TickCount64;
         // Every edge contact, including the majority that never become a gesture. The line that
         // matters is the one where a swipe actually triggers.
-        Log.Debug(
-            $"Touch edge swipe started at {x},{y} " +
-            $"(bottom={_bottomCandidate}, right={_rightCandidate}, " +
-            $"left={_leftCandidate}, top={_topCandidate}).");
+        if (Log.MinimumLevel <= LogLevel.Debug)
+        {
+            Log.Debug(
+                $"Touch edge swipe started at {x},{y} " +
+                $"(bottom={_bottomCandidate}, right={_rightCandidate}, " +
+                $"left={_leftCandidate}, top={_topCandidate}).");
+        }
     }
 
     private void OnContactMove(DeviceCaps caps, uint rawX, uint rawY)
@@ -726,6 +754,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         lock (Gate)
         {
             Instances.Remove(this);
+            Volatile.Write(ref _instanceSnapshot, [.. Instances]);
             // The registration is process-wide: it may only go away with the LAST
             // monitor, or disposing the Settings test monitor would kill the live
             // shell's edge swipes and tap-dismiss until the shell restarts.

@@ -1,3 +1,5 @@
+using Avalonia.Media.Immutable;
+using System.Collections.Generic;
 using System;
 using System.IO;
 using System.Text.RegularExpressions;
@@ -27,6 +29,11 @@ public sealed partial class GlyphIcon : ContentControl
 
     // Attributes are matched per <path> tag, order-independent: a re-exported or
     // optimized SVG may put d before fill.
+    // Parsed once per style and button: a sheet open builds many glyphs, and each used to reopen the
+    // asset and run the same regex and geometry parse. Geometry and immutable brushes are shared
+    // safely by the Path controls that draw them. Only the UI thread builds glyphs.
+    private static readonly Dictionary<string, (Geometry Data, IBrush Fill)[]> ParsedGlyphs = new(StringComparer.Ordinal);
+
     [GeneratedRegex("<path\\b[^>]*>", RegexOptions.Singleline)]
     private static partial Regex PathRegex();
 
@@ -81,27 +88,39 @@ public sealed partial class GlyphIcon : ContentControl
 
         try
         {
-            var uri = new Uri($"avares://WSGM/Assets/Glyphs/{styleName}/{Button}.svg");
-            using var stream = AssetLoader.Open(uri);
-            using var reader = new StreamReader(stream);
-            var svg = reader.ReadToEnd();
+            string key = $"{styleName}/{Button}";
+            if (!ParsedGlyphs.TryGetValue(key, out var paths))
+            {
+                var uri = new Uri($"avares://WSGM/Assets/Glyphs/{key}.svg");
+                using var stream = AssetLoader.Open(uri);
+                using var reader = new StreamReader(stream);
+                var svg = reader.ReadToEnd();
+                List<(Geometry Data, IBrush Fill)> parsed = [];
+                foreach (Match tag in PathRegex().Matches(svg))
+                {
+                    var data = DataRegex().Match(tag.Value);
+                    if (!data.Success)
+                    {
+                        continue;
+                    }
+                    var fill = FillRegex().Match(tag.Value);
+                    parsed.Add((
+                        Geometry.Parse(data.Groups["data"].Value),
+                        new ImmutableSolidColorBrush(fill.Success ? Color.Parse(fill.Groups["fill"].Value) : Colors.White)));
+                }
+                paths = [.. parsed];
+                if (paths.Length > 0)
+                {
+                    ParsedGlyphs[key] = paths;
+                }
+            }
 
             var canvas = new Canvas { Width = 64, Height = 64 };
-            foreach (Match tag in PathRegex().Matches(svg))
+            foreach (var (data, fill) in paths)
             {
-                var data = DataRegex().Match(tag.Value);
-                if (!data.Success)
-                {
-                    continue;
-                }
-                var fill = FillRegex().Match(tag.Value);
-                canvas.Children.Add(new Avalonia.Controls.Shapes.Path
-                {
-                    // Default fill rule (EvenOdd) turns inner subpaths (letters,
-                    // symbols) into holes — matching how these SVGs are drawn.
-                    Data = Geometry.Parse(data.Groups["data"].Value),
-                    Fill = new SolidColorBrush(fill.Success ? Color.Parse(fill.Groups["fill"].Value) : Colors.White),
-                });
+                // Default fill rule (EvenOdd) turns inner subpaths (letters,
+                // symbols) into holes — matching how these SVGs are drawn.
+                canvas.Children.Add(new Avalonia.Controls.Shapes.Path { Data = data, Fill = fill });
             }
 
             if (canvas.Children.Count == 0)

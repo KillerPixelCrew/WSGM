@@ -113,7 +113,12 @@ public sealed class TrayIconEntry : ObservableObject
     public TrayIconEntry(TrayIconTable.TrayIcon icon)
     {
         Icon = icon;
+        _image = icon.IconImage;
+        _tip = icon.Tip;
     }
+
+    private object? _image;
+    private string _tip;
 
     /// <summary>Gets the underlying tray-icon record (click forwarding target).</summary>
     public TrayIconTable.TrayIcon Icon { get; }
@@ -125,10 +130,20 @@ public sealed class TrayIconEntry : ObservableObject
     public string Tip => Icon.Tip;
 
     /// <summary>Re-raises the projections after the underlying record changed.</summary>
+    /// <remarks>The tray host replaces an icon's bitmap rather than drawing into it, so a reference
+    /// change is a real change; unchanged tiles are not rebound on every reconcile.</remarks>
     public void Refresh()
     {
-        Raise(nameof(Image));
-        Raise(nameof(Tip));
+        if (!ReferenceEquals(_image, Icon.IconImage))
+        {
+            _image = Icon.IconImage;
+            Raise(nameof(Image));
+        }
+        if (!string.Equals(_tip, Icon.Tip, StringComparison.Ordinal))
+        {
+            _tip = Icon.Tip;
+            Raise(nameof(Tip));
+        }
     }
 }
 
