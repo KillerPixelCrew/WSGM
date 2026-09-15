@@ -384,7 +384,9 @@ back and confirmed to match what was applied), `Stale` (expired or its generatio
 
 `CapabilityValue` has a `Kind` and exactly one populated field: `BooleanValue`, `IntegerValue`,
 `ChoiceValue`, `ColorValue` (packed 24-bit RGB), `CurveValue` (`IReadOnlyList<CurvePoint>`) or
-`TextValue`. `CurvePoint(int Input, int Output)` is one table entry, for example temperature in
+`TextValue`. The static factories `CapabilityValue.None()`, `Boolean`, `Integer`, `Choice`, `Color`,
+`Curve` and `Text` build a value of that kind with its one field set; `Curve` stores the list it is
+given. `CurvePoint(int Input, int Output)` is one table entry, for example temperature in
 Celsius to duty in percent. `CapabilityStateDelta(long Sequence, CapabilityState State)` is one
 update as it arrives, with a producer-assigned monotonic sequence.
 
@@ -857,6 +859,9 @@ changes meaning.
 
 During consolidation, `OemPressKind` gained the same JSON string converter as the other OEM enums.
 It writes `Short`/`Long` and preserves numeric reads and the existing enum ordinals within API 3.
+
+The `CapabilityValue` factories were added within API 3. They build the same records as the object
+initializers they replace, so serialized values and equality are unchanged.
 
 ## Version history
 

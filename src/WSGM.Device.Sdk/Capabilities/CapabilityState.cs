@@ -105,6 +105,64 @@ public sealed record CapabilityValue
     /// against <see cref="PlainText"/> before it reaches any surface.
     /// </remarks>
     public string? TextValue { get; init; }
+
+    /// <summary>Creates a <see cref="CapabilityValueKind.None"/> value, which carries no field.</summary>
+    /// <returns>The value.</returns>
+    public static CapabilityValue None() => new() { Kind = CapabilityValueKind.None };
+
+    /// <summary>Creates a <see cref="CapabilityValueKind.Boolean"/> value.</summary>
+    /// <param name="value">The boolean.</param>
+    /// <returns>The value with <see cref="BooleanValue"/> set.</returns>
+    public static CapabilityValue Boolean(bool value) => new()
+    {
+        Kind = CapabilityValueKind.Boolean,
+        BooleanValue = value,
+    };
+
+    /// <summary>Creates a <see cref="CapabilityValueKind.Integer"/> value.</summary>
+    /// <param name="value">The integer.</param>
+    /// <returns>The value with <see cref="IntegerValue"/> set.</returns>
+    public static CapabilityValue Integer(int value) => new()
+    {
+        Kind = CapabilityValueKind.Integer,
+        IntegerValue = value,
+    };
+
+    /// <summary>Creates a <see cref="CapabilityValueKind.Choice"/> value.</summary>
+    /// <param name="value">The selected option.</param>
+    /// <returns>The value with <see cref="ChoiceValue"/> set.</returns>
+    public static CapabilityValue Choice(string value) => new()
+    {
+        Kind = CapabilityValueKind.Choice,
+        ChoiceValue = value,
+    };
+
+    /// <summary>Creates a <see cref="CapabilityValueKind.Color"/> value.</summary>
+    /// <param name="value">Packed 24-bit RGB.</param>
+    /// <returns>The value with <see cref="ColorValue"/> set.</returns>
+    public static CapabilityValue Color(int value) => new()
+    {
+        Kind = CapabilityValueKind.Color,
+        ColorValue = value,
+    };
+
+    /// <summary>Creates a <see cref="CapabilityValueKind.Curve"/> value.</summary>
+    /// <param name="points">The curve points. The list is stored as given, not copied.</param>
+    /// <returns>The value with <see cref="CurveValue"/> set.</returns>
+    public static CapabilityValue Curve(System.Collections.Generic.IReadOnlyList<CurvePoint> points) => new()
+    {
+        Kind = CapabilityValueKind.Curve,
+        CurveValue = points,
+    };
+
+    /// <summary>Creates a <see cref="CapabilityValueKind.Text"/> value.</summary>
+    /// <param name="value">The text. Validation against the descriptor stays with the caller.</param>
+    /// <returns>The value with <see cref="TextValue"/> set.</returns>
+    public static CapabilityValue Text(string value) => new()
+    {
+        Kind = CapabilityValueKind.Text,
+        TextValue = value,
+    };
 }
 
 /// <summary>One point of a capability curve, such as a fan table entry.</summary>
