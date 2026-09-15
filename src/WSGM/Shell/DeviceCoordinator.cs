@@ -132,7 +132,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 Environment.ProcessPath
                     ?? throw new InvalidOperationException("The WSGM executable path is unavailable.")),
             new ControllerProcessPriority());
-        _powerAssignmentTask = Task.Run(ObservePowerAssignmentsAsync);
+        _powerAssignmentTask = ObservePowerAssignmentsAsync();
     }
 
     private Task ApplyHapticOutputAsync(HapticOutputFrame frame, CancellationToken cancellationToken)
@@ -2628,8 +2628,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private void UpdateCapabilityDesiredContext()
     {
         DeviceDesiredProfile? profile = CurrentProfile;
-        bool onAcPower = !WindowsDeviceControl.WindowsPower.TryGetStatus(out WindowsDeviceControl.WindowsPowerStatus power)
-            || power.ACLineStatus != 0;
+        // Unknown power reads as AC here: only a confirmed battery state selects battery values.
+        bool onAcPower = ReadOnAcPower() ?? true;
         _capabilities.UpdateDesiredContext(
             profile,
             onAcPower,

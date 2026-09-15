@@ -558,16 +558,16 @@ public sealed class AudioManager : ObservableObject, IDisposable
         var kind = output ? "output" : "input";
         var revision = Tracker(output).Begin();
         Log.Info($"Audio {kind} selected: '{value.Name}'.");
-        _ = Task.Run(() => ApplyEndpointSelection(value.Id, output, kind, revision));
+        _ = Task.Run(() => ApplyEndpointSelectionAsync(value.Id, output, kind, revision));
     }
 
     /// <summary>Serializes default-device writes for one data flow. A stale
     /// queued request is skipped, and an already-running stale request cannot
     /// publish UI state after the user's newer choice.</summary>
-    private void ApplyEndpointSelection(string endpointId, bool output, string kind, int revision)
+    private async Task ApplyEndpointSelectionAsync(string endpointId, bool output, string kind, int revision)
     {
         var gate = output ? _outputSelectionGate : _inputSelectionGate;
-        gate.Wait();
+        await gate.WaitAsync().ConfigureAwait(false);
         try
         {
             if (_disposed || !Tracker(output).IsCurrent(revision))

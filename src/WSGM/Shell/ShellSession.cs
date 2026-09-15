@@ -2308,7 +2308,7 @@ public sealed class ShellSession : IAsyncDisposable
             void Reload(object? state)
                 => _ = Task.Run(() =>
                 {
-                    long generation = (long)(state ?? 0L);
+                    long generation = Interlocked.Read(ref _configReloadGeneration);
                     var config = ConfigStore.Load();
                     Dispatcher.UIThread.Post(() =>
                     {
@@ -2352,10 +2352,10 @@ public sealed class ShellSession : IAsyncDisposable
             {
                 lock (_configDebounceGate)
                 {
-                    _configDebounce?.Dispose();
-                    long generation = Interlocked.Increment(ref _configReloadGeneration);
-                    _configDebounce = new System.Threading.Timer(
-                        Reload, generation, 500, System.Threading.Timeout.Infinite);
+                    Interlocked.Increment(ref _configReloadGeneration);
+                    _configDebounce ??= new System.Threading.Timer(
+                        Reload, null, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+                    _configDebounce.Change(500, System.Threading.Timeout.Infinite);
                 }
             }
             _configWatcher.Changed += (_, _) => Debounce();

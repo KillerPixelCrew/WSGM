@@ -205,7 +205,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _modules,
             commandsEnabled: () =>
                 _enabled || _libraryBadgeEnabled || _homeCarouselEnabled || _screensaverEnabled,
-            publishEnabled: () => _enabled || IndependentSurfacesEnabled());
+            publishEnabled: BootstrapWanted);
         _transport.GenerationChanged += OnGenerationChanged;
         LibraryBadges.Changed += OnSemanticStateChanged;
         if (_displayTimeouts is not null)
@@ -282,7 +282,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             network.PostStopScanning();
         }
-        SetPatchStates(bootstrap: _enabled || IndependentSurfacesEnabled(), components: _enabled);
+        SetPatchStates(bootstrap: BootstrapWanted(), components: _enabled);
         QueueSynchronization();
         QueueStatePublication();
     }
@@ -301,7 +301,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _patches.SetGlobalEnabled(true);
         }
-        SetPatchStates(bootstrap: _enabled || IndependentSurfacesEnabled(), components: _enabled);
+        SetPatchStates(bootstrap: BootstrapWanted(), components: _enabled);
         QueueSynchronization();
     }
 
@@ -323,7 +323,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _patches.SetGlobalEnabled(true);
         }
-        SetPatchStates(bootstrap: _enabled || IndependentSurfacesEnabled(), components: _enabled);
+        SetPatchStates(bootstrap: BootstrapWanted(), components: _enabled);
         QueueSynchronization();
         QueueStatePublication();
     }
@@ -358,7 +358,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _patches.SetGlobalEnabled(true);
         }
-        SetPatchStates(bootstrap: _enabled || IndependentSurfacesEnabled(), components: _enabled);
+        SetPatchStates(bootstrap: BootstrapWanted(), components: _enabled);
         QueueSynchronization();
         QueueStatePublication();
     }
@@ -386,7 +386,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _displayTimeouts.ForgetSteam();
         }
-        SetPatchStates(bootstrap: _enabled || IndependentSurfacesEnabled(), components: _enabled);
+        SetPatchStates(bootstrap: BootstrapWanted(), components: _enabled);
         QueueSynchronization();
         QueueStatePublication();
     }
@@ -402,6 +402,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         || _homeCarouselEnabled
         || _screensaverEnabled
         || _downloadSortEnabled;
+
+    /// <summary>Whether the bridge bootstrap is needed: native QAM, or a surface that works without it.</summary>
+    private bool BootstrapWanted() => _enabled || IndependentSurfacesEnabled();
 
     /// <summary>Returns the immutable patch-registry view used by diagnostics and isolated tests.</summary>
     internal IReadOnlyList<SteamUiPatchSnapshot> GetPatchSnapshots() => _patches.GetSnapshots();
@@ -485,12 +488,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // queue synchronization.
         // Every surface switch belongs here: a Steam restart replaces the SharedJSContext
         // generation, and a surface that is the only thing on would otherwise never be reapplied.
-        if (_enabled
-            || _networkIndicatorEnabled
-            || _downloadSortEnabled
-            || _libraryBadgeEnabled
-            || _homeCarouselEnabled
-            || _screensaverEnabled
+        if (BootstrapWanted()
             || _glyphsEnabled
             || _glyphDeliveryEnabled
             || _surfaceObservationEnabled)
@@ -525,7 +523,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 // Every surface that runs without native Quick Access keeps the bootstrap up. Only
                 // the network indicator used to count here, so with Quick Access off the library
                 // badge, the Home carousel and the screensaver rows were retracted after each pass.
-                if (_enabled || IndependentSurfacesEnabled())
+                if (BootstrapWanted())
                 {
                     if (_enabled)
                     {
@@ -762,22 +760,18 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 continue;
             }
 
-            _patches.SetPatchEnabled(
-                patch.Id,
-                patch.Id == SteamDownloadSortPatch.PatchId
-                    ? _downloadSortEnabled
-                    : patch.Id == SteamLibraryBadgeSurface.PatchId
-                        || patch.Id == SteamLibraryBadgeSurface.DetailsPatchId
-                        ? _libraryBadgeEnabled
-                        : patch.Id == SteamHomeCarouselSurface.PatchId
-                            ? _homeCarouselEnabled
-                        : patch.Id == SteamScreensaverSurface.PatchId
-                            ? _screensaverEnabled
-                        : patch.Id == SteamUiBridgePatch.PatchId
-                            ? bootstrap
-                            : patch.Id == SteamNetworkSurface.PatchId
-                                ? components || _networkIndicatorEnabled
-                                : components);
+            bool enabled = patch.Id switch
+            {
+                var id when id == SteamDownloadSortPatch.PatchId => _downloadSortEnabled,
+                var id when id == SteamLibraryBadgeSurface.PatchId || id == SteamLibraryBadgeSurface.DetailsPatchId =>
+                    _libraryBadgeEnabled,
+                var id when id == SteamHomeCarouselSurface.PatchId => _homeCarouselEnabled,
+                var id when id == SteamScreensaverSurface.PatchId => _screensaverEnabled,
+                var id when id == SteamUiBridgePatch.PatchId => bootstrap,
+                var id when id == SteamNetworkSurface.PatchId => components || _networkIndicatorEnabled,
+                _ => components,
+            };
+            _patches.SetPatchEnabled(patch.Id, enabled);
         }
     }
 

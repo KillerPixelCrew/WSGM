@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -61,6 +62,7 @@ public static class Program
 
     private static async Task<int> MainAsync(string[] args)
     {
+        HashSet<string> flags = new(args, StringComparer.OrdinalIgnoreCase);
         // Hidden fixed-purpose process used only to preserve normal Explorer parent/job
         // semantics across a shell transition. It must run before logging, package discovery,
         // elevation, Avalonia, or any other WSGM service. The mode accepts no executable or
@@ -73,7 +75,7 @@ public static class Program
         // Recovery path: must work even when Avalonia/GPU/config are broken.
         // Keep this ahead of logging too: a broken profile directory must never
         // prevent the user from getting their desktop back.
-        if (args.Contains("--restore-shell", StringComparer.OrdinalIgnoreCase))
+        if (flags.Contains("--restore-shell"))
         {
             ShellRegistration.Uninstall();
             // The user is escaping game mode: also disarm the sign-in start so the
@@ -99,7 +101,7 @@ public static class Program
 
         // Quiet shell-registration restore for the Inno uninstaller: no explorer
         // start, no UI — the uninstaller drives everything else.
-        if (args.Contains("--unregister-shell", StringComparer.OrdinalIgnoreCase))
+        if (flags.Contains("--unregister-shell"))
         {
             ShellRegistration.Uninstall();
             SteamInputBlocker.ReleaseBestEffort("unregister-shell");
@@ -125,29 +127,29 @@ public static class Program
         WsgmSteamUiLog.Install();
 
         // Elevated one-shots for the UAC prompt-level toggle (see UacSettings).
-        if (args.Contains("--set-uac-silent", StringComparer.OrdinalIgnoreCase))
+        if (flags.Contains("--set-uac-silent"))
         {
             return UacSettings.ApplyDirect(disablePrompts: true) ? 0 : 1;
         }
-        if (args.Contains("--restore-uac", StringComparer.OrdinalIgnoreCase))
+        if (flags.Contains("--restore-uac"))
         {
             return UacSettings.ApplyDirect(disablePrompts: false) ? 0 : 1;
         }
         // Elevated one-shots for the Steam autostart takeover (see SteamAutostartService). Neither
         // takes a source name from the command line: the elevated instance rescans and decides.
-        if (args.Contains(SteamAutostartService.DisableArgument, StringComparer.OrdinalIgnoreCase))
+        if (flags.Contains(SteamAutostartService.DisableArgument))
         {
             return SteamAutostartService.RunElevatedDisable();
         }
-        if (args.Contains(SteamAutostartService.RestoreArgument, StringComparer.OrdinalIgnoreCase))
+        if (flags.Contains(SteamAutostartService.RestoreArgument))
         {
             return SteamAutostartService.RestoreAll();
         }
-        if (args.Contains("--disable-lock-on-wake", StringComparer.OrdinalIgnoreCase))
+        if (flags.Contains("--disable-lock-on-wake"))
         {
             return LockScreenSettings.ApplyDirect(disableSignInOnWake: true) ? 0 : 1;
         }
-        if (args.Contains("--restore-lock-on-wake", StringComparer.OrdinalIgnoreCase))
+        if (flags.Contains("--restore-lock-on-wake"))
         {
             return LockScreenSettings.ApplyDirect(disableSignInOnWake: false) ? 0 : 1;
         }
@@ -155,7 +157,7 @@ public static class Program
         // Elevated one-shots for the Steam Input shim. Steam normally lives under
         // Program Files, which a desktop-mode Settings process cannot write, so the
         // Settings save path re-runs itself through these when a write is refused.
-        if (args.Contains("--apply-steam-input-shim", StringComparer.OrdinalIgnoreCase))
+        if (flags.Contains("--apply-steam-input-shim"))
         {
             SteamInputShim.SetEnabled(true);
             return SteamInputShim.Reconcile("elevated-apply").State
@@ -164,7 +166,7 @@ public static class Program
                 : 1;
         }
 
-        if (args.Contains("--remove-steam-input-shim", StringComparer.OrdinalIgnoreCase))
+        if (flags.Contains("--remove-steam-input-shim"))
         {
             SteamInputShim.Remove("uninstall");
             return 0;
@@ -174,20 +176,20 @@ public static class Program
         // diagnosed, and read the verdict out of wsgm.log — it answers what the
         // documentation cannot: whether radio control works elevated with no
         // shell, and whether the location gate blocks the Wi-Fi scan.
-        if (args.Contains("--radio-probe", StringComparer.OrdinalIgnoreCase))
+        if (flags.Contains("--radio-probe"))
         {
             return RadioProbe.Run();
         }
 
         // Elevated one-shot for the uninstaller: puts back every machine-level
         // setting WSGM changed (display scaling, UAC, lock-on-wake).
-        if (args.Contains("--uninstall-restore", StringComparer.OrdinalIgnoreCase))
+        if (flags.Contains("--uninstall-restore"))
         {
             Installer.RestoreMachineSettings();
             return 0;
         }
 
-        if (args.Contains("--setup", StringComparer.OrdinalIgnoreCase))
+        if (flags.Contains("--setup"))
         {
             // The gaming-home guard captures a registry snapshot INTO this config and
             // saves it, so it is loaded strictly: an unreadable config.json aborts the
@@ -277,7 +279,7 @@ public static class Program
         }
 
         ServiceBoot = IsServiceBoot(args);
-        DesktopResident = args.Contains("--desktop-resident", StringComparer.OrdinalIgnoreCase);
+        DesktopResident = flags.Contains("--desktop-resident");
         Mode = DecideMode(args);
         if (Mode == RunMode.Settings && SettingsActivation.TryRequest())
         {
@@ -311,7 +313,7 @@ public static class Program
             ? new(false, EventResetMode.AutoReset, SessionActivation.EventName) : null;
         if (Mode == RunMode.Shell)
         {
-            if (args.Contains("--activate", StringComparer.OrdinalIgnoreCase)) { activation!.Set(); }
+            if (flags.Contains("--activate")) { activation!.Set(); }
             if (!AcquireShellMutex())
             {
                 Log.Warn("Another WSGM shell instance is running; exiting.");

@@ -338,7 +338,7 @@ public static class SteamInputShim
                     Log.Warn($"Steam Input shim could not be deleted ({ex.Message}).");
                 }
             }
-            TryDelete(MarkerPath(steamDirectory, vector));
+            FileCleanup.TryDelete(MarkerPath(steamDirectory, vector));
         }
     }
 
@@ -455,7 +455,7 @@ public static class SteamInputShim
         {
             if (IsOurs(parked))
             {
-                TryDelete(parked);
+                FileCleanup.TryDelete(parked);
             }
             if (File.Exists(parked))
             {
@@ -484,14 +484,14 @@ public static class SteamInputShim
             var deployed = Path.Combine(steamDirectory, FileNameFor(vector));
             if (IsOurs(deployed))
             {
-                TryDelete(deployed);
+                FileCleanup.TryDelete(deployed);
             }
             var parked = ParkedPath(steamDirectory, vector);
             if (IsOurs(parked))
             {
-                TryDelete(parked);
+                FileCleanup.TryDelete(parked);
             }
-            TryDelete(MarkerPath(steamDirectory, vector));
+            FileCleanup.TryDelete(MarkerPath(steamDirectory, vector));
         }
     }
 
@@ -644,21 +644,6 @@ public static class SteamInputShim
         Path.Combine(
             steamDirectory,
             Path.GetFileNameWithoutExtension(FileNameFor(vector)) + MarkerExtension);
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch
-        {
-            // Best effort: a leftover file is inert without a lease.
-        }
-    }
 
     /// <summary>True when the path is a reparse point, so an elevated write never
     /// follows a junction planted in a user-writable location. An unreadable

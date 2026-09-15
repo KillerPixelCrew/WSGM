@@ -2,7 +2,6 @@
 // service project): the manifest is the ONLY contract between the per-user app
 // and the SYSTEM service, so it must stay free of dependencies on either side —
 // no Log, no ConfigStore, explicit usings (WSGM has no ImplicitUsings).
-using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;

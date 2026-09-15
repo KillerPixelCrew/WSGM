@@ -1315,11 +1315,9 @@ internal sealed class PerformanceService : IAsyncDisposable
         return string.IsNullOrWhiteSpace(sanitized) ? fallback : sanitized;
     }
 
-    private static TimeSpan BoundInterval(TimeSpan interval) => interval < TimeSpan.FromMilliseconds(250)
-        ? TimeSpan.FromMilliseconds(250)
-        : interval > TimeSpan.FromSeconds(30) ? TimeSpan.FromSeconds(30) : interval;
+    private static TimeSpan BoundInterval(TimeSpan interval) =>
+        TimeSpan.FromTicks(Math.Clamp(interval.Ticks, TimeSpan.TicksPerMillisecond * 250, TimeSpan.TicksPerSecond * 30));
 
-    private static TimeSpan BoundTimeout(TimeSpan timeout) => timeout < TimeSpan.FromMilliseconds(100)
-        ? TimeSpan.FromMilliseconds(100)
-        : timeout > TimeSpan.FromSeconds(10) ? TimeSpan.FromSeconds(10) : timeout;
+    private static TimeSpan BoundTimeout(TimeSpan timeout) =>
+        TimeSpan.FromTicks(Math.Clamp(timeout.Ticks, TimeSpan.TicksPerMillisecond * 100, TimeSpan.TicksPerSecond * 10));
 }

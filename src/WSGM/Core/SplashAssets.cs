@@ -334,17 +334,8 @@ public static class SplashAssets
     /// <summary>Best-effort delete shared with the splash-theme import/export
     /// cleanup paths: a failure is logged, never thrown.</summary>
     /// <param name="path">The file to delete.</param>
-    internal static void TryDelete(string path)
-    {
-        try
-        {
-            File.Delete(path);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Couldn't delete stale splash file '{path}': {ex.Message}");
-        }
-    }
+    internal static void TryDelete(string path) =>
+        FileCleanup.TryDelete(path, ex => Log.Warn($"Couldn't delete stale splash file '{path}': {ex.Message}"));
 
     /// <summary>The handle returned by <see cref="Prepare(SplashConfig)"/>: it owns the
     /// staged sidecar copies until the caller either commits them over the live files

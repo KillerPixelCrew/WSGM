@@ -90,7 +90,7 @@ internal static class ConfigMigrations
         GameModeLaunchConfiguration launch = new();
         // Fixed profiles first, so an enabled route binding's own layout replaces them rather than
         // merging with them. The two were independent features and could disagree.
-        if (mode?.GetValue<string>() == nameof(LegacyDisplayManagement.FixedProfiles))
+        if (mode?.GetValue<string>() == LegacyFixedProfiles)
         {
             (launch.GameLayout, launch.DesktopLayout) = FromFixedProfiles(profiles as JsonArray);
         }
@@ -208,12 +208,6 @@ internal static class ConfigMigrations
         catch (NotSupportedException) { return null; }
     }
 
-    /// <summary>The retired display-management values, as the strings a stored file holds.</summary>
-    private enum LegacyDisplayManagement
-    {
-        Off,
-        DpiOnly,
-        AutomaticProfiles,
-        FixedProfiles,
-    }
+    /// <summary>The retired display-management value whose stored layouts migrate, as a file holds it.</summary>
+    private const string LegacyFixedProfiles = "FixedProfiles";
 }

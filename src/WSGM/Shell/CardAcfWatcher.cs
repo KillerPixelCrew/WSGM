@@ -165,8 +165,8 @@ internal sealed class CardAcfWatcher : IDisposable
             {
                 return;
             }
-            _debounce?.Dispose();
-            _debounce = new Timer(_ => _ = SyncAsync(), null, 2000, Timeout.Infinite);
+            _debounce ??= new Timer(_ => _ = SyncAsync(), null, Timeout.Infinite, Timeout.Infinite);
+            _debounce.Change(2000, Timeout.Infinite);
         }
     }
 

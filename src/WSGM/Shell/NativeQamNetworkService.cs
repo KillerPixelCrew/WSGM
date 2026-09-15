@@ -66,18 +66,16 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
     }
 
     /// <summary>Unsubscribes from scan results and stops the sweep, on the UI thread.</summary>
-    internal Task StopScanningAsync() => NativeQamUi.RunAsync(() =>
-    {
-        _radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
-        _radios.StopScanning();
-    });
+    internal Task StopScanningAsync() => NativeQamUi.RunAsync(StopScanningCore);
 
     /// <summary>Posts the scan stop without waiting, for callers on arbitrary threads.</summary>
-    internal void PostStopScanning() => Dispatcher.UIThread.Post(() =>
+    internal void PostStopScanning() => Dispatcher.UIThread.Post(StopScanningCore);
+
+    private void StopScanningCore()
     {
         _radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
         _radios.StopScanning();
-    });
+    }
 
     /// <summary>Reads the network state to publish.</summary>
     /// <param name="indicatorEnabled">Whether the connected AP joins the scanned list.</param>

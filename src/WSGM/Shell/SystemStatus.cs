@@ -50,6 +50,7 @@ public sealed class SystemStatus : ObservableObject, IDisposable
     private DispatcherTimer? _timer;
     private bool _disposed;
 
+    private long _formattedMinute = -1;
     private string _clockText = "";
     /// <summary>Gets the current time of day, e.g. "21:37".</summary>
     public string ClockText
@@ -179,8 +180,14 @@ public sealed class SystemStatus : ObservableObject, IDisposable
     private void Refresh()
     {
         var now = DateTime.Now;
-        ClockText = FormatClock(now);
-        DateText = FormatDate(now, CultureInfo.CurrentCulture);
+        long minute = now.Ticks / TimeSpan.TicksPerMinute;
+        if (minute != _formattedMinute)
+        {
+            // Both change at most once a minute; formatting them on every tick only allocates.
+            _formattedMinute = minute;
+            ClockText = FormatClock(now);
+            DateText = FormatDate(now, CultureInfo.CurrentCulture);
+        }
 
         var ok = WindowsDeviceControl.WindowsPower.TryGetStatus(out var power);
         var (hasBattery, percent, text) = InterpretBattery(ok, power.BatteryFlag, power.BatteryLifePercent);
