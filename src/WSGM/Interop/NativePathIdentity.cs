@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
+using static WSGM.Interop.Kernel32;
 
 namespace WSGM.Interop;
 
@@ -18,18 +19,11 @@ internal readonly record struct NativePathInformation(
 /// <summary>Reads filesystem identity without following application-owned path conventions.</summary>
 internal static partial class NativePathIdentityReader
 {
-    private const uint FileShareRead = 0x00000001;
-    private const uint FileShareWrite = 0x00000002;
-    private const uint FileShareDelete = 0x00000004;
-    private const uint OpenExisting = 3;
-    private const uint FileFlagBackupSemantics = 0x02000000;
-    private const int ErrorFileNotFound = 2;
-    private const int ErrorPathNotFound = 3;
 
     /// <summary>Returns the identity of an existing file or directory, or null when it is absent.</summary>
     internal static NativePathIdentity? Read(string path)
     {
-        nint rawHandle = CreateFileW(
+        nint rawHandle = CreateFileHandleW(
             path,
             0,
             FileShareRead | FileShareWrite | FileShareDelete,
@@ -116,17 +110,6 @@ internal static partial class NativePathIdentityReader
         public uint FileIndexHigh;
         public uint FileIndexLow;
     }
-
-    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true,
-        StringMarshalling = StringMarshalling.Utf16)]
-    private static partial nint CreateFileW(
-        string fileName,
-        uint desiredAccess,
-        uint shareMode,
-        nint securityAttributes,
-        uint creationDisposition,
-        uint flagsAndAttributes,
-        nint templateFile);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     private static partial int GetFileInformationByHandle(

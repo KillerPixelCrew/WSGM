@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
+using static WSGM.Interop.Kernel32;
 
 namespace WSGM.Interop;
 
@@ -235,29 +236,11 @@ internal sealed partial class NativePackageSource : IDisposable
         NativePathIdentity Identity,
         long Length);
 
-    private const uint GenericRead = 0x80000000;
     private const uint FileReadAttributes = 0x00000080;
-    private const uint FileShareRead = 0x00000001;
-    private const uint FileShareWrite = 0x00000002;
-    private const uint OpenExisting = 3;
     private const uint FileAttributeDirectory = 0x00000010;
     private const uint FileAttributeReparsePoint = 0x00000400;
     private const uint FileFlagSequentialScan = 0x08000000;
-    private const uint FileFlagBackupSemantics = 0x02000000;
     private const uint FileFlagOpenReparsePoint = 0x00200000;
-    private const int ErrorFileNotFound = 2;
-    private const int ErrorPathNotFound = 3;
-
-    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true,
-        StringMarshalling = StringMarshalling.Utf16)]
-    private static partial nint CreateFileW(
-        string fileName,
-        uint desiredAccess,
-        uint shareMode,
-        nint securityAttributes,
-        uint creationDisposition,
-        uint flagsAndAttributes,
-        nint templateFile);
 
     private static SafeFileHandle OpenPath(
         string path,
@@ -265,7 +248,7 @@ internal sealed partial class NativePackageSource : IDisposable
         uint shareMode,
         uint flags)
     {
-        nint handle = CreateFileW(
+        nint handle = CreateFileHandleW(
             path,
             desiredAccess,
             shareMode,

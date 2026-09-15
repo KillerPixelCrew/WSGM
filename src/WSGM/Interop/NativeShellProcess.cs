@@ -12,7 +12,6 @@ internal static partial class NativeShellProcess
     private const uint ProcessCreateProcess = 0x0080;
     private const uint ProcessQueryLimitedInformation = 0x1000;
     private const uint TokenDuplicate = 0x0002;
-    private const uint TokenQuery = 0x0008;
     private const int TokenIntegrityLevel = 25;
     private const uint CreateUnicodeEnvironment = 0x00000400;
     private const uint ExtendedStartupInfoPresent = 0x00080000;
@@ -99,7 +98,7 @@ internal static partial class NativeShellProcess
             return false;
         }
 
-        if (!NativeMethods.OpenProcessToken(process, TokenQuery | TokenDuplicate, out nint token))
+        if (!NativeMethods.OpenProcessToken(process, NativeMethods.TokenQuery | TokenDuplicate, out nint token))
         {
             error = Marshal.GetLastPInvokeError();
             NativeMethods.CloseHandle(process);
@@ -249,7 +248,7 @@ internal static partial class NativeShellProcess
 
     private static unsafe NativeIntegrityLevel QueryIntegrity(nint process, out int error)
     {
-        if (!NativeMethods.OpenProcessToken(process, TokenQuery, out nint token))
+        if (!NativeMethods.OpenProcessToken(process, NativeMethods.TokenQuery, out nint token))
         {
             error = Marshal.GetLastPInvokeError();
             return NativeIntegrityLevel.Unknown;

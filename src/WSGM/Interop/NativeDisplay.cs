@@ -14,7 +14,6 @@ internal static unsafe partial class NativeDisplay
     internal const int SetDpiScaleType = -4;
     internal const int GetSourceNameType = 1;   // DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME
     internal const uint QdcOnlyActivePaths = 0x00000002;
-    internal const int ErrorInsufficientBuffer = 122;
 
     internal const uint EnumCurrentSettings = 0xFFFFFFFF;
     internal const uint DmPelsWidth = 0x00080000;

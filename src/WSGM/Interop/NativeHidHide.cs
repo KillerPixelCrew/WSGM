@@ -3,18 +3,16 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
+using static WSGM.Interop.Kernel32;
 
 namespace WSGM.Interop;
 
 internal static partial class NativeHidHide
 {
     private const string ControlDevice = "\\\\.\\HidHide";
-    private const uint GenericRead = 0x80000000;
     private const uint ShareReadWriteDelete = 0x00000007;
-    private const uint OpenExisting = 3;
     private const int InitialBufferBytes = 4096;
     private const int MaximumBufferBytes = 1024 * 1024;
-    private const int ErrorInsufficientBuffer = 122;
     private const int ErrorMoreData = 234;
 
     // These values are the CTL_CODE values published by HidHide's FilterDriverProxy.
@@ -216,17 +214,6 @@ internal static partial class NativeHidHide
 
         return Encoding.Unicode.GetBytes(builder.ToString());
     }
-
-    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true,
-        StringMarshalling = StringMarshalling.Utf16)]
-    private static partial SafeFileHandle CreateFileW(
-        string fileName,
-        uint desiredAccess,
-        uint shareMode,
-        nint securityAttributes,
-        uint creationDisposition,
-        uint flagsAndAttributes,
-        nint templateFile);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

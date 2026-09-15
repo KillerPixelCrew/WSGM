@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
+using static WSGM.Interop.Kernel32;
 
 namespace WSGM.Interop;
 
@@ -60,10 +61,7 @@ internal static unsafe partial class NativeStorage
     private const uint IoctlStorageMediaRemoval = 0x2D4804;
     private const uint IoctlStorageEjectMedia = 0x2D4808;
 
-    private const uint GenericRead = 0x80000000;
-    private const uint GenericWrite = 0x40000000;
-    private const uint FileShareReadWrite = 0x3;
-    private const uint OpenExisting = 3;
+    private const uint FileShareReadWrite = FileShareRead | FileShareWrite;
 
     /// <summary>GUID_DEVINTERFACE_DISK: every present disk exposes one of these
     /// interfaces; enumerating them is how a volume's device number becomes a
@@ -122,12 +120,6 @@ internal static unsafe partial class NativeStorage
     }
 
     // ---- kernel32 ----
-
-    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true,
-        StringMarshalling = StringMarshalling.Utf16)]
-    private static partial SafeFileHandle CreateFileW(
-        string fileName, uint desiredAccess, uint shareMode, nint securityAttributes,
-        uint creationDisposition, uint flagsAndAttributes, nint templateFile);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -696,11 +688,6 @@ internal static unsafe partial class NativeStorage
 
     // ---- volume-arrival broadcast ----
 
-    [LibraryImport("user32.dll", EntryPoint = "SendMessageTimeoutW", SetLastError = true)]
-    private static partial nint SendMessageTimeoutW(
-        nint hWnd, uint msg, nuint wParam, nint lParam, uint flags, uint timeout,
-        out nuint result);
-
     /// <summary>Broadcasts a synthetic volume-arrival notification
     /// (WM_DEVICECHANGE / DBT_DEVICEARRIVAL / DEV_BROADCAST_VOLUME) for a drive
     /// letter — the same message a real card insertion generates. Used after the
@@ -725,7 +712,7 @@ internal static unsafe partial class NativeStorage
         BitConverter.TryWriteBytes(new Span<byte>(broadcast, 4), 20);
         BitConverter.TryWriteBytes(new Span<byte>(broadcast + 4, 4), DbtDevTypVolume);
         BitConverter.TryWriteBytes(new Span<byte>(broadcast + 12, 4), 1u << index);
-        SendMessageTimeoutW(0xFFFF, WmDeviceChange, DbtDeviceArrival, (nint)broadcast,
+        NativeMethods.SendMessageTimeoutW(0xFFFF, WmDeviceChange, (nint)DbtDeviceArrival, (nint)broadcast,
             SmtoAbortIfHung, 1000, out _);
     }
 
