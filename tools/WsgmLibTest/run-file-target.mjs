@@ -1,51 +1,12 @@
-// Evaluate a JS file in a named CEF target (default the Big Picture window).
-//   node run-file-target.mjs "Big-Picture-Modus" <file.js>
-import { readFileSync } from "node:fs";
+// Evaluate a JS file in a named CEF target, for example the Big Picture window. Same as
+// run-file.mjs --target <title>.
+//   node run-file-target.mjs "Big-Picture-Modus" <file.js> [--section <name>]
+import { parseArguments, runFile } from "./cdp.mjs";
 
-const PORT = 8080;
-const title = process.argv[2];
-const file = process.argv[3];
-if (!title || !file) {
-  console.error("usage: node run-file-target.mjs <title> <file.js>");
+const usage = "usage: node run-file-target.mjs <title> <file.js> [--section <name>]";
+const { positional, options } = parseArguments(process.argv.slice(2), ["section"], usage);
+if (positional.length !== 2) {
+  console.error(usage);
   process.exit(1);
 }
-const expression = readFileSync(file, "utf8");
-
-const res = await fetch(`http://localhost:${PORT}/json`);
-const targets = await res.json();
-const t = targets.find((x) => x.title === title);
-if (!t) {
-  console.error("target not found:", title, "— have:", targets.map((x) => x.title).join(", "));
-  process.exit(1);
-}
-
-const ws = new WebSocket(t.webSocketDebuggerUrl);
-ws.onopen = () =>
-  ws.send(
-    JSON.stringify({
-      id: 1,
-      method: "Runtime.evaluate",
-      params: {
-        expression,
-        awaitPromise: true,
-        returnByValue: true,
-        allowUnsafeEvalBlockedByCSP: true,
-        userGesture: true,
-      },
-    }),
-  );
-ws.onmessage = (ev) => {
-  const m = JSON.parse(ev.data);
-  if (m.id === 1) {
-    if (m.error) console.log("CDP ERROR", JSON.stringify(m.error));
-    else console.log(m.result && m.result.result && m.result.result.value);
-    try {
-      ws.close();
-    } catch {}
-    process.exit(0);
-  }
-};
-setTimeout(() => {
-  console.log("timeout");
-  process.exit(1);
-}, 20000);
+await runFile(positional[1], { target: positional[0], section: options.section });

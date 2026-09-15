@@ -5,71 +5,15 @@
 //   node cdp-eval.mjs list                         GetInstallFolders summary
 // Requires Steam launched with .cef-enable-remote-debugging.
 
-const PORT = 8080;
+import { evaluate, findTarget, jsStringLiteral, probeParams } from "./cdp.mjs";
 
-async function findSharedJsContext() {
-  const res = await fetch(`http://localhost:${PORT}/json`);
-  const targets = await res.json();
-  const t = targets.find((x) => x.title === "SharedJSContext");
-  if (!t) throw new Error("SharedJSContext target not found");
-  return t.webSocketDebuggerUrl;
-}
-
-function evalInContext(wsUrl, expression) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl);
-    const timer = setTimeout(() => {
-      try {
-        ws.close();
-      } catch {}
-      reject(new Error("timeout"));
-    }, 20000);
-    ws.onopen = () => {
-      ws.send(
-        JSON.stringify({
-          id: 1,
-          method: "Runtime.evaluate",
-          params: {
-            expression,
-            awaitPromise: true,
-            returnByValue: true,
-            allowUnsafeEvalBlockedByCSP: true,
-            userGesture: true,
-          },
-        }),
-      );
-    };
-    ws.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data);
-      if (msg.id === 1) {
-        clearTimeout(timer);
-        try {
-          ws.close();
-        } catch {}
-        if (msg.error) return reject(new Error(JSON.stringify(msg.error)));
-        const r = msg.result;
-        if (r.exceptionDetails)
-          return reject(new Error("JS exception: " + JSON.stringify(r.exceptionDetails)));
-        resolve(r.result.value);
-      }
-    };
-    ws.onerror = (e) => {
-      clearTimeout(timer);
-      reject(new Error("ws error: " + (e.message || e)));
-    };
-  });
-}
-
-// JSON.stringify produces a correct JS string literal with escaped backslashes,
-// so the path reaches AddInstallFolder intact (e.g. "Z:\\SteamLibrary") — except
-// for three characters that are legal in a JSON string but change meaning when
-// the literal is spliced into source code: "<" (can close a script context) and
-// the U+2028/U+2029 line separators. Escape those too.
-function jsStringLiteral(value) {
-  return JSON.stringify(value)
-    .replace(/</g, "\\u003C")
-    .replace(/\u2028/g, "\\u2028")
-    .replace(/\u2029/g, "\\u2029");
+// Resolves with the returned value; a CDP error or a JavaScript exception rejects.
+async function evalInContext(wsUrl, expression) {
+  const msg = await evaluate(wsUrl, probeParams(expression));
+  if (msg.error) throw new Error(JSON.stringify(msg.error));
+  const r = msg.result;
+  if (r.exceptionDetails) throw new Error("JS exception: " + JSON.stringify(r.exceptionDetails));
+  return r.result.value;
 }
 
 function buildExpression(cmd, arg) {
@@ -96,7 +40,7 @@ if (!cmd) {
 }
 
 try {
-  const wsUrl = await findSharedJsContext();
+  const wsUrl = await findTarget();
   const value = await evalInContext(wsUrl, buildExpression(cmd, arg));
   console.log(typeof value === "string" ? value : JSON.stringify(value, null, 2));
 } catch (e) {

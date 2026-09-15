@@ -1,8 +1,7 @@
 // Live end-to-end SteamGridDB apply test.
 //   node art-test.mjs <appid> <assetType 0grid 1hero 2logo 3wide>
-import { readFileSync } from "node:fs";
+import { evaluate, findTarget } from "./cdp.mjs";
 
-const PORT = 8080;
 // Provide your SteamGridDB API key via the SGDB_KEY env var (never hardcode it).
 const KEY = process.env.SGDB_KEY || "";
 if (!KEY) {
@@ -38,28 +37,14 @@ const expr =
   `await SteamClient.Apps.SetCustomArtworkForApp(${APPID},"${b64}","${ext}",${TYPE});` +
   `return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false,err:String(e)});}})()`;
 
-const res = await fetch(`http://localhost:${PORT}/json`);
-const t = (await res.json()).find((x) => x.title === "SharedJSContext");
-const ws = new WebSocket(t.webSocketDebuggerUrl);
-ws.onopen = () =>
-  ws.send(
-    JSON.stringify({
-      id: 1,
-      method: "Runtime.evaluate",
-      params: { expression: expr, awaitPromise: true, returnByValue: true },
-    }),
-  );
-ws.onmessage = (ev) => {
-  const m = JSON.parse(ev.data);
-  if (m.id === 1) {
-    console.log("apply:", m.error ? JSON.stringify(m.error) : m.result?.result?.value);
-    try {
-      ws.close();
-    } catch {}
-    process.exit(0);
-  }
-};
-setTimeout(() => {
+const m = await evaluate(
+  await findTarget(),
+  { expression: expr, awaitPromise: true, returnByValue: true },
+  25000,
+).catch((e) => {
+  if (e.message !== "timeout") throw e;
   console.log("timeout");
   process.exit(1);
-}, 25000);
+});
+console.log("apply:", m.error ? JSON.stringify(m.error) : m.result?.result?.value);
+process.exit(0);
