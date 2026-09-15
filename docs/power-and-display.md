@@ -37,25 +37,13 @@ power-mode overlays. GUIDs identify schemes; localized friendly names are displa
 empty name falls back to the GUID. Enumeration failures are surfaced rather than returning a partial
 list. The existing idle-timeout controls share its active-scheme reader.
 
-### Keeping the display awake while a game runs
+### No automatic display hold for running applications
 
-`Core\GameplayDisplayHold` holds a Windows DISPLAY power request while a game is running and
-releases it the moment one is not. `ShellSession` drives it from the same running-application
-snapshot AutoTDP uses, and disposal releases it so a session torn down mid-game cannot leave Windows
-holding the display for a process that is gone.
-
-This exists because Windows feeds its idle timer from the raw keyboard and mouse stream and a HID
-gamepad is not part of it. A controller-only session looks idle however hard it is being played.
-Measured on the reference handheld on 2026-09-10 with Big Picture in the foreground:
-`powercfg /requests` listed a DISPLAY request from RustDesk and from nothing else — neither Steam
-nor the title registers one — while the display idle timeout read 60 seconds on both AC and battery.
-That combination turns the screen off on top of a running game, and it does so with or without the
-Steam Input Lease, which is what #69 suspected.
-
-The hold is scoped to a running application, never to WSGM's lifetime, so it cannot become a
-permanent keep-awake. It is a DISPLAY request and not a SYSTEM one: the complaint is the screen
-going dark, and stopping standby as well would take a decision away from the user that this is not
-entitled to take. The Power tab's manual Keep Awake is separate and unaffected.
+WSGM does not hold a DISPLAY power request because an application is running. Applications keep
+the display awake themselves, at least through audio output. An automatic hold tied to the
+running-application snapshot became permanent on the desktop, where any foreground application is
+Active so the frame limit can apply. The Power tab's manual Keep Awake is the only display hold WSGM
+takes.
 
 ### Sleeping again after an unexplained wake
 
