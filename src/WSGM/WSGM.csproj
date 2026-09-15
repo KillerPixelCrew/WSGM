@@ -58,10 +58,10 @@
           Link="%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />
-    <!-- steam-input-lease.exe is deliberately NOT shipped: WSGM.Launch.exe is the
+    <!-- steam-input-lease.exe is deliberately NOT shipped: WSGM.Launch.exe is WSGM's
          single user-facing wrapper and links the canonical binding source, so it
-         holds the lease itself and carries the CLI's status/rescan diagnostics.
-         The Rust CLI stays a development tool inside external\steam-input-lease. -->
+         holds the lease itself and carries the launcher's status/rescan diagnostics.
+         The Rust launcher belongs to the library's standalone download. -->
     <None Include="Native\SteamInputLease\*.txt"
           Condition="'$(SkipNativeArtifacts)' != 'true'"
           Link="%(Filename)%(Extension)"

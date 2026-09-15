@@ -79,6 +79,12 @@ public static class SteamInputShim
     private const string ParkedExtension = ".dlld";
 
     /// <summary>Extension of the sidecar carrying the version stamp.</summary>
+    /// <remarks>
+    /// The gate also looks for this sidecar beside its own image. When it is present the
+    /// startup trace goes to <see cref="Log.Directory"/>, where <see cref="StartupTracePath"/>
+    /// expects it; without it the trace goes beside the DLL, as in the library's standalone
+    /// download. Renaming the extension moves WSGM's traces into Steam's folder.
+    /// </remarks>
     private const string MarkerExtension = ".wsgm-shim";
 
     /// <summary>Marker format this build writes and accepts.</summary>

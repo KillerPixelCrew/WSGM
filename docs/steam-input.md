@@ -113,12 +113,20 @@ Steam is later started by hand for comparison.
 | `control pipe listening`                                                  | gate initialization finished                                                       |
 | `Steam Input lease acquired via ...` / `Steam Input lease released (...)` | the WSGM-side events in `wsgm.log`; keep them for device reports                   |
 
-The gate's control pipe carries the DACL `D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;<token owner>)`: full
-access for System, administrators and the token owner, so a read-only open cannot consume a pipe
-instance and its worker. The owner comes from `GetTokenInformation(TokenOwner)` because
-`CREATOR OWNER` is not expanded in a directly applied DACL. If token lookup or SDDL conversion
-fails, the pipe uses the Windows default descriptor so blocking stays available; the trace says
-which descriptor was used.
+The gate finds that directory through the `.wsgm-shim` stamp `SteamInputShim` writes beside the
+proxy. Without the stamp it traces beside its own DLL, as the library's standalone download does, so
+a gate injected through `--input-lease-inject` writes `steam-input-gate-<steam-pid>.log` beside
+`WSGM.exe`.
+
+The gate's control pipe carries the DACL
+`D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;<token owner>)(A;;FA;;;<token user>)`, leaving out the user
+entry when it is also the owner: full access for System, administrators and Steam's account, so a
+read-only open cannot consume a pipe instance and its worker. Both SIDs come from
+`GetTokenInformation` because `CREATOR OWNER` is not expanded in a directly applied DACL. The user
+entry keeps unelevated clients working when Steam runs elevated, because an elevated token is owned
+by Administrators. If token lookup or SDDL conversion fails, the pipe uses the Windows default
+descriptor so blocking stays available; the trace says which descriptor was used. Clients connect
+with identification-level impersonation and refuse a pipe whose server is not the Steam process.
 
 ## Temporary Steam controller ownership
 

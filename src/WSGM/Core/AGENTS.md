@@ -39,7 +39,8 @@ remains in its feature scope.
 - WSGM owns product policy and overlay coordination; steam-ui-toolkit owns reusable Steam discovery
   and hook mechanics. Fix behavior in the correct repository.
 - The Steam Input shim is owned only when the deployed bytes contain the WSGM proxy signature. A
-  sidecar file is never proof of ownership.
+  sidecar file is never proof of ownership. The gate does read the `.wsgm-shim` stamp's presence to
+  keep its startup trace in the WSGM log directory, so keep that extension stable.
 - Do not overwrite or move over a mapped Steam DLL. Replace a stale shim only during a proven Steam
   cold start; otherwise record UpdatePending and reconcile later.
 - Reconcile shim state outside the ConfigStore lock and preserve the explicit elevation fallback.
