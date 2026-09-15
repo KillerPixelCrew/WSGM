@@ -1,3 +1,4 @@
+using Avalonia.VisualTree;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -39,7 +40,8 @@ internal sealed class DisplayModeView : StackPanel
         _refresh.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<int>((hz, _) => new TextBlock { Text = $"{hz} Hz" });
         _resolution.SelectionChanged += (_, _) => { if (!_synchronizing) { UpdateRates(); } };
         _apply.Click += async (_, _) => await ApplyAsync();
-        _timer.Tick += async (_, _) => await ReadAsync();
+        // A hidden page keeps its controls in the tree for the sheet's life; skip the tick there.
+        _timer.Tick += async (_, _) => { if (this.GetVisualParent() is { IsEffectivelyVisible: false }) { return; } await ReadAsync(); };
         AttachedToVisualTree += async (_, _) => { _timer.Start(); await ReadAsync(); };
         DetachedFromVisualTree += (_, _) => { _closed = true; _timer.Stop(); };
     }

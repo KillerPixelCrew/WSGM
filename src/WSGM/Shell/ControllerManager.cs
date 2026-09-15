@@ -518,7 +518,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             {
                 if (!toSteam)
                 {
-                    UiSampleReceived?.Invoke(sample with { Buttons = uiButtons });
+                    UiSampleReceived?.Invoke(uiButtons == sample.Buttons ? sample : sample with { Buttons = uiButtons });
                 }
                 return false;
             }

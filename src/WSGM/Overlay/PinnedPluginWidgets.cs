@@ -1,3 +1,4 @@
+using Avalonia.VisualTree;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -126,7 +127,8 @@ internal sealed class PinnedPluginWidgets : StackPanel
             }
         }
         DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(1) };
-        timer.Tick += async (_, _) => await RefreshAsync();
+        // A hidden page keeps its controls in the tree for the sheet's life; skip the tick there.
+        timer.Tick += async (_, _) => { if (this.GetVisualParent() is { IsEffectivelyVisible: false }) { return; } await RefreshAsync(); };
         AttachedToVisualTree += async (_, _) => { timer.Start(); await RefreshAsync(); };
         DetachedFromVisualTree += (_, _) => { closed = true; timer.Stop(); };
     }

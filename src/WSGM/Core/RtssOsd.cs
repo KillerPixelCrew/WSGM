@@ -520,6 +520,10 @@ internal sealed class LhmSensorReader : IDisposable
 
     private MemoryMappedFile? _map;
     private MemoryMappedViewAccessor? _view;
+    // Kept across samples: a fresh multi-megabyte array each second landed on the large object heap,
+    // and reopening the named mutex every read cost a kernel round trip for the same object.
+    private byte[] _buffer = [];
+    private Mutex? _gate;
     private bool _disposed;
 
     /// <summary>Reads the current sensor XML, or null while the provider is not publishing.</summary>
@@ -533,14 +537,13 @@ internal sealed class LhmSensorReader : IDisposable
 
         try
         {
-            Mutex? gate = null;
             bool held = false;
             try
             {
                 try
                 {
-                    gate = Mutex.OpenExisting(MutexName);
-                    held = gate.WaitOne(TimeSpan.FromMilliseconds(200));
+                    _gate ??= Mutex.OpenExisting(MutexName);
+                    held = _gate.WaitOne(TimeSpan.FromMilliseconds(200));
                 }
                 catch (Exception ex) when (ex is WaitHandleCannotBeOpenedException
                     or UnauthorizedAccessException or AbandonedMutexException)
@@ -550,25 +553,26 @@ internal sealed class LhmSensorReader : IDisposable
                     held = ex is AbandonedMutexException;
                 }
 
-                long capacity = _view!.Capacity;
-                byte[] buffer = new byte[Math.Min(capacity, 4 * 1024 * 1024)];
-                _view.ReadArray(0, buffer, 0, buffer.Length);
-                int length = Array.IndexOf(buffer, (byte)0);
+                int size = (int)Math.Min(_view!.Capacity, 4 * 1024 * 1024);
+                if (_buffer.Length != size)
+                {
+                    _buffer = new byte[size];
+                }
+                _view.ReadArray(0, _buffer, 0, size);
+                int length = Array.IndexOf(_buffer, (byte)0);
                 if (length <= 0)
                 {
                     return null;
                 }
 
-                return Encoding.UTF8.GetString(buffer, 0, length);
+                return Encoding.UTF8.GetString(_buffer, 0, length);
             }
             finally
             {
                 if (held)
                 {
-                    gate?.ReleaseMutex();
+                    _gate?.ReleaseMutex();
                 }
-
-                gate?.Dispose();
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
@@ -618,6 +622,8 @@ internal sealed class LhmSensorReader : IDisposable
         _view = null;
         _map?.Dispose();
         _map = null;
+        _gate?.Dispose();
+        _gate = null;
     }
 }
 

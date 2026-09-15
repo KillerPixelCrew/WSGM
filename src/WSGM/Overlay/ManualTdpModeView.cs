@@ -1,3 +1,4 @@
+using Avalonia.VisualTree;
 using System;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -36,7 +37,8 @@ internal sealed class ManualTdpModeView : StackPanel
             finally { writing = false; Refresh(); }
         };
         DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
-        timer.Tick += (_, _) => Refresh();
+        // A hidden page keeps its controls in the tree for the sheet's life; skip the tick there.
+        timer.Tick += (_, _) => { if (this.GetVisualParent() is { IsEffectivelyVisible: false }) { return; } Refresh(); };
         AttachedToVisualTree += (_, _) => { closed = false; Refresh(); timer.Start(); };
         DetachedFromVisualTree += (_, _) => { closed = true; timer.Stop(); };
     }

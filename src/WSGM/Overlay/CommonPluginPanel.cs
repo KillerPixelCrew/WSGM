@@ -1,3 +1,4 @@
+using Avalonia.VisualTree;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -24,7 +25,7 @@ internal sealed class CommonPluginPanel : StackPanel
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly List<Action> _refresh = [];
     private readonly CancellationTokenSource _closed = new();
-    private string _structure = "\0";
+    private (PluginInstanceIdentity Identity, long Generation, bool HasControls, string? Error)[]? _structure;
     private readonly PluginWidgetPin? _widget;
     private readonly bool _pinsOnly;
     private readonly Func<Task<PluginWidgetPin[]>>? _readPins;
@@ -40,7 +41,8 @@ internal sealed class CommonPluginPanel : StackPanel
         _readPins = readPins;
         _navigate = navigate;
         Spacing = 8;
-        _timer.Tick += (_, _) => Refresh();
+        // A hidden page keeps its controls in the tree for the sheet's life; skip the tick there.
+        _timer.Tick += (_, _) => { if (this.GetVisualParent() is { IsEffectivelyVisible: false }) { return; } Refresh(); };
         AttachedToVisualTree += (_, _) => { Refresh(); _timer.Start(); };
         DetachedFromVisualTree += (_, _) => { _timer.Stop(); _closed.Cancel(); };
     }
@@ -54,11 +56,10 @@ internal sealed class CommonPluginPanel : StackPanel
             instances = instances.Where(instance => instance.Identity.PluginId == pin.PluginId
                 && instance.Identity.InstanceId == pin.InstanceId).ToArray();
         }
-        string structure = string.Join("|", instances.Select(instance =>
-            $"{instance.Identity}:{instance.Generation}:{instance.Controls is not null}:{instance.Error}"));
-        if (structure != _structure)
+        if (!SameStructure(instances))
         {
-            _structure = structure;
+            _structure = [.. instances.Select(instance =>
+                (instance.Identity, instance.Generation, instance.Controls is not null, instance.Error))];
             Children.Clear();
             _refresh.Clear();
             _categories.Clear();
@@ -68,6 +69,24 @@ internal sealed class CommonPluginPanel : StackPanel
         }
         IsVisible = _widget is not null || instances.Length > 0;
         foreach (var update in _refresh) { update(); }
+    }
+
+    /// <summary>Whether the instances still have the shape the rows were built for.</summary>
+    private bool SameStructure(PluginOverlayInstance[] instances)
+    {
+        if (_structure is null || _structure.Length != instances.Length)
+        {
+            return false;
+        }
+        for (int index = 0; index < instances.Length; index++)
+        {
+            PluginOverlayInstance instance = instances[index];
+            if (_structure[index] != (instance.Identity, instance.Generation, instance.Controls is not null, instance.Error))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void AddInstance(PluginOverlayInstance instance)

@@ -824,7 +824,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             return;
         }
 
-        foreach (Action<T> handler in handlers.GetInvocationList().Cast<Action<T>>())
+        foreach (Action<T> handler in Delegate.EnumerateInvocationList(handlers))
         {
             try
             {
