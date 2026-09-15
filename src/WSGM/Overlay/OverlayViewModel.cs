@@ -15,28 +15,28 @@ public sealed class OverlayViewModel : ObservableObject
     public bool ExplorerRunning
     {
         get => _explorerRunning;
-        set { _explorerRunning = value; Raise(nameof(ExplorerRunning)); Raise(nameof(DesktopButtonText)); }
+        set { if (SetFieldIfChanged(ref _explorerRunning, value, nameof(ExplorerRunning))) { Raise(nameof(DesktopButtonText)); } }
     }
 
     /// <summary>Gets or sets whether the configured home application has a live process.</summary>
     public bool HomeAppAlive
     {
         get => _homeAppAlive;
-        set { _homeAppAlive = value; Raise(nameof(HomeAppAlive)); Raise(nameof(HomeAppButtonText)); }
+        set { if (SetFieldIfChanged(ref _homeAppAlive, value, nameof(HomeAppAlive))) { Raise(nameof(HomeAppButtonText)); } }
     }
 
     /// <summary>Gets or sets the configured home application's display name.</summary>
     public string HomeAppName
     {
         get => _homeAppName;
-        set { _homeAppName = value; Raise(nameof(HomeAppName)); Raise(nameof(HomeAppButtonText)); Raise(nameof(CloseLauncherText)); }
+        set { if (SetFieldIfChanged(ref _homeAppName, value, nameof(HomeAppName))) { Raise(nameof(HomeAppButtonText)); Raise(nameof(CloseLauncherText)); } }
     }
 
     /// <summary>Gets or sets the non-fatal warning displayed by the overlay.</summary>
     public string WarningText
     {
         get => _warningText;
-        set { _warningText = value; Raise(nameof(WarningText)); Raise(nameof(HasWarning)); }
+        set { if (SetFieldIfChanged(ref _warningText, value, nameof(WarningText))) { Raise(nameof(HasWarning)); } }
     }
 
     /// <summary>Gets whether a warning should be rendered.</summary>
@@ -46,7 +46,7 @@ public sealed class OverlayViewModel : ObservableObject
     public GlyphStyle GlyphStyle
     {
         get => _glyphStyle;
-        set => SetField(ref _glyphStyle, value, nameof(GlyphStyle));
+        set => SetFieldIfChanged(ref _glyphStyle, value, nameof(GlyphStyle));
     }
 
     private bool _confirmingCloseLauncher;
@@ -87,10 +87,11 @@ public sealed class OverlayViewModel : ObservableObject
         get => _keepAwakeManualMode;
         set
         {
-            _keepAwakeManualMode = value;
-            Raise(nameof(KeepAwakeManualMode));
-            Raise(nameof(KeepAwakeDescription));
-            Raise(nameof(KeepAwakeTrailing));
+            if (SetFieldIfChanged(ref _keepAwakeManualMode, value, nameof(KeepAwakeManualMode)))
+            {
+                Raise(nameof(KeepAwakeDescription));
+                Raise(nameof(KeepAwakeTrailing));
+            }
         }
     }
 
@@ -100,10 +101,11 @@ public sealed class OverlayViewModel : ObservableObject
         get => _keepAwakeDownload;
         set
         {
-            _keepAwakeDownload = value;
-            Raise(nameof(KeepAwakeDownloadActive));
-            Raise(nameof(KeepAwakeDescription));
-            Raise(nameof(KeepAwakeTrailing));
+            if (SetFieldIfChanged(ref _keepAwakeDownload, value, nameof(KeepAwakeDownloadActive)))
+            {
+                Raise(nameof(KeepAwakeDescription));
+                Raise(nameof(KeepAwakeTrailing));
+            }
         }
     }
 
@@ -115,9 +117,10 @@ public sealed class OverlayViewModel : ObservableObject
         get => _wakeLockSummary;
         set
         {
-            _wakeLockSummary = value;
-            Raise(nameof(WakeLockSummary));
-            Raise(nameof(KeepAwakeDescription));
+            if (SetFieldIfChanged(ref _wakeLockSummary, value, nameof(WakeLockSummary)))
+            {
+                Raise(nameof(KeepAwakeDescription));
+            }
         }
     }
 
@@ -151,14 +154,14 @@ public sealed class OverlayViewModel : ObservableObject
     public string DisplayDcTimeout
     {
         get => _displayDcTimeout;
-        set => SetField(ref _displayDcTimeout, value, nameof(DisplayDcTimeout));
+        set => SetFieldIfChanged(ref _displayDcTimeout, value, nameof(DisplayDcTimeout));
     }
 
     /// <summary>Current display-off timeout when plugged in.</summary>
     public string DisplayAcTimeout
     {
         get => _displayAcTimeout;
-        set => SetField(ref _displayAcTimeout, value, nameof(DisplayAcTimeout));
+        set => SetFieldIfChanged(ref _displayAcTimeout, value, nameof(DisplayAcTimeout));
     }
 
     /// <summary>What a display-off row says when nothing bounds it.</summary>
@@ -171,28 +174,28 @@ public sealed class OverlayViewModel : ObservableObject
     public string DisplayDcDescription
     {
         get => _displayDcDescription;
-        set => SetField(ref _displayDcDescription, value, nameof(DisplayDcDescription));
+        set => SetFieldIfChanged(ref _displayDcDescription, value, nameof(DisplayDcDescription));
     }
 
     /// <summary>The plugged-in display-off row's description, naming Steam's screensaver bound when there is one.</summary>
     public string DisplayAcDescription
     {
         get => _displayAcDescription;
-        set => SetField(ref _displayAcDescription, value, nameof(DisplayAcDescription));
+        set => SetFieldIfChanged(ref _displayAcDescription, value, nameof(DisplayAcDescription));
     }
 
     /// <summary>Current standby timeout on battery.</summary>
     public string SleepDcTimeout
     {
         get => _sleepDcTimeout;
-        set => SetField(ref _sleepDcTimeout, value, nameof(SleepDcTimeout));
+        set => SetFieldIfChanged(ref _sleepDcTimeout, value, nameof(SleepDcTimeout));
     }
 
     /// <summary>Current standby timeout when plugged in.</summary>
     public string SleepAcTimeout
     {
         get => _sleepAcTimeout;
-        set => SetField(ref _sleepAcTimeout, value, nameof(SleepAcTimeout));
+        set => SetFieldIfChanged(ref _sleepAcTimeout, value, nameof(SleepAcTimeout));
     }
 
     private bool _showLibraryTabs = true;
@@ -211,7 +214,7 @@ public sealed class OverlayViewModel : ObservableObject
     public bool ShowLibraryTabs
     {
         get => _showLibraryTabs;
-        set { _showLibraryTabs = value; Raise(nameof(ShowLibraryTabs)); Raise(nameof(ShowSteamLibrarySection)); }
+        set { if (SetFieldIfChanged(ref _showLibraryTabs, value, nameof(ShowLibraryTabs))) { Raise(nameof(ShowSteamLibrarySection)); } }
     }
 
     /// <summary>Whether the CEF SD-card library-manager button is shown
@@ -221,10 +224,11 @@ public sealed class OverlayViewModel : ObservableObject
         get => _showCardManager;
         set
         {
-            _showCardManager = value;
-            Raise(nameof(ShowCardManager));
-            Raise(nameof(ShowSteamLibrarySection));
-            Raise(nameof(ShowFormatInTools));
+            if (SetFieldIfChanged(ref _showCardManager, value, nameof(ShowCardManager)))
+            {
+                Raise(nameof(ShowSteamLibrarySection));
+                Raise(nameof(ShowFormatInTools));
+            }
         }
     }
 
@@ -233,7 +237,7 @@ public sealed class OverlayViewModel : ObservableObject
     public bool ShowArtwork
     {
         get => _showArtwork;
-        set { _showArtwork = value; Raise(nameof(ShowArtwork)); Raise(nameof(ShowSteamLibrarySection)); }
+        set { if (SetFieldIfChanged(ref _showArtwork, value, nameof(ShowArtwork))) { Raise(nameof(ShowSteamLibrarySection)); } }
     }
 
     /// <summary>Whether the CEF Format-SD-card and Add-library buttons are shown
@@ -243,10 +247,11 @@ public sealed class OverlayViewModel : ObservableObject
         get => _showSdCard;
         set
         {
-            _showSdCard = value;
-            Raise(nameof(ShowSdCard));
-            Raise(nameof(ShowSteamLibrarySection));
-            Raise(nameof(ShowFormatInTools));
+            if (SetFieldIfChanged(ref _showSdCard, value, nameof(ShowSdCard)))
+            {
+                Raise(nameof(ShowSteamLibrarySection));
+                Raise(nameof(ShowFormatInTools));
+            }
         }
     }
 
@@ -270,9 +275,10 @@ public sealed class OverlayViewModel : ObservableObject
         get => _configureLaunchOptionsLive;
         set
         {
-            _configureLaunchOptionsLive = value;
-            Raise(nameof(ConfigureLaunchOptionsLive));
-            Raise(nameof(ShowRemoveLaunchWrapper));
+            if (SetFieldIfChanged(ref _configureLaunchOptionsLive, value, nameof(ConfigureLaunchOptionsLive)))
+            {
+                Raise(nameof(ShowRemoveLaunchWrapper));
+            }
         }
     }
 

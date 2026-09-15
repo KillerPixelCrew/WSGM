@@ -49,6 +49,8 @@ public partial class AppearancePage : UserControl
     private Flyout? _splashColorFlyout;
     private Bitmap? _logoThumbBitmap;
     private Bitmap? _backgroundThumbBitmap;
+    private int _logoThumbGeneration;
+    private int _backgroundThumbGeneration;
     private bool _syncingAccent;
 
     /// <summary>Loads the compiled page XAML, builds the accent swatches and the
@@ -63,6 +65,9 @@ public partial class AppearancePage : UserControl
         DataContextChanged += OnDataContextChanged;
         Unloaded += (_, _) =>
         {
+            // A decode still running belongs to the page that went away.
+            _logoThumbGeneration++;
+            _backgroundThumbGeneration++;
             LogoThumb.Source = null;
             BackgroundThumb.Source = null;
             _logoThumbBitmap?.Dispose();
@@ -295,35 +300,59 @@ public partial class AppearancePage : UserControl
     }
 
     // --- Splash images ---
-    private void RefreshLogoThumbnail() =>
-        _logoThumbBitmap = RefreshThumbnail(_viewModel?.SplashLogoPath, LogoThumb, LogoNone, _logoThumbBitmap);
+    // Decoded off the UI thread. A newer pick or an unload moves the generation on, and a decode that
+    // finishes behind it is dropped instead of shown.
+    private void RefreshLogoThumbnail() => ObservePageAction(async () =>
+    {
+        int generation = ++_logoThumbGeneration;
+        Bitmap? bitmap = await LoadThumbnailAsync(_viewModel?.SplashLogoPath);
+        if (generation != _logoThumbGeneration)
+        {
+            bitmap?.Dispose();
+            return;
+        }
+        _logoThumbBitmap = ShowThumbnail(bitmap, LogoThumb, LogoNone, _logoThumbBitmap);
+    }, "Logo thumbnail");
 
-    private void RefreshBackgroundThumbnail() =>
-        _backgroundThumbBitmap = RefreshThumbnail(
-            _viewModel?.SplashBackgroundImagePath, BackgroundThumb, BackgroundNone, _backgroundThumbBitmap);
+    private void RefreshBackgroundThumbnail() => ObservePageAction(async () =>
+    {
+        int generation = ++_backgroundThumbGeneration;
+        Bitmap? bitmap = await LoadThumbnailAsync(_viewModel?.SplashBackgroundImagePath);
+        if (generation != _backgroundThumbGeneration)
+        {
+            bitmap?.Dispose();
+            return;
+        }
+        _backgroundThumbBitmap = ShowThumbnail(bitmap, BackgroundThumb, BackgroundNone, _backgroundThumbBitmap);
+    }, "Background thumbnail");
 
     /// <summary>Longest edge decoded for an inline thumbnail. The preview panel is
     /// 44x28 device-independent pixels, so 128 px stays sharp at any display
     /// scale while keeping the pixel buffer at a few tens of kilobytes.</summary>
     private const int ThumbnailDecodePixels = 128;
 
-    /// <summary>Loads one inline thumbnail; a missing or unreadable file shows the
-    /// "NONE" placeholder instead. The previous bitmap is disposed only after the
-    /// Image stopped referencing it.</summary>
-    private static Bitmap? RefreshThumbnail(string? path, Image image, TextBlock placeholder, Bitmap? previous)
-    {
-        Bitmap? bitmap = null;
-        try
-        {
-            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+    /// <summary>Decodes one inline thumbnail on the thread pool. A missing or unreadable
+    /// file yields null, which shows the "NONE" placeholder.</summary>
+    private static Task<Bitmap?> LoadThumbnailAsync(string? path) =>
+        string.IsNullOrWhiteSpace(path)
+            ? Task.FromResult<Bitmap?>(null)
+            : Task.Run(() =>
             {
-                bitmap = LoadThumbnail(path);
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Appearance: couldn't load image thumbnail '{path}': {ex.Message}");
-        }
+                try
+                {
+                    return File.Exists(path) ? LoadThumbnail(path) : null;
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Appearance: couldn't load image thumbnail '{path}': {ex.Message}");
+                    return null;
+                }
+            });
+
+    /// <summary>Shows a decoded thumbnail, or the "NONE" placeholder for null. The previous
+    /// bitmap is disposed only after the Image stopped referencing it.</summary>
+    private static Bitmap? ShowThumbnail(Bitmap? bitmap, Image image, TextBlock placeholder, Bitmap? previous)
+    {
         image.Source = bitmap;
         image.IsVisible = bitmap is not null;
         placeholder.IsVisible = bitmap is null;

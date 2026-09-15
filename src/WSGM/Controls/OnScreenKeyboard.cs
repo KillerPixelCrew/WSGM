@@ -32,7 +32,10 @@ public sealed class OnScreenKeyboard : Decorator
     /// <summary>Raised when the user asks the owning window to paste clipboard text.</summary>
     public event EventHandler? PasteRequested;
 
-    private readonly Panel _root = new StackPanel { Spacing = 4 };
+    // One panel per key layer, built the first time it is shown and then only shown or hidden, so a
+    // layer switch no longer rebuilds every key.
+    private readonly Panel _root = new();
+    private readonly StackPanel?[] _layers = new StackPanel?[4];
     private bool _shift;
 
     /// <summary>Which key layer is showing: 0 letters, 1 symbols, 2 the rest of
@@ -50,7 +53,7 @@ public sealed class OnScreenKeyboard : Decorator
     public OnScreenKeyboard()
     {
         Child = _root;
-        Build();
+        ShowLayer();
     }
 
     /// <summary>Gets or sets the text box that receives the keystrokes.</summary>
@@ -71,9 +74,26 @@ public sealed class OnScreenKeyboard : Decorator
     /// completes the set a WPA passphrase is allowed to contain.</summary>
     private static readonly string[] MoreSymbols = ["[]{}<>", "\\|~`^_"];
 
-    private void Build()
+    private void ShowLayer()
     {
-        _root.Children.Clear();
+        int index = CurrentLayerIndex;
+        if (_layers[index] is not { } layer)
+        {
+            layer = BuildLayer();
+            _layers[index] = layer;
+            _root.Children.Add(layer);
+        }
+        foreach (Control child in _root.Children)
+        {
+            child.IsVisible = ReferenceEquals(child, layer);
+        }
+    }
+
+    private int CurrentLayerIndex => _layer == LayerLetters ? (_shift ? 1 : 0) : _layer + 1;
+
+    private StackPanel BuildLayer()
+    {
+        var layer = new StackPanel { Spacing = 4 };
         var rows = _layer switch
         {
             LayerSymbols => Symbols,
@@ -92,7 +112,7 @@ public sealed class OnScreenKeyboard : Decorator
             {
                 panel.Children.Add(KeyButton(key.ToString(), () => Insert(key.ToString())));
             }
-            _root.Children.Add(panel);
+            layer.Children.Add(panel);
         }
 
         var controls = new StackPanel
@@ -114,7 +134,7 @@ public sealed class OnScreenKeyboard : Decorator
             () =>
             {
                 _layer = (_layer + 1) % 3;
-                Build();
+                ShowLayer();
                 FocusControl(_layer == LayerSymbols ? "#+=" : _layer == LayerMoreSymbols ? "abc" : "?123");
             },
             width: 58));
@@ -122,7 +142,7 @@ public sealed class OnScreenKeyboard : Decorator
         {
             _shift = !_shift;
             _layer = LayerLetters;
-            Build();
+            ShowLayer();
             FocusControl("Shift");
         }, width: 62));
         controls.Children.Add(KeyButton("Space", () => Insert(" "), width: 96));
@@ -130,12 +150,17 @@ public sealed class OnScreenKeyboard : Decorator
         controls.Children.Add(KeyButton("Back", Backspace, width: 58));
         controls.Children.Add(KeyButton("Enter", () => Accepted?.Invoke(this, EventArgs.Empty),
             width: 62));
-        _root.Children.Add(controls);
+        layer.Children.Add(controls);
+        return layer;
     }
 
     private void FocusControl(string label) => Dispatcher.UIThread.Post(() =>
     {
-        foreach (var row in _root.Children.OfType<Panel>())
+        if (_layers[CurrentLayerIndex] is not { } layer)
+        {
+            return;
+        }
+        foreach (var row in layer.Children.OfType<Panel>())
         {
             foreach (var button in row.Children.OfType<Button>())
             {
@@ -172,7 +197,7 @@ public sealed class OnScreenKeyboard : Decorator
         if (_shift && _layer == LayerLetters)
         {
             _shift = false;
-            Build();
+            ShowLayer();
             FocusControl(text == " " ? "Space" : text.ToLowerInvariant());
         }
     }
@@ -235,7 +260,7 @@ public sealed class OnScreenKeyboard : Decorator
         {
             _shift = false;
             _layer = LayerLetters;
-            Build();
+            ShowLayer();
         }
     }
 
