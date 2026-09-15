@@ -74,6 +74,13 @@ if (-not $SkipBuild) {
     dotnet publish (Join-Path $root 'src\WSGM\WSGM.csproj') -c Release -r win-x64 `
         -o $appPublish -m:1
     if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed' }
+    # The launch wrapper is swapped in below, so publish it too, the way build.ps1 does; otherwise a
+    # wrapper left in publish\App by an older build would be deployed beside the new WSGM.exe.
+    $csproj = Get-Content -LiteralPath (Join-Path $root 'src\WSGM\WSGM.csproj') -Raw
+    if ($csproj -notmatch '<Version>([^<]+)</Version>') { throw 'No <Version> found in WSGM.csproj' }
+    dotnet publish (Join-Path $root 'src\WSGM.Launch\WSGM.Launch.csproj') -c Release -r win-x64 `
+        -o $appPublish "/p:Version=$($Matches[1])" -m:1
+    if ($LASTEXITCODE -ne 0) { throw 'WSGM.Launch publish failed' }
 }
 
 $newExe = Join-Path $appPublish 'WSGM.exe'
@@ -130,42 +137,32 @@ Write-Host "== Swapping files into $binDirectory ==" -ForegroundColor Cyan
 # WSGM.exe plus everything the publish stages beside it that the installer would also place in
 # {app}: the launch wrapper and the native helper DLLs. The ShellAnchor is the same binary under
 # the shell-registration name; leaving it stale would run two different builds in one session.
-# The exe copy retries briefly: a killed process releases its image lock a beat after the process
-# object dies, and the watchdog respawn can hold it for a moment more.
-$copied = $false
-for ($attempt = 1; $attempt -le 10 -and -not $copied; $attempt++) {
-    try {
-        Copy-Item -LiteralPath $newExe -Destination (Join-Path $binDirectory 'WSGM.exe') -Force -ErrorAction Stop
-        $copied = $true
-    } catch [System.IO.IOException] {
-        Get-Process -Name 'WSGM' -ErrorAction SilentlyContinue |
-            Where-Object SessionId -eq $sessionId |
-            Stop-Process -Force -Confirm:$false -ErrorAction SilentlyContinue
-        Start-Sleep -Milliseconds 500
-    }
-}
-if (-not $copied) {
-    throw "WSGM.exe stayed locked through 10 copy attempts - is something else holding $binDirectory\WSGM.exe?"
-}
-$anchor = Join-Path $binDirectory 'WSGM.ShellAnchor.exe'
-if (Test-Path -LiteralPath $anchor) {
-    # A desktop session keeps a live anchor process (Explorer's launch parent) that holds this
-    # image. It is inert after Explorer is up, so stop it rather than shipping a stale anchor.
-    $anchorCopied = $false
-    for ($attempt = 1; $attempt -le 10 -and -not $anchorCopied; $attempt++) {
+# The exe copies retry briefly: a killed process releases its image lock a beat after the process
+# object dies, and the watchdog respawn can hold it for a moment more. Each failed attempt stops the
+# named process in this session again.
+function Copy-WithRetry([string]$Source, [string]$Destination, [string]$ProcessName) {
+    for ($attempt = 1; $attempt -le 10; $attempt++) {
         try {
-            Copy-Item -LiteralPath $newExe -Destination $anchor -Force -ErrorAction Stop
-            $anchorCopied = $true
+            Copy-Item -LiteralPath $Source -Destination $Destination -Force -ErrorAction Stop
+            return $true
         } catch [System.IO.IOException] {
-            Get-Process -Name 'WSGM.ShellAnchor' -ErrorAction SilentlyContinue |
+            Get-Process -Name $ProcessName -ErrorAction SilentlyContinue |
                 Where-Object SessionId -eq $sessionId |
                 Stop-Process -Force -Confirm:$false -ErrorAction SilentlyContinue
             Start-Sleep -Milliseconds 500
         }
     }
-    if (-not $anchorCopied) {
-        throw "WSGM.ShellAnchor.exe stayed locked through 10 copy attempts."
-    }
+    return $false
+}
+
+if (-not (Copy-WithRetry $newExe (Join-Path $binDirectory 'WSGM.exe') 'WSGM')) {
+    throw "WSGM.exe stayed locked through 10 copy attempts - is something else holding $binDirectory\WSGM.exe?"
+}
+$anchor = Join-Path $binDirectory 'WSGM.ShellAnchor.exe'
+# A desktop session keeps a live anchor process (Explorer's launch parent) that holds this image. It
+# is inert after Explorer is up, so stop it rather than shipping a stale anchor.
+if ((Test-Path -LiteralPath $anchor) -and -not (Copy-WithRetry $newExe $anchor 'WSGM.ShellAnchor')) {
+    throw "WSGM.ShellAnchor.exe stayed locked through 10 copy attempts."
 }
 # WSGM.deps.json is in this list because the host reads it to decide what may be loaded at all. A
 # swap that copies a new assembly but leaves the old dependency manifest produces the worst possible
