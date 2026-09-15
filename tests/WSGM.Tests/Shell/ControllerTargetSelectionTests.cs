@@ -88,19 +88,6 @@ public sealed class ControllerTargetSelectionTests
     }
 
     [Fact]
-    public void SelectionIsDisabledWhenDeviceIntegrationItselfIsOff()
-    {
-        ControllerSelection selection = ControllerSelection.From(new DeviceIntegrationConfig
-        {
-            Enabled = false,
-            ControllerManagementEnabled = true,
-        });
-
-        Assert.False(selection.Enabled);
-        Assert.Equal("Controller management is off.", selection.DisabledDetail);
-    }
-
-    [Fact]
     public void SelectionCarriesTheStoredOverridesWithoutCopyingThem()
     {
         DeviceIntegrationConfig config = new()

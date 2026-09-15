@@ -28,13 +28,13 @@ public sealed class InputTests
     public void DisabledHotkeyHasNoDescription()
         => Assert.Equal("None", KeyRecorder.Describe(new HotkeyConfig { Enabled = false, VirtualKey = 0x41 }));
 
-    [Fact]
-    public void GamepadDescriptionUsesStableButtonOrdering()
-    {
-        var buttons = GamepadButtons.Start | GamepadButtons.LeftShoulder | GamepadButtons.A;
-
-        Assert.Equal("Hold A + LB + Start", GamepadService.Describe(buttons, hold: true));
-    }
+    [Theory]
+    [InlineData(GamepadButtons.Start | GamepadButtons.LeftShoulder | GamepadButtons.A, true, "Hold A + LB + Start")]
+    [InlineData((GamepadButtons)0, false, "None")]
+    [InlineData(GamepadButtons.RightTrigger | GamepadButtons.L4 | GamepadButtons.QuickAccess, false, "R2 + L4 + Quick Access")]
+    [InlineData(GamepadButtons.DPadUp | GamepadButtons.RightPadPress, true, "Hold D-Up + R-Pad")]
+    public void GamepadDescriptionsUseStableOrderingAndCoverEmptyAndExtendedButtons(GamepadButtons buttons, bool hold, string expected)
+        => Assert.Equal(expected, GamepadService.Describe(buttons, hold));
 
     [Theory]
     [InlineData(GamepadButtons.DPadUp, NavigationDirection.Up)]
@@ -114,13 +114,6 @@ public sealed class InputTests
 
         Assert.Equal(0u, (uint)released);
     }
-
-    [Theory]
-    [InlineData((GamepadButtons)0, false, "None")]
-    [InlineData(GamepadButtons.RightTrigger | GamepadButtons.L4 | GamepadButtons.QuickAccess, false, "R2 + L4 + Quick Access")]
-    [InlineData(GamepadButtons.DPadUp | GamepadButtons.RightPadPress, true, "Hold D-Up + R-Pad")]
-    public void GamepadDescriptionsCoverEmptyAndExtendedButtons(GamepadButtons buttons, bool hold, string expected)
-        => Assert.Equal(expected, GamepadService.Describe(buttons, hold));
 
     [Fact]
     public void PadSnapshotKeepsItsControllerIdentityAndButtons()

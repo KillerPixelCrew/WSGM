@@ -76,6 +76,7 @@ public sealed class PerformanceOverlayBridgeTests
     [Fact]
     public async Task DisabledPerformancePolicyHidesTheProjectionWithoutPolling()
     {
+        // Device Integration and this switch are unrelated: only this one governs the rows.
         await using PerformanceService service = new(
             new SimulatedRtssAdapter(),
             static (_, _) => Task.CompletedTask,
@@ -88,6 +89,7 @@ public sealed class PerformanceOverlayBridgeTests
         PerformanceOverlaySnapshot snapshot = bridge.Snapshot();
 
         Assert.False(snapshot.Visible);
+        Assert.Empty(snapshot.Rows);
         Assert.Equal(0, service.ObserverCount);
     }
 
@@ -154,22 +156,6 @@ public sealed class PerformanceOverlayBridgeTests
             snapshot.Rows,
             row => Assert.Equal("frame-limit", row.Id),
             row => Assert.Equal("overlay-level", row.Id));
-    }
-
-    [Fact]
-    public async Task TurningTheServiceOffHidesTheRowsRatherThanRemovingTheProjection()
-    {
-        // Device Integration and this switch are unrelated: only this one governs the rows.
-        await using PerformanceService service = new(
-            new SimulatedRtssAdapter(),
-            static (_, _) => Task.CompletedTask,
-            PerformancePolicy.Empty with { Enabled = false });
-        using PerformanceOverlayBridge bridge = new(service);
-
-        PerformanceOverlaySnapshot snapshot = bridge.Snapshot();
-
-        Assert.False(snapshot.Visible);
-        Assert.Empty(snapshot.Rows);
     }
 
     [Fact]

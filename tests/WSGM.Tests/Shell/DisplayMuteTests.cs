@@ -118,16 +118,10 @@ public class DisplayMuteTests
     [Theory]
     [InlineData(DisplayMuteDecider.DisplayOn)]
     [InlineData(DisplayMuteDecider.DisplayDimmed)]
-    public void IsDisplayOff_LitDisplay_IsFalse(int state)
-    {
-        Assert.False(DisplayMuteDecider.IsDisplayOff(state));
-    }
-
-    [Theory]
     [InlineData(3)]
     [InlineData(99)]
     [InlineData(-1)]
-    public void IsDisplayOff_UnknownState_IsFalseRatherThanLeavingTheDeviceSilent(int state)
+    public void IsDisplayOff_LitOrUnknownState_IsFalseRatherThanLeavingTheDeviceSilent(int state)
     {
         Assert.False(DisplayMuteDecider.IsDisplayOff(state));
     }

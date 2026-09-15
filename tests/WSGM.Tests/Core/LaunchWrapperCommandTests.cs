@@ -165,7 +165,9 @@ public sealed class LaunchWrapperCommandTests
     [InlineData(LaunchWrapperMode.Deelevate)]
     [InlineData(LaunchWrapperMode.InputLease)]
     [InlineData(LaunchWrapperMode.Both)]
-    public void ModeForReadsBackWhatSteamLaunchOptionsWrote(LaunchWrapperMode mode)
+    [InlineData(LaunchWrapperMode.InputLeaseInject)]
+    [InlineData(LaunchWrapperMode.BothInject)]
+    public void ModeForReadsBackEveryBehaviourSteamLaunchOptionsCanWrite(LaunchWrapperMode mode)
         => Assert.Equal(
             mode, LaunchWrapperCommand.ModeFor(LaunchWrapperCommand.SteamLaunchOptions(Helper, mode)));
 
@@ -247,16 +249,6 @@ public sealed class LaunchWrapperCommandTests
         Assert.Equal(LaunchWrapperMode.InputLeaseInject, mode);
         Assert.False(mode.HasFlag(LaunchWrapperMode.InputLease));
     }
-
-    [Theory]
-    [InlineData(LaunchWrapperMode.InputLease)]
-    [InlineData(LaunchWrapperMode.InputLeaseInject)]
-    [InlineData(LaunchWrapperMode.BothInject)]
-    public void ModeForReadsBackEveryLeaseBehaviourSteamLaunchOptionsCanWrite(
-        LaunchWrapperMode mode)
-        => Assert.Equal(
-            mode,
-            LaunchWrapperCommand.ModeFor(LaunchWrapperCommand.SteamLaunchOptions(Helper, mode)));
 
     [Fact]
     public void OriginalLaunchOptionsRoundTripsAcrossTheLeaseFlagSplit()

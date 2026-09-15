@@ -25,25 +25,20 @@ public sealed class GlyphInputTestMapTests
     [InlineData(CanonicalButtons.B, GlyphControlId.FaceEast)]
     [InlineData(CanonicalButtons.X, GlyphControlId.FaceWest)]
     [InlineData(CanonicalButtons.Y, GlyphControlId.FaceNorth)]
-    public void FaceButtonsLightTheirPositionRatherThanTheirLetter(
+    [InlineData(CanonicalButtons.RearPaddle1, GlyphControlId.RearM1)]
+    [InlineData(CanonicalButtons.RearPaddle2, GlyphControlId.RearM2)]
+    [InlineData(CanonicalButtons.RearPaddle3, GlyphControlId.RearLeft2)]
+    [InlineData(CanonicalButtons.RearPaddle4, GlyphControlId.RearRight2)]
+    public void FaceAndRearControlsLightTheirOwnPosition(
         CanonicalButtons button,
         GlyphControlId expected)
     {
         // The canonical names are Xbox letters and the glyph ids are positions, because a profile
         // draws whatever letter the hardware prints there. Confusing the two would light the wrong
         // glyph on any device that is not laid out like an Xbox pad.
-        Assert.Equal([expected], GlyphInputTestMap.Pressed(Sample(button)));
-    }
-
-    [Theory]
-    [InlineData(CanonicalButtons.RearPaddle1, GlyphControlId.RearM1)]
-    [InlineData(CanonicalButtons.RearPaddle2, GlyphControlId.RearM2)]
-    [InlineData(CanonicalButtons.RearPaddle3, GlyphControlId.RearLeft2)]
-    [InlineData(CanonicalButtons.RearPaddle4, GlyphControlId.RearRight2)]
-    public void AllFourRearControlsAreDistinct(CanonicalButtons button, GlyphControlId expected)
-    {
-        // The whole reason the canonical model defines four: a Steam Deck has two pairs, the Claw
-        // has one, and a profile that declares the second pair absent simply has no tile for it.
+        // All four rear controls stay distinct, which is the whole reason the canonical model defines
+        // four: a Steam Deck has two pairs, the Claw has one, and a profile that declares the second
+        // pair absent simply has no tile for it.
         Assert.Equal([expected], GlyphInputTestMap.Pressed(Sample(button)));
     }
 

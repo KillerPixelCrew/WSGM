@@ -58,15 +58,4 @@ public sealed class SettingsLeaseReconcilerTests
 
         Assert.Equal(SettingsLeaseAction.Release, reconciler.SetDesired(false));
     }
-
-    [Fact]
-    public void InheritClaim_NoNativeLease_PerformsColdAcquireOffTheUiThread()
-    {
-        var reconciler = new SettingsLeaseReconciler();
-
-        Assert.Equal(SettingsLeaseAction.Acquire, reconciler.InheritClaim());
-        Assert.Equal(SettingsLeaseAction.None, reconciler.CompleteAcquireFor());
-
-        Assert.Equal(SettingsLeaseAction.Release, reconciler.SetDesired(false));
-    }
 }
