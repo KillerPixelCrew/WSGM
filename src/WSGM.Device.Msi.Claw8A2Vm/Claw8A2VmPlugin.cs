@@ -20,7 +20,8 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     private readonly SemaphoreSlim _commandSerializer = new(1, 1);
     private IPluginHostAdapter? _host;
     private CapabilityDescriptorSet? _descriptorSet;
-    private IReadOnlyList<ClawServiceStatus> _serviceStatuses = [];
+    private IReadOnlyList<ClawCycleService> _cycleServices = [];
+    private IReadOnlyList<ClawSuspendableService> _suspendableServices = [];
     private OemEventService? _oem;
     private PowerService? _power;
     private ChargeLimitService? _chargeLimit;
@@ -171,7 +172,10 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                 _oem,
                 context.Host);
 
-            _serviceStatuses =
+            // Start and resume acquire in this order, and stop releases in reverse. Chord suppression
+            // follows the OEM event source it requires, and the controller follows the motion service
+            // it was built with. ClawPluginTests pins both orders.
+            _cycleServices =
             [
                 _oem,
                 _power,
@@ -183,6 +187,8 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                 _controller,
                 _suppressor,
             ];
+            // Suspend stops only the services that own a live source.
+            _suspendableServices = [_oem, _motion, _controller, _suppressor];
             BuildCapabilitySurface();
 
             if (_journal.FailureReason is { } journalFailure)
@@ -293,7 +299,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
-        if (_serviceStatuses.Count == 0)
+        if (_cycleServices.Count == 0)
         {
             return;
         }
@@ -319,7 +325,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
-        if (_serviceStatuses.Count == 0)
+        if (_cycleServices.Count == 0)
         {
             return new PluginStartResult
             {
@@ -390,7 +396,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             ["cycle"] = DiagnosticCycleState(),
             ["recovery"] = DiagnosticRecoveryState(),
         };
-        foreach (ClawServiceStatus service in _serviceStatuses)
+        foreach (ClawServiceStatus service in _cycleServices)
         {
             values[service.ServiceId] = BoundDiagnosticValue(service.State.ToString());
         }
@@ -519,7 +525,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         await _commandSerializer.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_serviceStatuses.Count > 0)
+            if (_cycleServices.Count > 0)
             {
                 await StopServicesAsync(OperationContext(context.Deadline), cancellationToken)
                     .ConfigureAwait(false);
@@ -550,7 +556,8 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             }
             _active = false;
             _descriptorSet = null;
-            _serviceStatuses = [];
+            _cycleServices = [];
+            _suspendableServices = [];
             if (_journal is not null)
             {
                 await _journal.DisposeAsync().ConfigureAwait(false);
@@ -568,7 +575,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     private async ValueTask RollBackFailedStartAsync()
     {
         StopObservationLoop();
-        if (_serviceStatuses.Count > 0)
+        if (_cycleServices.Count > 0)
         {
             try
             {
@@ -635,7 +642,8 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
         _active = false;
         _descriptorSet = null;
-        _serviceStatuses = [];
+        _cycleServices = [];
+        _suspendableServices = [];
     }
 
     private async ValueTask RetractFailedStartPublicationsAsync()
@@ -766,37 +774,9 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        RequireServices();
         try
         {
-            await StartOneAsync(_oem!, () => _oem!.AcquireAsync(context, cancellationToken), cancellationToken)
-                .ConfigureAwait(false);
-            await StartOneAsync(_power!, () => _power!.AcquireAsync(context, cancellationToken), cancellationToken)
-                .ConfigureAwait(false);
-            await StartOneAsync(
-                _chargeLimit!,
-                () => _chargeLimit!.AcquireAsync(context, cancellationToken),
-                cancellationToken).ConfigureAwait(false);
-            await StartOneAsync(_fans!, () => _fans!.AcquireAsync(context, cancellationToken), cancellationToken)
-                .ConfigureAwait(false);
-            await StartOneAsync(
-                _telemetry!,
-                () => _telemetry!.AcquireAsync(context, cancellationToken),
-                cancellationToken).ConfigureAwait(false);
-            await StartOneAsync(
-                _lighting!,
-                () => _lighting!.AcquireAsync(context, cancellationToken),
-                cancellationToken).ConfigureAwait(false);
-            await StartOneAsync(_motion!, () => _motion!.AcquireAsync(context, cancellationToken), cancellationToken)
-                .ConfigureAwait(false);
-            await StartOneAsync(
-                _controller!,
-                () => _controller!.AcquireAsync(context, cancellationToken),
-                cancellationToken).ConfigureAwait(false);
-            await StartOneAsync(
-                _suppressor!,
-                () => _suppressor!.AcquireAsync(context, cancellationToken),
-                cancellationToken).ConfigureAwait(false);
+            await ResumeServicesAsync(context, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -809,91 +789,41 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        RequireServices();
-        await OperateOneAsync(_oem!, () => _oem!.SuspendAsync(context, cancellationToken), cancellationToken)
-            .ConfigureAwait(false);
-        await OperateOneAsync(
-            _motion!,
-            () => _motion!.SuspendAsync(context, cancellationToken),
-            cancellationToken).ConfigureAwait(false);
-        await OperateOneAsync(
-            _controller!,
-            () => _controller!.SuspendAsync(context, cancellationToken),
-            cancellationToken).ConfigureAwait(false);
-        await OperateOneAsync(
-            _suppressor!,
-            () => _suppressor!.SuspendAsync(context, cancellationToken),
-            cancellationToken).ConfigureAwait(false);
+        foreach (ClawSuspendableService service in _suspendableServices)
+        {
+            await OperateOneAsync(
+                service,
+                () => service.SuspendAsync(context, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
+        }
     }
 
+    /// <summary>Acquires every service in start order; resume and start share this walk.</summary>
     private async ValueTask ResumeServicesAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        RequireServices();
-        await StartOneAsync(_oem!, () => _oem!.ResumeAsync(context, cancellationToken), cancellationToken)
-            .ConfigureAwait(false);
-        await StartOneAsync(_power!, () => _power!.AcquireAsync(context, cancellationToken), cancellationToken)
-            .ConfigureAwait(false);
-        await StartOneAsync(
-            _chargeLimit!,
-            () => _chargeLimit!.AcquireAsync(context, cancellationToken),
-            cancellationToken).ConfigureAwait(false);
-        await StartOneAsync(_fans!, () => _fans!.AcquireAsync(context, cancellationToken), cancellationToken)
-            .ConfigureAwait(false);
-        await StartOneAsync(
-            _telemetry!,
-            () => _telemetry!.AcquireAsync(context, cancellationToken),
-            cancellationToken).ConfigureAwait(false);
-        await StartOneAsync(
-            _lighting!,
-            () => _lighting!.AcquireAsync(context, cancellationToken),
-            cancellationToken).ConfigureAwait(false);
-        await StartOneAsync(_motion!, () => _motion!.ResumeAsync(context, cancellationToken), cancellationToken)
-            .ConfigureAwait(false);
-        await StartOneAsync(
-            _controller!,
-            () => _controller!.ResumeAsync(context, cancellationToken),
-            cancellationToken).ConfigureAwait(false);
-        await StartOneAsync(
-            _suppressor!,
-            () => _suppressor!.ResumeAsync(context, cancellationToken),
-            cancellationToken).ConfigureAwait(false);
+        foreach (ClawCycleService service in _cycleServices)
+        {
+            await StartOneAsync(
+                service,
+                () => service.AcquireAsync(context, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async ValueTask StopServicesAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        RequireServices();
-        await StopOneAsync(
-            _suppressor!,
-            () => _suppressor!.ReleaseAsync(context, cancellationToken),
-            cancellationToken).ConfigureAwait(false);
-        await StopOneAsync(
-            _controller!,
-            () => _controller!.ReleaseAsync(context, cancellationToken),
-            cancellationToken).ConfigureAwait(false);
-        await StopOneAsync(_motion!, () => _motion!.ReleaseAsync(context, cancellationToken), cancellationToken)
-            .ConfigureAwait(false);
-        await StopOneAsync(
-            _lighting!,
-            () => _lighting!.ReleaseAsync(context, cancellationToken),
-            cancellationToken).ConfigureAwait(false);
-        await StopOneAsync(
-            _telemetry!,
-            () => _telemetry!.ReleaseAsync(context, cancellationToken),
-            cancellationToken).ConfigureAwait(false);
-        await StopOneAsync(_fans!, () => _fans!.ReleaseAsync(context, cancellationToken), cancellationToken)
-            .ConfigureAwait(false);
-        await StopOneAsync(
-            _chargeLimit!,
-            () => _chargeLimit!.ReleaseAsync(context, cancellationToken),
-            cancellationToken).ConfigureAwait(false);
-        await StopOneAsync(_power!, () => _power!.ReleaseAsync(context, cancellationToken), cancellationToken)
-            .ConfigureAwait(false);
-        await StopOneAsync(_oem!, () => _oem!.ReleaseAsync(context, cancellationToken), cancellationToken)
-            .ConfigureAwait(false);
+        for (int index = _cycleServices.Count - 1; index >= 0; index--)
+        {
+            ClawCycleService service = _cycleServices[index];
+            await StopOneAsync(
+                service,
+                () => service.ReleaseAsync(context, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private static async ValueTask StartOneAsync(
@@ -977,15 +907,6 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         }
 
         return ValueTask.CompletedTask;
-    }
-
-    private void RequireServices()
-    {
-        if (_oem is null || _power is null || _chargeLimit is null || _fans is null || _telemetry is null
-            || _lighting is null || _motion is null || _controller is null || _suppressor is null)
-        {
-            throw new InvalidOperationException("Claw services have not been created.");
-        }
     }
 
     private static ClawServiceResult NormalizeAcquisitionResult(
@@ -2597,7 +2518,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
     private PluginStartResult CurrentStartResult()
     {
-        IEnumerable<ClawServiceStatus> requiredServices = _serviceStatuses.Where(
+        IEnumerable<ClawServiceStatus> requiredServices = _cycleServices.Where(
             service => service != _controller || _controller.Enabled);
         int owned = requiredServices.Count(service => service.State is ClawServiceState.Owned);
         bool unhealthy = requiredServices.Any(service => service.State is not ClawServiceState.Owned);
@@ -2632,7 +2553,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         }
 
         StringBuilder detail = new();
-        foreach (ClawServiceStatus service in _serviceStatuses)
+        foreach (ClawServiceStatus service in _cycleServices)
         {
             if (detail.Length > 0)
             {
@@ -2662,9 +2583,9 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
     private PluginStopResult CurrentStopResult()
     {
-        ClawServiceStatus? failed = _serviceStatuses.FirstOrDefault(
+        ClawServiceStatus? failed = _cycleServices.FirstOrDefault(
             service => service.State is ClawServiceState.Faulted);
-        ClawServiceStatus? unverified = _serviceStatuses.FirstOrDefault(
+        ClawServiceStatus? unverified = _cycleServices.FirstOrDefault(
             service => service.State is ClawServiceState.ReleasedUnverified);
         if (failed is not null)
         {

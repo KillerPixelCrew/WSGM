@@ -83,10 +83,30 @@ internal abstract class ClawServiceStatus(string serviceId)
 
 }
 
+/// <summary>A service the plugin acquires for a device cycle and releases when the cycle ends.</summary>
+internal abstract class ClawCycleService(string serviceId) : ClawServiceStatus(serviceId)
+{
+    public abstract ValueTask<ClawServiceResult> AcquireAsync(
+        ClawCycleContext context,
+        CancellationToken cancellationToken);
+
+    public abstract ValueTask<ClawServiceResult> ReleaseAsync(
+        ClawCycleContext context,
+        CancellationToken cancellationToken);
+}
+
+/// <summary>A cycle service with a live source that stops for a suspend and is reacquired on resume.</summary>
+internal abstract class ClawSuspendableService(string serviceId) : ClawCycleService(serviceId)
+{
+    public abstract ValueTask<ClawServiceResult> SuspendAsync(
+        ClawCycleContext context,
+        CancellationToken cancellationToken);
+}
+
 internal sealed class OemEventService(
     IMsiOemEventSource source,
     IPluginHostAdapter host,
-    ClawOemButtonLatch oemButtons) : ClawServiceStatus(ServiceIds.OemEvents)
+    ClawOemButtonLatch oemButtons) : ClawSuspendableService(ServiceIds.OemEvents)
 {
     private readonly IMsiOemEventSource _source = source ?? throw new ArgumentNullException(nameof(source));
     private readonly IPluginHostAdapter _host = host ?? throw new ArgumentNullException(nameof(host));
@@ -94,7 +114,7 @@ internal sealed class OemEventService(
         oemButtons ?? throw new ArgumentNullException(nameof(oemButtons));
     private long _cycleGeneration;
 
-    public async ValueTask<ClawServiceResult> AcquireAsync(
+    public override async ValueTask<ClawServiceResult> AcquireAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
@@ -107,19 +127,11 @@ internal sealed class OemEventService(
                 "The MSI_Event provider was unavailable."));
     }
 
-    public async ValueTask<ClawServiceResult> SuspendAsync(
+    public override ValueTask<ClawServiceResult> SuspendAsync(
         ClawCycleContext context,
-        CancellationToken cancellationToken)
-    {
-        await _source.StopAsync(cancellationToken).ConfigureAwait(false);
-        return Set(ClawServiceState.Idle);
-    }
+        CancellationToken cancellationToken) => ReleaseAsync(context, cancellationToken);
 
-    public ValueTask<ClawServiceResult> ResumeAsync(
-        ClawCycleContext context,
-        CancellationToken cancellationToken) => AcquireAsync(context, cancellationToken);
-
-    public async ValueTask<ClawServiceResult> ReleaseAsync(
+    public override async ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
@@ -170,14 +182,14 @@ internal sealed class OemEventService(
 internal sealed class PowerService(
     IClawIdentityReader identity,
     ClawA2VmPowerCapability capability,
-    ClawRecoveryJournal journal) : ClawServiceStatus(ServiceIds.Power)
+    ClawRecoveryJournal journal) : ClawCycleService(ServiceIds.Power)
 {
     private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
     private readonly ClawA2VmPowerCapability _capability = capability ?? throw new ArgumentNullException(nameof(capability));
     private readonly ClawRecoveryJournal _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     public PowerPair? LastObserved { get; private set; }
 
-    public async ValueTask<ClawServiceResult> AcquireAsync(
+    public override async ValueTask<ClawServiceResult> AcquireAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
@@ -199,7 +211,7 @@ internal sealed class PowerService(
     public async ValueTask RefreshAsync(CancellationToken cancellationToken) =>
         LastObserved = await _capability.ReadAsync(cancellationToken).ConfigureAwait(false);
 
-    public async ValueTask<ClawServiceResult> ReleaseAsync(
+    public override async ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
@@ -259,7 +271,7 @@ internal sealed class PowerService(
 
 internal sealed class ChargeLimitService(
     IClawIdentityReader identity,
-    ClawA2VmChargeLimitCapability capability) : ClawServiceStatus(ServiceIds.ChargeLimit)
+    ClawA2VmChargeLimitCapability capability) : ClawCycleService(ServiceIds.ChargeLimit)
 {
     private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
     private readonly ClawA2VmChargeLimitCapability _capability = capability
@@ -267,7 +279,7 @@ internal sealed class ChargeLimitService(
 
     public ChargeLimitState? LastObserved { get; private set; }
 
-    public async ValueTask<ClawServiceResult> AcquireAsync(
+    public override async ValueTask<ClawServiceResult> AcquireAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
@@ -284,7 +296,7 @@ internal sealed class ChargeLimitService(
     public async ValueTask RefreshAsync(CancellationToken cancellationToken) =>
         LastObserved = await _capability.ReadAsync(cancellationToken).ConfigureAwait(false);
 
-    public ValueTask<ClawServiceResult> ReleaseAsync(
+    public override ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
@@ -305,14 +317,14 @@ internal sealed class ChargeLimitService(
 internal sealed class FanService(
     IClawIdentityReader identity,
     ClawA2VmFanCapability capability,
-    ClawRecoveryJournal journal) : ClawServiceStatus(ServiceIds.Fans)
+    ClawRecoveryJournal journal) : ClawCycleService(ServiceIds.Fans)
 {
     private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
     private readonly ClawA2VmFanCapability _capability = capability ?? throw new ArgumentNullException(nameof(capability));
     private readonly ClawRecoveryJournal _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     public FanSnapshot? LastObserved { get; private set; }
 
-    public async ValueTask<ClawServiceResult> AcquireAsync(
+    public override async ValueTask<ClawServiceResult> AcquireAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
@@ -338,7 +350,7 @@ internal sealed class FanService(
     public async ValueTask RefreshAsync(CancellationToken cancellationToken) =>
         LastObserved = await _capability.ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
 
-    public async ValueTask<ClawServiceResult> ReleaseAsync(
+    public override async ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
@@ -390,7 +402,7 @@ internal sealed class FanService(
 
 internal sealed class TelemetryService(
     IClawIdentityReader identity,
-    ClawA2VmFanCapability capability) : ClawServiceStatus(ServiceIds.Telemetry)
+    ClawA2VmFanCapability capability) : ClawCycleService(ServiceIds.Telemetry)
 {
     private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
     private readonly ClawA2VmFanCapability _capability = capability ?? throw new ArgumentNullException(nameof(capability));
@@ -400,7 +412,7 @@ internal sealed class TelemetryService(
     public async ValueTask RefreshAsync(CancellationToken cancellationToken) =>
         LastTelemetry = await _capability.ReadTelemetryAsync(cancellationToken).ConfigureAwait(false);
 
-    public async ValueTask<ClawServiceResult> AcquireAsync(
+    public override async ValueTask<ClawServiceResult> AcquireAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
@@ -416,7 +428,7 @@ internal sealed class TelemetryService(
         return Set(ClawServiceState.Owned);
     }
 
-    public ValueTask<ClawServiceResult> ReleaseAsync(
+    public override ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
@@ -429,7 +441,7 @@ internal sealed class TelemetryService(
 internal sealed class LightingService(
     IClawIdentityReader identity,
     IClawMcuTransport transport,
-    ClawA2VmLightingCapability capability) : ClawServiceStatus(ServiceIds.Lighting)
+    ClawA2VmLightingCapability capability) : ClawCycleService(ServiceIds.Lighting)
 {
     private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
     private readonly IClawMcuTransport _transport = transport ?? throw new ArgumentNullException(nameof(transport));
@@ -440,7 +452,7 @@ internal sealed class LightingService(
     public async ValueTask RefreshAsync(CancellationToken cancellationToken) =>
         LastObserved = await _capability.ReadAsync(cancellationToken).ConfigureAwait(false);
 
-    public async ValueTask<ClawServiceResult> AcquireAsync(
+    public override async ValueTask<ClawServiceResult> AcquireAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
@@ -463,7 +475,7 @@ internal sealed class LightingService(
         return Set(ClawServiceState.Owned);
     }
 
-    public ValueTask<ClawServiceResult> ReleaseAsync(
+    public override ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
@@ -474,7 +486,7 @@ internal sealed class LightingService(
     }
 }
 
-internal sealed class MotionService(IClawMotionSource source) : ClawServiceStatus(ServiceIds.Motion)
+internal sealed class MotionService(IClawMotionSource source) : ClawSuspendableService(ServiceIds.Motion)
 {
     private readonly IClawMotionSource _source = source ?? throw new ArgumentNullException(nameof(source));
     private MotionSample? _latest;
@@ -551,7 +563,7 @@ internal sealed class MotionService(IClawMotionSource source) : ClawServiceStatu
         };
     }
 
-    public async ValueTask<ClawServiceResult> AcquireAsync(
+    public override async ValueTask<ClawServiceResult> AcquireAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
@@ -587,21 +599,11 @@ internal sealed class MotionService(IClawMotionSource source) : ClawServiceStatu
                 "The Intel ISS physical gyrometer or accelerometer was unavailable; no synthetic fallback exists."));
     }
 
-    public async ValueTask<ClawServiceResult> SuspendAsync(
+    public override ValueTask<ClawServiceResult> SuspendAsync(
         ClawCycleContext context,
-        CancellationToken cancellationToken)
-    {
-        await _source.StopAsync(cancellationToken).ConfigureAwait(false);
-        Volatile.Write(ref _latest, null);
-        _resampler.Reset();
-        return Set(ClawServiceState.Idle);
-    }
+        CancellationToken cancellationToken) => ReleaseAsync(context, cancellationToken);
 
-    public ValueTask<ClawServiceResult> ResumeAsync(
-        ClawCycleContext context,
-        CancellationToken cancellationToken) => AcquireAsync(context, cancellationToken);
-
-    public async ValueTask<ClawServiceResult> ReleaseAsync(
+    public override async ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
@@ -713,7 +715,7 @@ internal sealed class ControllerService(
     IClawControllerSource source,
     MotionService motion,
     IPluginHostAdapter host,
-    ClawRecoveryJournal journal) : ClawServiceStatus(ServiceIds.Controller)
+    ClawRecoveryJournal journal) : ClawSuspendableService(ServiceIds.Controller)
 {
     private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
     private readonly IClawMcuTransport _mcu = mcu ?? throw new ArgumentNullException(nameof(mcu));
@@ -736,7 +738,7 @@ internal sealed class ControllerService(
 
     public IReadOnlyList<PhysicalDeviceIdentity> LastReleasedDevices { get; private set; } = [];
 
-    public async ValueTask<ClawServiceResult> AcquireAsync(
+    public override async ValueTask<ClawServiceResult> AcquireAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
@@ -910,7 +912,7 @@ internal sealed class ControllerService(
         _host.ReportFault("controller", detail);
     }
 
-    public async ValueTask<ClawServiceResult> SuspendAsync(
+    public override async ValueTask<ClawServiceResult> SuspendAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
@@ -921,11 +923,7 @@ internal sealed class ControllerService(
             : Set(ClawServiceState.Faulted, stopFailure);
     }
 
-    public ValueTask<ClawServiceResult> ResumeAsync(
-        ClawCycleContext context,
-        CancellationToken cancellationToken) => AcquireAsync(context, cancellationToken);
-
-    public async ValueTask<ClawServiceResult> ReleaseAsync(
+    public override async ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
@@ -1260,7 +1258,7 @@ internal sealed class ControllerService(
 internal sealed class ChordSuppressorService(
     IFirmwareChordSuppressor suppressor,
     OemEventService oemEvents,
-    IPluginHostAdapter host) : ClawServiceStatus(ServiceIds.ChordSuppressor)
+    IPluginHostAdapter host) : ClawSuspendableService(ServiceIds.ChordSuppressor)
 {
     private readonly IFirmwareChordSuppressor _suppressor = suppressor
         ?? throw new ArgumentNullException(nameof(suppressor));
@@ -1268,7 +1266,7 @@ internal sealed class ChordSuppressorService(
         ?? throw new ArgumentNullException(nameof(oemEvents));
     private readonly IPluginHostAdapter _host = host ?? throw new ArgumentNullException(nameof(host));
 
-    public async ValueTask<ClawServiceResult> AcquireAsync(
+    public override async ValueTask<ClawServiceResult> AcquireAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
@@ -1299,19 +1297,11 @@ internal sealed class ChordSuppressorService(
         _host.ReportFault(ServiceId, detail);
     }
 
-    public async ValueTask<ClawServiceResult> SuspendAsync(
+    public override ValueTask<ClawServiceResult> SuspendAsync(
         ClawCycleContext context,
-        CancellationToken cancellationToken)
-    {
-        await _suppressor.StopAsync(cancellationToken).ConfigureAwait(false);
-        return Set(ClawServiceState.Idle);
-    }
+        CancellationToken cancellationToken) => ReleaseAsync(context, cancellationToken);
 
-    public ValueTask<ClawServiceResult> ResumeAsync(
-        ClawCycleContext context,
-        CancellationToken cancellationToken) => AcquireAsync(context, cancellationToken);
-
-    public async ValueTask<ClawServiceResult> ReleaseAsync(
+    public override async ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {

@@ -498,6 +498,36 @@ public sealed class ClawPluginTests
             && capability.Reason?.Code == CapabilityReasonCode.ResourceReleased);
     }
 
+    // The lifecycle order is safety-relevant: stop releases the controller and motion before the
+    // power, fan and charge state is restored, and chord suppression needs the OEM source first.
+    // Reordering either array must be a deliberate change to this test.
+    [Fact]
+    public async Task StartAsync_OrdersServicesForAcquisitionAndSuspension()
+    {
+        using TemporaryDirectory state = new();
+        await using Claw8A2VmPlugin plugin = new(CreateServices());
+        TestPluginHostAdapter host = new(CycleGeneration);
+
+        await plugin.StartAsync(StartContext(host, state.Root), CancellationToken.None);
+
+        Assert.Equal(
+            [
+                "msi-oem-events",
+                "msi-power",
+                "msi-charge-limit",
+                "msi-fans",
+                "msi-telemetry",
+                "claw-lighting",
+                "claw-motion",
+                "physical-controller",
+                "firmware-chord-suppressor",
+            ],
+            ServiceOrder(plugin, "_cycleServices"));
+        Assert.Equal(
+            ["msi-oem-events", "claw-motion", "physical-controller", "firmware-chord-suppressor"],
+            ServiceOrder(plugin, "_suspendableServices"));
+    }
+
     [Fact]
     public async Task StartAsync_FakeHardware_PublishesDirectCapabilityAndOemSurfaces()
     {
@@ -1118,6 +1148,13 @@ public sealed class ClawPluginTests
                 CancellationToken.None);
         }
     }
+
+    private static string[] ServiceOrder(Claw8A2VmPlugin plugin, string field) =>
+    [
+        .. Assert.IsAssignableFrom<IEnumerable<ClawServiceStatus>>(typeof(Claw8A2VmPlugin)
+            .GetField(field, BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(plugin)).Select(service => service.ServiceId),
+    ];
 
     private static CapabilityCommand Command(
         string capabilityId,
