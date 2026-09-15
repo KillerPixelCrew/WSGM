@@ -171,8 +171,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         DeviceLabOwnerInspection owner = DeviceLabOwnerInspector.Inspect();
         bool elevated = doctor.Checks.Any(check =>
             check.Code == "permissions.elevation" && check.Status is DeviceLabDoctorStatus.Pass);
-        bool continuousIntegration = IsTruthy(Environment.GetEnvironmentVariable("CI"))
-            || IsTruthy(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"));
+        bool continuousIntegration = DeviceLabEnvironment.IsContinuousIntegration();
         bool exactFamilyMatched = ProbeFamilyMatches(probe.FamilyId, candidateResult.TargetDeviceId);
         bool exactEndpointMatched = ProbeEndpointMatches(probe.EndpointId, inventory);
         DeviceLabPreflightDecision preflight = DeviceLabSafetyPreflight.Evaluate(
@@ -524,11 +523,6 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         string.Equals(inventory.Firmware.BaseboardProduct, "MS-1T52", StringComparison.OrdinalIgnoreCase)
             ? "ms-1t52"
             : $"observed-{(inventory.Firmware.BaseboardProduct ?? "unknown").ToLowerInvariant()}";
-
-    private static bool IsTruthy(string? value) =>
-        string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
 
     internal static DeviceIdentitySnapshot ToPluginIdentity(MachineInventory inventory) => new()
     {

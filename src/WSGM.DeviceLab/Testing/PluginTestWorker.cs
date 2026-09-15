@@ -53,86 +53,46 @@ internal static class PluginTestWorker
     internal const string RequestFileName = "plugin-request.json";
     internal const string ResultFileName = "plugin-result.json";
 
-    private const int ExitSuccess = 0;
-    private const int ExitInvalidArguments = 64;
-    private const int ExitRejected = 65;
-    private const int ExitFailure = 70;
     private const int MaximumRequestBytes = 4 * 1024 * 1024;
-    private static readonly TimeSpan AuthorizationDeadline = TimeSpan.FromSeconds(5);
+    private const string Worker = "plugin worker";
+    private static readonly string[] Options = ["--request", "--result", "--authorization-handle"];
 
-    internal static int Run(IReadOnlyList<string> args)
+    internal static int Run(IReadOnlyList<string> args) =>
+        SelfWorkerProtocol.Run(args, Worker, Options, RunAsync);
+
+    private static async Task<int> RunAsync(
+        IReadOnlyDictionary<string, string> options,
+        CancellationToken cancellationToken)
     {
-        if (!TryParseArguments(args, out Arguments? arguments, out string? error))
+        SelfWorkerSession<PluginTestWorkerRequest>? session = await SelfWorkerProtocol.AuthorizeAsync(
+            Worker,
+            options,
+            RequestFileName,
+            ResultFileName,
+            MaximumRequestBytes,
+            (stream, token) => JsonSerializer.DeserializeAsync<PluginTestWorkerRequest>(
+                stream,
+                PluginTestWorkerJson.Options,
+                token),
+            request => request is null
+                || request.SchemaVersion != 1
+                || request.Identity is null
+                || string.IsNullOrWhiteSpace(request.PackageDirectory)
+                || request.Mode is not (PluginTestMode.DetectionOnly or PluginTestMode.AttendedHardware)
+                || request.Mode is PluginTestMode.AttendedHardware
+                    && (!request.ParentOwnerReserved
+                        || request.Action is null
+                        || string.IsNullOrWhiteSpace(request.StateDirectory))
+                    ? "The plugin worker request was malformed."
+                    : null,
+            request => request.AuthorizationSha256,
+            cancellationToken).ConfigureAwait(false);
+        if (session is null)
         {
-            Console.Error.WriteLine(error);
-            return ExitInvalidArguments;
+            return SelfWorkerProtocol.ExitRejected;
         }
 
-        try
-        {
-            return RunAsync(arguments!, CancellationToken.None).GetAwaiter().GetResult();
-        }
-        catch (Exception exception)
-        {
-            Console.Error.WriteLine($"Device Lab plugin worker failed: {Bound(exception.Message)}");
-            return ExitFailure;
-        }
-    }
-
-    private static async Task<int> RunAsync(Arguments arguments, CancellationToken cancellationToken)
-    {
-        using CancellationTokenSource authorization =
-            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        authorization.CancelAfter(AuthorizationDeadline);
-        byte[]? authorizationSecret = await SelfWorkerAuthorization.ReadSecretAsync(
-            arguments.AuthorizationHandle,
-            authorization.Token).ConfigureAwait(false);
-        if (authorizationSecret is null)
-        {
-            Console.Error.WriteLine("The plugin worker was not authorized by its supervisor.");
-            return ExitRejected;
-        }
-
-        if (!SelfWorkerAuthorization.TryConstrainSessionFiles(
-                arguments.RequestPath,
-                arguments.ResultPath,
-                RequestFileName,
-                ResultFileName,
-                out string? requestPath,
-                out string? resultPath))
-        {
-            System.Security.Cryptography.CryptographicOperations.ZeroMemory(authorizationSecret);
-            Console.Error.WriteLine("The plugin worker session paths were rejected.");
-            return ExitRejected;
-        }
-
-        PluginTestWorkerRequest? request = await ReadRequestAsync(requestPath!, cancellationToken)
-            .ConfigureAwait(false);
-        if (request is null
-            || request.SchemaVersion != 1
-            || request.Identity is null
-            || string.IsNullOrWhiteSpace(request.PackageDirectory)
-            || request.Mode is not (PluginTestMode.DetectionOnly or PluginTestMode.AttendedHardware)
-            || request.Mode is PluginTestMode.AttendedHardware
-                && (!request.ParentOwnerReserved
-                    || request.Action is null
-                    || string.IsNullOrWhiteSpace(request.StateDirectory)))
-        {
-            System.Security.Cryptography.CryptographicOperations.ZeroMemory(authorizationSecret);
-            Console.Error.WriteLine("The plugin worker request was malformed.");
-            return ExitRejected;
-        }
-
-        bool authorized = SelfWorkerAuthorization.VerifySecret(
-            authorizationSecret,
-            request.AuthorizationSha256);
-        System.Security.Cryptography.CryptographicOperations.ZeroMemory(authorizationSecret);
-        if (!authorized)
-        {
-            Console.Error.WriteLine("The plugin worker was not authorized by its supervisor.");
-            return ExitRejected;
-        }
-
+        PluginTestWorkerRequest request = session.Request;
         PluginTestReport? report = null;
         string? failure = null;
         try
@@ -161,20 +121,24 @@ internal static class PluginTestWorker
         }
         catch (Exception exception)
         {
-            failure = Bound(exception.Message);
+            failure = SelfWorkerProtocol.Bound(exception.Message);
         }
 
-        await WriteResultAsync(
-            resultPath!,
-            new PluginTestWorkerResponse
-            {
-                SchemaVersion = 1,
-                AuthorizationSha256 = request.AuthorizationSha256,
-                Report = report,
-                Error = failure,
-            },
+        await SelfWorkerProtocol.WriteResultAsync(
+            session.ResultPath,
+            (stream, token) => JsonSerializer.SerializeAsync(
+                stream,
+                new PluginTestWorkerResponse
+                {
+                    SchemaVersion = 1,
+                    AuthorizationSha256 = request.AuthorizationSha256,
+                    Report = report,
+                    Error = failure,
+                },
+                PluginTestWorkerJson.Options,
+                token),
             cancellationToken).ConfigureAwait(false);
-        return ExitSuccess;
+        return SelfWorkerProtocol.ExitSuccess;
     }
 
     private static AttendedPluginSafetyEnvironment ParentReservedSafetyEnvironment() => new()
@@ -189,114 +153,10 @@ internal static class PluginTestWorker
             // preserves the in-process lifetime ordering without pretending to own another mutex.
             Reservation = new DeviceLabOwnerReservation(new NoopDisposable()),
         },
-        IsElevated = IsElevated(),
+        IsElevated = DeviceLabEnvironment.IsElevated(),
         IsUserInteractive = Environment.UserInteractive,
-        IsContinuousIntegration = IsContinuousIntegration(),
+        IsContinuousIntegration = DeviceLabEnvironment.IsContinuousIntegration(),
     };
-
-    private static async Task<PluginTestWorkerRequest?> ReadRequestAsync(
-        string path,
-        CancellationToken cancellationToken)
-    {
-        FileInfo info = new(path);
-        if (!info.Exists || info.Length is <= 0 or > MaximumRequestBytes)
-        {
-            return null;
-        }
-
-        await using FileStream stream = new(
-            path,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            4096,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        return await JsonSerializer.DeserializeAsync<PluginTestWorkerRequest>(
-            stream,
-            PluginTestWorkerJson.Options,
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task WriteResultAsync(
-        string path,
-        PluginTestWorkerResponse response,
-        CancellationToken cancellationToken)
-    {
-        await using FileStream stream = new(
-            path,
-            FileMode.CreateNew,
-            FileAccess.Write,
-            FileShare.None,
-            4096,
-            FileOptions.Asynchronous | FileOptions.WriteThrough);
-        await JsonSerializer.SerializeAsync(
-            stream,
-            response,
-            PluginTestWorkerJson.Options,
-            cancellationToken).ConfigureAwait(false);
-        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static bool TryParseArguments(
-        IReadOnlyList<string> args,
-        out Arguments? parsed,
-        out string? error)
-    {
-        Dictionary<string, string> values = new(StringComparer.Ordinal);
-        for (int index = 0; index < args.Count; index += 2)
-        {
-            if (index + 1 >= args.Count
-                || args[index] is not ("--request" or "--result" or "--authorization-handle")
-                || !values.TryAdd(args[index], args[index + 1]))
-            {
-                parsed = null;
-                error = "The plugin worker requires exactly --request, --result, and --authorization-handle once each.";
-                return false;
-            }
-        }
-
-        if (values.Count != 3
-            || !values.TryGetValue("--request", out string? requestPath)
-            || !values.TryGetValue("--result", out string? resultPath)
-            || !values.TryGetValue("--authorization-handle", out string? authorizationHandle)
-            || string.IsNullOrWhiteSpace(requestPath)
-            || string.IsNullOrWhiteSpace(resultPath)
-            || string.IsNullOrWhiteSpace(authorizationHandle))
-        {
-            parsed = null;
-            error = "The plugin worker arguments were incomplete or malformed.";
-            return false;
-        }
-
-        parsed = new Arguments(requestPath, resultPath, authorizationHandle);
-        error = null;
-        return true;
-    }
-
-    private static bool IsElevated()
-    {
-        using System.Security.Principal.WindowsIdentity identity =
-            System.Security.Principal.WindowsIdentity.GetCurrent();
-        return new System.Security.Principal.WindowsPrincipal(identity).IsInRole(
-            System.Security.Principal.WindowsBuiltInRole.Administrator);
-    }
-
-    private static bool IsContinuousIntegration() =>
-        IsTruthy(Environment.GetEnvironmentVariable("CI"))
-        || IsTruthy(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"));
-
-    private static bool IsTruthy(string? value) =>
-        string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
-
-    private static string Bound(string value) =>
-        value[..Math.Min(value.Length, 16_384)];
-
-    private sealed record Arguments(
-        string RequestPath,
-        string ResultPath,
-        string AuthorizationHandle);
 
     private sealed class NoopDisposable : IDisposable
     {
@@ -418,9 +278,9 @@ internal static class PluginTestWorkerSupervisor
         DeviceLabSafetySnapshot staticSnapshot = new()
         {
             OwnerDiscovery = DeviceOwnerDiscoveryState.Absent,
-            IsElevated = IsElevated(),
+            IsElevated = DeviceLabEnvironment.IsElevated(),
             IsUserInteractive = Environment.UserInteractive,
-            IsContinuousIntegration = IsContinuousIntegration(),
+            IsContinuousIntegration = DeviceLabEnvironment.IsContinuousIntegration(),
             AttendedActionConfirmed = confirmed,
         };
         DeviceLabPreflightDecision staticPreflight = DeviceLabSafetyPreflight.Evaluate(
@@ -752,21 +612,4 @@ internal static class PluginTestWorkerSupervisor
             // A suspicious or locked session is left for inspection instead of widening deletion.
         }
     }
-
-    private static bool IsElevated()
-    {
-        using System.Security.Principal.WindowsIdentity identity =
-            System.Security.Principal.WindowsIdentity.GetCurrent();
-        return new System.Security.Principal.WindowsPrincipal(identity).IsInRole(
-            System.Security.Principal.WindowsBuiltInRole.Administrator);
-    }
-
-    private static bool IsContinuousIntegration() =>
-        IsTruthy(Environment.GetEnvironmentVariable("CI"))
-        || IsTruthy(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"));
-
-    private static bool IsTruthy(string? value) =>
-        string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
 }

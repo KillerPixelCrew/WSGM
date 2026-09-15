@@ -178,7 +178,7 @@ internal static class DeviceLabDoctor
                 RuntimeIdentifier = RuntimeInformation.RuntimeIdentifier,
                 IsElevated = IsElevated(),
                 IsUserInteractive = Environment.UserInteractive,
-                IsContinuousIntegration = IsContinuousIntegration(),
+                IsContinuousIntegration = DeviceLabEnvironment.IsContinuousIntegration(),
                 RequiredApis = RequiredWindowsApis.Select(api => ProbeApi(api)).ToArray(),
                 OutputPathWritable = outputWritable,
                 OutputAccessDetail = outputDetail,
@@ -230,18 +230,6 @@ internal static class DeviceLabDoctor
                 return false;
             }
         }
-
-        private static bool IsContinuousIntegration()
-        {
-            string? ci = Environment.GetEnvironmentVariable("CI");
-            string? githubActions = Environment.GetEnvironmentVariable("GITHUB_ACTIONS");
-            return IsTruthy(ci) || IsTruthy(githubActions);
-        }
-
-        private static bool IsTruthy(string? value) =>
-            string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
 
         private static (bool Writable, string? Detail) ProbeOutputAccess(
             DeviceLabOutputPathDecision outputDecision)
