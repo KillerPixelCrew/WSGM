@@ -337,7 +337,8 @@ name and the `Library_FilteredByHeader` marker. Kill switch: `window.__wsgm.disa
 restart also recovers. The old `tabs-prod.js` helper is not a valid prototype path because it sweeps
 and executes the webpack registry. Prototype in offline tests first. When the maintainer requests a
 live inspection, verify the port owner and target, then use the literal-module/source-string lookup
-shape in `probe-token-exists.js` or `probe-perf-components.js`; never instantiate unknown exports.
+shape in `probe-perf-components.js` or the `token-exists` section of `probe-register.js`; never
+instantiate unknown exports.
 
 ## The Steam-page bridge on the visible window
 

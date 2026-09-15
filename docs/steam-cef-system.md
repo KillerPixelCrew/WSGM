@@ -647,7 +647,7 @@ through `cdp.mjs`.
 | `cdp-eval.mjs raw\|add\|remove\|list`                                       | install-folder operations                                                                                        | `add` and `remove` mutate                                                                                                                                |
 | `run-prod-sort.mjs [enable\|disable]`                                       | the download-sort resident extracted from the C#                                                                 | mutating                                                                                                                                                 |
 | `art-test.mjs`                                                              | SteamGridDB apply                                                                                                | mutating, needs `SGDB_KEY`                                                                                                                               |
-| `probe-*.js`                                                                | historical focused experiments                                                                                   | mixed; inspect the file first because several click, change settings, install gates, or call obsolete bridge APIs                                        |
+| `probe-*.js --section <name>`                                               | historical focused experiments, one script per family; without `--section` a script only lists its sections      | mixed; each header lists read-only and mutating sections apart, and several sections click, change settings, install gates, or call obsolete bridge APIs |
 
 The `.mcp.json` server `steam-cef` is `chrome-devtools-mcp` attached to the existing endpoint;
 listing targets and bounded read-only evaluation are observation, and `close_page` closes Steam's
@@ -679,9 +679,11 @@ running client and recorded in `docs\steam-cef.md`.
 ## 13. Known gaps
 
 - `tools\WsgmLibTest\tabs-prod.js` and `unpatch.js` sweep the webpack registry calling every module,
-  which the repository rules forbid. `probe-click.js`, `probe-settings-change.js`,
-  `probe-perf-shim.js`, `probe-audio-install.js`, `probe-tdp-rpc.js`, and `probe-register*.js` are
-  mutating or obsolete despite their names. Read `probe-token-exists.js` for the safe shape.
+  which the repository rules forbid. The mutating probe sections (`click`, `settings-change`,
+  `perf-shim`, `tdp-rpc`, `audio-gate`, `audio-install`, `nightmode-gate`, and `register`,
+  `register2` and `subscribe` in `probe-register.js`) change live state or call obsolete bridge
+  APIs. Read `probe-perf-components.js` or the `token-exists` section of `probe-register.js` for the
+  safe shape.
 - The QAM harness acknowledges every page request without performing it, so it cannot validate a
   write path. It proves rendering and publication only, and its `remove` command does not remove the
   runtime binding installed when the harness connected.

@@ -48,17 +48,22 @@ endpoint. Neither relaxes these rules.
 ## Do not run these as probes
 
 - `tabs-prod.js` and `unpatch.js` sweep and execute the webpack registry.
-- `probe-click.js` and `probe-settings-change.js` interact with the live UI.
-- `probe-perf-shim.js`, `probe-audio-install.js`, and `probe-tdp-rpc.js` install or invoke live
-  gates.
-- `probe-register*.js` targets an obsolete bridge shape and mutates state.
+- The mutating sections of the `probe-*.js` family scripts. Each header lists them apart from the
+  read-only sections, and a run without `--section` only prints that list.
+  - `click` in `probe-misc.js` and `settings-change` in `probe-qam.js` interact with the live UI.
+  - `perf-shim` and `tdp-rpc` in `probe-perf.js`, `audio-gate` and `audio-install` in
+    `probe-audio.js`, and `nightmode-gate` in `probe-gates.js` install, override or invoke live
+    gates.
+  - `register`, `register2` and `subscribe` in `probe-register.js` target an obsolete bridge shape
+    and mutate state.
 
-The `probe-` prefix is historical naming, not a guarantee. Inspect every file before execution.
+The `probe-` prefix and a read-only label are historical classification, not a guarantee. Inspect
+every section before execution.
 
 ## Safe query shape
 
-Prefer existing read-only scripts such as `probe-token-exists.js` only after reviewing their current
-contents. For a new query:
+Prefer existing read-only sections such as `probe-register.js --section token-exists` only after
+reviewing their current contents. For a new query:
 
 1. Read the current implementation or generated asset to obtain one explicit module id or unique
    source token.
