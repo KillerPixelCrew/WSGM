@@ -1010,7 +1010,8 @@ public partial class OverlayWindow : Window
                 autoTdp.TrailingText,
                 autoTdp.CanInvoke,
                 autoTdp.Status));
-            row.Click += (_, _) => InvokeAutoTdpToggle();
+            row.Click += (_, _) => _ = RunDeviceCommandAsync(
+                "AutoTDP switch", (bridge, token) => bridge.ToggleAutoTdpAsync(token));
             target.Children.Add(row);
             if (string.Equals(autoTdpFocusKey, focusedKey, StringComparison.Ordinal))
             {
@@ -1032,7 +1033,8 @@ public partial class OverlayWindow : Window
                 profile.TrailingText,
                 profile.CanInvoke,
                 profile.Status));
-            row.Click += (_, _) => InvokeHardwareProfileCycle();
+            row.Click += (_, _) => _ = RunDeviceCommandAsync(
+                "Hardware profile change", (bridge, token) => bridge.CycleHardwareProfileAsync(token));
             target.Children.Add(row);
             if (string.Equals(profileFocusKey, focusedKey, StringComparison.Ordinal))
             {
@@ -1054,7 +1056,8 @@ public partial class OverlayWindow : Window
                 authored.TrailingText,
                 authored.CanInvoke,
                 authored.Status));
-            authoredRow.Click += (_, _) => InvokeAuthoredProfileCycle();
+            authoredRow.Click += (_, _) => _ = RunDeviceCommandAsync(
+                "Fan profile change", (bridge, token) => bridge.CycleAuthoredProfileAsync(token));
             target.Children.Add(authoredRow);
             if (string.Equals(authoredFocusKey, focusedKey, StringComparison.Ordinal))
             {
@@ -1076,7 +1079,8 @@ public partial class OverlayWindow : Window
                 controller.TrailingText,
                 controller.CanInvoke,
                 controller.Status));
-            row.Click += (_, _) => InvokeControllerTargetCycle();
+            row.Click += (_, _) => _ = RunDeviceCommandAsync(
+                "Controller target change", (bridge, token) => bridge.CycleControllerTargetAsync(token));
             target.Children.Add(row);
             if (string.Equals(controllerFocusKey, focusedKey, StringComparison.Ordinal))
             {
@@ -1097,7 +1101,8 @@ public partial class OverlayWindow : Window
                 recovery.TrailingText,
                 true,
                 recovery.Status));
-            row.Click += (_, _) => InvokeDeviceCycleRetry();
+            row.Click += (_, _) => _ = RunDeviceCommandAsync(
+                "Device integration retry", (bridge, token) => bridge.RetryDeviceCycleAsync(token));
             target.Children.Add(row);
             if (string.Equals(recoveryFocusKey, focusedKey, StringComparison.Ordinal))
             {
@@ -1214,25 +1219,6 @@ public partial class OverlayWindow : Window
         }
     }
 
-    private void InvokeAutoTdpToggle() => _ = ToggleAutoTdpAsync();
-
-    private void InvokeControllerTargetCycle() => _ = RunDeviceCommandAsync(
-        "Controller target change",
-        (bridge, token) => bridge.CycleControllerTargetAsync(token));
-
-    private void InvokeDeviceCycleRetry() => _ = RunDeviceCommandAsync(
-        "Device integration retry",
-        (bridge, token) => bridge.RetryDeviceCycleAsync(token));
-
-    private void InvokeHardwareProfileCycle() => _ = RunDeviceCommandAsync(
-        "Hardware profile change",
-        (bridge, token) => bridge.CycleHardwareProfileAsync(token));
-
-    private void InvokeAuthoredProfileCycle() => _ = RunDeviceCommandAsync(
-        "Fan profile change",
-        (bridge, token) => bridge.CycleAuthoredProfileAsync(token));
-
-
     /// <summary>Runs one direct Device-surface command with the shared cancellation and logging.</summary>
     /// <param name="description">What the command is, for the log line if it fails.</param>
     /// <param name="command">The command to run against the current source.</param>
@@ -1263,27 +1249,6 @@ public partial class OverlayWindow : Window
         catch (Exception ex)
         {
             Log.Warn($"{description} failed: {ex.Message}");
-        }
-    }
-
-    private async Task ToggleAutoTdpAsync()
-    {
-        IDeviceOverlaySource? bridge = _deviceBridge;
-        if (bridge is null || _closed)
-        {
-            return;
-        }
-
-        try
-        {
-            await bridge.ToggleAutoTdpAsync(_deviceLifetime.Token);
-        }
-        catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"AutoTDP switch failed: {ex.Message}");
         }
     }
 
@@ -1541,25 +1506,9 @@ public partial class OverlayWindow : Window
             capability.Unit,
             current,
             capability.CanInvoke,
-            value =>
-            {
-                IDeviceOverlaySource? bridge = _deviceBridge;
-                if (bridge is null || _closed)
-                {
-                    return;
-                }
-
-                _ = CommitDeviceValueAsync(
-                    bridge,
-                    capability with
-                    {
-                        NextValue = new CapabilityValue
-                        {
-                            Kind = CapabilityValueKind.Integer,
-                            IntegerValue = value,
-                        },
-                    });
-            });
+            value => WriteDeviceValue(
+                capability,
+                new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = value }));
         return row;
     }
 
@@ -1582,25 +1531,9 @@ public partial class OverlayWindow : Window
             capability.CurrentValue?.CurveValue ?? [],
             marker,
             capability.CanInvoke,
-            curve =>
-            {
-                IDeviceOverlaySource? bridge = _deviceBridge;
-                if (bridge is null || _closed)
-                {
-                    return;
-                }
-
-                _ = CommitDeviceValueAsync(
-                    bridge,
-                    capability with
-                    {
-                        NextValue = new CapabilityValue
-                        {
-                            Kind = CapabilityValueKind.Curve,
-                            CurveValue = curve,
-                        },
-                    });
-            });
+            curve => WriteDeviceValue(
+                capability,
+                new CapabilityValue { Kind = CapabilityValueKind.Curve, CurveValue = curve }));
     }
 
     private async System.Threading.Tasks.Task CommitDeviceValueAsync(

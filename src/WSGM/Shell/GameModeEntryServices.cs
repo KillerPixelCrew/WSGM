@@ -10,8 +10,8 @@ namespace WSGM.Shell;
 /// <summary>The half of the entry transaction the resident session owns: the saved configuration,
 /// the splash, the display work and the plugin actions.
 ///
-/// <see cref="SessionModes"/> owns the other half — Explorer, Steam and the game-mode surfaces —
-/// and it is the only part a preview coordinator can run at all, which is why the split is here.
+/// <see cref="SessionModes"/> owns the other half: Explorer, Steam and the game-mode surfaces.
+/// The interface keeps SessionModes independent of the session that implements this half.
 /// </summary>
 internal interface IGameModeEntryServices
 {

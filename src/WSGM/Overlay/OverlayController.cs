@@ -1212,7 +1212,7 @@ public sealed class OverlayController : IDisposable
 
         var overlay = _overlay;
         _navigation = new GamepadNavigation(_uiInput, _overlay, OnOverlayBack,
-            isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
+            isNintendoLayout: IsNintendoLayout,
             preferredFocus: () => overlay.DefaultFocusTarget,
             secondary: focused => _overlay?.RequestSecondaryAction(focused),
             tabPrevious: () => _overlay?.SelectPreviousTab(),
@@ -1537,7 +1537,7 @@ public sealed class OverlayController : IDisposable
         window.Show();
 
         _keyboardNavigation = new GamepadNavigation(_uiInput, window, () => window.Close(),
-            isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
+            isNintendoLayout: IsNintendoLayout,
             onEdge: OnKeyboardEdge);
         // Focus is in the keyboard now; the sidebar's nav stands down until we cross back.
         if (_navigation is not null)
@@ -1673,7 +1673,7 @@ public sealed class OverlayController : IDisposable
             return;
         }
         _radioClosePending = true;
-        _pendingRadioClose = RunOnUiThreadAfter(TimeSpan.FromMilliseconds(150), () =>
+        _pendingRadioClose = RunOnUiThreadAfter(TouchInput.CloseGrace, () =>
         {
             _radioClosePending = false;
             _pendingRadioClose = null;
@@ -1729,7 +1729,7 @@ public sealed class OverlayController : IDisposable
         // Its own navigation instance: the panel holds focus while it is open,
         // and B must close the panel rather than the sheet behind it.
         _radioNavigation = new GamepadNavigation(_uiInput, panel, () => panel.Close(),
-            isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
+            isNintendoLayout: IsNintendoLayout,
             tabPrevious: panel.SelectPreviousTab,
             tabNext: panel.SelectNextTab);
         panel.Closed += (_, _) =>
@@ -1771,7 +1771,7 @@ public sealed class OverlayController : IDisposable
             return;
         }
         _audioClosePending = true;
-        _pendingAudioClose = RunOnUiThreadAfter(TimeSpan.FromMilliseconds(150), () =>
+        _pendingAudioClose = RunOnUiThreadAfter(TouchInput.CloseGrace, () =>
         {
             _audioClosePending = false;
             _pendingAudioClose = null;
@@ -1822,7 +1822,7 @@ public sealed class OverlayController : IDisposable
             _navigation.IsEnabled = false;
         }
         _audioNavigation = new GamepadNavigation(_uiInput, panel, () => panel.Close(),
-            isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
+            isNintendoLayout: IsNintendoLayout,
             preferredFocus: () => panel.DefaultFocusTarget);
         panel.Closed += (_, _) =>
         {
@@ -1860,7 +1860,7 @@ public sealed class OverlayController : IDisposable
             return;
         }
         _ejectClosePending = true;
-        _pendingEjectClose = RunOnUiThreadAfter(TimeSpan.FromMilliseconds(150), () =>
+        _pendingEjectClose = RunOnUiThreadAfter(TouchInput.CloseGrace, () =>
         {
             _ejectClosePending = false;
             _pendingEjectClose = null;
@@ -1911,7 +1911,7 @@ public sealed class OverlayController : IDisposable
             _navigation.IsEnabled = false;
         }
         _ejectNavigation = new GamepadNavigation(_uiInput, panel, () => panel.Close(),
-            isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo);
+            isNintendoLayout: IsNintendoLayout);
         panel.Closed += (_, _) =>
         {
             _ejectNavigation?.Dispose();
@@ -2174,6 +2174,8 @@ public sealed class OverlayController : IDisposable
     private static IDisposable RunOnUiThreadAfter(TimeSpan delay, Action action)
         => Avalonia.Threading.DispatcherTimer.RunOnce(action, delay);
 
+    private bool IsNintendoLayout() => _config.GlyphStyle == GlyphStyle.Nintendo;
+
     private void CloseOverlay()
         => CloseOverlay(preserveWindowReturn: false);
 
@@ -2192,7 +2194,7 @@ public sealed class OverlayController : IDisposable
         // Kept open a beat, the window's own hook eats the synthesized click.
         // ShowOverlay cancels this via _pendingClose when re-summoned in time.
         _closePending = true;
-        _pendingClose = RunOnUiThreadAfter(TimeSpan.FromMilliseconds(150), () =>
+        _pendingClose = RunOnUiThreadAfter(TouchInput.CloseGrace, () =>
         {
             _closePending = false;
             _pendingClose = null;

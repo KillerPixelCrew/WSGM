@@ -60,7 +60,7 @@ public sealed class ArtworkView : OverlaySubView
         _stack.Clear();
         _current = null;
         _sgdbGameId = 0;
-        var config = await Task.Run(LibraryTabManager.LoadConfig);
+        var config = await Task.Run(ConfigStore.Load);
         if (generation != _navigationGeneration) { return; }
         _config = config;
         _apiKey = SteamGridDb.ResolveKey(config);

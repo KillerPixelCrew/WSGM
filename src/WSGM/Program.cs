@@ -287,7 +287,7 @@ public static class Program
         if (ServiceBoot)
         {
             Log.Info($"Run mode: {Mode} (service boot, elevated={ElevationCheck.IsCurrentProcessElevated()}, " +
-                     $"session {System.Diagnostics.Process.GetCurrentProcess().SessionId})");
+                     $"session {WindowFinder.CurrentSessionId})");
         }
         else
         {

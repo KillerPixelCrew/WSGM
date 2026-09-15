@@ -238,8 +238,7 @@ internal sealed class CommonPluginManager
     {
         try
         {
-            _ = cancellation.CancelAsync().ContinueWith(task => _ = task.Exception, CancellationToken.None,
-                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            cancellation.CancelAsync().ObserveFaults();
         }
         catch (ObjectDisposedException) { }
     }

@@ -476,7 +476,7 @@ public static class LibraryFilter
     /// <summary>Compiles just the predicate expression for a node (exposed for tests).</summary>
     /// <param name="node">The node to compile.</param>
     /// <param name="cards">Resolver for SD-card membership.</param>
-    public static string CompilePredicate(FilterNode node, ISdCardResolver cards)
+    internal static string CompilePredicate(FilterNode node, ISdCardResolver cards)
         => NodeExpr(node, new Emitter(cards));
 
     private static string NodeExpr(FilterNode node, Emitter emit)

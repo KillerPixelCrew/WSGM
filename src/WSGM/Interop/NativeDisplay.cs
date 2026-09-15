@@ -13,8 +13,6 @@ internal static unsafe partial class NativeDisplay
     internal const int GetDpiScaleType = -3;
     internal const int SetDpiScaleType = -4;
     internal const int GetSourceNameType = 1;   // DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME
-    internal const int GetAdvancedColorInfoType = 9;
-    internal const int SetAdvancedColorStateType = 10;
     internal const uint QdcOnlyActivePaths = 0x00000002;
     internal const int ErrorInsufficientBuffer = 122;
 
@@ -87,18 +85,6 @@ internal static unsafe partial class NativeDisplay
         public fixed char ViewGdiDeviceName[32];   // UTF-16 GDI name, e.g. \\.\DISPLAY1
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct AdvancedColorInfo
-    {
-        public DeviceInfoHeader Header;
-        public uint Value;
-        public uint ColorEncoding;
-        public uint BitsPerColorChannel;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct AdvancedColorState { public DeviceInfoHeader Header; public uint EnableAdvancedColor; }
-
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     internal struct DisplayDevice
     {
@@ -140,13 +126,7 @@ internal static unsafe partial class NativeDisplay
     internal static partial int DisplayConfigGetDeviceInfo(ref SourceDeviceName packet);
 
     [LibraryImport("user32.dll")]
-    internal static partial int DisplayConfigGetDeviceInfo(ref AdvancedColorInfo packet);
-
-    [LibraryImport("user32.dll")]
     internal static partial int DisplayConfigSetDeviceInfo(ref DpiScaleSet packet);
-
-    [LibraryImport("user32.dll")]
-    internal static partial int DisplayConfigSetDeviceInfo(ref AdvancedColorState packet);
 
     [LibraryImport("user32.dll", EntryPoint = "EnumDisplayDevicesW")]
     [return: MarshalAs(UnmanagedType.Bool)]

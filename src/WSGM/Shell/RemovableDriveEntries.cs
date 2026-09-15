@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Threading.Tasks;
 
 namespace WSGM.Shell;
 
@@ -14,26 +13,6 @@ public enum EjectKind
     /// reader): media-level dismount and eject. A device-level eject here would
     /// disable the reader itself until reboot.</summary>
     Media = 1,
-}
-
-/// <summary>Watches one eject so something else can decide what it means.</summary>
-/// <remarks>
-/// The drive manager performs Windows ejects and knows nothing about Steam libraries. This is how
-/// the session's library policy is told, at the two moments that matter, without inverting that:
-/// before the media goes, and once the outcome is known.
-/// </remarks>
-public interface IRemovableDriveEjectObserver
-{
-    /// <summary>Runs before the media is ejected.</summary>
-    /// <param name="entry">The row being ejected.</param>
-    /// <returns>A task that completes when the observer is ready for the eject.</returns>
-    Task EjectingAsync(RemovableDriveEntry entry);
-
-    /// <summary>Runs once the eject has been attempted.</summary>
-    /// <param name="entry">The row that was ejected.</param>
-    /// <param name="succeeded">Whether Windows released the media.</param>
-    /// <returns>A task that completes when the observer has recorded the outcome.</returns>
-    Task EjectedAsync(RemovableDriveEntry entry, bool succeeded);
 }
 
 /// <summary>One row in the Safe Eject list — a physical removable device (all of

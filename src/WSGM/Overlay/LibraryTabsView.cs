@@ -54,7 +54,7 @@ public sealed class LibraryTabsView : OverlaySubView
 
     private async Task LoadAndRenderAsync(int generation)
     {
-        var config = await Task.Run(LibraryTabManager.LoadConfig);
+        var config = await Task.Run(ConfigStore.Load);
         if (generation != _navigationGeneration) { return; }
         _config = config;
         _openedTabIds = _config.CustomTabs.Select(static tab => tab.Id)
@@ -404,7 +404,7 @@ public sealed class LibraryTabsView : OverlaySubView
         catch (Exception ex)
         {
             Log.Warn($"Library tab {operation} failed: {ex.Message}");
-            _config = await Task.Run(LibraryTabManager.LoadConfig);
+            _config = await Task.Run(ConfigStore.Load);
             Toast($"Could not {operation} the tab. Try again.");
             _stack.Clear();
             Replace(RenderTabList);

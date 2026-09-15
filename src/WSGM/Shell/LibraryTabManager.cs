@@ -723,20 +723,10 @@ public sealed class LibraryTabManager
         CancellationToken cancellationToken = default)
         => Task.Run(() =>
         {
-            using var _ = ConfigStore.AcquireLock();
-            if (!ConfigStore.HasExclusiveLock)
-            {
-                throw new IOException("Could not acquire the configuration lock.");
-            }
-            var config = ConfigStore.LoadForMutation();
-            var result = mutate(config);
-            ConfigStore.Save(config);
+            T result = default!;
+            ConfigStore.Mutate(config => result = mutate(config));
             return result;
         }, cancellationToken);
-
-    /// <summary>Loads the current custom tabs and cards for the builder UI (no scan;
-    /// pair with <see cref="ListCardsAsync"/> for live inserted state).</summary>
-    public static AppConfig LoadConfig() => ConfigStore.Load();
 
     /// <summary>The content ids of the removable libraries attached right now.</summary>
     /// <remarks>

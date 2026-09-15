@@ -66,7 +66,7 @@ public sealed class SessionModes
     /// <summary>Awaited (bounded) immediately before a transition asks Steam for Big Picture, so
     /// the owner can retract injected Steam UI state and close its transport first: the request
     /// rebuilds Steam's whole front-end, and that rebuild must see stock client state (see
-    /// <c>ShellSession.PrepareSteamUiForBigPictureAsync</c>). Null in preview coordinators.</summary>
+    /// <c>ShellSession.PrepareSteamUiForBigPictureAsync</c>).</summary>
     internal Func<System.Threading.Tasks.Task>? PrepareSteamUiForBigPictureAsync { get; set; }
 
     /// <summary>Invoked when a transition worker that may have requested Big Picture has settled,
@@ -75,7 +75,7 @@ public sealed class SessionModes
     internal Action? SteamUiBigPictureRequestSettled { get; set; }
 
     /// <summary>The displays, plugin actions and splash half of the entry transaction. Null in
-    /// preview coordinators and in overlay-test mode, where entry runs its Default posture only.
+    /// overlay-test mode, where entry runs its Default posture only.
     /// </summary>
     internal IGameModeEntryServices? GameModeEntryServices { get; set; }
 

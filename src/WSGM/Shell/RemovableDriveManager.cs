@@ -480,7 +480,7 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
     /// thing whether it was pressed in the overlay or on Steam's storage page, without this
     /// manager knowing what a Steam library is.
     /// </remarks>
-    public IRemovableDriveEjectObserver? EjectObserver { get; set; }
+    internal LibraryPolicy? EjectObserver { get; set; }
 
     /// <summary>Safely ejects one row's device or media, updating the row and
     /// <see cref="StatusText"/> with the outcome.</summary>

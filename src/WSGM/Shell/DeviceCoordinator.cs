@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -287,7 +286,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     public static Task<DeviceCoordinator?> TryStartAsync(
         AppConfig config,
         CancellationToken cancellationToken = default)
-        => TryStartAsync(config, new PluginHost(action => Avalonia.Threading.Dispatcher.UIThread.Post(action)), cancellationToken);
+        => TryStartAsync(config, new PluginHost(UiThread.Post), cancellationToken);
 
     internal static Task<DeviceCoordinator?> TryStartAsync(
         AppConfig config, PluginHost pluginHost, CancellationToken cancellationToken)
@@ -306,12 +305,12 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            uint sessionId = (uint)Process.GetCurrentProcess().SessionId;
+            uint sessionId = (uint)WindowFinder.CurrentSessionId;
             coordinator = new DeviceCoordinator(
                 config,
                 sessionId,
                 owner,
-                action => Avalonia.Threading.Dispatcher.UIThread.Post(action), pluginHost);
+                UiThread.Post, pluginHost);
         }
         catch
         {

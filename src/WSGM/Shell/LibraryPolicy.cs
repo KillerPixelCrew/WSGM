@@ -43,7 +43,7 @@ internal enum LibraryTransition
 /// card actually leaving, or an explicit adopt, clears it.
 /// </para>
 /// </remarks>
-internal sealed class LibraryPolicy : IRemovableDriveEjectObserver
+internal sealed class LibraryPolicy
 {
     /// <summary>Volume roots ejected on purpose, with the library identity that was on them.</summary>
     /// <remarks>
@@ -55,7 +55,9 @@ internal sealed class LibraryPolicy : IRemovableDriveEjectObserver
     private readonly Dictionary<string, string> _ejected = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _gate = new();
 
-    /// <inheritdoc />
+    /// <summary>Runs before the media is ejected.</summary>
+    /// <param name="entry">The row being ejected.</param>
+    /// <returns>A task that completes when the policy is ready for the eject.</returns>
     /// <remarks>
     /// Unregistering happens here, before the media goes, and the intent is recorded with it. Both
     /// are undone by <see cref="EjectedAsync" /> when Windows refuses the eject, because a card
@@ -87,7 +89,10 @@ internal sealed class LibraryPolicy : IRemovableDriveEjectObserver
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Runs once the eject has been attempted.</summary>
+    /// <param name="entry">The row that was ejected.</param>
+    /// <param name="succeeded">Whether Windows released the media.</param>
+    /// <returns>A task that completes when the policy has recorded the outcome.</returns>
     public Task EjectedAsync(RemovableDriveEntry entry, bool succeeded)
     {
         ArgumentNullException.ThrowIfNull(entry);

@@ -52,7 +52,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $PSScriptRoot
+$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 
 if (-not $Exe) {
     $Exe = Join-Path $root "publish\uwp-spike\WsgmUwpSpike.exe"

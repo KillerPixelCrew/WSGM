@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using SteamUiToolkit.Surfaces;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
@@ -113,7 +114,7 @@ public sealed class ShellSession : IAsyncDisposable
     private long _configReloadGeneration;
     private Task? _startupTask;
     private DeviceCoordinator? _deviceCoordinator;
-    private readonly PluginHost _pluginHost = new(action => Avalonia.Threading.Dispatcher.UIThread.Post(action));
+    private readonly PluginHost _pluginHost = new(UiThread.Post);
     private CommonPluginManager? _commonPlugins;
     private Task _commonPluginStartup = Task.CompletedTask;
     private readonly bool _desktopResident;
@@ -413,7 +414,7 @@ public sealed class ShellSession : IAsyncDisposable
         await _cefMasterGate.WaitAsync(_shutdownCancellation.Token).ConfigureAwait(false);
         try
         {
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (_disposed || !_cefMasterEnabled || _gameModeCefTransitionPending)
                 {
@@ -430,7 +431,7 @@ public sealed class ShellSession : IAsyncDisposable
                 // a device publication that may have already arrived during the retraction.
                 ApplyGlyphConfig(_config);
                 KickTabBootSync();
-            }, Avalonia.Threading.DispatcherPriority.Normal, _shutdownCancellation.Token);
+            }, DispatcherPriority.Normal, _shutdownCancellation.Token);
         }
         finally
         {
@@ -489,7 +490,7 @@ public sealed class ShellSession : IAsyncDisposable
             if (!_overlayTestOnly)
             {
                 _commonPlugins = new(_pluginHost, CommonPluginCatalog.InstalledRoot, System.IO.Path.Combine(Log.Directory, "PluginState"),
-                    action => Avalonia.Threading.Dispatcher.UIThread.Post(action));
+                    UiThread.Post);
                 _commonPluginStartup = ApplyCommonPluginConfigAsync(_config);
             }
             coordinator = _overlayTestOnly
@@ -503,7 +504,7 @@ public sealed class ShellSession : IAsyncDisposable
                 return;
             }
 
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (_disposed)
                 {
@@ -682,14 +683,14 @@ public sealed class ShellSession : IAsyncDisposable
             // lists can offer what is actually running. A standalone --settings sees nothing here
             // and shows saved steps read-only, which is the truthful rendering.
             WSGM.Settings.SettingsPluginActions.Publish(ReadPluginActionOptions);
-            _modes.GameModeEntrySettled = () => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            _modes.GameModeEntrySettled = () => Dispatcher.UIThread.Post(() =>
             {
                 _holdingEntrySplash = false;
                 _gameModeEntryActive = false;
                 if (!_inGameMode) { _splash?.Dismiss("desktop entry settled"); }
             });
         }
-        _modes.SteamStartFailed += _ => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        _modes.SteamStartFailed += _ => Dispatcher.UIThread.Post(() =>
             _splash?.Dismiss("session transition warning"));
         // Session-lifetime on purpose (survives desktop trips): a Steam download must
         // keep the device awake in both modes, and the manual hold belongs to the user.
@@ -792,9 +793,9 @@ public sealed class ShellSession : IAsyncDisposable
         // The sheet is recreated per open, so its one-time cost — compiled-XAML populate JIT for
         // the process's largest window — lands on the user's first swipe (~1.5 s on the Claw).
         // Pay it at idle instead; every later open constructs against warm code.
-        Avalonia.Threading.Dispatcher.UIThread.Post(
+        Dispatcher.UIThread.Post(
             _overlay.WarmUp,
-            Avalonia.Threading.DispatcherPriority.ApplicationIdle);
+            DispatcherPriority.ApplicationIdle);
 
         if (_deviceCoordinator is { } controllerCapture && _overlay is { } captureSurface)
         {
@@ -816,13 +817,13 @@ public sealed class ShellSession : IAsyncDisposable
             // worker thread must not touch. The rate is bounded by design: the manager raises this
             // only while a WSGM surface has captured input.
             canonicalSource.Controllers.UiSampleReceived += sample =>
-                Avalonia.Threading.Dispatcher.UIThread.Post(
+                Dispatcher.UIThread.Post(
                     () => overlay.SubmitCanonicalSample(sample));
             canonicalSource.StateChanged += state =>
             {
                 if (state is not DeviceCycleState.Active)
                 {
-                    Avalonia.Threading.Dispatcher.UIThread.Post(overlay.ManagedInputLost);
+                    Dispatcher.UIThread.Post(overlay.ManagedInputLost);
                 }
             };
             // The cycle staying Active is not the same as samples still arriving. Disabling
@@ -836,7 +837,7 @@ public sealed class ShellSession : IAsyncDisposable
                     Log.Info(
                         $"Managed UI input falls back to SDL: controller management is "
                         + $"{status.State} ({status.Detail}).");
-                    Avalonia.Threading.Dispatcher.UIThread.Post(overlay.ManagedInputLost);
+                    Dispatcher.UIThread.Post(overlay.ManagedInputLost);
                 }
             };
         }
@@ -981,7 +982,7 @@ public sealed class ShellSession : IAsyncDisposable
         };
         _modes.PrepareSteamUiForBigPictureAsync = PrepareSteamUiForBigPictureAsync;
         _modes.SteamUiBigPictureRequestSettled = () =>
-            Avalonia.Threading.Dispatcher.UIThread.Post(ReleaseSteamUiBigPictureHold);
+            Dispatcher.UIThread.Post(ReleaseSteamUiBigPictureHold);
         _modes.GameModeEntered += () =>
         {
             _inGameMode = true;
@@ -1271,7 +1272,7 @@ public sealed class ShellSession : IAsyncDisposable
 
             try
             {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                await Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     if (ReferenceEquals(_bootTakeover, takeover))
                     {
@@ -1430,7 +1431,7 @@ public sealed class ShellSession : IAsyncDisposable
             return BootTakeoverResult.DesktopRestoreRequired;
         }
 
-        var enteredGameMode = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        var enteredGameMode = await Dispatcher.UIThread.InvokeAsync(() =>
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -1681,7 +1682,7 @@ public sealed class ShellSession : IAsyncDisposable
                 }
                 // Field-mutating and fire-and-forget from the UI thread, like every
                 // other caller.
-                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                Dispatcher.UIThread.Post(() =>
                 {
                     if (_disposed || !_cefMasterEnabled || _gameModeCefTransitionPending)
                     {
@@ -1773,7 +1774,7 @@ public sealed class ShellSession : IAsyncDisposable
     /// where the display mute service and its timers are owned.</summary>
     /// <param name="active">Whether Steam reports an active download.</param>
     private void OnDownloadActivityChanged(bool active)
-        => Avalonia.Threading.Dispatcher.UIThread.Post(
+        => Dispatcher.UIThread.Post(
             () => _displayMute?.SetDownloadActive(active));
 
     private void OnSessionLocked() => QueueDevicePowerTransition(suspend: true, "session locked");
@@ -1798,15 +1799,15 @@ public sealed class ShellSession : IAsyncDisposable
         public void SetStatus(string line)
         {
             Log.Info($"Game Mode entry: {line}.");
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => session.EnsureEntrySplash().SetStatus(line));
+            Dispatcher.UIThread.Post(() => session.EnsureEntrySplash().SetStatus(line));
         }
 
         public async Task ArmSteamDetectionAsync() =>
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            await Dispatcher.UIThread.InvokeAsync(() =>
                 session.EnsureEntrySplash().ArmSteamDetection());
 
         public void SetCancellable(bool cancellable) =>
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            Dispatcher.UIThread.Post(() =>
             {
                 session._gameModeEntryActive = cancellable;
                 session.EnsureEntrySplash().SetActionLabel(
@@ -1951,7 +1952,7 @@ public sealed class ShellSession : IAsyncDisposable
 
     /// <summary>Runs the desktop startup or wake action list, coalesced.</summary>
     /// <param name="startup">True for the startup list, false for the wake list.</param>
-    private void QueueDesktopActions(bool startup) => Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+    private void QueueDesktopActions(bool startup) => Dispatcher.UIThread.Post(async () =>
     {
         if (_shutdownRequested || _overlayTestOnly || !_desktopActionAdmission.TryBegin(
             _inGameMode, _modes?.TransitionInProgress != false, Environment.TickCount64)) { return; }
@@ -2247,7 +2248,7 @@ public sealed class ShellSession : IAsyncDisposable
                 () => _cefMasterEnabled,
                 () =>
                 {
-                    Avalonia.Threading.Dispatcher.UIThread.Post(KickTabBootSync);
+                    Dispatcher.UIThread.Post(KickTabBootSync);
                     return Task.CompletedTask;
                 },
                 _libraryPolicy);
@@ -2309,7 +2310,7 @@ public sealed class ShellSession : IAsyncDisposable
                 {
                     long generation = (long)(state ?? 0L);
                     var config = ConfigStore.Load();
-                    Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    Dispatcher.UIThread.Post(() =>
                     {
                         if (_disposed || generation != Interlocked.Read(ref _configReloadGeneration))
                         {
@@ -2398,7 +2399,7 @@ public sealed class ShellSession : IAsyncDisposable
         {
             return false;
         }
-        return await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        return await Dispatcher.UIThread.InvokeAsync(() =>
             _shutdownRequested ? false : action());
     }
 
@@ -2511,7 +2512,7 @@ public sealed class ShellSession : IAsyncDisposable
         }
         _steamControllerOwnership?.Dispose();
         _steamControllerOwnership = null;
-        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => SdlGamepads.SetSteamOwnership(false));
+        await Dispatcher.UIThread.InvokeAsync(() => SdlGamepads.SetSteamOwnership(false));
 
         // Run it before waiting on shell transitions or doing Explorer/CEF/RTSS teardown.
         // If the outer owner reaches its deadline, process exit still unloads the in-process
@@ -2608,7 +2609,7 @@ public sealed class ShellSession : IAsyncDisposable
             bool trayRetired = false;
             try
             {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(RetireTrayHostForShutdown);
+                await Dispatcher.UIThread.InvokeAsync(RetireTrayHostForShutdown);
                 trayRetired = true;
             }
             catch (Exception ex)
@@ -2618,7 +2619,7 @@ public sealed class ShellSession : IAsyncDisposable
             }
             try
             {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(DisposeUiOwnedSessionResources);
+                await Dispatcher.UIThread.InvokeAsync(DisposeUiOwnedSessionResources);
             }
             catch (Exception ex)
             {
@@ -3721,7 +3722,7 @@ public sealed class ShellSession : IAsyncDisposable
         var warning = _modes!.StartBigPicture();
         if (warning is not null)
         {
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            Dispatcher.UIThread.Post(() =>
             {
                 if (_shutdownRequested)
                 {

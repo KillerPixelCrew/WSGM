@@ -247,8 +247,7 @@ internal sealed class PluginRegistration(
             _modeRevision = revision;
             if (_modeCancellation is { } previous)
             {
-                _ = previous.CancelAsync().ContinueWith(failed => _ = failed.Exception, CancellationToken.None,
-                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                previous.CancelAsync().ObserveFaults();
             }
             _modeCancellation = request = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         }
@@ -298,8 +297,7 @@ internal sealed class PluginRegistration(
         {
             try
             {
-                _ = active.CancelAsync().ContinueWith(failed => _ = failed.Exception, CancellationToken.None,
-                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                active.CancelAsync().ObserveFaults();
             }
             catch (ObjectDisposedException) { }
         }
@@ -369,8 +367,7 @@ internal sealed class PluginRegistration(
                 budget.Dispose();
             }
         }, CancellationToken.None);
-        _ = work.ContinueWith(failed => _ = failed.Exception, CancellationToken.None,
-            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        work.ObserveFaults();
         try { return await work.WaitAsync(remaining, cancellationToken).ConfigureAwait(false); }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

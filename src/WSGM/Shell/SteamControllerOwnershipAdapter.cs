@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamInterop;
+using WSGM.Core;
 
 namespace WSGM.Shell;
 
@@ -223,12 +224,11 @@ internal sealed class NativeSteamControllerGate : ISteamControllerGate
 
     private static Process? FindSteamProcess()
     {
-        using Process current = Process.GetCurrentProcess();
         Process[] processes = Process.GetProcessesByName("steam");
         Process? selected = null;
         try
         {
-            Process[] candidates = processes.Where(process => process.SessionId == current.SessionId).ToArray();
+            Process[] candidates = processes.Where(process => process.SessionId == WindowFinder.CurrentSessionId).ToArray();
             if (candidates.Length > 1)
             {
                 throw new InvalidOperationException("Steam process identity is ambiguous in this session.");

@@ -1093,7 +1093,7 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
         {
             DeviceCoordinatorDiagnosticsSnapshot? snapshot =
                 await DeviceCoordinatorDiagnosticsClient.TryReadAsync(
-                    (uint)System.Diagnostics.Process.GetCurrentProcess().SessionId,
+                    (uint)WindowFinder.CurrentSessionId,
                     TimeSpan.FromMilliseconds(750));
             DeviceOwnerStatusText = snapshot is null
                 ? "No running device coordinator detected. Saved changes apply at the next shell start."

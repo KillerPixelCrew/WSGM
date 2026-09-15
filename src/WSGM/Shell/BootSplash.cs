@@ -21,7 +21,6 @@ public sealed class BootSplash
     // immediately (first fade tick lifts the occlusion), no opaque overlap.
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan FadeDuration = TimeSpan.FromMilliseconds(300);
-    private static readonly TimeSpan TouchCloseGrace = TimeSpan.FromMilliseconds(150);
 
     private readonly AppConfig _config;
     private readonly Action _buttonAction;
@@ -108,7 +107,7 @@ public sealed class BootSplash
             Log.Warn($"Boot splash timeout after {SplashPolicy.SteamTimeout.TotalSeconds:0} s — closing (Big Picture window never appeared).");
             _dismissing = true;
             _pollTimer?.Stop();
-            CloseAfter(TouchCloseGrace);
+            CloseAfter(TouchInput.CloseGrace);
             return;
         }
         if (_armed && Steam.IsBigPictureVisible)
@@ -137,7 +136,7 @@ public sealed class BootSplash
         _dismissing = true;
         Log.Info("Boot splash: button pressed.");
         _pollTimer?.Stop();
-        CloseAfter(TouchCloseGrace);
+        CloseAfter(TouchInput.CloseGrace);
         _buttonAction();
     }
 
@@ -156,7 +155,7 @@ public sealed class BootSplash
         _pendingAction = null;
         _dismissing = true;
         _pollTimer?.Stop();
-        CloseAfter(TouchCloseGrace);
+        CloseAfter(TouchInput.CloseGrace);
         Log.Info($"Boot splash dismissed ({reason}).");
     }
 

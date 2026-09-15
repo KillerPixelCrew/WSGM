@@ -303,7 +303,7 @@ internal static class LaunchWrapperCommand
 
     private static void StopRunningHelpers(string reason, TimeSpan? timeout)
     {
-        int currentSession = Process.GetCurrentProcess().SessionId;
+        int currentSession = WindowFinder.CurrentSessionId;
         foreach (Process process in Process.GetProcessesByName(
                      Path.GetFileNameWithoutExtension(HelperFileName)))
         {

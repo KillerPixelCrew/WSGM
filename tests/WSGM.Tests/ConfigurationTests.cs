@@ -1087,19 +1087,6 @@ public sealed class ConfigurationTests
         Assert.Equal(120, step.TimeoutSeconds);
     }
 
-    [Theory]
-    [InlineData(false, false, true, false)]
-    [InlineData(false, true, false, false)]
-    [InlineData(true, false, true, true)]
-    [InlineData(true, true, false, true)]
-    [InlineData(true, true, true, false)]
-    public void HdrChangesOnlyWhenTheActiveTargetSupportsIt(
-        bool available,
-        bool current,
-        bool requested,
-        bool expected)
-        => Assert.Equal(expected, DisplayScale.ShouldChange(available, current, requested));
-
     [Fact]
     public void SignInStartFieldsRoundTripThroughSourceGeneratedJson()
     {

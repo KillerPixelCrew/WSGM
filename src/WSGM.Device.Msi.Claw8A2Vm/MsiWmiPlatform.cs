@@ -66,13 +66,15 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
             throw new ArgumentException("MSI_ACPI writes require exactly 32 bytes.", nameof(package));
         }
 
-        return RunSerializedAsync(
+        return Complete(RunSerializedAsync(
             () =>
             {
                 _ = InvokeCore(methodName, [.. package]);
                 return true;
             },
-            cancellationToken).AsVoid();
+            cancellationToken));
+
+        static async ValueTask Complete(ValueTask<bool> pending) => _ = await pending.ConfigureAwait(false);
     }
 
     public ValueTask DisposeAsync()
@@ -572,10 +574,4 @@ internal sealed class MsiOemEventSource : IMsiOemEventSource
             // down the WMI callback thread or leave an unobserved task exception behind.
         }
     }
-}
-
-internal static class ValueTaskExtensions
-{
-    public static async ValueTask AsVoid<T>(this ValueTask<T> task) =>
-        _ = await task.ConfigureAwait(false);
 }

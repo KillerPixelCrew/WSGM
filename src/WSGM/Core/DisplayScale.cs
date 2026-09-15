@@ -234,20 +234,6 @@ public static unsafe class DisplayScale
         => freshCapture || savedEntries.Any(entry =>
             string.Equals(entry.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase));
 
-    internal static Dictionary<string, int> ReadActivePercentages()
-    {
-        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var source in GetActiveSources())
-        {
-            var name = GetSourceDeviceName(source.Adapter, source.SourceId);
-            if (name.Length > 0 && TryGetScale(source, out var current, out _, out _))
-            {
-                result[name] = (int)current;
-            }
-        }
-        return result;
-    }
-
     internal static int NormalizeConfiguredPercent(int percent)
         => (int)DpiVals.MinBy(candidate => Math.Abs((int)candidate - percent));
 
@@ -339,62 +325,6 @@ public static unsafe class DisplayScale
         catch (Exception ex)
         {
             Log.Warn($"Display scale: enumeration failed: {ex.Message}");
-        }
-        return result;
-    }
-
-    // ---- HDR (DisplayConfig advanced color) ------------------------------------------------
-    // Queried and set on the path TARGET; the GDI source name only keys the profile lookup.
-
-    private readonly record struct HdrTarget(string DeviceName, Luid AdapterId, uint TargetId, bool Supported, bool Enabled);
-
-    /// <summary>Gets HDR availability and current state keyed by GDI source name.</summary>
-    internal static Dictionary<string, (bool Available, bool Enabled)> ReadActiveHdr()
-    {
-        var result = new Dictionary<string, (bool, bool)>(StringComparer.OrdinalIgnoreCase);
-        foreach (var target in EnumerateHdrTargets())
-        {
-            result.TryAdd(target.DeviceName, (target.Supported, target.Enabled));
-        }
-        return result;
-    }
-
-    internal static bool ShouldChange(bool available, bool current, bool requested)
-        => available && current != requested;
-
-    private static List<HdrTarget> EnumerateHdrTargets()
-    {
-        var result = new List<HdrTarget>();
-        var paths = QueryActivePaths("Display HDR", out var numPaths);
-        if (paths is null)
-        {
-            return result;
-        }
-        for (var i = 0; i < numPaths; i++)
-        {
-            var path = paths[i];
-            var name = GetSourceDeviceName(path.SourceInfo.AdapterId, path.SourceInfo.Id);
-            if (name.Length == 0)
-            {
-                continue;
-            }
-            var info = new AdvancedColorInfo
-            {
-                Header =
-                {
-                    Type = GetAdvancedColorInfoType,
-                    Size = (uint)sizeof(AdvancedColorInfo),
-                    AdapterId = path.TargetInfo.AdapterId,
-                    Id = path.TargetInfo.Id,
-                },
-            };
-            if (DisplayConfigGetDeviceInfo(ref info) != 0)
-            {
-                continue;
-            }
-            result.Add(new HdrTarget(name, path.TargetInfo.AdapterId, path.TargetInfo.Id,
-                Supported: (info.Value & 1) != 0,
-                Enabled: (info.Value & 2) != 0));
         }
         return result;
     }

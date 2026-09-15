@@ -406,7 +406,7 @@ public static class Steam
 
     private static Process[] CurrentSessionProcesses(string processName)
     {
-        int sessionId = Process.GetCurrentProcess().SessionId;
+        int sessionId = WindowFinder.CurrentSessionId;
         var matches = new List<Process>();
         foreach (Process process in Process.GetProcessesByName(processName))
         {

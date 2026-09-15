@@ -114,9 +114,6 @@ public sealed class ScreenscraperProvider : IArtworkProvider
 {
     private const string ApiBase = "https://api.screenscraper.fr/api2";
 
-    /// <summary>Where a user registers the free account that raises their quota.</summary>
-    public const string AccountPageUrl = "https://www.screenscraper.fr/";
-
     private const int MaxJsonResponseBytes = 4 * 1024 * 1024;
 
     private static readonly HttpClient Http = new()

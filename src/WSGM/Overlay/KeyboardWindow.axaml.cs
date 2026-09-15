@@ -6,6 +6,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using WSGM.Input;
 using WSGM.Interop;
 
 namespace WSGM.Overlay;
@@ -107,7 +108,7 @@ public partial class KeyboardWindow : Window
             return;
         }
         _closePending = true;
-        DispatcherTimer.RunOnce(Close, TimeSpan.FromMilliseconds(150));
+        DispatcherTimer.RunOnce(Close, TouchInput.CloseGrace);
     }
 
 
