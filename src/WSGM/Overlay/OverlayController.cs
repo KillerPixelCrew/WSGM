@@ -844,9 +844,11 @@ public sealed class OverlayController : IDisposable
         }
 
         long openStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+        // One process-table scan per open: the view model and the UI scale both need it.
+        bool explorerRunning = ExplorerControl.IsRunningInSession();
         var vm = new OverlayViewModel
         {
-            ExplorerRunning = ExplorerControl.IsRunningInSession(),
+            ExplorerRunning = explorerRunning,
             HomeAppAlive = _monitor?.IsAlive ?? false,
             HomeAppName = "Steam",
             GlyphStyle = _config.GlyphStyle,
@@ -873,7 +875,7 @@ public sealed class OverlayController : IDisposable
         _systemStatus = new SystemStatus(_sessionAudio, _sessionRadios, _sessionDrives);
         _systemStatus.Start();
         long setupDone = System.Diagnostics.Stopwatch.GetTimestamp();
-        _overlay = new OverlayWindow(vm, switcher, _systemStatus, UiScale(), WindowCenter(_restoreFocusTo));
+        _overlay = new OverlayWindow(vm, switcher, _systemStatus, UiScale(explorerRunning), WindowCenter(_restoreFocusTo));
         _overlay.AttachSteamOwnership(SteamOwnership);
         if (_sources.Brightness is { } brightness) { _overlay.AttachBrightness(brightness); }
         if (_sources.ManualTdp is { } manual) { _overlay.AttachManualTdp(manual); }
@@ -1248,13 +1250,13 @@ public sealed class OverlayController : IDisposable
 
     private static void LogOpenTimings(long openStarted, long setupDone, long constructDone, long showDone) =>
         Avalonia.Threading.Dispatcher.UIThread.Post(
-        () => Log.Info(
-            "Quick access open timings: setup "
-            + $"{System.Diagnostics.Stopwatch.GetElapsedTime(openStarted, setupDone).TotalMilliseconds:F0} ms, "
-            + $"construct {System.Diagnostics.Stopwatch.GetElapsedTime(setupDone, constructDone).TotalMilliseconds:F0} ms, "
-            + $"show {System.Diagnostics.Stopwatch.GetElapsedTime(constructDone, showDone).TotalMilliseconds:F0} ms, "
-            + $"first frame {System.Diagnostics.Stopwatch.GetElapsedTime(showDone).TotalMilliseconds:F0} ms."),
-        Avalonia.Threading.DispatcherPriority.Background);
+            () => Log.Info(
+                "Quick access open timings: setup "
+                + $"{System.Diagnostics.Stopwatch.GetElapsedTime(openStarted, setupDone).TotalMilliseconds:F0} ms, "
+                + $"construct {System.Diagnostics.Stopwatch.GetElapsedTime(setupDone, constructDone).TotalMilliseconds:F0} ms, "
+                + $"show {System.Diagnostics.Stopwatch.GetElapsedTime(constructDone, showDone).TotalMilliseconds:F0} ms, "
+                + $"first frame {System.Diagnostics.Stopwatch.GetElapsedTime(showDone).TotalMilliseconds:F0} ms."),
+            Avalonia.Threading.DispatcherPriority.Background);
 
     private static Avalonia.PixelPoint? WindowCenter(nint window)
     {
@@ -1962,8 +1964,10 @@ public sealed class OverlayController : IDisposable
     /// the display already runs at the user's real scaling and Avalonia applies
     /// it, so boosting again would double up (device-reported: surfaces rendered
     /// huge on a 100% desktop when the recommended-scale fallback fired there).</summary>
-    private double UiScale()
-        => ExplorerControl.IsRunningInSession()
+    private double UiScale() => UiScale(ExplorerControl.IsRunningInSession());
+
+    private double UiScale(bool explorerRunning)
+        => explorerRunning
             ? 1.0
             : DisplayScale.GetUiScalePercent(_config) / 100.0;
 
