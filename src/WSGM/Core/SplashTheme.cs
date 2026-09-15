@@ -74,26 +74,15 @@ internal static class SplashTheme
     /// <returns>True when the file was written; false (logged) on any failure.</returns>
     internal static bool Export(SplashConfig splash, string path)
     {
-        var tempPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            bool written;
-            using (var stream = File.Create(tempPath))
-            {
-                written = Export(splash, stream);
-            }
-            if (written)
-            {
-                File.Move(tempPath, path, overwrite: true);
-                return true;
-            }
+            return AtomicFile.Write(path, stream => Export(splash, stream), durable: false);
         }
         catch (Exception ex)
         {
             Log.Warn($"Splash theme export to '{path}' failed: {ex.Message}");
+            return false;
         }
-        SplashAssets.TryDelete(tempPath);
-        return false;
     }
 
     /// <summary>Writes a splash theme archive to an open stream. The stream is left

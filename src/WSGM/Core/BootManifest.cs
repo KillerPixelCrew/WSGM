@@ -105,8 +105,6 @@ public static class BootManifestStore
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var json = JsonSerializer.Serialize(manifest, BootManifestJsonContext.Default.BootManifest);
-        var temp = $"{path}.{Environment.ProcessId}.tmp";
-        File.WriteAllText(temp, json);
-        File.Move(temp, path, overwrite: true);
+        AtomicFile.WriteText(path, json, durable: false);
     }
 }

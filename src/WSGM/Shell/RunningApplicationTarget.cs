@@ -763,7 +763,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     private readonly SteamRunningApplicationProbe _probe;
     private readonly Func<IReadOnlyList<RtssFrametimeSample>> _rendering;
     private readonly CancellationTokenSource _shutdown = new();
-    private readonly SemaphoreSlim _observerSignal = new(0, 1);
+    private readonly ObservationGate _observers = new();
     private readonly object _stateGate = new();
     private readonly Task _loop;
     private RunningApplicationTargetSnapshot _current;
@@ -772,7 +772,6 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     private DateTimeOffset _nextProfileRetry;
     private SteamRunningAppObservation? _lastObservation;
     private ForegroundApplicationObservation _foreground = ForegroundApplicationObservation.None;
-    private int _observerCount;
     private long _steamEnableGeneration;
     private volatile bool _steamEnabled;
     private bool _disposed;
@@ -866,11 +865,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     public IDisposable AcquireObservation()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (Interlocked.Increment(ref _observerCount) == 1)
-        {
-            TrySignalObserver();
-        }
-        return new ObservationLease(this);
+        return _observers.Acquire();
     }
 
     /// <summary>Starts or stops the Steam-backed identity source without stopping foreground policy.</summary>
@@ -890,7 +885,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
             // source remains authoritative for non-Steam and desktop applications.
             Publish(new SteamRunningAppObservation(true, [], 0, null), null);
         }
-        TrySignalObserver();
+        _observers.Signal();
     }
 
     public async ValueTask DisposeAsync()
@@ -902,7 +897,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
 
         _disposed = true;
         _shutdown.Cancel();
-        TrySignalObserver();
+        _observers.Signal();
         try
         {
             await _loop.ConfigureAwait(false);
@@ -910,7 +905,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         catch (OperationCanceledException)
         {
         }
-        _observerSignal.Dispose();
+        _observers.Dispose();
         _shutdown.Dispose();
     }
 
@@ -919,15 +914,15 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         CancellationToken cancellationToken = _shutdown.Token;
         while (!cancellationToken.IsCancellationRequested)
         {
-            if (Volatile.Read(ref _observerCount) == 0)
+            if (_observers.Count == 0)
             {
-                await _observerSignal.WaitAsync(cancellationToken).ConfigureAwait(false);
+                await _observers.WaitAsync(cancellationToken).ConfigureAwait(false);
                 continue;
             }
 
             if (!_steamEnabled)
             {
-                await _observerSignal.WaitAsync(cancellationToken).ConfigureAwait(false);
+                await _observers.WaitAsync(cancellationToken).ConfigureAwait(false);
                 continue;
             }
 
@@ -953,7 +948,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
             await using (subscription)
             {
                 while (_steamEnabled
-                    && Volatile.Read(ref _observerCount) > 0
+                    && _observers.Count > 0
                     && !cancellationToken.IsCancellationRequested)
                 {
                     await ObserveOnceAsync(cancellationToken).ConfigureAwait(false);
@@ -1173,33 +1168,4 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         }
     }
 
-    private void ReleaseObservation()
-    {
-        int remaining = Interlocked.Decrement(ref _observerCount);
-        if (remaining < 0)
-        {
-            Interlocked.Exchange(ref _observerCount, 0);
-        }
-    }
-
-    private void TrySignalObserver()
-    {
-        try
-        {
-            if (_observerSignal.CurrentCount == 0)
-            {
-                _observerSignal.Release();
-            }
-        }
-        catch (ObjectDisposedException)
-        {
-        }
-    }
-
-    private sealed class ObservationLease(RunningApplicationMonitor owner) : IDisposable
-    {
-        private RunningApplicationMonitor? _owner = owner;
-
-        public void Dispose() => Interlocked.Exchange(ref _owner, null)?.ReleaseObservation();
-    }
 }

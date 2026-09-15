@@ -932,7 +932,7 @@ public sealed class SdFormatManager : INotifyPropertyChanged
                 + "Close Steam and try formatting again.");
         }
         BackupOnce(configPath);
-        WriteAtomically(configPath, updated);
+        AtomicFile.WriteText(configPath, updated, durable: true);
         Log.Info($"Format: removed closed-Steam library registration for content id {contentId}.");
         return new LibraryRemoval(null, contentId, registeredLabel, contentId);
     }
@@ -1063,7 +1063,7 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             && SteamLibraryVdf.TrySplice(current, libraryPath, contentId, entry.SizeBytes,
                 out var restored, label) && restored is not null)
         {
-            WriteAtomically(configPath, restored);
+            AtomicFile.WriteText(configPath, restored, durable: true);
             Log.Info($"Format: restored library registration {contentId} after diskpart failure.");
         }
     }
@@ -1322,7 +1322,7 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             return "Add it in Steam under Settings > Storage.";
         }
         BackupOnce(configPath);
-        WriteAtomically(configPath, updated!);
+        AtomicFile.WriteText(configPath, updated!, durable: true);
         Log.Info($"Format: {libraryPath} registered in libraryfolders.vdf (backup written).");
         return "Added to Steam's library list (on next start).";
     }
@@ -1475,29 +1475,6 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             Log.Warn($"Format: failed — {message}");
         }
         Finished?.Invoke(message, success);
-    }
-
-    // Internal: LibraryTabManager's card rename reuses the same atomic replace for
-    // its closed-Steam vdf label edits.
-    internal static void WriteAtomically(string path, string content)
-    {
-        var temporary = path + $".wsgm-{Guid.NewGuid():N}.tmp";
-        try
-        {
-            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write,
-                FileShare.None, 4096, FileOptions.WriteThrough))
-            using (var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(false)))
-            {
-                writer.Write(content);
-                writer.Flush();
-                stream.Flush(flushToDisk: true);
-            }
-            File.Move(temporary, path, overwrite: true);
-        }
-        finally
-        {
-            try { File.Delete(temporary); } catch (IOException) { }
-        }
     }
 
     private static void BackupOnce(string path)

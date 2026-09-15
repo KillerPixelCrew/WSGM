@@ -432,7 +432,7 @@ public sealed class LibraryTabManager
                     + "the card in the reader changed. Its name is unchanged.");
                 return markerBehind;
             }
-            SdFormatManager.WriteAtomically(marker, updated);
+            AtomicFile.WriteText(marker, updated, durable: true);
             // Read back rather than trust the write: a replace that half-applied, or a
             // volume that went away underneath it, must not be reported as a rename the
             // next scan will contradict.
@@ -567,7 +567,7 @@ public sealed class LibraryTabManager
                         // would clobber ours (and ours could corrupt its view).
                         return false;
                     }
-                    SdFormatManager.WriteAtomically(configPath, updatedConfig);
+                    AtomicFile.WriteText(configPath, updatedConfig, durable: true);
                 }
                 return true;
             }

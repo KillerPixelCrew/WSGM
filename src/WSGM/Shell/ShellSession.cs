@@ -2913,7 +2913,7 @@ public sealed class ShellSession : IAsyncDisposable
         // AutoTDP is applied before the coordinator: turning Device Integration off must stop
         // AutoTDP and restore the previous power limit while the capability is still writable.
         _autoTdp?.Apply(ShouldRunAutoTdp(config.DeviceIntegration));
-        _ = ObserveDeviceConfigAsync(coordinator, config);
+        Log.Observe(coordinator.ApplyConfigAsync(config), "Device cycle config apply", error: true);
     }
 
     private async Task ApplyCommonPluginConfigAsync(AppConfig config)
@@ -3446,9 +3446,10 @@ public sealed class ShellSession : IAsyncDisposable
 
         _refreshPairing?.SetStrategy(config.Performance.FrameLimitStrategy);
         performance.ApplyOsdCustomization(RtssOsdCustomSettings.FromConfig(config.Performance));
-        _ = ObservePerformanceConfigAsync(
-            performance,
-            BuildPerformancePolicy(config, forceEnabled: _overlayTestOnly));
+        Log.Observe(
+            performance.UpdatePolicyAsync(BuildPerformancePolicy(config, forceEnabled: _overlayTestOnly)),
+            "RTSS performance config apply",
+            error: true);
     }
 
     /// <remarks>
@@ -3499,20 +3500,6 @@ public sealed class ShellSession : IAsyncDisposable
         }
 
         _ = pairing.ApplyForCap(limit);
-    }
-
-    private static async Task ObservePerformanceConfigAsync(
-        PerformanceService performance,
-        PerformancePolicy policy)
-    {
-        try
-        {
-            await performance.UpdatePolicyAsync(policy).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            Log.Error("RTSS performance config apply failed", ex);
-        }
     }
 
     private static PerformancePolicy BuildPerformancePolicy(
@@ -3623,20 +3610,6 @@ public sealed class ShellSession : IAsyncDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Task.CompletedTask;
-    }
-
-    private static async Task ObserveDeviceConfigAsync(
-        DeviceCoordinator coordinator,
-        AppConfig config)
-    {
-        try
-        {
-            await coordinator.ApplyConfigAsync(config).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Device cycle config apply failed", ex);
-        }
     }
 
     private async Task LaunchAppsAsync(CancellationToken cancellationToken)

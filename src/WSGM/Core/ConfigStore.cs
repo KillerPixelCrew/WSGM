@@ -950,37 +950,9 @@ public static class ConfigStore
         using var guard = ConfigMutex.Acquire(requireExclusive: true);
         Directory.CreateDirectory(Log.Directory);
         var json = JsonSerializer.Serialize(config, ConfigJsonContext.Default.AppConfig);
-        var temp = $"{ConfigPath}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            using (var stream = new FileStream(
-                       temp,
-                       FileMode.CreateNew,
-                       FileAccess.Write,
-                       FileShare.None))
-            using (var writer = new StreamWriter(stream))
-            {
-                writer.Write(json);
-            }
-
-            // Atomic replace (MoveFileEx REPLACE_EXISTING) — covers both the exists and
-            // not-yet-exists cases without a TOCTOU window.
-            File.Move(temp, ConfigPath, overwrite: true);
-        }
-        finally
-        {
-            try
-            {
-                File.Delete(temp);
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                // Cleanup must not replace the actual write/move failure with a
-                // secondary temp-file error. A unique orphan is harmless and can
-                // be diagnosed from this bounded warning.
-                Log.Warn($"Config temp cleanup failed for '{Path.GetFileName(temp)}': {ex.Message}");
-            }
-        }
+        // A unique orphan is harmless and can be diagnosed from this bounded warning.
+        AtomicFile.WriteText(ConfigPath, json, durable: false, static (temp, ex) =>
+            Log.Warn($"Config temp cleanup failed for '{Path.GetFileName(temp)}': {ex.Message}"));
     }
 
     /// <summary>The only supported read-modify-write path for config.json: takes the

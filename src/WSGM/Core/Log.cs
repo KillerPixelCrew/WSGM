@@ -145,9 +145,11 @@ public static class Log
     /// <summary>Observes a detached operation and records any non-cancellation failure.</summary>
     /// <param name="task">Operation whose exception must be observed.</param>
     /// <param name="operation">Diagnostic name of the operation.</param>
-    internal static void Observe(Task task, string operation) => _ = ObserveAsync(task, operation);
+    /// <param name="error">Records the failure as an error with its exception instead of a warning.</param>
+    internal static void Observe(Task task, string operation, bool error = false) =>
+        _ = ObserveAsync(task, operation, error);
 
-    private static async Task ObserveAsync(Task task, string operation)
+    private static async Task ObserveAsync(Task task, string operation, bool error)
     {
         try
         {
@@ -158,7 +160,14 @@ public static class Log
         }
         catch (Exception ex)
         {
-            Warn($"{operation} failed: {ex.Message}");
+            if (error)
+            {
+                Error($"{operation} failed", ex);
+            }
+            else
+            {
+                Warn($"{operation} failed: {ex.Message}");
+            }
         }
     }
 

@@ -161,24 +161,15 @@ internal sealed class FileHidHideOwnershipStore : IHidHideOwnershipStore
         }
 
         Directory.CreateDirectory(directory);
-        string temporary = _path + ".new";
-        await using (FileStream stream = new(
-            temporary,
-            FileMode.Create,
-            FileAccess.Write,
-            FileShare.None,
-            4096,
-            FileOptions.Asynchronous | FileOptions.WriteThrough))
-        {
-            await JsonSerializer.SerializeAsync(
+        await AtomicFile.WriteAsync(
+            _path,
+            (stream, token) => JsonSerializer.SerializeAsync(
                 stream,
                 ledger,
                 HidHideOwnershipJsonContext.Default.HidHideOwnershipLedger,
-                cancellationToken).ConfigureAwait(false);
-            await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        File.Move(temporary, _path, overwrite: true);
+                token),
+            durable: true,
+            cancellationToken).ConfigureAwait(false);
     }
 
     public Task DeleteAsync(CancellationToken cancellationToken)

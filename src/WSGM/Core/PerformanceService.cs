@@ -121,7 +121,7 @@ internal sealed class PerformanceService : IAsyncDisposable
     private readonly TimeProvider _timeProvider;
     private readonly object _stateGate = new();
     private readonly SemaphoreSlim _adapterGate = new(1, 1);
-    private readonly SemaphoreSlim _observerSignal = new(0, 1);
+    private readonly ObservationGate _observers = new();
     private readonly CancellationTokenSource _disposeCts = new();
     private readonly RtssLauncher _launcher;
     private readonly Task _pollTask;
@@ -131,7 +131,6 @@ internal sealed class PerformanceService : IAsyncDisposable
 
     /// <summary>The desired values a drift repair has already been attempted for, or null.</summary>
     private PerformanceValues? _repairedDrift;
-    private int _observerCount;
     private long _commandSequence;
     private bool _disposed;
 
@@ -184,7 +183,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         }
     }
 
-    internal int ObserverCount => Volatile.Read(ref _observerCount);
+    internal int ObserverCount => _observers.Count;
 
     internal bool Enabled
     {
@@ -221,12 +220,7 @@ internal sealed class PerformanceService : IAsyncDisposable
     internal IDisposable AcquireObservation()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (Interlocked.Increment(ref _observerCount) == 1)
-        {
-            TrySignalObserver();
-        }
-
-        return new ObservationLease(this);
+        return _observers.Acquire();
     }
 
     /// <summary>Resets the profile currently in force to its defaults.</summary>
@@ -651,7 +645,7 @@ internal sealed class PerformanceService : IAsyncDisposable
 
         _disposed = true;
         _disposeCts.Cancel();
-        TrySignalObserver();
+        _observers.Signal();
         try
         {
             await _pollTask.WaitAsync(_commandTimeout).ConfigureAwait(false);
@@ -881,9 +875,9 @@ internal sealed class PerformanceService : IAsyncDisposable
         CancellationToken cancellationToken = _disposeCts.Token;
         while (!cancellationToken.IsCancellationRequested)
         {
-            if (Volatile.Read(ref _observerCount) == 0)
+            if (_observers.Count == 0)
             {
-                await _observerSignal.WaitAsync(cancellationToken).ConfigureAwait(false);
+                await _observers.WaitAsync(cancellationToken).ConfigureAwait(false);
                 continue;
             }
 
@@ -1224,30 +1218,6 @@ internal sealed class PerformanceService : IAsyncDisposable
         };
     }
 
-    private void ReleaseObservation()
-    {
-        int remaining = Interlocked.Decrement(ref _observerCount);
-        if (remaining < 0)
-        {
-            Interlocked.Exchange(ref _observerCount, 0);
-        }
-    }
-
-    private void TrySignalObserver()
-    {
-        try
-        {
-            if (_observerSignal.CurrentCount == 0)
-            {
-                _observerSignal.Release();
-            }
-        }
-        catch (ObjectDisposedException)
-        {
-            // A racing observation release during disposal has no work left to wake.
-        }
-    }
-
     private void RaiseStateChanged(PerformanceState state)
     {
         try
@@ -1352,16 +1322,4 @@ internal sealed class PerformanceService : IAsyncDisposable
     private static TimeSpan BoundTimeout(TimeSpan timeout) => timeout < TimeSpan.FromMilliseconds(100)
         ? TimeSpan.FromMilliseconds(100)
         : timeout > TimeSpan.FromSeconds(10) ? TimeSpan.FromSeconds(10) : timeout;
-
-    private sealed class ObservationLease : IDisposable
-    {
-        private PerformanceService? _owner;
-
-        internal ObservationLease(PerformanceService owner)
-        {
-            _owner = owner;
-        }
-
-        public void Dispose() => Interlocked.Exchange(ref _owner, null)?.ReleaseObservation();
-    }
 }

@@ -22,5 +22,6 @@
          SYSTEM service — one shared source file, no project reference (the service
          must not pull in Avalonia or the rest of WSGM). -->
     <Compile Include="..\WSGM\Core\BootManifest.cs" Link="Shared\BootManifest.cs" />
+    <Compile Include="..\WSGM\Core\AtomicFile.cs" Link="Shared\AtomicFile.cs" />
   </ItemGroup>
 </Project>
