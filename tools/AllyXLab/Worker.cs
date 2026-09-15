@@ -49,11 +49,12 @@ internal static class Worker
 
             string[] conflicts = Identity.ConflictingApps();
             log.Add("other-managers", conflicts);
-            log.Add("provenance", new { Version = "0.2.1", Hhd = "5b49c5d904257e042a704ade958fac0ba57af4b1", Hc = "1d85da30861f700868e48ae8f498a5c455896f7c", Evidence = "Experimental attended Ally X bring-up, not production support" });
+            log.Add("provenance", new { Version = "0.3.0", Hhd = "5b49c5d904257e042a704ade958fac0ba57af4b1", Hc = "1d85da30861f700868e48ae8f498a5c455896f7c", Evidence = "Experimental attended Ally X bring-up, not production support" });
             if (request.Action == ActionKind.Inventory)
             {
                 using var sensors = new Sensors(log);
                 sensors.Poll();
+                log.Add("motor-routes", Motors.Discover(endpoints));
                 return new(request, "observed", cleanup, log.Events, null);
             }
             if (!identity.MatchesModel || !endpoints.Any(e => e.Vendor))
@@ -219,10 +220,46 @@ internal static class Worker
             else
             {
                 Revalidate();
-                var candidates = endpoints.Where(e => request.Action == ActionKind.RumbleCalibration ? e.Rumble : e.Vendor).ToArray();
-                HidEndpoint endpoint = candidates.SingleOrDefault(e => e.Id == request.Endpoint)
+                if (request.Action is ActionKind.RumbleCalibration or ActionKind.RumbleProbe)
+                {
+                    // Whichever route the device actually answers: HHD's output report, HC's XInput
+                    // vibration, or Windows.Gaming.Input. The route is chosen by the wizard from what
+                    // the tester felt, never guessed here.
+                    using IMotorOutput motor = Motors.Open(request.Endpoint, endpoints, log);
+                    Checkpoint?.Invoke(new
+                    {
+                        identity.Fingerprint,
+                        Request = request,
+                        Route = motor.Route,
+                        Original = "Silent baseline; motors are zeroed after every pulse and confirmed by the tester"
+                    });
+                    cleanup = "unverified";
+                    try
+                    {
+                        cancel.ThrowIfCancellationRequested();
+                        if (request.Action == ActionKind.RumbleProbe)
+                        {
+                            RumbleCalibration.Probe(motor, log, cancel);
+                            outcome = "write-returned-awaiting-operator-observation";
+                        }
+                        else
+                        {
+                            RumbleCalibration.Run(motor, log, cancel);
+                            outcome = "calibration-complete";
+                        }
+                    }
+                    finally
+                    {
+                        try { motor.Zero(); cleanup = "zero-output-sent; operator confirmation required"; }
+                        catch (Exception e) { log.Add("zero-output-error", e.Message); cleanup = "RESTORATION FAILED"; }
+                    }
+
+                    return new(request, outcome, cleanup, log.Events, null);
+                }
+
+                HidEndpoint endpoint = endpoints.Where(e => e.Vendor).SingleOrDefault(e => e.Id == request.Endpoint)
                     ?? throw new InvalidOperationException("Select exactly one inventoried endpoint for this action.");
-                if (endpoint.OutputBytes < (request.Action == ActionKind.RumbleCalibration ? 9 : 64))
+                if (endpoint.OutputBytes < 64)
                 {
                     throw new InvalidOperationException("Expected output report is absent. No feature-report fallback is attempted.");
                 }
@@ -233,42 +270,27 @@ internal static class Worker
                     identity.Fingerprint,
                     Request = request,
                     Endpoint = endpoint.Public,
-                    Original = request.Action == ActionKind.Rgb ? "Operator asserted lights off; exact prior color/mode is not readable" : "Silent baseline must be confirmed at the first calibration Ready prompt"
+                    Original = "Operator asserted lights off; exact prior color/mode is not readable"
                 });
                 cleanup = "unverified";
                 try
                 {
                     cancel.ThrowIfCancellationRequested();
-                    if (request.Action == ActionKind.RumbleCalibration)
-                    {
-                        RumbleCalibration.Run(handle, endpoint, log, cancel);
-                    }
-                    else
-                    {
-                        Hid.Output(handle, endpoint, [0x5A, .. System.Text.Encoding.ASCII.GetBytes("ASUS Tech.Inc.")], log);
-                        Hid.Output(handle, endpoint, [0x5A, 0xBA, 0xC5, 0xC4, 1], log);
-                        byte[] color = new byte[64]; color[0] = 0x5A; color[1] = 0xB3; color[2] = (byte)request.Channel;
-                        color[4 + request.Value] = 80;
-                        Hid.Output(handle, endpoint, color, log);
-                        Hid.Output(handle, endpoint, [0x5A, 0xB5], log);
-                        Hid.Output(handle, endpoint, [0x5A, 0xB4], log);
-                        Wait(2000, cancel);
-                    }
-                    outcome = request.Action == ActionKind.RumbleCalibration ? "calibration-complete" : "write-returned-awaiting-operator-observation";
+                    Hid.Output(handle, endpoint, [0x5A, .. System.Text.Encoding.ASCII.GetBytes("ASUS Tech.Inc.")], log);
+                    Hid.Output(handle, endpoint, [0x5A, 0xBA, 0xC5, 0xC4, 1], log);
+                    byte[] color = new byte[64]; color[0] = 0x5A; color[1] = 0xB3; color[2] = (byte)request.Channel;
+                    color[4 + request.Value] = 80;
+                    Hid.Output(handle, endpoint, color, log);
+                    Hid.Output(handle, endpoint, [0x5A, 0xB5], log);
+                    Hid.Output(handle, endpoint, [0x5A, 0xB4], log);
+                    Wait(2000, cancel);
+                    outcome = "write-returned-awaiting-operator-observation";
                 }
                 finally
                 {
                     try
                     {
-                        if (request.Action == ActionKind.RumbleCalibration)
-                        {
-                            Hid.Output(handle, endpoint, [0x0D, 0x0F, 0, 0, 0, 0, 0xFF, 0, 0xEB], log);
-                        }
-                        else
-                        {
-                            Hid.Output(handle, endpoint, [0x5A, 0xBA, 0xC5, 0xC4, 0], log);
-                        }
-
+                        Hid.Output(handle, endpoint, [0x5A, 0xBA, 0xC5, 0xC4, 0], log);
                         cleanup = "zero-output-sent; operator confirmation required";
                     }
                     catch (Exception e) { log.Add("zero-output-error", e.Message); cleanup = "RESTORATION FAILED"; }

@@ -93,6 +93,39 @@ public sealed class SafetyTests
     }
 
     [Fact]
+    public void EveryControlIsAskedForOnceAndTheXboxButtonIsIncluded()
+    {
+        var steps = InputSteps.All();
+        Assert.Contains(steps, step => step.Name == "Xbox");
+        Assert.Contains(steps, step => step.Name == "Command Center");
+        Assert.Contains(steps, step => step.Name == "Rear M1");
+        Assert.Equal(steps.Select(step => step.Name).Distinct().Count(), steps.Count);
+        Assert.Equal(InputStepKind.Baseline, steps[0].Kind);
+        // A press ends its own step, so no step may wait on a hold that nobody asked for.
+        Assert.All(steps.Where(step => step.Kind == InputStepKind.Press), step => Assert.Equal(0, step.Seconds));
+        Assert.All(steps.Where(step => step.Kind == InputStepKind.Hold), step => Assert.InRange(step.Seconds, 1, 20));
+        Assert.Contains(steps, step => step.Kind == InputStepKind.Movement);
+    }
+
+    [Fact]
+    public void QuietWindowsAllowForSlowerControls()
+    {
+        Assert.True(InputSteps.QuietMilliseconds(new("Left stick", "", InputStepKind.Press))
+            > InputSteps.QuietMilliseconds(new("A", "", InputStepKind.Press)));
+        Assert.True(InputSteps.QuietMilliseconds(new("Yaw", "", InputStepKind.Movement))
+            > InputSteps.QuietMilliseconds(new("Left stick", "", InputStepKind.Press)));
+    }
+
+    [Fact]
+    public void UnknownMotorRoutesAreRefused()
+    {
+        SessionLog log = new();
+        Assert.Throws<InvalidOperationException>(() => Motors.Open("bluetooth:0", [], log));
+        Assert.Throws<InvalidOperationException>(() => Motors.Open("xinput:9", [], log));
+        Assert.Throws<InvalidOperationException>(() => Motors.Open("hid:missing", [], log));
+    }
+
+    [Fact]
     public void RejectsMissingOrMalformedFanRestorationData()
     {
         byte[] curve = [30, 40, 50, 60, 70, 80, 90, 100, 5, 10, 20, 30, 40, 50, 60, 70];

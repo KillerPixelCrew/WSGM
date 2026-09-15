@@ -31,7 +31,7 @@ internal sealed class Session
             SourceSnapshot = typeof(Session).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false).Cast<System.Reflection.AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "SourceSnapshot")?.Value,
             Schema = 2,
             Tool = "AllyXLab",
-            Version = "0.2.1",
+            Version = "0.3.0",
             StartedUtc = DateTime.UtcNow,
             ExeSha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(Environment.ProcessPath!))),
             Notice = "No machine/user name, serial number, raw PnP path or arbitrary keyboard input is intentionally collected. ASUS raw reports may contain device-specific payloads; review before sharing."
@@ -41,6 +41,14 @@ internal sealed class Session
     {
         using var output = new FileStream(Path.Combine(DirectoryPath, file), FileMode.CreateNew, FileAccess.Write, FileShare.Read);
         JsonSerializer.Serialize(output, data, SessionLog.Json); output.Flush(true);
+    }
+    /// <summary>Records a read-only capture that ran inside the wizard process.</summary>
+    internal void RecordLocal(Result result)
+    {
+        int sequence = ++_sequence;
+        WriteNew($"{sequence:D3}-request.json", result.Request);
+        WriteNew($"{sequence:D3}-result.json", result);
+        Results.Add(result);
     }
     internal void Observation(string label, object data) => WriteNew($"{++_sequence:D3}-operator.json", new { Label = label, Utc = DateTime.UtcNow, Data = data });
     internal void ConfirmRecovery(string explanation)

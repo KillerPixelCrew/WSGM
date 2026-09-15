@@ -183,10 +183,11 @@ internal sealed class Sensors : IDisposable
             }
         }
     }
-    internal void Summarize()
+    internal void Summarize(string step = "")
     {
         _log.Add("motion-statistics", new
         {
+            Step = step,
             DuplicateReports = _duplicateReports,
             Fields = _stats.Select(k => new { Field = k.Key, k.Value.Count, k.Value.Mean, StdDev = k.Value.Count > 1 ? Math.Sqrt(k.Value.M2 / (k.Value.Count - 1)) : 0, k.Value.Min, k.Value.Max }).ToArray(),
             Interpretation = "Stationary means are bias candidates only. Pose captures establish gravity/axis mapping. Units, freshness and stationary acceptance require review; no calibration is written to firmware.",

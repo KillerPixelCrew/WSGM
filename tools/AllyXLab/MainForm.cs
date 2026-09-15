@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace WSGM.AllyXLab;
 
-internal sealed class MainForm : Form
+internal sealed partial class MainForm : Form
 {
     private readonly Session _session = new();
     private readonly Label _chapter = new() { AutoSize = true, Font = new Font("Segoe UI", 11), ForeColor = Color.DimGray };
@@ -17,14 +17,14 @@ internal sealed class MainForm : Form
     private readonly System.Windows.Forms.Timer _controller = new() { Interval = 50 };
     private TaskCompletionSource<string>? _pending;
     private bool _running, _stopping, _feedback, _controllerReleased;
-    private string? _rumbleEndpoint, _rgbEndpoint;
+    private string? _rgbEndpoint;
     private string _detail = "Instructions and license notices are included in this executable.";
     private string? _endReason;
     private string _lastResult = "";
 
     internal MainForm()
     {
-        Text = "ROG Ally X Lab · guided test · 0.2.1";
+        Text = "ROG Ally X Lab · guided test · 0.3.0";
         Size = new Size(920, 720); MinimumSize = new Size(850, 620);
         AutoScaleMode = AutoScaleMode.Dpi;
         StartPosition = FormStartPosition.CenterScreen;
@@ -51,7 +51,7 @@ internal sealed class MainForm : Form
         Controls.Add(content); Controls.Add(footer);
         _chapter.Text = "One guided session";
         _title.Text = "Let’s map your Ally X";
-        _instruction.Text = "Close games, Armoury Crate, Handheld Companion, G-Helper and WSGM. Disconnect other controllers. Keep the battery above 30% and the vents clear.\n\nWe’ll guide you through buttons, motion, rumble, lighting, power and fans, then save a ZIP to send back. Each hardware test is explained before it runs.\n\nThe report includes model/BIOS, ASUS input reports, motion data and your answers. No upload happens automatically.";
+        _instruction.Text = "Close games, Armoury Crate, Handheld Companion, G-Helper and WSGM. Disconnect other controllers. Keep the battery above 30% and the vents clear.\n\nWe’ll guide you through buttons, motion, rumble, lighting, power and fans, then save a ZIP to send back. In the input part there is nothing to confirm: press the control we name and the next one appears by itself. If a control does nothing, press Nothing happened. Expect about 15 minutes.\n\nThe report includes model/BIOS, ASUS input reports, motion data and your answers. No upload happens automatically.";
         _note.Visible = false;
         var start = Button("Start", async () => await StartAsync());
         _buttons.Controls.Add(start); AcceptButton = start;
@@ -188,46 +188,11 @@ internal sealed class MainForm : Form
                 throw new InvalidOperationException("This identity is not yet supported. We saved the inventory; please send it back so we can review it.");
             }
 
-            Chapter(2, "Buttons and motion");
-            var captures = WizardPlan.Captures();
-            for (int i = 0; i < captures.Count; i++)
-            {
-                CheckStop(); var step = captures[i];
-                _chapter.Text = $"2 / 7 · Buttons and motion · {i + 1} / {captures.Count}";
-                string choice = await Ask(step.Name, step.Instruction + "\n\nPress Ready, then wait for CAPTURING NOW before you start.", ("ready", "Ready"), ("skip", "Skip this step"));
-                CheckStop();
-                if (choice == "skip") { _session.Observation(step.Name, "Skipped by tester"); continue; }
-                var result = await Run(new(ActionKind.Capture, step.Name, Seconds: step.Name.Contains("Gyro", StringComparison.Ordinal) ? 15 : 10, Motion: WizardPlan.IncludesMotion(step.Name)), step.Name, step.Instruction);
-                if (result.Error is not null)
-                {
-                    await Failure(result);
-                }
-            }
+            Chapter(2, "Input");
+            await RunInputSectionAsync();
 
-            Chapter(3, "Rumble calibration");
-            if (_rumbleEndpoint is null)
-            {
-                await Unavailable("Rumble calibration", "We could not uniquely identify a supported motor interface. This has been recorded; no interface guessing is needed from you.");
-            }
-            else
-            {
-                var result = await Run(new(ActionKind.RumbleCalibration, "Guided two-motor calibration", Endpoint: _rumbleEndpoint), "Rumble calibration", "Checking the controller. You’ll only need to answer Felt it or Didn’t feel it.");
-                if (result.Error is not null || result.Cleanup.Contains("FAILED", StringComparison.Ordinal))
-                {
-                    await Failure(result);
-                }
-                else
-                {
-                    // Every scored trial explicitly confirms silence before advancing; the final zero
-                    // output must also have returned successfully before clearing the checkpoint.
-                    if (result.Cleanup.StartsWith("zero-output-sent", StringComparison.Ordinal))
-                    {
-                        _session.ConfirmRecovery("Tester confirmed motors silent after each scored calibration pulse.");
-                    }
-
-                    await Ask("Rumble calibration recorded", RumbleSummary(result), ("next", "Continue to lighting"));
-                }
-            }
+            Chapter(3, "Rumble");
+            await RunRumbleSectionAsync();
             CheckStop();
             Chapter(4, "Lighting");
             if (_rgbEndpoint is null)
@@ -379,7 +344,6 @@ internal sealed class MainForm : Form
         var endpoints = inventory.Events.Where(e => e.Kind == "endpoints").SelectMany(e => ((JsonElement)e.Data).EnumerateArray())
             .Where(e => e.GetProperty("Vid").GetInt32() == 0x0B05 && e.GetProperty("Pid").GetInt32() == 0x1B4C).ToArray();
         _rgbEndpoint = Unique(endpoints.Where(e => e.GetProperty("Page").GetInt32() == 0xFF31 && e.GetProperty("Usage").GetInt32() == 0x80 && e.GetProperty("OutputBytes").GetInt32() >= 64));
-        _rumbleEndpoint = Unique(endpoints.Where(e => e.GetProperty("OutputBytes").GetInt32() >= 9 && ((e.GetProperty("Page").GetInt32() == 1 && e.GetProperty("Usage").GetInt32() == 5) || (e.GetProperty("Page").GetInt32() == 15 && e.GetProperty("Usage").GetInt32() is 2 or 0x21))));
     }
     private static string? Unique(IEnumerable<JsonElement> entries)
     { string[] ids = entries.Select(e => e.GetProperty("Id").GetString()!).Distinct().ToArray(); return ids.Length == 1 ? ids[0] : null; }

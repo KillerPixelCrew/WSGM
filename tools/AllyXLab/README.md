@@ -1,7 +1,7 @@
 # ROG Ally X Lab
 
 A standalone, attended Windows x64 tester for the ASUS ROG Ally X (RC72LA) and ROG Xbox Ally X
-(RC73XA). Send
+(RC73XA). It listens on every input channel Windows offers at once and records all of them. Send
 `AllyXLab.exe` to the tester. It includes .NET and needs no WSGM installation, Python, PowerShell
 script, or separate plugin. Windows requests administrator access when it starts.
 
@@ -20,12 +20,14 @@ records its hash. It is an unsigned experimental build; no hardware pass is clai
 
 1. Open the EXE and press **Start**. Close games, WSGM, HC, G-Helper and Armoury Crate first;
    disconnect other controllers and keep the battery above 30%.
-2. Follow the single screen. It chooses the sequence and settings. Read the instruction, press
-   **Ready**, and perform the named button press or movement when **CAPTURING NOW** appears. The
-   next instruction appears automatically after the capture. Sensor streams are recorded during
-   motion steps rather than repeated during every button test. **Skip** records an unavailable step.
-3. During rumble, hold the device and answer **Felt it** or **Didn't feel it** after each pulse and
-   after the motors are silent. The wizard selects both motors, all phases, levels and pulse
+2. Follow the single screen. In the input part there is nothing to confirm: it names one control,
+   you press it, and the next one appears by itself. Each control is asked for once. If a control
+   does nothing, press **Nothing happened**; **Do it again** repeats a step and **Skip the rest**
+   leaves the section. Motion poses run on a countdown, and the rotation steps start when you move
+   the device and end when it is still.
+3. Rumble first tries each way of reaching the motors with one short buzz and asks whether you felt
+   it; calibration then runs on the first one that worked. Hold the device and answer **Felt it** or
+   **Didn't feel it** after each pulse and after the motors are silent. The wizard selects both motors, all phases, levels and pulse
    lengths. **Felt it** advances to a weaker/shorter pulse; **Didn't feel it** records the boundary.
    **Replay** repeats a pulse at your request. A/B also answer when exactly one XInput controller is
    connected; touch buttons always work. You never need to configure a sweep or select an interface.
@@ -63,13 +65,18 @@ two per trial, and do not advance the score. The interactive worker has a five-m
 ## What is captured
 
 - Model, board, SKU, BIOS, EC version, OS version, tool version/hash and reference revisions.
-- ASUS `0B05:1B4C` HID interface usages, report sizes and device revision. Paths are hashed.
-- ASUS-only Raw Input HID and keyboard events. Other keyboards are discarded. Raw reports and
-  changed-byte candidates are retained; they are not treated as an already proven button map.
-- A restricted, non-suppressing keyboard observer for volume/mute and F17/F18 only, plus Windows
-  power broadcasts. These are secondary, unattributed signals; no other keyboard keys are retained.
-- XInput slots as separate, unattributed observations. Disconnect other controllers to reduce
-  ambiguity; an XInput slot alone does not prove physical identity.
+- HID interface usages, report sizes and device revision for every collection. Paths are hashed.
+- Raw Input from every HID, keyboard and mouse device, physical or virtual, including the vendor
+  pages present on the machine. Reports are deduplicated and their changed bytes recorded; they are
+  not treated as an already proven button map. Input with no device handle is marked as injected.
+- Low-level keyboard and mouse hooks, which see injected input and its integrity level. Nothing is
+  suppressed or modified. Key codes only, and only while the wizard is asking for a press.
+- XInput slots 0-3 including the guide button, with the extended capabilities when the ordinal is
+  present. Slots are unattributed observations; an XInput slot alone does not prove identity.
+- Windows.Gaming.Input raw controllers and gamepads, where devices that only exist to the newer
+  input stack appear.
+- Firmware and ACPI events published through WMI, shell app commands (where volume keys surface
+  without focus), power-setting notifications and device arrival and removal.
 - Windows legacy Sensor API metadata and numeric motion fields, timestamp deduplication and
   stationary statistics. Unsupported or blocked sensors are reported without requesting permission
   or changing their report intervals.
@@ -114,6 +121,10 @@ No controller mode or button remapping is written: neither inspected reference e
 readback/restoration of arbitrary original mappings. Capture native rear-button/chord behavior
 first. No EC scanning, arbitrary WMI calls, raw command entry, firmware flashing, bypass charging,
 controller hiding or virtual-controller installation is provided.
+
+Rumble is driven through whichever route the device answers: HHD's output report on the gamepad
+collection, HC's XInput vibration, or Windows.Gaming.Input. Each route is probed with one short
+pulse and the tester's answer decides which one calibration uses; no route is assumed to work.
 
 The rumble sequence follows Device Lab's Claw calibration in
 `src/WSGM.DeviceLab/Testing/AttendedPluginAction.cs`. Unlike the Claw's full-scale continuous sweep,

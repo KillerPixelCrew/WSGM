@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using Microsoft.Win32.SafeHandles;
 
 namespace WSGM.AllyXLab;
 
@@ -42,7 +41,7 @@ internal static class RumbleCalibration
     internal static readonly int[] Strengths = [50, 32, 20, 12, 8, 5, 3, 1];
     internal static readonly int[] Durations = [200, 120, 70, 40, 25, 15, 10, 5];
 
-    internal static void Run(SafeFileHandle handle, HidEndpoint endpoint, SessionLog log, CancellationToken cancel)
+    internal static void Run(IMotorOutput output, SessionLog log, CancellationToken cancel)
     {
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancel);
         budget.CancelAfter(TimeSpan.FromMinutes(5));
@@ -82,13 +81,13 @@ internal static class RumbleCalibration
                             Stopwatch time = Stopwatch.StartNew();
                             try
                             {
-                                Hid.Output(handle, endpoint, [0x0D, 0x0F, 0, 0, (byte)(motor == 0 ? percent : 0), (byte)(motor == 1 ? percent : 0), 0xFF, 0, 0xEB], log);
+                                output.Set(motor == 0 ? percent : 0, motor == 1 ? percent : 0);
                                 if (token.WaitHandle.WaitOne(duration))
                                 {
                                     token.ThrowIfCancellationRequested();
                                 }
                             }
-                            finally { Zero(handle, endpoint, log); }
+                            finally { output.Zero(); }
                             log.Add("calibration-pulse", new { Motor = motor, Phase = name, Percent = percent, RequestedMilliseconds = duration, SoftwareWriteToZeroMilliseconds = time.Elapsed.TotalMilliseconds, Repeat = repeats });
                             string answer = ask(new { Title = $"Motor {motor + 1} · {name}", Text = $"Did you feel that pulse? ({percent}%, {duration} ms)\nAnswer after the motors are silent. A = felt, B = not felt. You can also use the buttons below.", Mode = "feedback", CanRepeat = repeats < 2 }, token);
                             if (answer == "repeat" && repeats++ < 2)
@@ -120,6 +119,7 @@ internal static class RumbleCalibration
         {
             log.Add("rumble-calibration-summary", new
             {
+                Route = output.Route,
                 CompletedPhases = boundaries.Count,
                 Complete = boundaries.Count == 6,
                 Boundaries = boundaries,
@@ -127,6 +127,18 @@ internal static class RumbleCalibration
             });
         }
     }
-    internal static void Zero(SafeFileHandle handle, HidEndpoint endpoint, SessionLog log) =>
-        Hid.Output(handle, endpoint, [0x0D, 0x0F, 0, 0, 0, 0, 0xFF, 0, 0xEB], log);
+    /// <summary>One pulse on both motors, so a route can be confirmed before calibrating on it.</summary>
+    internal static void Probe(IMotorOutput output, SessionLog log, CancellationToken cancel)
+    {
+        log.Add("motor-probe", new { output.Route, Percent = 60, Milliseconds = 400 });
+        try
+        {
+            output.Set(60, 60);
+            if (cancel.WaitHandle.WaitOne(400))
+            {
+                cancel.ThrowIfCancellationRequested();
+            }
+        }
+        finally { output.Zero(); }
+    }
 }

@@ -151,7 +151,11 @@ primary for Ally X behavior; HC is a Windows transport cross-reference. Use the 
 comparison in `src/WSGM.Device.Asus.RogAllyX/REFERENCE.md`.
 
 Build/publish does not authorize running it on the current machine. The single Start flow guides
-each action through inline Ready/feedback prompts. Rumble is one bounded interactive six-phase
+each action inline. The input section has no confirmation prompts: it listens on every input channel
+at once (Raw Input for all devices and vendor pages, low-level hooks with injected flags, XInput with
+the guide button, Windows.Gaming.Input, WMI firmware events, shell app commands, power settings) and
+the press itself advances the step. Rumble probes each motor route with one short pulse and
+calibrates on the route the tester confirmed feeling, instead of assuming one reference's path. Rumble is one bounded interactive six-phase
 worker: Ready starts a phase and explicit felt/not-felt answers advance it. Missing readback or
 unknown cleanup must remain explicit. Do not add generic raw command entry, unattended writes or
 controller remapping without original-state restoration. The maintainer requested the compiled EXE

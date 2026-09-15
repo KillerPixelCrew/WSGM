@@ -26,6 +26,19 @@ answers, and explicit boundary summaries. The ZIP save step is part of the finis
 after cancellation. The new binary replaces the same download. Hardware and Windows UI acceptance
 are still pending; automated suites remain deferred.
 
+0.3.0 rebuilds the input section and the rumble path after the first RC73XA run. The tester reported
+the old flow as cumbersome, and half of its captures recorded nothing because the lab only listened on
+ASUS HID plus XInput while that device exposed neither a gamepad collection nor an XInput slot. The
+section now listens on every channel at once: Raw Input from all HID, keyboard and mouse devices
+including vendor pages, low-level hooks with injected flags, XInput with the guide button, extended
+XInput capabilities, Windows.Gaming.Input, WMI firmware and ACPI events, shell app commands, power
+settings and device arrival. Each control is asked for once and the press itself advances the step,
+with Nothing happened, Do it again and Skip the rest as the only buttons; a baseline step learns which
+reports move on their own. Rumble now probes each available motor route (HHD output report, HC XInput
+vibration, Windows.Gaming.Input) with one short pulse and calibrates on the route the tester felt. The
+Xbox button and per-step source summaries are recorded, and the gravity analysis no longer discards
+poses with few samples. Windows UI and hardware acceptance are still pending.
+
 0.2.1 admits the ROG Xbox Ally X RC73XA. A remote inventory (BIOS RC73XA.317, EC 3.14) was refused
 by the RC72LA gate; it reported the same 0B05:1B4C controller, an empty system SKU, BMI320
 accelerometer and gyro sensors, a Windows Dynamic Lighting collection, an FF31:0080 collection
