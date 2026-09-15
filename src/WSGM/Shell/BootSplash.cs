@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Input;
@@ -33,6 +34,7 @@ public sealed class BootSplash
     private bool _armed;
     private bool _dismissing;
     private bool _closeScheduled;
+    private bool _probeInFlight;
 
     /// <summary>Creates the splash coordinator.</summary>
     /// <param name="config">The shell configuration containing splash and display settings.</param>
@@ -110,7 +112,33 @@ public sealed class BootSplash
             CloseAfter(TouchInput.CloseGrace);
             return;
         }
-        if (_armed && Steam.IsBigPictureVisible)
+        if (_armed && !_probeInFlight)
+        {
+            _probeInFlight = true;
+            _ = ProbeBigPictureAsync();
+        }
+    }
+
+    // The window probe walks the process table and the top-level windows. It runs on the thread
+    // pool, one at a time, and only its answer comes back to the UI thread.
+    private async Task ProbeBigPictureAsync()
+    {
+        bool visible = false;
+        try
+        {
+            visible = await Task.Run(() => Steam.IsBigPictureVisible);
+        }
+        catch (Exception ex)
+        {
+            // The detection poll must not throw; see docs\boot-and-shell.md.
+            Log.Change("boot-splash.probe", $"Boot splash Big Picture probe failed: {ex.Message}", LogLevel.Warn);
+        }
+        finally
+        {
+            _probeInFlight = false;
+        }
+
+        if (visible && !_dismissing)
         {
             OnBigPictureDetected();
         }
