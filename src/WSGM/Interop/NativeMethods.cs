@@ -482,9 +482,6 @@ internal static partial class NativeMethods
     [LibraryImport("kernel32.dll")]
     internal static partial nint LocalFree(nint mem);
 
-    [LibraryImport("kernel32.dll")]
-    internal static partial uint WaitForSingleObject(nint handle, uint milliseconds);
-
     // ---- Elevation check of other processes ----
     internal const uint ProcessQueryLimitedInformation = 0x1000;
     internal const uint TokenQuery = 0x0008;
@@ -505,10 +502,6 @@ internal static partial class NativeMethods
     [LibraryImport("advapi32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetTokenInformation(nint tokenHandle, int tokenInformationClass, nint tokenInformation, uint tokenInformationLength, out uint returnLength);
-
-    [LibraryImport("kernel32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool CloseHandle(nint hObject);
 
     // ---- RTSS OSD metrics (Core\RtssOsd) ----
     // FILETIME pairs as raw 64-bit ticks; kernel time includes idle.

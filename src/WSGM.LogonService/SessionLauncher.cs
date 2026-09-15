@@ -4,6 +4,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using WSGM.Core;
+using WSGM.Interop;
 using WSGM.LogonService.Interop;
 
 namespace WSGM.LogonService;
@@ -130,7 +131,7 @@ internal static class SessionLauncher
             {
                 if (launchToken != userToken)
                 {
-                    NativeMethods.CloseHandle(launchToken);
+                    Win32Common.CloseHandle(launchToken);
                 }
             }
         }
@@ -140,7 +141,7 @@ internal static class SessionLauncher
             // watchdog's explorer fallback needs it); close it only on skip paths.
             if (!launched)
             {
-                NativeMethods.CloseHandle(userToken);
+                Win32Common.CloseHandle(userToken);
             }
         }
     }
@@ -190,7 +191,7 @@ internal static class SessionLauncher
         }
         finally
         {
-            NativeMethods.WTSFreeMemory(pSessions);
+            Win32Common.WTSFreeMemory(pSessions);
         }
     }
 
@@ -198,7 +199,7 @@ internal static class SessionLauncher
     {
         try
         {
-            var waitResult = NativeMethods.WaitForSingleObject(state.ProcessHandle, NativeMethods.Infinite);
+            var waitResult = Win32Common.WaitForSingleObject(state.ProcessHandle, NativeMethods.Infinite);
             if (waitResult != WaitObject0)
             {
                 ServiceLog.Warn($"Session {sessionId}: waiting on WSGM (pid {state.ProcessId}) returned " +
@@ -261,7 +262,7 @@ internal static class SessionLauncher
                 }
                 else
                 {
-                    NativeMethods.CloseHandle(hExplorer);
+                    Win32Common.CloseHandle(hExplorer);
                 }
             }
         }
@@ -281,11 +282,11 @@ internal static class SessionLauncher
             state.UserToken = 0;
             if (processHandle != 0)
             {
-                NativeMethods.CloseHandle(processHandle);
+                Win32Common.CloseHandle(processHandle);
             }
             if (userToken != 0)
             {
-                NativeMethods.CloseHandle(userToken);
+                Win32Common.CloseHandle(userToken);
             }
         }
     }
@@ -319,7 +320,7 @@ internal static class SessionLauncher
         }
         try
         {
-            if (!NativeMethods.DuplicateTokenEx(linked, NativeMethods.MaximumAllowed, 0,
+            if (!Win32Common.DuplicateTokenEx(linked, NativeMethods.MaximumAllowed, 0,
                     NativeMethods.SecurityImpersonation, NativeMethods.TokenPrimary, out var primary))
             {
                 ServiceLog.Warn($"Session {sessionId}: DuplicateTokenEx failed (error {Marshal.GetLastWin32Error()}) — launching unelevated.");
@@ -338,7 +339,7 @@ internal static class SessionLauncher
         }
         finally
         {
-            NativeMethods.CloseHandle(linked);
+            Win32Common.CloseHandle(linked);
         }
     }
 
@@ -367,7 +368,7 @@ internal static class SessionLauncher
         pid = 0;
         error = 0;
 
-        if (!NativeMethods.CreateEnvironmentBlock(out var environment, token, false))
+        if (!Win32Common.CreateEnvironmentBlock(out var environment, token, false))
         {
             error = Marshal.GetLastWin32Error();
             ServiceLog.Warn(
@@ -391,7 +392,7 @@ internal static class SessionLauncher
                 error = Marshal.GetLastWin32Error();
                 return false;
             }
-            NativeMethods.CloseHandle(processInfo.hThread);
+            Win32Common.CloseHandle(processInfo.hThread);
             hProcess = processInfo.hProcess;
             pid = processInfo.dwProcessId;
             return true;
@@ -401,7 +402,7 @@ internal static class SessionLauncher
             Marshal.FreeHGlobal(desktop);
             if (environment != 0)
             {
-                NativeMethods.DestroyEnvironmentBlock(environment);
+                Win32Common.DestroyEnvironmentBlock(environment);
             }
         }
     }
@@ -438,7 +439,7 @@ internal static class SessionLauncher
 
     private static TimeSpan? GetLogonAge(uint sessionId)
     {
-        if (!NativeMethods.WTSQuerySessionInformationW(0, sessionId,
+        if (!Win32Common.WTSQuerySessionInformationW(0, sessionId,
                 NativeMethods.WtsInfoClassSessionInfo, out var buffer, out var bytes) ||
             bytes < Marshal.SizeOf<NativeMethods.WtsInfoW>())
         {
@@ -461,7 +462,7 @@ internal static class SessionLauncher
         }
         finally
         {
-            NativeMethods.WTSFreeMemory(buffer);
+            Win32Common.WTSFreeMemory(buffer);
         }
     }
 
@@ -486,7 +487,7 @@ internal static class SessionLauncher
         }
         finally
         {
-            NativeMethods.WTSFreeMemory(pSessions);
+            Win32Common.WTSFreeMemory(pSessions);
         }
     }
 
@@ -516,7 +517,7 @@ internal static class SessionLauncher
         }
         finally
         {
-            NativeMethods.WTSFreeMemory(pProcesses);
+            Win32Common.WTSFreeMemory(pProcesses);
         }
     }
 
@@ -529,7 +530,7 @@ internal static class SessionLauncher
 
     private static string QuerySessionString(uint sessionId, int infoClass)
     {
-        if (!NativeMethods.WTSQuerySessionInformationW(0, sessionId, infoClass, out var buffer, out _))
+        if (!Win32Common.WTSQuerySessionInformationW(0, sessionId, infoClass, out var buffer, out _))
         {
             return "";
         }
@@ -539,7 +540,7 @@ internal static class SessionLauncher
         }
         finally
         {
-            NativeMethods.WTSFreeMemory(buffer);
+            Win32Common.WTSFreeMemory(buffer);
         }
     }
 }

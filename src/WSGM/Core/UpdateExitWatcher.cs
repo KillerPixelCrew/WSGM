@@ -165,7 +165,7 @@ public static class UpdateExitWatcher
         {
             try
             {
-                NativeMethods.WaitForSingleObject(exitEvent, uint.MaxValue);
+                Win32Common.WaitForSingleObject(exitEvent, uint.MaxValue);
                 Log.Info($"Exit requested by installer ({operation}).");
                 callback();
             }

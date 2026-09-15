@@ -199,18 +199,10 @@ internal static partial class NativeMethods
     internal static partial bool WTSEnumerateSessionsW(
         nint hServer, uint reserved, uint version, out nint ppSessionInfo, out uint pCount);
 
-    [LibraryImport("wtsapi32.dll", EntryPoint = "WTSQuerySessionInformationW", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool WTSQuerySessionInformationW(
-        nint hServer, uint sessionId, int wtsInfoClass, out nint ppBuffer, out uint pBytesReturned);
-
     [LibraryImport("wtsapi32.dll", EntryPoint = "WTSEnumerateProcessesW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool WTSEnumerateProcessesW(
         nint hServer, uint reserved, uint version, out nint ppProcessInfo, out uint pCount);
-
-    [LibraryImport("wtsapi32.dll")]
-    internal static partial void WTSFreeMemory(nint pMemory);
 
     // ---- Tokens ----
     internal const int TokenSessionIdClass = 12;
@@ -237,12 +229,6 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool SetTokenInformation(
         nint tokenHandle, int tokenInformationClass, ref uint tokenInformation, uint tokenInformationLength);
-
-    [LibraryImport("advapi32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool DuplicateTokenEx(
-        nint hExistingToken, uint dwDesiredAccess, nint lpTokenAttributes,
-        int impersonationLevel, int tokenType, out nint phNewToken);
 
     // ---- Launch into the session ----
     internal const uint CreateUnicodeEnvironment = 0x00000400;
@@ -288,27 +274,12 @@ internal static partial class NativeMethods
         nint lpEnvironment, string? lpCurrentDirectory,
         ref StartupInfoW lpStartupInfo, out ProcessInformation lpProcessInformation);
 
-    [LibraryImport("userenv.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool CreateEnvironmentBlock(out nint lpEnvironment, nint hToken, [MarshalAs(UnmanagedType.Bool)] bool bInherit);
-
-    [LibraryImport("userenv.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool DestroyEnvironmentBlock(nint lpEnvironment);
-
     [LibraryImport("userenv.dll", EntryPoint = "GetUserProfileDirectoryW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetUserProfileDirectoryW(nint hToken, [Out] char[]? lpProfileDir, ref uint lpcchSize);
 
     // ---- Handles / waits ----
     internal const uint Infinite = 0xFFFFFFFF;
-
-    [LibraryImport("kernel32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool CloseHandle(nint hObject);
-
-    [LibraryImport("kernel32.dll")]
-    internal static partial uint WaitForSingleObject(nint handle, uint milliseconds);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

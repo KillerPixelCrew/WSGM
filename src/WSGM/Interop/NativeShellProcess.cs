@@ -51,7 +51,7 @@ internal static partial class NativeShellProcess
         }
         finally
         {
-            NativeMethods.CloseHandle(process);
+            Win32Common.CloseHandle(process);
         }
     }
 
@@ -72,7 +72,7 @@ internal static partial class NativeShellProcess
         }
         finally
         {
-            NativeMethods.CloseHandle(process);
+            Win32Common.CloseHandle(process);
         }
     }
 
@@ -101,7 +101,7 @@ internal static partial class NativeShellProcess
         if (!NativeMethods.OpenProcessToken(process, NativeMethods.TokenQuery | TokenDuplicate, out nint token))
         {
             error = Marshal.GetLastPInvokeError();
-            NativeMethods.CloseHandle(process);
+            Win32Common.CloseHandle(process);
             return false;
         }
 
@@ -136,7 +136,7 @@ internal static partial class NativeShellProcess
 
         try
         {
-            if (!CreateEnvironmentBlock(out environment, parent.TokenHandle, false))
+            if (!Win32Common.CreateEnvironmentBlock(out environment, parent.TokenHandle, false))
             {
                 error = Marshal.GetLastPInvokeError();
                 return false;
@@ -208,7 +208,7 @@ internal static partial class NativeShellProcess
                     return false;
                 }
 
-                NativeMethods.CloseHandle(processInformation.Thread);
+                Win32Common.CloseHandle(processInformation.Thread);
                 process = new NativeShellChildProcess(
                     processInformation.ProcessId,
                     processInformation.Process);
@@ -227,7 +227,7 @@ internal static partial class NativeShellProcess
             }
             if (environment != 0)
             {
-                DestroyEnvironmentBlock(environment);
+                Win32Common.DestroyEnvironmentBlock(environment);
             }
         }
     }
@@ -310,7 +310,7 @@ internal static partial class NativeShellProcess
         }
         finally
         {
-            NativeMethods.CloseHandle(token);
+            Win32Common.CloseHandle(token);
         }
     }
 
@@ -364,17 +364,6 @@ internal static partial class NativeShellProcess
         nint job,
         [MarshalAs(UnmanagedType.Bool)] out bool result);
 
-    [LibraryImport("userenv.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool CreateEnvironmentBlock(
-        out nint environment,
-        nint token,
-        [MarshalAs(UnmanagedType.Bool)] bool inherit);
-
-    [LibraryImport("userenv.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool DestroyEnvironmentBlock(nint environment);
-
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool InitializeProcThreadAttributeList(
@@ -425,20 +414,20 @@ internal static partial class NativeShellProcess
             ? 0
             : checked((uint)Math.Min(timeout.TotalMilliseconds, uint.MaxValue - 1));
         uint result = await Task.Run(
-            () => NativeMethods.WaitForSingleObject(processHandle, milliseconds),
+            () => Win32Common.WaitForSingleObject(processHandle, milliseconds),
             cancellationToken).ConfigureAwait(false);
         return result == WaitObject0;
     }
 
     /// <summary>Gets whether an owned process handle has signaled.</summary>
     internal static bool HasExited(nint processHandle) =>
-        NativeMethods.WaitForSingleObject(processHandle, 0) == WaitObject0;
+        Win32Common.WaitForSingleObject(processHandle, 0) == WaitObject0;
 
     /// <summary>Queries whether a terminal-services session is currently active. Recovery callers
     /// use this after owner loss so logoff never causes a replacement desktop to be launched.</summary>
     internal static bool IsSessionActive(int sessionId, out int error)
     {
-        if (!WTSQuerySessionInformationW(
+        if (!Win32Common.WTSQuerySessionInformationW(
                 0,
                 checked((uint)sessionId),
                 8, // WTSConnectState
@@ -461,21 +450,9 @@ internal static partial class NativeShellProcess
         }
         finally
         {
-            WTSFreeMemory(buffer);
+            Win32Common.WTSFreeMemory(buffer);
         }
     }
-
-    [LibraryImport("wtsapi32.dll", EntryPoint = "WTSQuerySessionInformationW", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool WTSQuerySessionInformationW(
-        nint server,
-        uint sessionId,
-        int informationClass,
-        out nint buffer,
-        out uint bytesReturned);
-
-    [LibraryImport("wtsapi32.dll")]
-    private static partial void WTSFreeMemory(nint memory);
 }
 
 /// <summary>Process attributes relevant to accepting a normal desktop shell or launch owner.</summary>
@@ -563,13 +540,13 @@ internal sealed class NativeShellLaunchParent : IDisposable
         nint token = System.Threading.Interlocked.Exchange(ref _tokenHandle, 0);
         if (token != 0)
         {
-            NativeMethods.CloseHandle(token);
+            Win32Common.CloseHandle(token);
         }
 
         nint process = System.Threading.Interlocked.Exchange(ref _processHandle, 0);
         if (process != 0)
         {
-            NativeMethods.CloseHandle(process);
+            Win32Common.CloseHandle(process);
         }
     }
 }
@@ -627,7 +604,7 @@ internal sealed class NativeShellChildProcess : IDisposable
         nint process = Interlocked.Exchange(ref _processHandle, 0);
         if (process != 0)
         {
-            NativeMethods.CloseHandle(process);
+            Win32Common.CloseHandle(process);
         }
     }
 }

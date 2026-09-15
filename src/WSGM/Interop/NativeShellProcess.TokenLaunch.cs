@@ -28,8 +28,8 @@ internal static partial class NativeShellProcess
         {
             // Preserve the available rights on a primary token derived from the actual medium
             // shell. This is not the elevated caller's linked token.
-            if (!DuplicateTokenEx(parent.TokenHandle, MaximumAllowedTokenAccess, 0, 2, 1, out token)
-                || !CreateEnvironmentBlock(out environment, token, false))
+            if (!Win32Common.DuplicateTokenEx(parent.TokenHandle, MaximumAllowedTokenAccess, 0, 2, 1, out token)
+                || !Win32Common.CreateEnvironmentBlock(out environment, token, false))
             {
                 error = Marshal.GetLastPInvokeError();
                 return false;
@@ -47,7 +47,7 @@ internal static partial class NativeShellProcess
                     error = Marshal.GetLastPInvokeError();
                     return false;
                 }
-                NativeMethods.CloseHandle(created.Thread);
+                Win32Common.CloseHandle(created.Thread);
                 process = new NativeShellChildProcess(created.ProcessId, created.Process);
                 error = 0;
                 return true;
@@ -55,15 +55,10 @@ internal static partial class NativeShellProcess
         }
         finally
         {
-            if (environment != 0) { DestroyEnvironmentBlock(environment); }
-            if (token != 0) { NativeMethods.CloseHandle(token); }
+            if (environment != 0) { Win32Common.DestroyEnvironmentBlock(environment); }
+            if (token != 0) { Win32Common.CloseHandle(token); }
         }
     }
-
-    [LibraryImport("advapi32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool DuplicateTokenEx(nint existingToken, uint access, nint attributes,
-        int impersonationLevel, int tokenType, out nint token);
 
     [LibraryImport("advapi32.dll", EntryPoint = "CreateProcessWithTokenW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

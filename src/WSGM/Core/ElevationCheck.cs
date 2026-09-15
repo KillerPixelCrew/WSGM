@@ -38,12 +38,12 @@ public static class ElevationCheck
             }
             finally
             {
-                NativeMethods.CloseHandle(hToken);
+                Win32Common.CloseHandle(hToken);
             }
         }
         finally
         {
-            NativeMethods.CloseHandle(hProcess);
+            Win32Common.CloseHandle(hProcess);
         }
     }
 }

@@ -23,5 +23,6 @@
          must not pull in Avalonia or the rest of WSGM). -->
     <Compile Include="..\WSGM\Core\BootManifest.cs" Link="Shared\BootManifest.cs" />
     <Compile Include="..\WSGM\Core\AtomicFile.cs" Link="Shared\AtomicFile.cs" />
+    <Compile Include="..\WSGM\Interop\Win32Common.cs" Link="Shared\Win32Common.cs" />
   </ItemGroup>
 </Project>
