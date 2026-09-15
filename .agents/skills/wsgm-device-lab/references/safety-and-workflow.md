@@ -155,7 +155,11 @@ each action inline. The input section has no confirmation prompts: it listens on
 at once (Raw Input for all devices and vendor pages, low-level hooks with injected flags, XInput with
 the guide button, Windows.Gaming.Input, WMI firmware events, shell app commands, power settings) and
 the press itself advances the step. Rumble probes each motor route with one short pulse and
-calibrates on the route the tester confirmed feeling, instead of assuming one reference's path. Rumble is one bounded interactive six-phase
+calibrates on the route the tester confirmed feeling, instead of assuming one reference's path. The
+session opens with a device-access check: conflicting managers are listed with their effect on the
+evidence and may be asked to close through their window, never killed and never stopped as services,
+and HidHide's allowed-application list gains this tool's entry only with the tester's agreement and
+is written back unchanged at the end. Rumble is one bounded interactive six-phase
 worker: Ready starts a phase and explicit felt/not-felt answers advance it. Missing readback or
 unknown cleanup must remain explicit. Do not add generic raw command entry, unattended writes or
 controller remapping without original-state restoration. The maintainer requested the compiled EXE

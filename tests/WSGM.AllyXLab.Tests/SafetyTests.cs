@@ -117,6 +117,26 @@ public sealed class SafetyTests
     }
 
     [Fact]
+    public void HidHideEntriesMatchAcrossBothPathNotations()
+    {
+        string[] stored = [@"\Device\HarddiskVolume3\Tools\AllyXLab.exe"];
+        Assert.True(HidHideAccess.Contains(stored, @"C:\Tools\AllyXLab.exe"));
+        Assert.False(HidHideAccess.Contains(stored, @"C:\Tools\Other.exe"));
+        Assert.Equal(@"\Tools\AllyXLab.exe", HidHideAccess.NormalizePath(@"C:\Tools\AllyXLab.exe"));
+        Assert.Equal(@"\Tools\AllyXLab.exe", HidHideAccess.NormalizePath(@"\Device\HarddiskVolume3\Tools\AllyXLab.exe"));
+        Assert.Equal(string.Empty, HidHideAccess.NormalizePath("   "));
+    }
+
+    [Fact]
+    public void ServicesAreNeverStoppedByTheLab()
+    {
+        SessionLog log = new();
+        RunningManager service = new("ASUS app service", "AsusAppService", 4, false, "carries OEM button events");
+        Assert.False(Conflicts.Close(service, log));
+        Assert.Contains(log.Events, e => e.Kind == "manager-close-refused");
+    }
+
+    [Fact]
     public void UnknownMotorRoutesAreRefused()
     {
         SessionLog log = new();

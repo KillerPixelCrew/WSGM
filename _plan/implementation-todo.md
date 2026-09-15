@@ -26,6 +26,15 @@ answers, and explicit boundary summaries. The ZIP save step is part of the finis
 after cancellation. The new binary replaces the same download. Hardware and Windows UI acceptance
 are still pending; automated suites remain deferred.
 
+0.3.1 adds the device-access check the first run needed: other managers (Armoury Crate and its
+helpers, Handheld Companion, G-Helper, MSI Center, Winhanced, DS4Windows, HidHide Client, WSGM) are
+listed with what they do to the evidence and can be closed through their window at the tester's
+request, services are never stopped, and HidHide's state is read. With the tester's agreement the
+tool adds itself to HidHide's allowed applications and restores the previous list when the session
+ends, because a hidden controller is why a capture can see no gamepad or only a virtual one. Hold
+steps exist for the OEM buttons only, where firmware treats a long press as its own action; ordinary
+buttons are held briefly inside their single press step.
+
 0.3.0 rebuilds the input section and the rumble path after the first RC73XA run. The tester reported
 the old flow as cumbersome, and half of its captures recorded nothing because the lab only listened on
 ASUS HID plus XInput while that device exposed neither a gamepad collection nor an XInput slot. The

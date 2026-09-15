@@ -64,7 +64,21 @@ internal static class InputSteps
             ("Volume down", "volume down"),
         })
         {
-            steps.Add(new(name, $"Press and release {what}.", InputStepKind.Press));
+            steps.Add(new(name, $"Press {what} and hold it for a moment, then let go.", InputStepKind.Press));
+        }
+
+        // Only the OEM buttons get a hold of their own: their firmware often treats a long press as a
+        // separate action, while an ordinary button just keeps reporting the same bit.
+        foreach ((string name, string what) in new[]
+        {
+            ("Xbox hold", "the Xbox button"),
+            ("Command Center hold", "the Command Center button"),
+            ("Armoury Crate hold", "the Armoury Crate button"),
+            ("Rear M1 hold", "the rear M1 paddle"),
+            ("Rear M2 hold", "the rear M2 paddle"),
+        })
+        {
+            steps.Add(new(name, $"Hold {what} for about two seconds, then let go.", InputStepKind.Press));
         }
 
         steps.Add(new("Left trigger", "Squeeze the left trigger all the way, then let it go.", InputStepKind.Press));

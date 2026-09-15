@@ -49,7 +49,7 @@ internal static class Worker
 
             string[] conflicts = Identity.ConflictingApps();
             log.Add("other-managers", conflicts);
-            log.Add("provenance", new { Version = "0.3.0", Hhd = "5b49c5d904257e042a704ade958fac0ba57af4b1", Hc = "1d85da30861f700868e48ae8f498a5c455896f7c", Evidence = "Experimental attended Ally X bring-up, not production support" });
+            log.Add("provenance", new { Version = "0.3.1", Hhd = "5b49c5d904257e042a704ade958fac0ba57af4b1", Hc = "1d85da30861f700868e48ae8f498a5c455896f7c", Evidence = "Experimental attended Ally X bring-up, not production support" });
             if (request.Action == ActionKind.Inventory)
             {
                 using var sensors = new Sensors(log);
@@ -64,7 +64,7 @@ internal static class Worker
 
             if (Limits.Mutates(request.Action) && conflicts.Length > 0)
             {
-                throw new InvalidOperationException("Close other device managers first: " + string.Join(", ", conflicts) + ". This tool never stops them for you.");
+                throw new InvalidOperationException("Close other device managers first: " + string.Join(", ", conflicts) + ". The wizard's device check can ask them to close; services are never stopped.");
             }
 
             void Revalidate()

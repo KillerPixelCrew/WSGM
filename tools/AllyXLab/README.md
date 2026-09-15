@@ -18,8 +18,11 @@ records its hash. It is an unsigned experimental build; no hardware pass is clai
 
 ## Tester instructions
 
-1. Open the EXE and press **Start**. Close games, WSGM, HC, G-Helper and Armoury Crate first;
-   disconnect other controllers and keep the battery above 30%.
+1. Open the EXE and press **Start**. Close games, disconnect other controllers and keep the battery
+   above 30%. The first screen looks for Armoury Crate, Handheld Companion, G-Helper, MSI Center,
+   Winhanced and similar managers, says what each does to the evidence, and offers to close them for
+   you; services are listed but never stopped. If HidHide is active and this tool is not on its
+   allowed list, it asks whether to add itself for the session and puts that list back at the end.
 2. Follow the single screen. In the input part there is nothing to confirm: it names one control,
    you press it, and the next one appears by itself. Each control is asked for once. If a control
    does nothing, press **Nothing happened**; **Do it again** repeats a step and **Skip the rest**
@@ -65,6 +68,8 @@ two per trial, and do not advance the score. The interactive worker has a five-m
 ## What is captured
 
 - Model, board, SKU, BIOS, EC version, OS version, tool version/hash and reference revisions.
+- Which managers were running and what was closed at your request, whether HidHide and ViGEmBus are
+  installed, and HidHide's active and inverse state with its allowed-application count.
 - HID interface usages, report sizes and device revision for every collection. Paths are hashed.
 - Raw Input from every HID, keyboard and mouse device, physical or virtual, including the vendor
   pages present on the machine. Reports are deduplicated and their changed bytes recorded; they are
@@ -100,7 +105,11 @@ requirement. The Xbox Ally RC73YA is not admitted, because its 20 W performance 
 
 Ordinary steps run in a separate copy of the same executable with a 60-second supervisor deadline.
 The guided rumble session uses one worker with the bounds described above. Hardware writes require
-an explicit wizard action and a durably saved, acknowledged recovery checkpoint. The worker reserves
+an explicit wizard action and a durably saved, acknowledged recovery checkpoint. The one change made
+outside the device is HidHide's allowed-application list, only with your agreement: the previous list
+is recorded, this tool's entry is added, and the list is written back when the session ends. The
+hiding switch, the hidden-device list and every other HidHide setting stay untouched, and a manager
+is only ever asked to close through its window. The worker reserves
 `Global\WSGM.DeviceOwner`. Parent death requests cancellation; a blocked driver call can still
 prevent cleanup. A timeout is reported as unknown restoration and blocks further writes until the
 tester confirms recovery. A driver call completing is not independent readback.

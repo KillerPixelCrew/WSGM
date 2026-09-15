@@ -24,7 +24,7 @@ internal sealed partial class MainForm : Form
 
     internal MainForm()
     {
-        Text = "ROG Ally X Lab · guided test · 0.3.0";
+        Text = "ROG Ally X Lab · guided test · 0.3.1";
         Size = new Size(920, 720); MinimumSize = new Size(850, 620);
         AutoScaleMode = AutoScaleMode.Dpi;
         StartPosition = FormStartPosition.CenterScreen;
@@ -174,6 +174,8 @@ internal sealed partial class MainForm : Form
                 await Recovery();
             }
 
+            CheckStop();
+            await DeviceCheckAsync();
             CheckStop();
             var inventory = await Run(new(ActionKind.Inventory, "Initial inventory"), "Checking your device", "Reading the model, firmware, controller interfaces and sensors.");
             if (inventory.Error is not null)
@@ -394,6 +396,7 @@ internal sealed partial class MainForm : Form
     private async Task Finish()
     {
         Chapter(7, "Save the report"); _progress.Value = 100;
+        RestoreHidHide();
         string pending = File.Exists(_session.RecoveryPath) ? "\nRestoration still needs checking; the recovery record remains on this PC.\n" : "";
         try
         {

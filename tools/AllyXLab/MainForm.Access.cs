@@ -1,0 +1,96 @@
+namespace WSGM.AllyXLab;
+
+/// <summary>The device check that runs before anything is read: other managers, the hiding driver,
+/// and whether this tool can see the real controller at all.</summary>
+internal sealed partial class MainForm
+{
+    private IReadOnlyList<string>? _hidHideOriginal;
+
+    private async Task DeviceCheckAsync()
+    {
+        SessionLog log = new();
+        log.Add("drivers", Conflicts.Drivers());
+        IReadOnlyList<RunningManager> managers = Conflicts.Running();
+        log.Add("managers", managers);
+        if (managers.Count > 0)
+        {
+            string text = string.Join("\n", managers.Select(m => $"• {m.Label} — {m.Why}{(m.Closable ? "" : " (a service; close it yourself if you want it gone)")}"))
+                + "\n\nWhile these run, the controller is often hidden from this tool, replaced by a virtual one, or held in another mode.";
+            string answer = managers.Any(m => m.Closable)
+                ? await Ask("Other managers are running", text, ("close", "Close them for me"), ("continue", "Continue anyway"), ("stop", "Stop and save"))
+                : await Ask("A device service is running", text, ("continue", "Continue anyway"), ("stop", "Stop and save"));
+            if (answer == "stop")
+            {
+                _stopping = true;
+                CheckStop();
+            }
+
+            if (answer == "close")
+            {
+                foreach (RunningManager manager in managers.Where(m => m.Closable))
+                {
+                    _status.Text = "Asking " + manager.Label + " to close…";
+                    Conflicts.Close(manager, log);
+                }
+
+                IReadOnlyList<RunningManager> left = Conflicts.Running();
+                log.Add("managers-after-close", left);
+                if (left.Count > 0)
+                {
+                    await Ask("Still running", string.Join("\n", left.Select(m => "• " + m.Label))
+                        + "\n\nClose these yourself if you can. Captures still run, and the report records what was running.",
+                        ("continue", "Continue"));
+                }
+            }
+        }
+
+        HidHideState hidHide = HidHideAccess.Read(log);
+        if (hidHide is { Available: true, Active: true } && !HidHideAccess.Contains(hidHide.Applications, Environment.ProcessPath ?? ""))
+        {
+            string inverse = hidHide.Inverse ? "\n\nHidHide is in inverse mode on this machine, so its list means the opposite of usual. Nothing is changed unless you agree." : "";
+            string answer = await Ask("HidHide is hiding controllers",
+                "HidHide is active and this tool is not on its allowed list, so the controller may be invisible here or replaced by a virtual one."
+                + "\n\nMay this tool add itself for the session? The list is put back exactly as it was when the session ends." + inverse,
+                ("allow", "Add this tool, then undo it later"), ("skip", "Leave HidHide alone"), ("stop", "Stop and save"));
+            if (answer == "stop")
+            {
+                _stopping = true;
+                CheckStop();
+            }
+
+            if (answer == "allow")
+            {
+                try
+                {
+                    _hidHideOriginal = HidHideAccess.TryAllow(hidHide, log);
+                    _session.Observation("HidHide allowance", new { Added = _hidHideOriginal is not null, Entries = hidHide.Applications.Count });
+                }
+                catch (Exception e) when (e is not OutOfMemoryException)
+                {
+                    log.Add("hidhide-allow-failed", e.Message);
+                    await Ask("HidHide could not be changed", e.Message + "\n\nNothing was changed. The capture continues; a hidden controller stays hidden.", ("continue", "Continue"));
+                }
+            }
+        }
+
+        _session.RecordLocal(new Result(new Request(ActionKind.Inventory, "Device access check", Seconds: 1), "observed", "not-needed", log.Events, null));
+    }
+
+    private void RestoreHidHide()
+    {
+        if (_hidHideOriginal is not { } original)
+        {
+            return;
+        }
+
+        SessionLog log = new();
+        bool restored = HidHideAccess.Restore(original, log);
+        _hidHideOriginal = null;
+        _session.RecordLocal(new Result(new Request(ActionKind.Inventory, "HidHide restoration", Seconds: 1),
+            restored ? "restored-readback-matched" : "RESTORATION FAILED", restored ? "restored" : "unverified", log.Events, null));
+        if (!restored)
+        {
+            _session.Observation("HidHide restoration", "The allowed-application list did not read back as it was. Remove this tool's entry in the HidHide Configuration Client.");
+        }
+    }
+}
