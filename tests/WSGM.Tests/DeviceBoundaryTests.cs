@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using WSGM.Device.Tests;
 
 namespace WSGM.Tests;
 
@@ -21,7 +22,7 @@ public sealed class DeviceBoundaryTests
     [Fact]
     public void SolutionBuildsTheDeviceProjectsWithOneSharedSdk()
     {
-        string[] projects = XDocument.Load(Path.Combine(RepositoryRoot, "WSGM.slnx"))
+        string[] projects = XDocument.Load(Path.Combine(RepositoryFiles.Root, "WSGM.slnx"))
             .Descendants("Project")
             .Select(project => (string?)project.Attribute("Path"))
             .Where(path => !string.IsNullOrWhiteSpace(path))
@@ -42,11 +43,11 @@ public sealed class DeviceBoundaryTests
             Assert.Single(projects, path => Path.GetFileName(path) == "WSGM.Device.Sdk.csproj"));
 
         string sdkPath = Path.GetFullPath(Path.Combine(
-            RepositoryRoot, "src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj"));
+            RepositoryFiles.Root, "src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj"));
         foreach (string projectPath in projects)
         {
-            string projectDirectory = Path.GetDirectoryName(Path.Combine(RepositoryRoot, projectPath))!;
-            foreach (XElement reference in LoadProject(projectPath).Descendants("ProjectReference"))
+            string projectDirectory = Path.GetDirectoryName(Path.Combine(RepositoryFiles.Root, projectPath))!;
+            foreach (XElement reference in RepositoryFiles.LoadProject(projectPath).Descendants("ProjectReference"))
             {
                 string include = (string)reference.Attribute("Include")!;
                 if (Path.GetFileName(include) == "WSGM.Device.Sdk.csproj")
@@ -62,7 +63,7 @@ public sealed class DeviceBoundaryTests
     {
         // The SDK is the shared type-identity boundary. Any dependency added here would be
         // handed to every plugin built against it.
-        XDocument sdk = LoadProject(
+        XDocument sdk = RepositoryFiles.LoadProject(
             "src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj");
 
         Assert.Empty(sdk.Descendants("ProjectReference"));
@@ -70,27 +71,9 @@ public sealed class DeviceBoundaryTests
     }
 
     private static IEnumerable<string> ProjectReferences(string relativePath) =>
-        LoadProject(relativePath)
+        RepositoryFiles.LoadProject(relativePath)
             .Descendants("ProjectReference")
             .Select(reference => reference.Attribute("Include")?.Value)
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(path => Path.GetFileNameWithoutExtension(path!));
-
-    private static XDocument LoadProject(string relativePath) =>
-        XDocument.Load(Path.Combine(RepositoryRoot, relativePath));
-
-    private static string RepositoryRoot
-    {
-        get
-        {
-            DirectoryInfo? directory = new(AppContext.BaseDirectory);
-            while (directory is not null
-                && !File.Exists(Path.Combine(directory.FullName, "WSGM.slnx")))
-            {
-                directory = directory.Parent;
-            }
-
-            return Assert.IsType<DirectoryInfo>(directory).FullName;
-        }
-    }
 }

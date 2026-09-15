@@ -34,5 +34,7 @@
          dependency comes from the WSGM project reference) — referencing the AOT
          WinExe project would drag its publish plumbing into the test build. -->
     <Compile Include="../../src/WSGM.LogonService/LogonDecision.cs" Link="Linked/LogonDecision.cs" />
+    <Compile Include="../Shared/RepositoryFiles.cs" Link="Shared/RepositoryFiles.cs" />
+    <Compile Include="../Shared/TemporaryDirectory.cs" Link="Shared/TemporaryDirectory.cs" />
   </ItemGroup>
 </Project>

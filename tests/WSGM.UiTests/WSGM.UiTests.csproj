@@ -17,6 +17,7 @@
     <PackageReference Include="Avalonia.Headless.XUnit" Version="12.1.1" />
     <PackageReference Include="Avalonia.Skia" Version="12.1.1" />
     <ProjectReference Include="../../src/WSGM/WSGM.csproj" />
+    <Compile Include="../Shared/RepositoryFiles.cs" Link="Shared/RepositoryFiles.cs" />
     <Using Include="Xunit" />
     <None Update="Baselines/*.png" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures/*.json" CopyToOutputDirectory="PreserveNewest" />

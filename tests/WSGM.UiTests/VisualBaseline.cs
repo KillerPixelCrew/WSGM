@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.VisualTree;
 using SkiaSharp;
+using WSGM.Device.Tests;
 
 namespace WSGM.UiTests;
 
@@ -22,7 +23,7 @@ internal static class VisualBaseline
         using MemoryStream stream = new();
         frame.Save(stream, new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
         byte[] actual = stream.ToArray();
-        string artifacts = Path.Combine(RepositoryRoot(), "TestResults", "ui", name);
+        string artifacts = Path.Combine(RepositoryFiles.Root, "TestResults", "ui", name);
         Directory.CreateDirectory(artifacts);
         File.Delete(Path.Combine(artifacts, "expected.png"));
         File.Delete(Path.Combine(artifacts, "diff.png"));
@@ -82,13 +83,4 @@ internal static class VisualBaseline
             || Math.Abs(left.Red - right.Red) > ChannelTolerance
             || Math.Abs(left.Green - right.Green) > ChannelTolerance
             || Math.Abs(left.Blue - right.Blue) > ChannelTolerance;
-
-    internal static string RepositoryRoot()
-    {
-        for (DirectoryInfo? directory = new(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, "WSGM.slnx"))) { return directory.FullName; }
-        }
-        throw new DirectoryNotFoundException("Run UI tests from a WSGM checkout");
-    }
 }

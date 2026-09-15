@@ -7,6 +7,7 @@ using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Tests;
 using WSGM.Interop;
 using WSGM.Overlay;
 using WSGM.Shell;
@@ -114,7 +115,7 @@ public sealed class DevicePageCaptureTests
             Assert.True(cards.Length >= 5);
             Assert.All(cards, card => Assert.InRange(card.Bounds.Width, 400, width / 2));
         }
-        string directory = Path.Combine(RepositoryRoot(), "TestResults", "ui", "claw-" + page.ToLowerInvariant().Replace(' ', '-')
+        string directory = Path.Combine(RepositoryFiles.Root, "TestResults", "ui", "claw-" + page.ToLowerInvariant().Replace(' ', '-')
             + (width == 1280 ? string.Empty : "-" + width));
         Directory.CreateDirectory(directory);
         Capture(window, Path.Combine(directory, "viewport.png"));
@@ -158,14 +159,6 @@ public sealed class DevicePageCaptureTests
         using var frame = window.CaptureRenderedFrame();
         Assert.NotNull(frame);
         frame.Save(path, new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
-    }
-
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "WSGM.slnx")))
-        { directory = directory.Parent; }
-        return directory?.FullName ?? throw new DirectoryNotFoundException("WSGM root");
     }
 
     private sealed class ModeApi : IPowerModeApi

@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using WSGM.Device.Tests;
 using WSGM.Controls;
 
 namespace WSGM.Tests;
@@ -27,7 +28,7 @@ public sealed class CardButtonThemeTests
     [Fact]
     public void ButtonFocusVisualsOnlyAppearForFocusVisible()
     {
-        string uiRoot = Path.Combine(RepositoryRoot, "src", "WSGM");
+        string uiRoot = Path.Combine(RepositoryFiles.Root, "src", "WSGM");
         string[] selectors = Directory.EnumerateFiles(uiRoot, "*.axaml", SearchOption.AllDirectories)
             .SelectMany(path => XDocument.Load(path).Descendants())
             .Select(element => element.Attribute("Selector")?.Value)
@@ -59,7 +60,7 @@ public sealed class CardButtonThemeTests
     [Fact]
     public void EveryRowStyleClassSetInCodeIsActuallyStyled()
     {
-        string uiRoot = Path.Combine(RepositoryRoot, "src", "WSGM");
+        string uiRoot = Path.Combine(RepositoryFiles.Root, "src", "WSGM");
         string[] selectors = Directory.EnumerateFiles(uiRoot, "*.axaml", SearchOption.AllDirectories)
             .SelectMany(path => XDocument.Load(path).Descendants())
             .Select(element => element.Attribute("Selector")?.Value)
@@ -96,20 +97,5 @@ public sealed class CardButtonThemeTests
     private sealed class ThemeProbeRow : CardButton
     {
         internal Type ResolvedStyleKey => StyleKeyOverride;
-    }
-
-    private static string RepositoryRoot
-    {
-        get
-        {
-            DirectoryInfo? directory = new(AppContext.BaseDirectory);
-            while (directory is not null
-                && !File.Exists(Path.Combine(directory.FullName, "WSGM.slnx")))
-            {
-                directory = directory.Parent;
-            }
-
-            return Assert.IsType<DirectoryInfo>(directory).FullName;
-        }
     }
 }
