@@ -204,12 +204,12 @@
                     <!-- Steam: a menu of categories, like the Device root. The controls
                          themselves live on the category pages below. -->
                     <UniformGrid x:Name="PanelSteam" Columns="2" IsVisible="False">
-                        <c:CardButton Classes="tile" Click="OnEnterSteamLibrary"
+                        <c:CardButton Classes="tile" Click="OnEnterCategory" CommandParameter="{x:Static ov:OverlayPage.SteamLibrary}"
                                       Margin="0,0,10,10"
                                       IconGeometry="{x:Static c:Icons.SteamLike}"
                                       Title="Steam library"
                                       Description="Tabs, artwork, card manager and library folders" />
-                        <c:CardButton Classes="tile" Click="OnEnterSteamLaunchFixes"
+                        <c:CardButton Classes="tile" Click="OnEnterCategory" CommandParameter="{x:Static ov:OverlayPage.SteamLaunchFixes}"
                                       Margin="0,0,10,10"
                                       IconGeometry="{x:Static c:Icons.Rocket}"
                                       Title="Per-game launch fixes"
@@ -459,34 +459,34 @@
                          Performance and Plugins appear only when they have something in
                          them, which is resolved in code alongside their content. -->
                     <UniformGrid x:Name="PanelSystem" Columns="2" IsVisible="False">
-                        <c:CardButton Classes="tile" Click="OnEnterSystemTools"
+                        <c:CardButton Classes="tile" Click="OnEnterCategory" CommandParameter="{x:Static ov:OverlayPage.SystemTools}"
                                       Margin="0,0,10,10"
                                       IconGeometry="{x:Static c:Icons.Gear}"
                                       Title="System"
                                       Description="WSGM Settings and the Windows Task Manager" />
-                        <c:CardButton x:Name="SystemPerformanceTile" Classes="tile" Click="OnEnterSystemPerformance"
+                        <c:CardButton x:Name="SystemPerformanceTile" Classes="tile" Click="OnEnterCategory" CommandParameter="{x:Static ov:OverlayPage.SystemPerformance}"
                                       Margin="0,0,10,10"
                                       IsVisible="False"
                                       IconGeometry="{x:Static c:Icons.Grid4}"
                                       Title="Performance"
                                       Description="Frame limit, overlay and per-application profiles" />
-                        <c:CardButton Classes="tile" Click="OnEnterSystemStorage"
+                        <c:CardButton Classes="tile" Click="OnEnterCategory" CommandParameter="{x:Static ov:OverlayPage.SystemStorage}"
                                       Margin="0,0,10,10"
                                       IconGeometry="{x:Static c:Icons.SdCard}"
                                       Title="Storage"
                                       Description="Eject an SD card or USB drive" />
-                        <c:CardButton Classes="tile" Click="OnEnterSystemDisplay"
+                        <c:CardButton Classes="tile" Click="OnEnterCategory" CommandParameter="{x:Static ov:OverlayPage.SystemDisplay}"
                                       Margin="0,0,10,10"
                                       IconGeometry="{x:Static c:Icons.Monitor}"
                                       Title="Display"
                                       Description="Panel brightness and display routes" />
-                        <c:CardButton x:Name="SystemPluginsTile" Classes="tile" Click="OnEnterSystemPlugins"
+                        <c:CardButton x:Name="SystemPluginsTile" Classes="tile" Click="OnEnterCategory" CommandParameter="{x:Static ov:OverlayPage.SystemPlugins}"
                                       Margin="0,0,10,10"
                                       IsVisible="False"
                                       IconGeometry="{x:Static c:Icons.Wrench}"
                                       Title="Plugins"
                                       Description="Controls published by the enabled common plugins" />
-                        <c:CardButton Classes="tile" Click="OnEnterSystemController"
+                        <c:CardButton Classes="tile" Click="OnEnterCategory" CommandParameter="{x:Static ov:OverlayPage.SystemController}"
                                       Margin="0,0,10,10"
                                       IconGeometry="{x:Static c:Icons.BlockedCircle}"
                                       Title="Controller ownership"
@@ -557,22 +557,22 @@
                          scheme. The two-step confirms rewrite Title ("Really?") from
                          code-behind, same auto-revert as before. -->
                     <UniformGrid x:Name="PanelPower" Columns="2" IsVisible="False">
-                        <c:CardButton Classes="tile" Click="OnEnterPowerWake"
+                        <c:CardButton Classes="tile" Click="OnEnterCategory" CommandParameter="{x:Static ov:OverlayPage.PowerWake}"
                                       Margin="0,0,10,10"
                                       IconGeometry="{x:Static c:Icons.Mug}"
                                       Title="Wake"
                                       Description="Keep Awake and what is holding a wake lock" />
-                        <c:CardButton Classes="tile" Click="OnEnterPowerTimeouts"
+                        <c:CardButton Classes="tile" Click="OnEnterCategory" CommandParameter="{x:Static ov:OverlayPage.PowerTimeouts}"
                                       Margin="0,0,10,10"
                                       IconGeometry="{x:Static c:Icons.Moon}"
                                       Title="Idle timeouts"
                                       Description="Screen off and standby, on battery and plugged in" />
-                        <c:CardButton Classes="tile" Click="OnEnterPowerActions"
+                        <c:CardButton Classes="tile" Click="OnEnterCategory" CommandParameter="{x:Static ov:OverlayPage.PowerActions}"
                                       Margin="0,0,10,10"
                                       IconGeometry="{x:Static c:Icons.Power}"
                                       Title="Power"
                                       Description="Standby, hibernate, restart and shut down" />
-                        <c:CardButton Classes="tile" Click="OnEnterPowerSession"
+                        <c:CardButton Classes="tile" Click="OnEnterCategory" CommandParameter="{x:Static ov:OverlayPage.PowerSession}"
                                       Margin="0,0,10,10"
                                       IconGeometry="{x:Static c:Icons.Play}"
                                       Title="Session"

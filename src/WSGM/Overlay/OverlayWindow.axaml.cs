@@ -309,6 +309,7 @@ public partial class OverlayWindow : Window
         Action? OnLeave = null);
 
     private SubView[]? _subViews;
+    private readonly List<(OverlaySubView Host, Action Leave)> _subViewCloseHandlers = [];
 
     /// <summary>The nested pages, built once the XAML fields exist. The open one is identified by
     /// <see cref="OverlayNavigation.Page"/> rather than tracked in a parallel flag per page, which
@@ -2139,15 +2140,19 @@ public partial class OverlayWindow : Window
         // re-summon of a still-open panel. Any nested page is torn down with it.
         Activated += OnActivated;
 
-        LibraryTabsHost.CloseRequested += LeaveLibraryTabsSubView;
-        CardManagerHost.CloseRequested += LeaveCardManagerSubView;
+        foreach (SubView view in SubViews)
+        {
+            if (view.Host is OverlaySubView host)
+            {
+                OverlayPage page = view.Page;
+                Action leave = () => LeaveSubView(page);
+                host.CloseRequested += leave;
+                _subViewCloseHandlers.Add((host, leave));
+            }
+        }
         CardManagerHost.FormatRequested += OnFormatFromCardManager;
-        ArtworkHost.CloseRequested += LeaveArtworkSubView;
-        LaunchWrapperHost.CloseRequested += LeaveLaunchWrapperSubView;
         LaunchWrapperHost.Picked += OnLaunchFixGamePicked;
         LaunchWrapperHost.CustomPicked += OnCustomLaunchGamePicked;
-        WakeLockHost.CloseRequested += LeaveWakeLockSubView;
-        DeviceColorHost.CloseRequested += LeaveDeviceColorSubView;
         InitializeLaunchFixLabels(viewModel);
 
         KeyDown += OnKeyDown;
@@ -2257,16 +2262,14 @@ public partial class OverlayWindow : Window
         PointerCaptureLost -= OnPointerCaptureLostForLiveRefresh;
         _pressedPointers.Clear();
         Interlocked.Exchange(ref _pendingLiveRefreshes, 0);
-        LibraryTabsHost.CloseRequested -= LeaveLibraryTabsSubView;
-        CardManagerHost.CloseRequested -= LeaveCardManagerSubView;
+        foreach ((OverlaySubView host, Action leave) in _subViewCloseHandlers)
+        {
+            host.CloseRequested -= leave;
+        }
         CardManagerHost.FormatRequested -= OnFormatFromCardManager;
-        ArtworkHost.CloseRequested -= LeaveArtworkSubView;
         ArtworkHost.Close();
-        LaunchWrapperHost.CloseRequested -= LeaveLaunchWrapperSubView;
         LaunchWrapperHost.Picked -= OnLaunchFixGamePicked;
         LaunchWrapperHost.CustomPicked -= OnCustomLaunchGamePicked;
-        WakeLockHost.CloseRequested -= LeaveWakeLockSubView;
-        DeviceColorHost.CloseRequested -= LeaveDeviceColorSubView;
         KeyDown -= OnKeyDown;
         Opened -= OnOpened;
         Activated -= OnActivated;
@@ -3197,7 +3200,7 @@ public partial class OverlayWindow : Window
             {
                 return;
             }
-            EnterLaunchWrapperSubView();
+            EnterSubView(OverlayPage.SteamLaunchConfiguration);
         }
         catch (Exception ex)
         {
@@ -3286,7 +3289,7 @@ public partial class OverlayWindow : Window
             if (result.Ok)
             {
                 Log.Info($"Custom launch action written for {game.Name} ({game.AppId}).");
-                LeaveLaunchWrapperSubView();
+                LeaveSubView(OverlayPage.SteamLaunchConfiguration);
                 await DismissAfterCopyFeedback();
             }
         }
@@ -3379,7 +3382,7 @@ public partial class OverlayWindow : Window
             LaunchWrapperHost.Open(mode == LaunchWrapperMode.None
                 ? "Remove launch fixes"
                 : "Apply launch fix");
-            EnterLaunchWrapperSubView();
+            EnterSubView(OverlayPage.SteamLaunchConfiguration);
             return;
         }
 
@@ -3495,70 +3498,36 @@ public partial class OverlayWindow : Window
     {
         if (_pendingLaunchFix is not { } pending)
         {
-            LeaveLaunchWrapperSubView();
+            LeaveSubView(OverlayPage.SteamLaunchConfiguration);
             return;
         }
-        LeaveLaunchWrapperSubView();
+        LeaveSubView(OverlayPage.SteamLaunchConfiguration);
         _ = ApplyLaunchFixToAsync(pending.Mode, pending.Button, game.AppId, game.Name, game.Shortcut);
     }
 
     private void OnShowWakeLockHolders(object? sender, RoutedEventArgs e)
     {
         WakeLockHost.Open();
-        EnterWakeLockSubView();
+        EnterSubView(OverlayPage.PowerWakeLocks);
     }
 
-    private void EnterWakeLockSubView() => EnterSubView(OverlayPage.PowerWakeLocks);
 
     // The category menus. Each destination root offers its groups as large tiles and the controls
     // themselves live one level down, so a handheld's few visible rows are a choice rather than the
     // top of a list the controller has to scroll through. Back and B leave a category the same way
     // they leave any other page, through the sub-view stack.
-    private void OnEnterSteamLibrary(object? sender, RoutedEventArgs e)
-        => EnterSubView(OverlayPage.SteamLibrary);
+    /// <summary>Opens the category page a tile names in its CommandParameter.</summary>
+    private void OnEnterCategory(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button { CommandParameter: OverlayPage page })
+        {
+            EnterSubView(page);
+        }
+    }
 
-    private void OnEnterSteamLaunchFixes(object? sender, RoutedEventArgs e)
-        => EnterSubView(OverlayPage.SteamLaunchFixes);
 
-    private void OnEnterSystemTools(object? sender, RoutedEventArgs e)
-        => EnterSubView(OverlayPage.SystemTools);
 
-    private void OnEnterSystemPerformance(object? sender, RoutedEventArgs e)
-        => EnterSubView(OverlayPage.SystemPerformance);
 
-    private void OnEnterSystemStorage(object? sender, RoutedEventArgs e)
-        => EnterSubView(OverlayPage.SystemStorage);
-
-    private void OnEnterSystemDisplay(object? sender, RoutedEventArgs e)
-        => EnterSubView(OverlayPage.SystemDisplay);
-
-    private void OnEnterSystemPlugins(object? sender, RoutedEventArgs e)
-        => EnterSubView(OverlayPage.SystemPlugins);
-
-    private void OnEnterSystemController(object? sender, RoutedEventArgs e)
-        => EnterSubView(OverlayPage.SystemController);
-
-    private void OnEnterPowerWake(object? sender, RoutedEventArgs e)
-        => EnterSubView(OverlayPage.PowerWake);
-
-    private void OnEnterPowerSession(object? sender, RoutedEventArgs e)
-        => EnterSubView(OverlayPage.PowerSession);
-
-    private void OnEnterPowerTimeouts(object? sender, RoutedEventArgs e)
-        => EnterSubView(OverlayPage.PowerTimeouts);
-
-    private void OnEnterPowerActions(object? sender, RoutedEventArgs e)
-        => EnterSubView(OverlayPage.PowerActions);
-
-    private void LeaveWakeLockSubView() => LeaveSubView(OverlayPage.PowerWakeLocks);
-
-    private void LeaveDeviceColorSubView() => LeaveSubView(OverlayPage.DeviceColor);
-
-    private void EnterLaunchWrapperSubView() =>
-        EnterSubView(OverlayPage.SteamLaunchConfiguration);
-
-    private void LeaveLaunchWrapperSubView() =>
-        LeaveSubView(OverlayPage.SteamLaunchConfiguration);
 
     private void OnCloseLauncher(object? sender, RoutedEventArgs e)
     {
@@ -3589,7 +3558,7 @@ public partial class OverlayWindow : Window
         }
         FormatHeading.Text = "Format SD Card";
         ShowFormatState(pick: true, confirm: false, progress: false);
-        EnterFormatSubView();
+        EnterSubView(OverlayPage.SteamStorageFormat);
         _format.Refresh();
     }
 
@@ -3642,7 +3611,7 @@ public partial class OverlayWindow : Window
     private void OnLibraryTabs(object? sender, RoutedEventArgs e)
     {
         LibraryTabsHost.Open(LibraryTabs);
-        EnterLibraryTabsSubView();
+        EnterSubView(OverlayPage.SteamLibraryTabs);
     }
 
     /// <summary>Opens the SD-card library manager sub-view.</summary>
@@ -3651,7 +3620,7 @@ public partial class OverlayWindow : Window
         CardManagerHost.ShowFormat = _format is not null
             && DataContext is OverlayViewModel { ShowSdCard: true };
         CardManagerHost.Open(LibraryTabs);
-        EnterCardManagerSubView();
+        EnterSubView(OverlayPage.SteamCardManager);
     }
 
     /// <summary>Format picked from inside the Card Manager: hand the surface over to
@@ -3659,7 +3628,7 @@ public partial class OverlayWindow : Window
     /// or two would claim the surface at once.</summary>
     private void OnFormatFromCardManager()
     {
-        LeaveCardManagerSubView();
+        LeaveSubView(OverlayPage.SteamCardManager);
         OnFormatSdCard(this, new RoutedEventArgs());
         // Set AFTER entering: OnFormatSdCard runs the ordinary enter path, and
         // LeaveFormatSubView clears this on every exit.
@@ -3676,31 +3645,25 @@ public partial class OverlayWindow : Window
     private void LeaveFormatSubViewToOrigin()
     {
         var toCards = _formatReturnsToCards;
-        LeaveFormatSubView();
+        LeaveSubView(OverlayPage.SteamStorageFormat);
         if (toCards)
         {
             OnCardManager(this, new RoutedEventArgs());
         }
     }
 
-    private void EnterCardManagerSubView() => EnterSubView(OverlayPage.SteamCardManager);
 
-    private void LeaveCardManagerSubView() => LeaveSubView(OverlayPage.SteamCardManager);
 
-    private void EnterLibraryTabsSubView() => EnterSubView(OverlayPage.SteamLibraryTabs);
 
-    private void LeaveLibraryTabsSubView() => LeaveSubView(OverlayPage.SteamLibraryTabs);
 
     /// <summary>Opens the SteamGridDB artwork picker sub-view.</summary>
     private void OnChangeArtwork(object? sender, RoutedEventArgs e)
     {
         ArtworkHost.Open();
-        EnterArtworkSubView();
+        EnterSubView(OverlayPage.SteamArtwork);
     }
 
-    private void EnterArtworkSubView() => EnterSubView(OverlayPage.SteamArtwork);
 
-    private void LeaveArtworkSubView() => LeaveSubView(OverlayPage.SteamArtwork);
 
     /// <summary>Fire-and-forget background sync when the overlay opens, throttled so
     /// it runs at most once per <see cref="AutoTabSyncInterval"/>. Best-effort — a
@@ -3763,13 +3726,11 @@ public partial class OverlayWindow : Window
         }
         FormatHeading.Text = "Add Steam Library";
         ShowFormatState(pick: false, confirm: false, progress: true);
-        EnterFormatSubView();
+        EnterSubView(OverlayPage.SteamStorageFormat);
         await _format.AddLibraryAsync(path);
     }
 
-    private void EnterFormatSubView() => EnterSubView(OverlayPage.SteamStorageFormat);
 
-    private void LeaveFormatSubView() => LeaveSubView(OverlayPage.SteamStorageFormat);
 
     private void ShowFormatState(bool pick, bool confirm, bool progress)
     {
