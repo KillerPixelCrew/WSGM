@@ -1,14 +1,10 @@
 using WSGM.DeviceLab.Preflight;
 
-namespace WSGM.Tests;
+namespace WSGM.Device.Tests;
 
 public sealed class DeviceLabOutputPathPolicyTests : IDisposable
 {
-    private readonly string _root = Path.Combine(
-        Path.GetTempPath(),
-        $"wsgm-output-policy-{Guid.NewGuid():N}");
-
-    public DeviceLabOutputPathPolicyTests() => Directory.CreateDirectory(_root);
+    private readonly TemporaryDirectory _temporary = new();
 
     [Theory]
     [InlineData(null)]
@@ -28,7 +24,7 @@ public sealed class DeviceLabOutputPathPolicyTests : IDisposable
     [Fact]
     public void DriveRootAndBroadDirectoriesAreRejected()
     {
-        string driveRoot = Path.GetPathRoot(_root)!;
+        string driveRoot = Path.GetPathRoot(_temporary.Root)!;
         DeviceLabPathBoundaries boundaries = Boundaries();
 
         Assert.Equal(
@@ -75,7 +71,7 @@ public sealed class DeviceLabOutputPathPolicyTests : IDisposable
     [Fact]
     public void ExistingTargetsAreNotOverwrittenOrTreatedAsDirectories()
     {
-        string file = Path.Combine(_root, "existing.bin");
+        string file = Path.Combine(_temporary.Root, "existing.bin");
         File.WriteAllText(file, "owned");
 
         Assert.Equal(
@@ -95,7 +91,7 @@ public sealed class DeviceLabOutputPathPolicyTests : IDisposable
     [Fact]
     public void DedicatedNewTargetsAreAllowedAndNormalized()
     {
-        string requested = Path.Combine(_root, "capture", "..", "capture", "result.wsgmcap");
+        string requested = Path.Combine(_temporary.Root, "capture", "..", "capture", "result.wsgmcap");
 
         DeviceLabOutputPathDecision decision = DeviceLabOutputPathPolicy.Evaluate(
             requested,
@@ -107,12 +103,12 @@ public sealed class DeviceLabOutputPathPolicyTests : IDisposable
         Assert.Equal(Path.GetFullPath(requested), decision.FullPath);
     }
 
-    public void Dispose() => Directory.Delete(_root, recursive: true);
+    public void Dispose() => _temporary.Dispose();
 
     private DeviceLabPathBoundaries Boundaries() => new()
     {
-        LiveDataDirectory = Path.Combine(_root, "live"),
-        RepositoryRoot = Path.Combine(_root, "repo"),
-        BroadHomeDirectories = [Path.Combine(_root, "home")],
+        LiveDataDirectory = Path.Combine(_temporary.Root, "live"),
+        RepositoryRoot = Path.Combine(_temporary.Root, "repo"),
+        BroadHomeDirectories = [Path.Combine(_temporary.Root, "home")],
     };
 }

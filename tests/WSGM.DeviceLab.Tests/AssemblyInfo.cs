@@ -3,5 +3,5 @@
 // plugin load context unload, and a blocking collection suspends every managed thread in the
 // process, not only the test that asked for it. Run in parallel with a suite that waits on a
 // bounded rendezvous, that stop-the-world work is charged to whichever test happens to be waiting.
-// This is the same rule, for the same reason, as WSGM.Tests in the main repository.
+// WSGM.Tests follows the same rule for the same reason.
 [assembly: CollectionBehavior(DisableTestParallelization = true)]

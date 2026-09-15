@@ -12,7 +12,7 @@ public sealed class DeviceLabPackagingTests
     {
         using TemporaryDirectory temporary = new();
         string source = CreatePackage(temporary);
-        DeviceLabPathBoundaries boundaries = Boundaries(temporary);
+        DeviceLabPathBoundaries boundaries = DeviceLabPackages.Boundaries(temporary);
         string first = temporary.GetPath("first.wsgmpkg");
         string second = temporary.GetPath("second.wsgmpkg");
 
@@ -129,7 +129,7 @@ public sealed class DeviceLabPackagingTests
         PluginPackageValidationReport report = PluginPackageWorkflow.Pack(
             source,
             output,
-            Boundaries(temporary),
+            DeviceLabPackages.Boundaries(temporary),
             CancellationToken.None,
             sourceValidated: () =>
             {
@@ -153,7 +153,7 @@ public sealed class DeviceLabPackagingTests
         _ = Assert.Throws<OperationCanceledException>(() => PluginPackageWorkflow.Pack(
             source,
             output,
-            Boundaries(temporary),
+            DeviceLabPackages.Boundaries(temporary),
             cancellation.Token,
             cancellation.Cancel));
 
@@ -221,12 +221,6 @@ public sealed class DeviceLabPackagingTests
         BitConverter.GetBytes(machine).CopyTo(bytes, 68);
         File.WriteAllBytes(path, bytes);
     }
-
-    private static DeviceLabPathBoundaries Boundaries(TemporaryDirectory temporary) => new()
-    {
-        LiveDataDirectory = temporary.GetPath("never-live-data"),
-        BroadHomeDirectories = [],
-    };
 
     private static string Describe(PluginPackageValidationReport report) =>
         string.Join("; ", report.Issues.Select(issue => $"{issue.Path}: {issue.Message}"));

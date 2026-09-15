@@ -3,8 +3,17 @@ using WSGM.DeviceLab.Testing;
 
 namespace WSGM.Device.Tests;
 
-public sealed class HardwareTestCliArgumentsTests
+public sealed class CliArgumentsTests
 {
+    [Fact]
+    public void DeviceLabCli_RejectsAMisspelledRedactionFlag()
+    {
+        string? error = DeviceLabCli.ValidateArguments(
+            ["inventory", "--out-dir", "capture", "--sharable"]);
+
+        Assert.Contains("--sharable", error, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void CapabilityAction_ParsesExactlyOneActionAndItsApplicableOptions()
     {

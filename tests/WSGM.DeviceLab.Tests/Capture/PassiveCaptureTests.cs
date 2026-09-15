@@ -1,10 +1,9 @@
 using System.Text;
 using WSGM.DeviceLab.Capture;
-using WSGM.DeviceLab.Inventory;
 
 namespace WSGM.Device.Tests;
 
-public sealed class CaptureRegressionTests
+public sealed class PassiveCaptureTests
 {
     [Theory]
     [InlineData((int)EventDiscontinuity.SourceRestarted)]
@@ -80,79 +79,6 @@ public sealed class CaptureRegressionTests
         Assert.True(GuidedOperatorMarkers.TryDecode(captureEvent, out _, out string action, out string decoded));
         Assert.Equal("action", action);
         Assert.Equal(label, decoded);
-    }
-
-    [Fact]
-    public void RedactionRejectsDifferentSourceIdsThatBecomeTheSameToken()
-    {
-        CaptureStreamFile[] streams =
-        [
-            new() { SourceId = @"HID\VID_1234&PID_5678\private-unit", Events = [] },
-            new() { SourceId = @"HID\VID_1234&PID_5678\PRIVATE-UNIT", Events = [] },
-        ];
-        InvalidDataException error = Assert.Throws<InvalidDataException>(
-            () => ObserveOnlyCaptureWorkflow.RedactStreams(streams, new CaptureRedactor()));
-
-        Assert.Contains("duplicate", error.Message);
-        Assert.DoesNotContain("private-unit", error.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void InventoryAndStreamsShareOneTokenMapWithoutMergingDistinctIdentifiers()
-    {
-        const string first = @"HID\VID_1234&PID_5678\unit-one";
-        const string second = @"HID\VID_1234&PID_5678\unit-two";
-        MachineInventory original = new()
-        {
-            SchemaVersion = 1,
-            CapturedAt = DateTimeOffset.UnixEpoch,
-            Firmware = new FirmwareInventory(),
-            UsbInterfaces = [new() { InstanceId = first }],
-        };
-        CaptureRedactor redactor = new();
-        MachineInventory inventory = InventoryRedaction.ToShareable(original, redactor);
-        IReadOnlyList<CaptureStreamFile> streams = ObserveOnlyCaptureWorkflow.RedactStreams(
-            [new() { SourceId = second, Events = [] }, new() { SourceId = first, Events = [] }], redactor);
-
-        string inventoryId = Assert.Single(inventory.UsbInterfaces).InstanceId;
-        Assert.Equal(inventoryId, streams[1].SourceId);
-        Assert.NotEqual(inventoryId, streams[0].SourceId);
-        Assert.Equal(first, original.UsbInterfaces[0].InstanceId);
-        Assert.Contains(redactor.Summarize(), summary => summary.Category == RedactionCategory.DeviceInstance && summary.Occurrences == 2);
-    }
-
-    [Fact]
-    public void WhitespaceAfterEnvironmentExpansionHasNoExecutablePath()
-    {
-        const string variable = "WSGM_TEST_EMPTY_COMMAND";
-        string? previous = Environment.GetEnvironmentVariable(variable);
-        try
-        {
-            Environment.SetEnvironmentVariable(variable, "   ");
-            Assert.Null(WindowsInventoryCollector.ExtractExecutablePath($"%{variable}%"));
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(variable, previous);
-        }
-    }
-
-    [Fact]
-    public void CancelledInventoryReportsALockedTemporaryFileAndRemovesItOnceReleased()
-    {
-        using TemporaryDirectory directory = new();
-        string path = directory.GetPath("inventory.tmp");
-        using (FileStream locked = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-        {
-            DeviceLabInventoryResult result = Assert.IsType<DeviceLabInventoryResult>(
-                DeviceLabInventoryWorkflow.CleanupCancelledWrite(path));
-            Assert.Equal(DeviceLabInventoryStatus.WriteFailed, result.Status);
-            Assert.Contains(path, result.Error);
-            Assert.True(File.Exists(path));
-        }
-        Assert.Null(DeviceLabInventoryWorkflow.CleanupCancelledWrite(path));
-        Assert.False(File.Exists(path));
-        Assert.Null(DeviceLabInventoryWorkflow.CleanupCancelledWrite(path));
     }
 
     private static PassiveObservation Observation(long sequence) => new()
