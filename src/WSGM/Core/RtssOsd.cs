@@ -1408,6 +1408,12 @@ internal sealed class RtssOsdRenderer : IDisposable
     {
         CancellationToken cancellationToken = _shutdown.Token;
         bool cleared = true;
+        bool written = false;
+        int writtenLevel = 0;
+        long writtenSecond = 0;
+        RtssOsdMetrics? writtenSample = null;
+        RtssOsdPowerStatus? writtenPowerStatus = null;
+        RtssOsdCustomSettings? writtenCustom = null;
         try
         {
             while (!cancellationToken.IsCancellationRequested)
@@ -1419,6 +1425,7 @@ internal sealed class RtssOsdRenderer : IDisposable
                     {
                         _writer.TryUpdate(string.Empty);
                         cleared = true;
+                        written = false;
                     }
 
                     await _wake.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -1430,12 +1437,29 @@ internal sealed class RtssOsdRenderer : IDisposable
                 {
                     RtssOsdMetrics sample = _metrics.Sample();
                     RtssOsdPowerStatus powerStatus = _powerStatus;
-                    _writer.TryUpdate(level == 4
-                        ? RtssOsdContent.BuildCustom(_custom, sample, powerStatus)
-                        : RtssOsdContent.Build(level, sample, powerStatus));
+                    RtssOsdCustomSettings custom = _custom;
+                    long second = DateTime.UtcNow.Ticks / TimeSpan.TicksPerSecond;
+                    // The metrics refresh once a second and this loop runs at 10 Hz, so most ticks
+                    // would rebuild and write the same text. The second counts as a change: the clock
+                    // stays current, and a write still lands every second to reclaim the slot after
+                    // an RTSS restart.
+                    if (!written || level != writtenLevel || second != writtenSecond
+                        || sample != writtenSample || powerStatus != writtenPowerStatus
+                        || !ReferenceEquals(custom, writtenCustom))
+                    {
+                        written = _writer.TryUpdate(level == 4
+                            ? RtssOsdContent.BuildCustom(custom, sample, powerStatus)
+                            : RtssOsdContent.Build(level, sample, powerStatus));
+                        writtenLevel = level;
+                        writtenSecond = second;
+                        writtenSample = sample;
+                        writtenPowerStatus = powerStatus;
+                        writtenCustom = custom;
+                    }
                 }
                 catch (Exception ex)
                 {
+                    written = false;
                     // One bad sample or write must not silently kill the renderer for the
                     // session; the next tick retries with fresh state.
                     Log.Change(

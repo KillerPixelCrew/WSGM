@@ -1218,8 +1218,18 @@ internal sealed class PerformanceService : IAsyncDisposable
         };
     }
 
+    private PerformanceState? _raisedState;
+
     private void RaiseStateChanged(PerformanceState state)
     {
+        // A poll that reads back the same values only moves RefreshedAt, which no subscriber shows.
+        // Raising it anyway rebuilt the overlay rows and republished Steam's page on every poll.
+        PerformanceState? previous = Interlocked.Exchange(ref _raisedState, state);
+        if (previous is not null && previous == state with { RefreshedAt = previous.RefreshedAt })
+        {
+            return;
+        }
+
         try
         {
             StateChanged?.Invoke(state);

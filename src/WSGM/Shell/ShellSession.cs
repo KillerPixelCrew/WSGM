@@ -3094,8 +3094,8 @@ public sealed class ShellSession : IAsyncDisposable
     /// service owns RTSS profiles and this changes a display mode — two different pieces of hardware
     /// with different failure modes and different restore obligations.
     /// <para>
-    /// Only an actual change is acted on. The state event fires on every poll, and re-applying the
-    /// same mode repeatedly would put a driver round trip on a two-second timer forever.
+    /// Only an actual change is acted on. The state event fires for any performance change, and
+    /// re-applying the same mode on each would put a driver round trip behind every one of them.
     /// </para>
     /// </remarks>
     private void OnPerformanceStateForPairing(PerformanceState state)

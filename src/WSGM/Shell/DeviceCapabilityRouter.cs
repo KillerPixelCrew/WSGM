@@ -61,7 +61,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private string? _applicationId;
     private long _descriptorGeneration;
     private long _cycleGeneration;
-    private long _publishRevision;
+    private readonly Action _publishPosted;
+    private bool _publishPending;
     private bool _onAcPower = true;
     private bool _connected;
     private bool _disposed;
@@ -70,6 +71,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(postToUi);
         _postToUi = postToUi;
+        _publishPosted = PublishPosted;
     }
 
     /// <summary>Raised on the UI dispatcher with a complete immutable projection.</summary>
@@ -673,26 +675,37 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
     private void Publish()
     {
-        IReadOnlyList<DeviceCapabilityView> snapshot;
-        long revision;
+        // One posted build per burst of changes. It builds when the post runs, so it carries
+        // everything that arrived in between instead of a snapshot per change that only the last
+        // of was ever delivered.
         lock (_gate)
         {
-            snapshot = BuildSnapshotUnderGate(DateTimeOffset.UtcNow);
-            revision = ++_publishRevision;
-        }
-
-        _postToUi(() =>
-        {
-            lock (_gate)
+            if (_publishPending)
             {
-                if (_disposed || revision != _publishRevision)
-                {
-                    return;
-                }
+                return;
             }
 
-            Changed?.Invoke(snapshot);
-        });
+            _publishPending = true;
+        }
+
+        _postToUi(_publishPosted);
+    }
+
+    private void PublishPosted()
+    {
+        IReadOnlyList<DeviceCapabilityView> snapshot;
+        lock (_gate)
+        {
+            _publishPending = false;
+            if (_disposed)
+            {
+                return;
+            }
+
+            snapshot = BuildSnapshotUnderGate(DateTimeOffset.UtcNow);
+        }
+
+        Changed?.Invoke(snapshot);
     }
 
     private static CapabilityCommandResult Reject(
