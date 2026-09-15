@@ -345,18 +345,8 @@ public partial class AppearancePage : UserControl
     /// decode, which the caller already catches.</summary>
     private static Bitmap? LoadThumbnail(string path)
     {
-        if (!ImageHeader.TryReadSize(path, out var width, out var height))
+        if (!ImageHeader.TryReadBoundedSize(path, "Appearance", $"no thumbnail for '{path}'.", out var width, out var height))
         {
-            Log.Warn(
-                "Appearance: unsupported image format or truncated header (supported: PNG, JPEG, BMP), "
-                    + $"no thumbnail for '{path}'.");
-            return null;
-        }
-        if (!ImageHeader.IsWithinLimits(width, height))
-        {
-            Log.Warn(
-                $"Appearance: image declares {width}x{height} px (limit {ImageHeader.MaxDimension} px per side, "
-                    + $"{ImageHeader.MaxPixels / 1_000_000} MP total), no thumbnail for '{path}'.");
             return null;
         }
         if (width <= ThumbnailDecodePixels && height <= ThumbnailDecodePixels)

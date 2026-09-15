@@ -599,18 +599,9 @@ public partial class BootSplashWindow : Window
             // boot path never commits an unbounded pixel buffer. Header values are
             // what the file CLAIMS; a lying one fails the decode below, which is
             // caught like any other load failure.
-            if (!ImageHeader.TryReadSize(path, out var sourceWidth, out var sourceHeight))
+            if (!ImageHeader.TryReadBoundedSize(
+                    path, "Splash", $"skipping element: {path}", out var sourceWidth, out var sourceHeight))
             {
-                Log.Warn(
-                    "Splash: unsupported image format or truncated header (supported: PNG, JPEG, BMP), "
-                        + $"skipping element: {path}");
-                return null;
-            }
-            if (!ImageHeader.IsWithinLimits(sourceWidth, sourceHeight))
-            {
-                Log.Warn(
-                    $"Splash: image declares {sourceWidth}x{sourceHeight} px (limit {ImageHeader.MaxDimension} px "
-                        + $"per side, {ImageHeader.MaxPixels / 1_000_000} MP total), skipping element: {path}");
                 return null;
             }
             if (decodeWidthFor is not null)

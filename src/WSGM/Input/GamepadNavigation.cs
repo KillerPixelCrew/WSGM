@@ -2,7 +2,6 @@ using System;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
 
@@ -527,15 +526,11 @@ public sealed class GamepadNavigation : IDisposable
             _lastFocused = preferred;
             return;
         }
-        foreach (var descendant in _window.GetVisualDescendants())
+        if (FocusSearch.FirstNavigable(_window) is { } input)
         {
-            if (descendant is InputElement { Focusable: true, IsEffectivelyEnabled: true, IsEffectivelyVisible: true } input
-                and not TextBox)
-            {
-                input.Focus(NavigationMethod.Directional);
-                _lastFocused = input;
-                return;
-            }
+            input.Focus(NavigationMethod.Directional);
+            _lastFocused = input;
+            return;
         }
         Log.Warn("Gamepad nav: no focusable element found in window.");
     }

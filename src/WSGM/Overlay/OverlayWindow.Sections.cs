@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Layout;
-using Avalonia.VisualTree;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Input;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -14,9 +14,8 @@ public partial class OverlayWindow
     private void RestoreSectionHeaderFocus(string? key)
     {
         if (key?.StartsWith("section.", StringComparison.Ordinal) is not true) { return; }
-        var button = this.GetVisualDescendants().OfType<Button>()
-            .FirstOrDefault(button => Equals(button.Tag, key) && button.IsEffectivelyVisible);
-        button?.Focus(Avalonia.Input.NavigationMethod.Directional);
+        FocusSearch.First<Button>(this, button => Equals(button.Tag, key) && button.IsEffectivelyVisible)
+            ?.Focus(Avalonia.Input.NavigationMethod.Directional);
     }
 
     private sealed record DevicePinSection(string Id, string Title, string? PluginSectionId,

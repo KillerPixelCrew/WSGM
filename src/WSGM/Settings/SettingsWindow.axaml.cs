@@ -5,7 +5,6 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Input;
@@ -236,20 +235,7 @@ public partial class SettingsWindow : Window
     }
 
     private static void FocusFirstControl(Control page)
-    {
-        foreach (var visual in page.GetVisualDescendants())
-        {
-            // TextBoxes are excluded for the same reason D-pad traversal skips
-            // them: focusing one pops the touch keyboard.
-            if (visual is InputElement { Focusable: true, IsEffectivelyEnabled: true } element
-                && element is not TextBox
-                && element.IsEffectivelyVisible)
-            {
-                element.Focus(NavigationMethod.Directional);
-                return;
-            }
-        }
-    }
+        => FocusSearch.FirstNavigable(page)?.Focus(NavigationMethod.Directional);
 
     /// <summary>Shows the quick access panel for a local test (called by the
     /// Quick access page). Uses the real controller so behavior matches shell

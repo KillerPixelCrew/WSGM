@@ -19,6 +19,7 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Input;
+using WSGM.Input;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -2028,34 +2029,26 @@ public partial class OverlayWindow : Window
     /// or when focus tracking is lost: the active destination's first row — HomeAppButton
     /// is invisible on other destinations and focusing it would fall through to
     /// the header close button.</summary>
+    private static bool IsFocusableButton(Button button) =>
+        button is { Focusable: true, IsEffectivelyEnabled: true, IsEffectivelyVisible: true };
+
     internal InputElement DefaultFocusTarget
     {
         get
         {
             // Nested pages retain focus ownership while one is open.
-            if (ActiveSubView is { } nested)
+            if (ActiveSubView is { } nested && FocusSearch.First<Button>(nested.Host, IsFocusableButton) is { } nestedButton)
             {
-                foreach (var visual in nested.Host.GetVisualDescendants())
-                {
-                    if (visual is Button { Focusable: true, IsEffectivelyEnabled: true } b
-                        && b.IsEffectivelyVisible)
-                    {
-                        return b;
-                    }
-                }
+                return nestedButton;
             }
-            foreach (var visual in DestinationPanel().GetVisualDescendants())
+            if (FocusSearch.First<Button>(DestinationPanel(), IsFocusableButton) is { } button)
             {
-                if (visual is Button { Focusable: true, IsEffectivelyEnabled: true } button
-                    && button.IsEffectivelyVisible)
-                {
-                    return button;
-                }
+                return button;
             }
             // An empty Quick access root has no row: land on the first tab button so LB/RB
             // and the D-pad still lead somewhere visible. The close pill is header chrome and
             // always present, which the Session row it used to fall back to no longer is.
-            return FirstFocusable(Tabs) ?? CloseButton;
+            return FocusSearch.FirstNavigable(Tabs) ?? CloseButton;
         }
     }
 
@@ -2517,23 +2510,17 @@ public partial class OverlayWindow : Window
             }
 
             Control panel = DestinationPanel();
-            if (state.SemanticKey is not null)
-            {
-                foreach (var visual in panel.GetVisualDescendants())
-                {
-                    if (visual is Control
-                        {
-                            Tag: string key,
-                            Focusable: true,
-                            IsEffectivelyEnabled: true,
-                            IsEffectivelyVisible: true,
-                        } target
-                        && string.Equals(key, state.SemanticKey, StringComparison.Ordinal))
+            if (state.SemanticKey is not null
+                && FocusSearch.First<Control>(panel, control => control is
                     {
-                        target.Focus(NavigationMethod.Directional);
-                        return;
-                    }
-                }
+                        Tag: string key,
+                        Focusable: true,
+                        IsEffectivelyEnabled: true,
+                        IsEffectivelyVisible: true,
+                    } && string.Equals(key, state.SemanticKey, StringComparison.Ordinal)) is { } target)
+            {
+                target.Focus(NavigationMethod.Directional);
+                return;
             }
 
             FocusFirstControl(panel);
@@ -2555,24 +2542,8 @@ public partial class OverlayWindow : Window
         UpdateGlyphInputObservation(false);
     }
 
-    private static InputElement? FirstFocusable(Control panel)
-    {
-        foreach (var visual in panel.GetVisualDescendants())
-        {
-            // TextBoxes are excluded for the same reason D-pad traversal skips
-            // them: focusing one pops the touch keyboard.
-            if (visual is InputElement { Focusable: true, IsEffectivelyEnabled: true } element
-                && element is not TextBox
-                && element.IsEffectivelyVisible)
-            {
-                return element;
-            }
-        }
-        return null;
-    }
-
     private static void FocusFirstControl(Control panel)
-        => FirstFocusable(panel)?.Focus(NavigationMethod.Directional);
+        => FocusSearch.FirstNavigable(panel)?.Focus(NavigationMethod.Directional);
 
     // ---- Quick access pins ----
 
@@ -2899,7 +2870,7 @@ public partial class OverlayWindow : Window
 
     /// <summary>Lands controller focus on the first Open apps chip — the bottom-swipe
     /// entry point, which exists to reach the running programs in one gesture.</summary>
-    internal void FocusOpenApps() => FirstFocusable(AppTiles)?.Focus(NavigationMethod.Directional);
+    internal void FocusOpenApps() => FocusSearch.FirstNavigable(AppTiles)?.Focus(NavigationMethod.Directional);
 
     /// <summary>Y: switch to the window after the foreground one in strip order,
     /// wrapping — an Alt+Tab step from the sheet. Nothing to do with fewer than two

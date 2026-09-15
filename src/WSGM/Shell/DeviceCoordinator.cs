@@ -646,9 +646,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         {
             throw new InvalidOperationException(
                 "Device cycle shutdown completed teardown, but hardware release was unverified.",
-                shutdownFailures.Count == 1
-                    ? shutdownFailures[0]
-                    : new AggregateException(shutdownFailures));
+                shutdownFailures.Combine());
         }
     }
 
@@ -2821,9 +2819,7 @@ internal sealed record DeviceClientTeardownResult(IReadOnlyList<Exception> Failu
 
     internal bool Verified => Failures.Count == 0;
 
-    internal Exception ToException() => Failures.Count == 1
-        ? Failures[0]
-        : new AggregateException("Multiple device teardown steps were unverified.", Failures);
+    internal Exception ToException() => Failures.Combine("Multiple device teardown steps were unverified.");
 }
 
 internal sealed class DeviceTeardownFailureTracker

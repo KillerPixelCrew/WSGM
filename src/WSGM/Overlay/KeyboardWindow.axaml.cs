@@ -5,7 +5,6 @@ using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
-using Avalonia.VisualTree;
 using WSGM.Input;
 using WSGM.Interop;
 
@@ -116,14 +115,8 @@ public partial class KeyboardWindow : Window
     /// open and when gamepad focus crosses in from the sidebar).</summary>
     public void FocusDefault()
     {
-        foreach (var visual in Keyboard.GetVisualDescendants())
-        {
-            if (visual is Button { IsEffectivelyEnabled: true } key && key.IsEffectivelyVisible)
-            {
-                key.Focus(NavigationMethod.Directional);
-                return;
-            }
-        }
-        AcceptButton.Focus(NavigationMethod.Directional);
+        InputElement target = FocusSearch.First<Button>(
+            Keyboard, key => key is { IsEffectivelyEnabled: true, IsEffectivelyVisible: true }) ?? AcceptButton;
+        target.Focus(NavigationMethod.Directional);
     }
 }

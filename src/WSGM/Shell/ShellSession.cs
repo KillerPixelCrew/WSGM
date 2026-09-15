@@ -2473,8 +2473,7 @@ public sealed class ShellSession : IAsyncDisposable
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                failures.Add(ex);
-                Log.Error("Shell startup failed before shutdown cleanup", ex);
+                RecordShutdownFailure(failures, "Shell startup failed before shutdown cleanup", ex);
             }
         }
         _bootTakeover?.RequestShutdown();
@@ -2485,8 +2484,7 @@ public sealed class ShellSession : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            failures.Add(ex);
-            Log.Error("Dismissing the boot splash during application shutdown failed", ex);
+            RecordShutdownFailure(failures, "Dismissing the boot splash during application shutdown failed", ex);
         }
         // Close input admission on the UI thread before any safety-critical asynchronous cleanup.
         try
@@ -2495,8 +2493,7 @@ public sealed class ShellSession : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            failures.Add(ex);
-            Log.Error("Closing overlay command admission during application shutdown failed", ex);
+            RecordShutdownFailure(failures, "Closing overlay command admission during application shutdown failed", ex);
         }
         finally
         {
@@ -2530,8 +2527,7 @@ public sealed class ShellSession : IAsyncDisposable
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                failures.Add(ex);
-                Log.Error("AutoTDP restoration was unverified during application shutdown", ex);
+                RecordShutdownFailure(failures, "AutoTDP restoration was unverified during application shutdown", ex);
             }
             finally
             {
@@ -2561,10 +2557,7 @@ public sealed class ShellSession : IAsyncDisposable
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                failures.Add(ex);
-                Log.Error(
-                    "Device cleanup was unverified; remaining shell cleanup continues",
-                    ex);
+                RecordShutdownFailure(failures, "Device cleanup was unverified; remaining shell cleanup continues", ex);
             }
             finally
             {
@@ -2577,8 +2570,7 @@ public sealed class ShellSession : IAsyncDisposable
             try { await commonPlugins.StopAsync(deadline).ConfigureAwait(false); }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                failures.Add(ex);
-                Log.Error("Common plugin cleanup was unconfirmed; remaining shell cleanup continues", ex);
+                RecordShutdownFailure(failures, "Common plugin cleanup was unconfirmed; remaining shell cleanup continues", ex);
             }
         }
 
@@ -2614,8 +2606,7 @@ public sealed class ShellSession : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                failures.Add(ex);
-                Log.Error("Retiring the WSGM taskbar during application shutdown failed", ex);
+                RecordShutdownFailure(failures, "Retiring the WSGM taskbar during application shutdown failed", ex);
             }
             try
             {
@@ -2623,8 +2614,7 @@ public sealed class ShellSession : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                failures.Add(ex);
-                Log.Error("UI-owned shell cleanup failed during application shutdown", ex);
+                RecordShutdownFailure(failures, "UI-owned shell cleanup failed during application shutdown", ex);
             }
 
             bool desktopVerified = trayRetired
@@ -2757,6 +2747,13 @@ public sealed class ShellSession : IAsyncDisposable
         }
     }
 
+    /// <summary>Keeps a failed shutdown step for the final report and logs it now.</summary>
+    private static void RecordShutdownFailure(List<Exception> failures, string message, Exception ex)
+    {
+        failures.Add(ex);
+        Log.Error(message, ex);
+    }
+
     /// <summary>Reports collected cleanup failures once, or null when every step was verified.</summary>
     /// <remarks>
     /// The single-failure case keeps that exception as the inner one rather than burying it in a
@@ -2771,10 +2768,7 @@ public sealed class ShellSession : IAsyncDisposable
             ? null
             : new InvalidOperationException(
                 "Application shutdown completed its remaining cleanup, but one or more steps were unverified.",
-                failures.Count == 1
-                    ? failures[0]
-                    : new AggregateException(
-                        "Multiple application shutdown steps were unverified.", failures));
+                failures.Combine("Multiple application shutdown steps were unverified."));
     }
 
     private void DisposeUiOwnedSessionResources()

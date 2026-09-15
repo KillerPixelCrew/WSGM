@@ -51,6 +51,38 @@ public static class ImageHeader
         && height <= MaxDimension
         && (long)width * height <= MaxPixels;
 
+    /// <summary>Reads the declared size of a supported image within the limits, logging why not.</summary>
+    /// <param name="path">The image file.</param>
+    /// <param name="logPrefix">The log area, for example "Splash".</param>
+    /// <param name="refusal">What happens instead, ending the log line.</param>
+    /// <param name="width">The declared width when readable and within limits.</param>
+    /// <param name="height">The declared height when readable and within limits.</param>
+    /// <returns>Whether the image may be decoded.</returns>
+    internal static bool TryReadBoundedSize(
+        string path,
+        string logPrefix,
+        string refusal,
+        out int width,
+        out int height)
+    {
+        if (!TryReadSize(path, out width, out height))
+        {
+            Log.Warn(
+                $"{logPrefix}: unsupported image format or truncated header (supported: PNG, JPEG, BMP), {refusal}");
+            return false;
+        }
+
+        if (!IsWithinLimits(width, height))
+        {
+            Log.Warn(
+                $"{logPrefix}: image declares {width}x{height} px (limit {MaxDimension} px per side, "
+                    + $"{MaxPixels / 1_000_000} MP total), {refusal}");
+            return false;
+        }
+
+        return true;
+    }
+
     /// <summary>Reads the declared pixel dimensions from the file's header only.
     ///
     /// Formats and their quirks:
