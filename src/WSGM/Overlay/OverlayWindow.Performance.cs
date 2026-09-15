@@ -20,6 +20,11 @@ public partial class OverlayWindow
         {
             return;
         }
+        if (!_opened)
+        {
+            _rendersAwaitingOpen |= PerformanceRenderAwaitingOpen;
+            return;
+        }
 
         PlacePerformanceSection(_navigation.IsVisible(OverlayDestination.Device));
         PerformanceOverlaySnapshot? snapshot = _performanceSource?.Snapshot();

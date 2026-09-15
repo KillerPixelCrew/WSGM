@@ -216,6 +216,11 @@ public partial class OverlayWindow
         {
             return;
         }
+        if (!_opened)
+        {
+            _rendersAwaitingOpen |= DeviceRenderAwaitingOpen;
+            return;
+        }
 
         DeviceOverlaySnapshot snapshot = _deviceBridge?.Snapshot()
             ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, null, []);

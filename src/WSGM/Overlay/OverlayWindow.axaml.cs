@@ -103,6 +103,14 @@ public partial class OverlayWindow : Window
     /// would close whatever panel is on screen by then.</summary>
     private bool _closed;
 
+    // Renders asked for before the window first opens are held and run once in OnOpened. Each
+    // source attached while the sheet is being built otherwise rebuilt the Device page or the pins.
+    private bool _opened;
+    private int _rendersAwaitingOpen;
+    private const int DeviceRenderAwaitingOpen = 1;
+    private const int PerformanceRenderAwaitingOpen = 2;
+    private const int PinsRenderAwaitingOpen = 4;
+
     // Guards the Device render that ShowDestination performs, which re-enters it via ConfigureTabs.
     private bool _showingDestination;
     private readonly CancellationTokenSource _deviceLifetime = new();
@@ -279,6 +287,9 @@ public partial class OverlayWindow : Window
 
     private void OnOpened(object? sender, EventArgs e)
     {
+        // Before the warm-up return: rendering is part of what the warm pass exercises.
+        _opened = true;
+        RunRendersAwaitingOpen();
         if (WarmingUp)
         {
             return;
@@ -288,6 +299,24 @@ public partial class OverlayWindow : Window
         SelectDestination(_session.Destination);
         RestoreDestinationState(focus: true);
         _synchronizeTabs();
+    }
+
+    private void RunRendersAwaitingOpen()
+    {
+        int pending = _rendersAwaitingOpen;
+        _rendersAwaitingOpen = 0;
+        if ((pending & PerformanceRenderAwaitingOpen) != 0)
+        {
+            RefreshPerformancePanel();
+        }
+        if ((pending & DeviceRenderAwaitingOpen) != 0)
+        {
+            RefreshDevicePanel();
+        }
+        if ((pending & PinsRenderAwaitingOpen) != 0)
+        {
+            RenderPins();
+        }
     }
 
     private void OnActivated(object? sender, EventArgs e)

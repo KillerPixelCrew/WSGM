@@ -100,6 +100,11 @@ public partial class OverlayWindow
         {
             return;
         }
+        if (!_opened)
+        {
+            _rendersAwaitingOpen |= PinsRenderAwaitingOpen;
+            return;
+        }
 
         if (preserveEditing && (IsEditingValueIn(PinnedGrid) || IsEditingValueIn(PinnedSectionsGrid))
             && PinnedSectionProvidersAvailable())
