@@ -49,19 +49,22 @@ session.
 
 ## Project ownership
 
-| Concern                                                  | Repository/path                     |
-| -------------------------------------------------------- | ----------------------------------- |
-| Semantic device-plugin contract                          | `src/WSGM.Device.Sdk`               |
-| Hardware authoring/evidence tool                         | `src/WSGM.DeviceLab`                |
-| Handheld Companion scaffold (unfinished)                 | `src/WSGM.Device.HandheldCompanion` |
-| MSI Claw device behavior                                 | `src/WSGM.Device.Msi.Claw8A2Vm`     |
-| Reusable Steam CEF transport/patch/surfaces              | `external/steam-ui-toolkit`         |
-| Reusable Windows radio/audio/brightness/power primitives | `external/windows-device-control`   |
-| Native Steam Input shim/lease                            | `external/steam-input-lease`        |
+| Concern                                                  | Repository/path                       |
+| -------------------------------------------------------- | ------------------------------------- |
+| Semantic device-plugin contract                          | `src/WSGM.Device.Sdk`                 |
+| Hardware authoring/evidence tool                         | `src/WSGM.DeviceLab`                  |
+| Handheld Companion scaffold (unfinished)                 | `src/WSGM.Device.HandheldCompanion`   |
+| MSI Claw device behavior                                 | `src/WSGM.Device.Msi.Claw8A2Vm`       |
+| Reusable Steam CEF transport/patch/surfaces              | `external/steam-ui-toolkit`           |
+| Reusable Windows radio/audio/brightness/power primitives | `external/windows-device-control`     |
+| Native Steam Input shim/lease                            | `external/steam-input-lease`          |
+| VIIPER virtual controller library                        | `external/viiper`                     |
+| Vendored LoadingIndicators.Avalonia source               | `external/LoadingIndicators.Avalonia` |
+| Controller dependency lock, licences, and VIIPER notes   | `external/controller`                 |
 
 WSGM owns policy, orchestration, session state, and adapters. Device projects share this repository
-and one SDK project reference. Keep them separate assemblies. Only the reusable libraries and Steam
-Input remain submodules; publish a child change before advancing its WSGM gitlink.
+and one SDK project reference. Keep them separate assemblies. Only the reusable libraries, Steam
+Input, and VIIPER remain submodules; publish a child change before advancing its WSGM gitlink.
 
 ## Documentation router
 

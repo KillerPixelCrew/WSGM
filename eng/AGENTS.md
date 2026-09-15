@@ -16,7 +16,7 @@ codes, and safe to rerun.
   afterward.
 - Parse potentially invasive scripts for syntax instead of executing them as part of verification.
 - eng/verify.ps1 validates Steam Input but does not build or validate VIIPER. A VIIPER change
-  requires `eng/build-viiper.ps1 -Validate` with a source tree that may safely be replaced.
+  requires `eng/build-viiper.ps1 -Validate`.
 
 ## Build and staging rules
 
@@ -26,11 +26,10 @@ codes, and safe to rerun.
   gitlink changes, and both generated updates together.
 - Build Steam Input and VIIPER from source. Treat publish and staging directories as disposable
   output; do not populate them manually.
-- eng/build-viiper.ps1 force-checks out, hard-resets, and cleans its SourceRoot, which defaults to
-  the sibling `wsgm-viiper` directory. Never point it at a working checkout or any tree containing
-  uncommitted work.
-- Keep third_party exclusions distinct from external Git submodules. Do not format or rewrite
-  dependency source from a main-repository gate.
+- eng/build-viiper.ps1 builds the external/viiper submodule as checked out. Move the VIIPER pin by
+  pushing to the fork and advancing the gitlink, as for any other submodule.
+- external/ holds submodules, vendored upstream source, and dependency pins. Do not format or
+  rewrite it from a main-repository gate.
 - Device packers share `device-package-output.ps1` for archive publication. Keep staging on the
   destination volume, replace owned archives atomically, and use create-new semantics otherwise.
   Never delete the previous archive before its replacement commits.

@@ -3,7 +3,7 @@
     Downloads and verifies the third-party controller components pinned in the lock file.
 
 .DESCRIPTION
-    `third_party/controller/controller-components.lock.json` is the single source of truth for what
+    `external/controller/controller-components.lock.json` is the single source of truth for what
     WSGM's controller support depends on, at which exact version, with which digest and which
     signer. This script reads it rather than restating it: a second copy of a pinned hash is a copy
     that can silently disagree with the reviewed one.
@@ -34,7 +34,7 @@ param(
 
     [Parameter()]
     [ValidateNotNullOrEmpty()]
-    [string]$LockPath = (Join-Path $PSScriptRoot '..\third_party\controller\controller-components.lock.json')
+    [string]$LockPath = (Join-Path $PSScriptRoot '..\external\controller\controller-components.lock.json')
 )
 
 Set-StrictMode -Version Latest

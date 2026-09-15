@@ -1,7 +1,7 @@
 LoadingIndicators.Avalonia
 https://github.com/moviegear/LoadingIndicators.Avalonia/
 The upstream source is vendored into this repository under
-third_party/LoadingIndicators.Avalonia and built from source, because the
+external/LoadingIndicators.Avalonia and built from source, because the
 published package targets Avalonia 11 and its precompiled XAML does not run on
 Avalonia 12. License text below copied verbatim from the upstream LICENSE.md.
 

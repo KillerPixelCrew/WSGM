@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 $destinationRoot = [System.IO.Path]::GetFullPath($Destination)
 New-Item -ItemType Directory -Path $destinationRoot -Force | Out-Null
 
-$lockPath = Join-Path $PSScriptRoot "..\third_party\controller\controller-components.lock.json"
+$lockPath = Join-Path $PSScriptRoot "..\external\controller\controller-components.lock.json"
 $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
 $sources = @($lock.components | ForEach-Object {
     @{

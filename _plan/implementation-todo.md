@@ -241,7 +241,7 @@ stops here rather than at zero:
 - #34 is delivered. `KillerPixelCrew/VIIPER@wsgm` carries the former six patches as commits plus two
   new ones (`add_ex` no longer attaches; the device-interface size query is guarded), WSGM pins
   `4d2bd52`, the patch files are gone, and every rejected variant change has a stated reason in
-  `third_party\controller\viiper\README.md`. The earlier `fe726ce` baseline was validated on the
+  `external\controller\viiper.md`. The earlier `fe726ce` baseline was validated on the
   reference Claw; the new endpoint-idle optimization awaits manual validation.
 
 - Background CPU optimization is implemented and build-checked, pending manual testing: motion
@@ -579,6 +579,7 @@ Real separate boundaries
   src/WSGM.Device.Sdk                public plugin and package contract (MIT)
   external/windows-device-control    radio/Wi-Fi/audio/brightness library (submodule)
   external/steam-ui-toolkit          CDP transport, patch lifecycle, bridge, modules (submodule)
+  external/viiper                    VIIPER fork, the virtual controller library (submodule)
   src/WSGM.DeviceLab                 diagnostic/authoring GUI + CLI (MIT)
   src/WSGM.Device.Msi.Claw8A2Vm        built-in MSI Claw device package (MIT)
   src/WSGM.Device.HandheldCompanion   HC integration design scaffold (MIT, unfinished)

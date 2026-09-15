@@ -21,7 +21,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The reusable libraries and Steam Input remain submodules. Device projects
+          # The reusable libraries, Steam Input, and VIIPER are submodules. Device projects
           # and their shared SDK are ordinary source in this checkout.
           submodules: recursive
 

@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     `installer/Install-UsbipDriver.ps1` runs on the user's machine, where the repository does not
-    exist, so it cannot read `third_party/controller/controller-components.lock.json` at runtime and
+    exist, so it cannot read `external/controller/controller-components.lock.json` at runtime and
     has to carry the pinned version, URL, digest, signer thumbprint and silent arguments itself.
     That is the only copy, and this check is what keeps it honest: bumping the lock without bumping
     the script — or the reverse — fails verification instead of shipping a setup that installs one
@@ -18,7 +18,7 @@
 param(
     [Parameter()]
     [ValidateNotNullOrEmpty()]
-    [string]$LockPath = (Join-Path $PSScriptRoot '..\third_party\controller\controller-components.lock.json'),
+    [string]$LockPath = (Join-Path $PSScriptRoot '..\external\controller\controller-components.lock.json'),
 
     [Parameter()]
     [ValidateNotNullOrEmpty()]

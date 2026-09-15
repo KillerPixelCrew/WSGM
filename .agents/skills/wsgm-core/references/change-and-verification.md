@@ -88,8 +88,7 @@ command that overwrites a moved or dirty child checkout.
 Steam injected source is generated into `src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js`; use the
 Steam CEF skill and `npm run steam-assets:build`, never edit the bundle/hash by hand.
 
-`eng/build-viiper.ps1 -Validate` force-checks out, resets, and cleans its `SourceRoot`. Use it only
-on a disposable VIIPER source tree with no work to preserve.
+`eng/build-viiper.ps1 -Validate` tests and builds the `external/viiper` submodule as checked out.
 
 ## Repository gate and delivery
 

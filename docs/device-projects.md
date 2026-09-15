@@ -67,7 +67,7 @@ original repositories; these identifiers record the exact source baseline for th
 | WSGM.Device.Msi.Claw8A2Vm     | `e7092811840c835b43e98a4eeb1c75c9cc6b435a` |
 | WSGM.Device.HandheldCompanion | `ea52f2332fe5d69ac6f39e81b553a22332f26c13` |
 
-Only `external/steam-input-lease`, `external/steam-ui-toolkit`, and
+Only `external/steam-input-lease`, `external/steam-ui-toolkit`, `external/viiper`, and
 `external/windows-device-control` remain Git submodules. There are no nested SDK pins to advance.
 
 ## Portable Ally X tester

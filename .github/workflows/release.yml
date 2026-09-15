@@ -16,7 +16,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # See ci.yml: the release publish ships the gate and FFI DLLs built from
-          # external/steam-input-lease and links external/windows-device-control, both submodules.
+          # external/steam-input-lease and libviiper built from external/viiper, and links
+          # external/windows-device-control, all submodules.
           submodules: recursive
 
       - name: Set up .NET SDK

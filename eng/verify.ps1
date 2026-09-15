@@ -93,11 +93,11 @@ try {
     dotnet restore WSGM.slnx -m:1
     if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed" }
 
-    # Neither is ours to restyle, and both are reachable through a project reference.
+    # Nothing under external/ is ours to restyle, and it is reachable through project references.
     # Reformatting vendored upstream source would destroy the diff against upstream, which is what
     # makes it re-syncable; reformatting a submodule dirties a working tree this repository only
     # pins, and the result could never be committed from here anyway. Each has its own gates.
-    $notOurs = @("third_party/", "external/")
+    $notOurs = @("external/")
 
     # The documentation diagnostics are build errors already (warnaserror below). Left in the
     # style pass, the fixer for them splices `/// <inheritdoc/>` into the middle of a declaration

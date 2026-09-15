@@ -28,15 +28,6 @@
 /src/WSGM/Native/SteamInputLease/
 /src/WSGM/Native/Viiper/
 
-# Vendored upstream source builds in place; only its sources are tracked.
-/third_party/**/bin/
-/third_party/**/obj/
-
-# Generated caches left by revisions that used the retired release-acquisition workflow. Current
-# builds use the source submodules and never read these directories.
-/third_party/devicelab/staging/
-/third_party/claw-plugin/staging/
-
 # User-specific files
 *.rsuser
 *.suo

@@ -253,7 +253,7 @@ complete Neptune frame. Motion is converted from the SDK's application axes back
 report's raw gyro order `X, -Z, Y` at 16 counts per degree per second and 16384 accelerometer counts
 per g. Leaving the values as normalized axes was why Steam saw a motion source but no usable gyro
 movement. Xbox 360 and DualShock 4 have their own encoders and are selectable targets. The shell
-never installs or repairs a driver at runtime; `third_party\controller\viiper\README.md` records the
+never installs or repairs a driver at runtime; `external\controller\viiper.md` records the
 live-device evidence and exact pins.
 
 The Deck target's return path accepts all three feedback shapes Steam sends: sixteen-bit `0xEB`

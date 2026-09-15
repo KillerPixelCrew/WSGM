@@ -67,7 +67,7 @@
       executable, so installing this package satisfies both of its paths.
 
     The pinned identity below is a copy of the reviewed entry in
-    `third_party/controller/controller-components.lock.json`. It is duplicated here, and only here,
+    `external/controller/controller-components.lock.json`. It is duplicated here, and only here,
     because this script runs on the user's machine where the repository does not exist;
     `eng/assert-controller-pin.ps1` fails the build if the two ever disagree.
 #>

@@ -32,7 +32,7 @@ reviews:
     - "!**/TestResults/**"
     - "!src/WSGM/Native/**"
     - "!src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js"
-    - "!third_party/LoadingIndicators.Avalonia/LoadingIndicators.Avalonia/**"
+    - "!external/LoadingIndicators.Avalonia/LoadingIndicators.Avalonia/**"
   path_instructions:
     - path: "src/WSGM/Core/**"
       instructions: |
@@ -71,7 +71,7 @@ reviews:
         retain their documented integrity behavior. Validate the boot manifest as untrusted input and
         clean up tasks, pipes, handles, leases, and temporary files exactly once. Native declarations
         require exact layouts, error propagation, and explicit resource ownership.
-    - path: "{.gitmodules,external/**,third_party/controller/**,eng/**,installer/**,build.ps1,.github/**}"
+    - path: "{.gitmodules,external/**,eng/**,installer/**,build.ps1,.github/**}"
       instructions: |
         For gitlink changes, verify the child commit is the intended pushed revision and preserve the
         child-before-parent order for the remaining library submodules. Device projects are

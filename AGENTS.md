@@ -29,8 +29,10 @@ when the guidance conflicts.
   session, UI, overlay, settings, recovery, and per-user state.
 - src/WSGM.Launch is the console launcher for de-elevation and input-lease containment.
   src/WSGM.LogonService is the minimal SYSTEM service used at logon.
-- external/steam-input-lease owns the Steam Input shim. external/windows-device-control and
-  external/steam-ui-toolkit own their respective reusable libraries.
+- external/ holds all upstream code and pins. external/steam-input-lease owns the Steam Input shim,
+  external/windows-device-control and external/steam-ui-toolkit own their reusable libraries, and
+  external/viiper is the VIIPER fork WSGM builds. external/LoadingIndicators.Avalonia is vendored
+  source, and external/controller holds the controller dependency lock, licences, and notes.
 - src/WSGM.Plugin.Sdk holds common plugin contracts. The resident Shell host admits the existing
   Device runtime through an adapter and independently manages explicitly enabled non-device packages.
   Status is tracked in _plan/implementation-todo.md.
@@ -98,6 +100,7 @@ The direct submodules are:
 
 - external/steam-input-lease
 - external/steam-ui-toolkit
+- external/viiper
 - external/windows-device-control
 
 The device projects use src/WSGM.Device.Sdk directly. Update contracts, consumers, tests, and
@@ -163,9 +166,8 @@ Scoped guidance and skills that mention the full gate follow this same rule.
 eng/verify.ps1 checks formatting, generated Steam assets and ownership claims, guidance links,
 PowerShell syntax, live-data exclusions, dependency pins, Steam Input validation, restore,
 warning-clean Release builds, tests, and coverage. It does not validate VIIPER; changes there
-require `eng/build-viiper.ps1 -Validate`, whose SourceRoot is force-checked out, hard-reset, and
-cleaned, so use only a disposable source tree with no work to preserve. The following variant writes
-formatting changes and must be reviewed:
+require `eng/build-viiper.ps1 -Validate`, which tests and builds the external/viiper submodule. The
+following variant writes formatting changes and must be reviewed:
 
     .\eng\verify.ps1 -Fix
 

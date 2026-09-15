@@ -31,9 +31,9 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
 # Scanned: anything that may run on a developer's machine outside the shipped application.
-# Deliberately excluded: the shipped WSGM processes, which own the real directory; third_party\,
-# which is vendored upstream source; and external\, whose submodules enforce this in their own
-# repositories. Runtime tests use explicit-root seams.
+# Deliberately excluded: the shipped WSGM processes, which own the real directory; and external\,
+# which holds vendored upstream source and submodules that enforce this in their own repositories.
+# Runtime tests use explicit-root seams.
 $scanned = @(
     "tests"
 )

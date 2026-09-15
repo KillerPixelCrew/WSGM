@@ -5,9 +5,8 @@ This directory pins the primary sources I reviewed for WSGM controller managemen
 - `controller-components.lock.json` holds the reviewed usbip-win2 and HidHide releases, with
   digests, signers and install identity. Every script that needs those values reads this file.
 - `licenses/` and `THIRD-PARTY-NOTICES.txt` hold the upstream licence texts and their summary.
-- `viiper/` holds the exact VIIPER revision WSGM builds `libviiper.dll` from and the six patches
-  `eng\build-viiper.ps1` applies on top of it, with its own `README.md` recording why each one
-  exists.
+- `viiper.md` records the VIIPER fork revision WSGM builds `libviiper.dll` from, which the
+  `external\viiper` submodule pins, and why each downstream commit on it exists.
 
 No driver, installer, SDK assembly or third-party executable is checked in. The release build
 fetches the two installers from their pinned releases and builds the library from its pinned
@@ -25,7 +24,7 @@ input, the Steam Input lease and the rest of Device Integration keep working.
 Decided 2026-08-29. VIIPER creates virtual USB devices in userspace over USBIP, and it wins on both
 halves of the gate. WSGM builds it from the `KillerPixelCrew/VIIPER` fork, whose `wsgm` branch
 carries the downstream commits on top of the `corando98/VIIPER` `viiper-controller` baseline;
-`viiper/README.md` has the pin, the commit list and the rebase procedure.
+`viiper.md` has the pin, the commit list and the rebase procedure.
 
 **Nothing is missing.** Its `device/steamdeck` carries the whole Neptune frame natively, including
 all four rear controls and capacitive stick touch. Three independent implementations agree on the
@@ -106,13 +105,13 @@ than assumed.
 
 ### What is on the branch
 
-`viiper/README.md` is the record of what WSGM carries on top of the pinned revision, and it must
+`viiper.md` is the record of what WSGM carries on top of the pinned revision, and it must
 stay the only one. In short: the two `Valkirie/VIIPER` fixes that branch lacks (#3 stick clamp, #2
 placeholder endpoints kept pending) travel in `0001`, along with a stale quaternion test assertion;
 the SDL3 `ucLength` fix (#4) is already upstream; and `0002` through `0006` are ours, being the
 usbip-win2 attach layouts, add-without-attach, port plug-out on remove, feedback quiescence before
 detach, and the credible Deck identity that makes Steam send rumble. `eng\build-viiper.ps1
--Validate` applies the whole set and runs the Deck device tests before every release build.
+-Validate` builds the `external\viiper` submodule and runs the Deck device tests before every release build.
 
 ## Pinned primary sources
 

@@ -35,13 +35,10 @@ src/WSGM/Core/SteamUiAssets/Source/**/*.ts
 
 # Submodules own their own formatting and their own gates. They are separate
 # repositories; formatting them from here would both create churn and dirty a
-# working tree this repo only pins — and the reformatted files could never be
-# committed from here anyway.
+# working tree this repo only pins, and the reformatted files could never be
+# committed from here anyway. Vendored upstream source sits beside them, and
+# reformatting it would destroy the diff that keeps it re-syncable.
 external/
-
-# Vendored upstream source. Reformatting it would destroy the diff against
-# upstream, which is the whole point of keeping it re-syncable.
-third_party/
 
 # Deliberately malformed fixtures. Prettier cannot parse what these exist to test,
 # and repairing them would delete the case.

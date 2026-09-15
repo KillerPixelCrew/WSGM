@@ -133,8 +133,8 @@ Source: "Install-UsbipDriver.ps1"; DestDir: "{app}"; Flags: ignoreversion
 ; release build requires them; they ship under the controller component only.
 Source: "{#AppPublishDir}\USBip-0.9.7.7-x64.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
 Source: "{#AppPublishDir}\HidHide_1.5.230_x64.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
-Source: "..\third_party\controller\licenses\usbip-win2-BSD-2-Clause.txt"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
-Source: "..\third_party\controller\licenses\HidHide-MIT.txt"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
+Source: "..\external\controller\licenses\usbip-win2-BSD-2-Clause.txt"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
+Source: "..\external\controller\licenses\HidHide-MIT.txt"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
 ; The one plugin package is administrator-protected and never loads from a user-writable path.
 Source: "{#DevicePackagesPublishDir}\*"; DestDir: "{autopf}\WSGM\DevicePlugins\.staging"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: device
 ; Device Lab never owns the production cycle and remains an explicit custom

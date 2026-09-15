@@ -38,7 +38,7 @@ Write-Host "== Building Steam Input Lease (Rust) ==" -ForegroundColor Cyan
 # export-checked, since eng\verify.ps1 only validates a separately built copy.
 & "$root\eng\build-steam-input-lease.ps1" -Validate
 
-# The virtual controller library is built from its pinned external revision. Controller management
+# The virtual controller library is built from the external\viiper submodule. Controller management
 # is a shipped feature, so a release without the library is an incomplete release, not a valid
 # feature-local fallback artifact.
 Write-Host "== Building virtual controller library (Go) ==" -ForegroundColor Cyan

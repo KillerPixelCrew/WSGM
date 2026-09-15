@@ -134,7 +134,7 @@ setup is how repair and upgrade work, and a mode that rewrote the start mode eac
 Settings behind the user's back. Details in `docs\boot-and-shell.md`, "Install modes".
 
 **Toolchain pins.** .NET 10 and Avalonia 12.1.1. `LoadingIndicators.Avalonia` is vendored under
-`third_party\LoadingIndicators.Avalonia` and built from source, because its published Avalonia 11
+`external\LoadingIndicators.Avalonia` and built from source, because its published Avalonia 11
 package has precompiled XAML that fails on Avalonia 12; its Unlicense text ships from
 `src\WSGM\Licenses\`. `FluentAvaloniaUI` 3.0.2 and an explicit `Avalonia.Controls.ColorPicker`
 12.1.1 pin keep the controls on the same Avalonia line.

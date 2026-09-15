@@ -1,21 +1,21 @@
 # VIIPER, and what WSGM needs from it
 
 WSGM's virtual controller targets are created by [VIIPER](https://github.com/Alia5/VIIPER), a
-userspace virtual-USB framework that speaks USBIP. Nothing in this directory is a checkout. It
-records which revision WSGM builds against, what the downstream commits on it are for, and how to
-move the pin. Why VIIPER rather than HIDMaestro is in the parent `README.md`.
+userspace virtual-USB framework that speaks USBIP. The source is the `external\viiper` submodule.
+This file records which revision WSGM builds against, what the downstream commits on it are for, and
+how to move the pin. Why VIIPER rather than HIDMaestro is in `README.md`.
 
 ## Pinned revision
 
 - Repository: [`KillerPixelCrew/VIIPER`](https://github.com/KillerPixelCrew/VIIPER), branch `wsgm`
-- Commit: `4d2bd5298c08350dd62700779ee137f08abe97ca`
+- Commit: `4d2bd5298c08350dd62700779ee137f08abe97ca`, the `external\viiper` gitlink
 - Baseline: `corando98/VIIPER@024aef3a5659fb54d9675929d05f155f47049c4c` (`viiper-controller`)
 
 The downstream changes used to live here as `.patch` files applied at build time. They are commits
 on the fork now, which is what this repository's contributor guide asks of any dependency we have to
 keep changed: the diff is reviewable where it applies, `git log` attributes each change, and a
 rebase onto a newer baseline is an ordinary rebase rather than six patches to re-fit by hand. The
-build script no longer applies anything, it checks the pinned revision out and builds it.
+build script no longer applies anything, it builds the submodule as checked out.
 
 `viiper-controller` is the baseline because it is well ahead of `Valkirie/VIIPER` on the performance
 work this integration depends on: opt-in NAK-idle interrupt-IN endpoints, hardware-paced
@@ -216,8 +216,7 @@ The fork keeps `viiper-controller` as an untouched mirror and `wsgm` as the patc
 against upstream is one rebase:
 
 ```
-git clone https://github.com/KillerPixelCrew/VIIPER.git
-cd VIIPER
+cd external/viiper
 git remote add upstream https://github.com/corando98/VIIPER.git
 git fetch upstream
 git checkout viiper-controller
@@ -236,11 +235,12 @@ Then, before the pin moves:
    alone, because every fault the commits above exist for was found by running the thing.
 5. Drop any downstream commit whose fix has landed upstream, and say so in this file.
 
-Update the pin in `eng\build-viiper.ps1` and the revision and commit table above in the same change.
+Push `wsgm` to the fork first, then advance the `external\viiper` gitlink and update the revision and
+commit table above in the same WSGM change.
 
 ## How WSGM builds and binds it
 
-`eng\build-viiper.ps1` checks the pinned revision out, optionally runs the Deck device tests, builds
+`eng\build-viiper.ps1` builds the `external\viiper` submodule, optionally runs the Deck device tests, builds
 `libviiper.dll` with `go build -buildmode=c-shared ./clib`, and stages it with its header and
 licences into `src\WSGM\Native\Viiper`. `WSGM.csproj` copies that beside the executable. The staging
 directory is generated and is not committed.
@@ -313,7 +313,7 @@ INV-020 keeps driver, service and certificate installation in the installer, as 
 user-approved, elevated step that verifies the locked component identity first.
 
 1. **usbip-win2**, which supplies the generic signed kernel-mode USB/IP driver and the client device
-   VIIPER attaches to. Pinned and signature-verified in `../controller-components.lock.json`
+   VIIPER attaches to. Pinned and signature-verified in `controller-components.lock.json`
    (`USBip-0.9.7.7-x64.exe`, publisher thumbprint `9AC56B6C…`). This is the one kernel component, it
    is generic, and it never needs to know about specific device types, which is the whole reason
    this approach avoids shipping a driver per controller.

@@ -8,29 +8,22 @@ USB devices in userspace through usbip-win2's generic signed kernel driver. That
 is why WSGM ships no driver of its own and needs no kernel code per controller
 type.
 
-Unlike the Steam Input lease, the source is not vendored into
-this repository: it is an external project pinned by revision in
-third_party\controller\viiper\README.md. The pin names the KillerPixelCrew fork,
-whose wsgm branch carries the downstream fixes as commits, so this script only
-checks the revision out, builds the shared library, and stages it into
+The source is the external\viiper submodule. Its gitlink pins the
+KillerPixelCrew fork's wsgm branch, which carries the downstream fixes as
+commits; external\controller\viiper.md records why each one exists. This script
+builds the submodule as it is checked out and stages the shared library into
 src\WSGM\Native\Viiper, which WSGM.csproj copies beside the executable. The
 staging directory is generated and is not committed.
 
 The library exposes a small C ABI over blittable types, keeping its native
 ownership and lifetime rules out of the managed device layer.
 
-.PARAMETER SourceRoot
-Directory holding the VIIPER checkout. Defaults to a sibling of the repository
-so a normal build does not re-clone on every run.
-
 .PARAMETER Validate
 Also run the library's own tests for the device WSGM uses before building. Used
-by eng\verify.ps1; the release build skips them because verify.ps1 has already
-run them.
+by build.ps1 before a release build.
 #>
 [CmdletBinding()]
 param(
-    [string] $SourceRoot,
     [switch] $Validate
 )
 
@@ -38,25 +31,15 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
+$source = Join-Path $root "external\viiper"
 $staging = Join-Path $root "src\WSGM\Native\Viiper"
 
-# Pinned by revision, not by branch tip: a moving branch would silently change
-# what ships between two builds of the same WSGM commit. The source is the
-# KillerPixelCrew fork's wsgm branch, which carries the downstream patch set as
-# reviewable commits on top of the corando98/VIIPER viiper-controller baseline.
-$repository = "https://github.com/KillerPixelCrew/VIIPER.git"
-$revision = "4d2bd5298c08350dd62700779ee137f08abe97ca"
-
-if (-not $SourceRoot) {
-    $SourceRoot = Join-Path (Split-Path -Parent $root) "wsgm-viiper"
+if (-not (Test-Path -LiteralPath (Join-Path $source "clib"))) {
+    throw "VIIPER source not found in external\viiper. Run: git submodule update --init external/viiper"
 }
 
 if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
     throw "Go toolchain not found. Install it (winget install GoLang.Go) — WSGM builds the virtual controller library from source."
-}
-
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    throw "Git not found. It is required to check out the pinned VIIPER revision."
 }
 
 # The library exposes a C ABI, so cgo needs a C compiler. Go defaults CGO_ENABLED
@@ -81,30 +64,8 @@ if (-not (Get-Command gcc -ErrorAction SilentlyContinue)) {
 
 $env:CGO_ENABLED = "1"
 
-if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot ".git"))) {
-    Write-Host "Cloning pinned VIIPER revision into $SourceRoot"
-    New-Item -ItemType Directory -Force -Path $SourceRoot | Out-Null
-    git clone --quiet $repository $SourceRoot
-    if ($LASTEXITCODE -ne 0) { throw "Failed to clone VIIPER from $repository" }
-}
-
-Push-Location $SourceRoot
+Push-Location $source
 try {
-    # An existing checkout was cloned from whichever repository the pin named at
-    # the time. Point origin at the current one before fetching, or moving the
-    # pin to a different fork fails as "revision unavailable" on every machine
-    # that already has a source tree.
-    git remote set-url origin $repository
-    if ($LASTEXITCODE -ne 0) { throw "Failed to point $SourceRoot at $repository" }
-
-    # Reset hard so a repeated build is idempotent, and so a checkout left dirty
-    # by an interrupted run does not silently ship modified source.
-    git fetch --quiet origin $revision 2>$null | Out-Null
-    git checkout --quiet --force $revision
-    if ($LASTEXITCODE -ne 0) { throw "Pinned VIIPER revision $revision is unavailable" }
-    git reset --quiet --hard $revision
-    git clean -qfd
-
     if ($Validate) {
         go test ./device/steamdeck/...
         if ($LASTEXITCODE -ne 0) { throw "VIIPER Steam Deck device tests failed" }
@@ -123,17 +84,17 @@ try {
     # against is inspectable beside the binary it came from.
     $header = Join-Path $staging "libviiper.h"
     if (Test-Path -LiteralPath $header) { Remove-Item -LiteralPath $header -Force }
-    Copy-Item -LiteralPath (Join-Path $SourceRoot "libviiper.h") -Destination $header -Force
+    Copy-Item -LiteralPath (Join-Path $source "libviiper.h") -Destination $header -Force
 
     foreach ($notice in @(
             @{ Source = "LICENSE.txt"; Destination = "VIIPER-LICENSE.txt" },
             @{ Source = "NOTICE.md"; Destination = "VIIPER-NOTICE.md" }
         )) {
-        $source = Join-Path $SourceRoot $notice.Source
-        if (-not (Test-Path -LiteralPath $source)) {
-            throw "Pinned VIIPER source is missing $($notice.Source)"
+        $noticeSource = Join-Path $source $notice.Source
+        if (-not (Test-Path -LiteralPath $noticeSource)) {
+            throw "VIIPER source is missing $($notice.Source)"
         }
-        Copy-Item -LiteralPath $source `
+        Copy-Item -LiteralPath $noticeSource `
             -Destination (Join-Path $staging $notice.Destination) -Force
     }
 }

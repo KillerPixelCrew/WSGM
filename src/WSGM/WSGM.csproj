@@ -31,17 +31,17 @@
          path inside this assembly while preserving the relative theme includes
          and the LoadingIndicators.Avalonia namespace. -->
     <AvaloniaResource
-        Include="..\..\third_party\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\**\*.axaml"
+        Include="..\..\external\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\**\*.axaml"
         Link="ThirdParty\LoadingIndicators\%(RecursiveDir)%(Filename)%(Extension)" />
     <EmbeddedResource Include="Core\SteamUiAssets\*.js"
                       LogicalName="WSGM.Core.SteamUiAssets.%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup>
     <Compile
-        Include="..\..\third_party\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\LoadingIndicator.cs"
+        Include="..\..\external\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\LoadingIndicator.cs"
         Link="ThirdParty\LoadingIndicators\LoadingIndicator.cs" />
     <Compile
-        Include="..\..\third_party\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\LoadingIndicatorMode.cs"
+        Include="..\..\external\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\LoadingIndicatorMode.cs"
         Link="ThirdParty\LoadingIndicators\LoadingIndicatorMode.cs" />
     <!-- The Steam Input Lease submodule's binding is the single managed ABI source. Both
          WSGM and WSGM.Launch compile it directly; there is no application mirror. -->
@@ -76,7 +76,7 @@
          userspace over usbip-win2's generic signed kernel driver, so WSGM ships
          no driver of its own and needs no kernel code per controller type. Its
          flat C ABI keeps the virtual-device implementation native.
-         Staged by eng\build-viiper.ps1 from a pinned external revision. Compile-only
+         Staged by eng\build-viiper.ps1 from the external\viiper submodule. Compile-only
          workflows may omit it; build.ps1 requires it before producing an installer. -->
     <None Include="Native\Viiper\*"
           Link="%(Filename)%(Extension)"
