@@ -927,19 +927,19 @@ public sealed class ShellSession : IAsyncDisposable
         // router falls back to SDL, which never stopped running.
         if (_deviceCoordinator is { } canonicalSource && _overlay is { } overlay)
         {
-            // Posted, never called inline. This event is raised from the plugin runtime's registered
-            // ThreadPool wait and runs straight into GamepadNavigation, which reads window
-            // visibility and mutates Avalonia focus and controls — UI-thread-owned state that a
-            // worker thread must not touch. The rate is bounded by design: the manager raises this
-            // only while a WSGM surface has captured input.
-            canonicalSource.Controllers.UiSampleReceived += sample =>
-                Dispatcher.UIThread.Post(
-                    () => overlay.SubmitCanonicalSample(sample));
+            // Queued to the UI thread, never called inline. This event is raised from the plugin
+            // runtime's registered ThreadPool wait and runs straight into GamepadNavigation, which
+            // reads window visibility and mutates Avalonia focus and controls: UI-thread-owned state
+            // that a worker thread must not touch. The rate is bounded by design: the manager raises
+            // this only while a WSGM surface has captured input. Losses share the queue, so no
+            // sample is delivered ahead of one.
+            CanonicalSampleQueue canonicalSamples = new(overlay.SubmitCanonicalSample, overlay.ManagedInputLost);
+            canonicalSource.Controllers.UiSampleReceived += canonicalSamples.Enqueue;
             canonicalSource.StateChanged += state =>
             {
                 if (state is not DeviceCycleState.Active)
                 {
-                    Dispatcher.UIThread.Post(overlay.ManagedInputLost);
+                    canonicalSamples.SourceLost();
                 }
             };
             // The cycle staying Active is not the same as samples still arriving. Disabling
@@ -953,7 +953,7 @@ public sealed class ShellSession : IAsyncDisposable
                     Log.Info(
                         $"Managed UI input falls back to SDL: controller management is "
                         + $"{status.State} ({status.Detail}).");
-                    Dispatcher.UIThread.Post(overlay.ManagedInputLost);
+                    canonicalSamples.SourceLost();
                 }
             };
         }

@@ -240,7 +240,7 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
     }
 
     /// <summary>Translates one canonical sample into the UI button vocabulary.</summary>
-    private static GamepadButtons Translate(CanonicalControllerSample sample)
+    internal static GamepadButtons Translate(CanonicalControllerSample sample)
     {
         GamepadButtons held = 0;
         foreach ((CanonicalButtons canonical, GamepadButtons ui) in Map)
