@@ -739,27 +739,34 @@ public sealed class ShellSession : IAsyncDisposable
                 _drives, _formats, () => _config.SteamStorageFormatEnabled, _libraryPolicy);
         }
 
+        if (!_overlayTestOnly)
+        {
+            _brightness = new NativeQamBrightnessService(() => !_shutdownRequested, () => { });
+        }
         _overlay = new OverlayController(
             _config,
             _monitor,
             _modes,
             _keepAwake,
             previewOnly: _overlayTestOnly,
-            device: _deviceOverlay,
-            performance: _performanceOverlay,
+            sources: new OverlaySources(
+                Device: _deviceOverlay,
+                Performance: _performanceOverlay,
+                CommonPlugins: _pluginOverlaySource = _commonPlugins is null && _deviceCoordinator is null ? null
+                    : new CommonPluginOverlaySource(_commonPlugins, _pluginHost,
+                        _deviceCoordinator is not null && _deviceOverlay is not null
+                            ? new DeviceWidgetSource(_deviceCoordinator, _deviceOverlay) : null),
+                DevicePrerequisites: _overlayTestOnly ? null : new DevicePrerequisiteSource(
+                    ReadDevicePrerequisiteState, EnableDeviceIntegrationAsync),
+                Brightness: _brightness,
+                ManualTdp: _deviceCoordinator),
             audio: _audio,
             radios: _radios,
             powerPresets: _deviceCoordinator?.PowerPresets,
             powerAssignments: _deviceCoordinator?.PowerAssignments,
-            commonPlugins: _pluginOverlaySource = _commonPlugins is null && _deviceCoordinator is null ? null
-                : new CommonPluginOverlaySource(_commonPlugins, _pluginHost,
-                    _deviceCoordinator is not null && _deviceOverlay is not null
-                        ? new DeviceWidgetSource(_deviceCoordinator, _deviceOverlay) : null),
             drives: _drives,
             formats: _formats,
-            displayTimeouts: _displayTimeouts,
-            devicePrerequisites: _overlayTestOnly ? null : new DevicePrerequisiteSource(
-                ReadDevicePrerequisiteState, EnableDeviceIntegrationAsync));
+            displayTimeouts: _displayTimeouts);
         _overlay.ShowOnScreenKeyboard = ShowOnScreenKeyboardAsync;
         if (!_overlayTestOnly)
         {
@@ -769,7 +776,6 @@ public sealed class ShellSession : IAsyncDisposable
                     && await SteamGameWindowActivation.RaiseAsync(transport, processId, token);
             }, _shutdownCancellation.Token);
         }
-        _overlay.ManualTdp = _deviceCoordinator;
         if (!_overlayTestOnly)
         {
             _desktopTray = new DesktopTray(
@@ -784,11 +790,6 @@ public sealed class ShellSession : IAsyncDisposable
             {
                 if (!_shutdownRequested) { _desktopTray?.OpenSettings(); }
             });
-        }
-        if (!_overlayTestOnly)
-        {
-            _brightness = new NativeQamBrightnessService(() => !_shutdownRequested, () => { });
-            _overlay.Brightness = _brightness;
         }
         // The sheet is recreated per open, so its one-time cost — compiled-XAML populate JIT for
         // the process's largest window — lands on the user's first swipe (~1.5 s on the Claw).

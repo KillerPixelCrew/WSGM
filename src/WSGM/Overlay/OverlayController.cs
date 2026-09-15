@@ -21,8 +21,6 @@ namespace WSGM.Overlay;
 public sealed class OverlayController : IDisposable
 {
     internal Func<SteamControllerHandoff?> SteamOwnership { get; set; } = () => null;
-    internal NativeQamBrightnessService? Brightness { get; set; }
-    internal DeviceCoordinator? ManualTdp { get; set; }
     internal Func<CancellationToken, Task<bool>>? ShowOnScreenKeyboard { get; set; }
     internal GameWindowReturn? GameReturn { get; set; }
     private CancellationTokenSource? _windowReturnCancellation;
@@ -57,12 +55,9 @@ public sealed class OverlayController : IDisposable
     private readonly SteamMonitor? _monitor;
     private readonly SessionModes _modes;
     private readonly KeepAwakeService? _keepAwake;
-    private readonly IDeviceOverlaySource? _device;
-    private readonly PerformanceOverlayBridge? _performance;
+    private readonly OverlaySources _sources;
     private readonly DevicePowerPresets? _powerPresets;
     private readonly DevicePowerAssignments? _powerAssignments;
-    private readonly CommonPluginOverlaySource? _commonPlugins;
-    private readonly Shell.DevicePrerequisiteSource? _devicePrerequisites;
 
     /// <summary>
     /// The session's audio manager, shared with the sheet's status pills rather than owned.
@@ -145,25 +140,21 @@ public sealed class OverlayController : IDisposable
     /// one press would exit Explorer and strand the user with no shell.</param>
     public OverlayController(AppConfig config, SteamMonitor? monitor, SessionModes modes,
         KeepAwakeService? keepAwake = null, bool previewOnly = false)
-        : this(config, monitor, modes, keepAwake, previewOnly, device: null)
+        : this(config, monitor, modes, keepAwake, previewOnly, sources: null)
     {
     }
 
     internal OverlayController(AppConfig config, SteamMonitor? monitor, SessionModes modes,
-        KeepAwakeService? keepAwake, bool previewOnly, IDeviceOverlaySource? device,
-        PerformanceOverlayBridge? performance = null,
+        KeepAwakeService? keepAwake, bool previewOnly, OverlaySources? sources,
         AudioManager? audio = null,
         RadioManager? radios = null,
         DevicePowerPresets? powerPresets = null,
         DevicePowerAssignments? powerAssignments = null,
-        CommonPluginOverlaySource? commonPlugins = null,
         Shell.RemovableDriveManager? drives = null,
         Shell.SdFormatManager? formats = null,
-        Shell.DisplayTimeouts? displayTimeouts = null,
-        Shell.DevicePrerequisiteSource? devicePrerequisites = null)
+        Shell.DisplayTimeouts? displayTimeouts = null)
     {
-        _devicePrerequisites = devicePrerequisites;
-        _commonPlugins = commonPlugins;
+        _sources = sources ?? new OverlaySources();
         _displayTimeouts = displayTimeouts;
         if (_displayTimeouts is not null)
         {
@@ -183,8 +174,6 @@ public sealed class OverlayController : IDisposable
         _monitor = monitor;
         _modes = modes;
         _keepAwake = keepAwake;
-        _device = device;
-        _performance = performance;
         _previewOnly = previewOnly;
         if (_keepAwake is not null)
         {
@@ -939,28 +928,20 @@ public sealed class OverlayController : IDisposable
         long setupDone = System.Diagnostics.Stopwatch.GetTimestamp();
         _overlay = new OverlayWindow(vm, switcher, _systemStatus, UiScale(), WindowCenter(_restoreFocusTo));
         _overlay.AttachSteamOwnership(SteamOwnership);
-        if (Brightness is { } brightness) { _overlay.AttachBrightness(brightness); }
-        if (ManualTdp is { } manual) { _overlay.AttachManualTdp(manual); }
+        if (_sources.Brightness is { } brightness) { _overlay.AttachBrightness(brightness); }
+        if (_sources.ManualTdp is { } manual) { _overlay.AttachManualTdp(manual); }
         _overlay.OnScreenKeyboardRequested += async () => await RequestOnScreenKeyboardAsync();
         var powerSchemes = new PowerSchemeSelection(PowerSchemes.Windows,
             id => ConfigStore.Mutate(config => config.LastSelectedPowerSchemeId = id), _previewOnly);
         _overlay.AttachPowerSchemes(powerSchemes);
-        _overlay.Opened += async (_, _) => await powerSchemes.RefreshAsync();
-        _overlay.Closed += (_, _) => powerSchemes.Dispose();
         // Read on every open rather than cached for the session: activating a power scheme can
         // carry a different core preference with it, so a value read once would go stale silently.
         var hybridCores = new HybridCoreSelection(HybridCores.Windows, _previewOnly);
         _overlay.AttachHybridCores(hybridCores);
-        _overlay.Opened += async (_, _) => await hybridCores.RefreshAsync();
-        _overlay.Closed += (_, _) => hybridCores.Dispose();
         if (_powerPresets is not null)
         {
             var presets = new DevicePowerPresetSelection(_powerPresets, _previewOnly, _powerAssignments);
             _overlay.AttachPowerPresets(presets);
-            var timer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-            timer.Tick += async (_, _) => await presets.RefreshAsync();
-            _overlay.Opened += async (_, _) => { timer.Start(); await presets.RefreshAsync(); };
-            _overlay.Closed += (_, _) => { timer.Stop(); presets.Dispose(); };
         }
         powerSchemes.Changed += () =>
         {
@@ -970,10 +951,10 @@ public sealed class OverlayController : IDisposable
             }
         };
         long constructDone = System.Diagnostics.Stopwatch.GetTimestamp();
-        _overlay.AttachDeviceBridge(_device);
-        _overlay.AttachDevicePrerequisites(_devicePrerequisites);
-        _overlay.AttachCommonPlugins(_commonPlugins);
-        _overlay.AttachPerformanceSource(_performance);
+        _overlay.AttachDeviceBridge(_sources.Device);
+        _overlay.AttachDevicePrerequisites(_sources.DevicePrerequisites);
+        _overlay.AttachCommonPlugins(_sources.CommonPlugins);
+        _overlay.AttachPerformanceSource(_sources.Performance);
         _overlay.SetPins(_config.QuickAccessPins);
         _overlay.PinToggleRequested += OnPinToggleRequested;
         _overlay.WindowPicked += PickWindow;

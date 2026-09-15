@@ -61,6 +61,10 @@ public partial class OverlayWindow : Window
 
     internal void AttachPowerPresets(DevicePowerPresetSelection selection)
     {
+        DispatcherTimer refresh = new() { Interval = TimeSpan.FromSeconds(1) };
+        refresh.Tick += async (_, _) => await selection.RefreshAsync();
+        Opened += async (_, _) => { refresh.Start(); await selection.RefreshAsync(); };
+        Closed += (_, _) => { refresh.Stop(); selection.Dispose(); };
         DevicePowerPresetHost.Attach(selection);
         DevicePowerPresetContainer.Tag = "section.device.power-presets";
         DevicePowerPresetContainer.Children.Insert(0, CreateSectionHeader("section.device.power-presets", "Power assignments"));
@@ -136,6 +140,8 @@ public partial class OverlayWindow : Window
     internal void AttachPowerSchemes(PowerSchemeSelection selection)
     {
         _powerSchemeSelection = selection;
+        Opened += async (_, _) => await selection.RefreshAsync();
+        Closed += (_, _) => selection.Dispose();
         DevicePowerSchemeHost.Attach(selection);
         DevicePowerSchemeHost.Tag = "section.system.power-profile";
         DevicePowerSchemeHeading.Children.Clear();
@@ -152,10 +158,12 @@ public partial class OverlayWindow : Window
     }
 
     /// <summary>Attaches the hybrid core-placement workflow shown beside the Windows energy plan.</summary>
-    /// <param name="selection">The controller-owned workflow; its lifetime is not this window's.</param>
+    /// <param name="selection">The workflow for this open; refreshed when the window opens and disposed when it closes.</param>
     internal void AttachHybridCores(HybridCoreSelection selection)
     {
         _hybridCoreSelection = selection;
+        Opened += async (_, _) => await selection.RefreshAsync();
+        Closed += (_, _) => selection.Dispose();
         DeviceHybridCoreHost.Attach(selection);
         DeviceHybridCoreHost.Tag = "section.system.processor-cores";
         DeviceHybridCores.Header = CreateSectionHeader("section.system.processor-cores", "Processor cores");
