@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -530,6 +531,110 @@ public sealed class ShellSession : IAsyncDisposable
 
     private void StartOnUiThread()
     {
+        StartDeviceIntegration();
+        StartPerformance();
+        StartSessionServices();
+        StartOverlay();
+        WireSessionEvents();
+
+        if (_overlayTestOnly)
+        {
+            // Paused so a Steam exit can never trigger auto-relaunch/overlay-pop
+            // reactions on a dev machine ("no apps started" contract); IsAlive
+            // still updates for the HomeAppAlive display.
+            _monitor.Paused = true;
+            Log.Info("Overlay test mode (no apps started).");
+            _overlay.ShowOverlay();
+            return;
+        }
+
+        _volumeButtons = new VolumeButtonService(
+            _messageWindow!,
+            () => DisplayScale.GetUiScalePercent(_config) / 100.0,
+            _audio!);
+        // Reads the flag on every look rather than capturing it, so a runtime config reload takes
+        // effect without the guard being rebuilt; _config is replaced wholesale on reload.
+        _standbyGuard = new ModernStandbyGuard(_messageWindow!, () => _config.ResuspendUnexplainedWakes);
+        _displayMute = new DisplayOffMuteService(_messageWindow!);
+        _displayMute.ApplyConfig(_config.MuteWhileDisplayOff);
+        _displayMute.SetDownloadActive(_keepAwake.DownloadActive);
+        if (_config.MuteWhileDisplayOff && !_config.Cef.Enabled)
+        {
+            // The mute only engages while Steam reports a download, and that comes
+            // from the CEF poll. An upgraded config can carry MuteWhileDisplayOff
+            // true with Steam integration off, where every log line lives inside the
+            // poll that never runs — so say it once here, or a pasted log shows
+            // nothing at all for a feature the user can see switched on.
+            Log.Warn(
+                "Mute screen-off downloads is enabled but Steam integration is off; "
+                + "download state is unavailable, so muting will never engage.");
+        }
+
+        // Refresh boot.json every session start so a stale Elevate/ExePath heals
+        // itself before the next sign-in.
+        BootManifestWriter.WriteCurrent(_config);
+
+        // Service boot: the service launches WSGM at WTS_SESSION_LOGON — usually
+        // BEFORE Winlogon has even started explorer (device-observed 2026-08-07:
+        // gating this on IsRunningInSession made the takeover never run, leaving
+        // explorer alive behind Big Picture next to our tray host). The takeover
+        // owns every explorer state: its readiness poll waits for explorer to
+        // appear AND finish logon prep, then shuts it down cleanly; if explorer
+        // never shows within the 60 s cap it proceeds like a plain game-mode boot.
+        if (_serviceBoot && !_desktopResident)
+        {
+            StartBootTakeover();
+            return;
+        }
+
+        if (_desktopResident || ExplorerControl.IsRunningInSession())
+        {
+            // A live desktop at --shell start is either the sign-in start of a Desktop session,
+            // the update restart (updates only run in desktop mode), or a manual start next to a
+            // desktop. Resume in desktop mode — no splash, no startup apps, no game posture/scale
+            // — with the overlay armed and Steam supplied; EnterGameMode brings the rest back.
+            Log.Info("Shell started with a live desktop — resuming in desktop mode (overlay armed).");
+            _desktopTray?.SetDesktop(true);
+            // No DesktopModeStarting fires for a session that never entered game
+            // mode, so clear the flag here: the game-mode-only CEF injections must
+            // not start next to a live explorer (and nothing would retract them).
+            _inGameMode = false;
+            _ = NotifyPluginModeAsync(WSGM.Plugin.Sdk.PluginSessionMode.Desktop);
+            // The third entry path the card services have to be started from. Game-mode boot
+            // and the desktop-to-game transition both call this; a session that starts next to a
+            // live desktop did not, and since DesktopModeStarting never fires for it either, the
+            // volume monitor was simply absent: a card pulled from the reader left its library in
+            // Steam's list, with Steam's storage page showing a drive that was not there (Claw,
+            // 2026-09-11). The policy decides what runs on the desktop; this only asks it.
+            ApplyCardServices(gameModeActive: false);
+            RequestSteamUiTransportGateCheck();
+            // Desktop mode watches Steam like game mode does; only a transition or an explicit
+            // Close Steam pauses it. That is what lets the session keep the client running.
+            _monitor.Paused = false;
+            WatchStartupAppsAndConfig();
+            QueueDesktopActions(startup: true);
+            _bootWork = Task.Run(StartDesktopSteamAsync);
+            return;
+        }
+
+        // Boot recomputes the posture value, so game mode re-applies it each start.
+        // Posture first: it changes the display scale, and the splash sizes itself
+        // to the final screen metrics.
+        _modes.ApplyGameModePosture();
+        EnterGameModeSurfaces();
+        ShowBootSplashIfEnabled();
+        WatchStartupAppsAndConfig();
+
+        _bootWork = Task.Run(async () =>
+        {
+            await RunLaunchSequenceAsync();
+            _ = TrimAfterBootSettlesAsync(_shutdownCancellation.Token);
+        });
+    }
+
+    /// <summary>Creates the device coordinator, AutoTDP and the Device overlay source, or the simulated source in overlay-test mode.</summary>
+    private void StartDeviceIntegration()
+    {
         // The resident shell is the sole device-cycle authority. Overlay test deliberately never
         // creates this object, discovers packages, or loads plugin code.
         if (!_overlayTestOnly)
@@ -598,7 +703,12 @@ public sealed class ShellSession : IAsyncDisposable
         {
             _deviceOverlay = new SimulatedDeviceOverlaySource();
         }
+    }
 
+    /// <summary>Creates the RTSS performance service, its overlay projection, refresh pairing and the running-application target.</summary>
+    [MemberNotNull(nameof(_performance))]
+    private void StartPerformance()
+    {
         _performance = new PerformanceService(
             _overlayTestOnly ? new SimulatedRtssAdapter() : new RtssNativeAdapter(),
             _overlayTestOnly ? PersistSimulatedPerformancePolicyAsync : PersistPerformancePolicyAsync,
@@ -665,7 +775,12 @@ public sealed class ShellSession : IAsyncDisposable
                     ? null
                     : ApplyRunningApplicationTargetAsync);
         }
+    }
 
+    /// <summary>Creates the Steam monitor, session modes, keep-awake and the audio, radio and storage services Steam's surfaces use.</summary>
+    [MemberNotNull(nameof(_keepAwake), nameof(_modes), nameof(_monitor))]
+    private void StartSessionServices()
+    {
         _monitor = new SteamMonitor();
         if (!_overlayTestOnly)
         {
@@ -738,7 +853,14 @@ public sealed class ShellSession : IAsyncDisposable
             _steamStorage = new SteamStorageBridge(
                 _drives, _formats, () => _config.SteamStorageFormatEnabled, _libraryPolicy);
         }
+    }
 
+    /// <summary>Creates the overlay controller with its sources and routes managed controller input to WSGM's own surfaces.</summary>
+    [MemberNotNull(nameof(_overlay))]
+    private void StartOverlay()
+    {
+        // StartSessionServices runs first and sets these.
+        System.Diagnostics.Debug.Assert(_modes is not null);
         if (!_overlayTestOnly)
         {
             _brightness = new NativeQamBrightnessService(() => !_shutdownRequested, () => { });
@@ -842,7 +964,13 @@ public sealed class ShellSession : IAsyncDisposable
                 }
             };
         }
+    }
 
+    /// <summary>Connects OEM actions, the card badge and the Steam monitor's lifecycle events to the session.</summary>
+    private void WireSessionEvents()
+    {
+        // The earlier setup steps set these before the session events are wired.
+        System.Diagnostics.Debug.Assert(_monitor is not null && _modes is not null && _performance is not null && _overlay is not null);
         _deviceCoordinator?.ConfigureOemActions(new DeviceOemActionServices
         {
             ToggleOverlayAsync = cancellationToken => RunUiActionAsync(() =>
@@ -1019,100 +1147,6 @@ public sealed class ShellSession : IAsyncDisposable
         // fresh, still-headless CEF session cannot be connected before its own Big
         // Picture window exists.
         _monitor.SteamExited += RequestSteamUiTransportGateCheck;
-
-        if (_overlayTestOnly)
-        {
-            // Paused so a Steam exit can never trigger auto-relaunch/overlay-pop
-            // reactions on a dev machine ("no apps started" contract); IsAlive
-            // still updates for the HomeAppAlive display.
-            _monitor.Paused = true;
-            Log.Info("Overlay test mode (no apps started).");
-            _overlay.ShowOverlay();
-            return;
-        }
-
-        _volumeButtons = new VolumeButtonService(
-            _messageWindow!,
-            () => DisplayScale.GetUiScalePercent(_config) / 100.0,
-            _audio!);
-        // Reads the flag on every look rather than capturing it, so a runtime config reload takes
-        // effect without the guard being rebuilt; _config is replaced wholesale on reload.
-        _standbyGuard = new ModernStandbyGuard(_messageWindow!, () => _config.ResuspendUnexplainedWakes);
-        _displayMute = new DisplayOffMuteService(_messageWindow!);
-        _displayMute.ApplyConfig(_config.MuteWhileDisplayOff);
-        _displayMute.SetDownloadActive(_keepAwake.DownloadActive);
-        if (_config.MuteWhileDisplayOff && !_config.Cef.Enabled)
-        {
-            // The mute only engages while Steam reports a download, and that comes
-            // from the CEF poll. An upgraded config can carry MuteWhileDisplayOff
-            // true with Steam integration off, where every log line lives inside the
-            // poll that never runs — so say it once here, or a pasted log shows
-            // nothing at all for a feature the user can see switched on.
-            Log.Warn(
-                "Mute screen-off downloads is enabled but Steam integration is off; "
-                + "download state is unavailable, so muting will never engage.");
-        }
-
-        // Refresh boot.json every session start so a stale Elevate/ExePath heals
-        // itself before the next sign-in.
-        BootManifestWriter.WriteCurrent(_config);
-
-        // Service boot: the service launches WSGM at WTS_SESSION_LOGON — usually
-        // BEFORE Winlogon has even started explorer (device-observed 2026-08-07:
-        // gating this on IsRunningInSession made the takeover never run, leaving
-        // explorer alive behind Big Picture next to our tray host). The takeover
-        // owns every explorer state: its readiness poll waits for explorer to
-        // appear AND finish logon prep, then shuts it down cleanly; if explorer
-        // never shows within the 60 s cap it proceeds like a plain game-mode boot.
-        if (_serviceBoot && !_desktopResident)
-        {
-            StartBootTakeover();
-            return;
-        }
-
-        if (_desktopResident || ExplorerControl.IsRunningInSession())
-        {
-            // A live desktop at --shell start is either the sign-in start of a Desktop session,
-            // the update restart (updates only run in desktop mode), or a manual start next to a
-            // desktop. Resume in desktop mode — no splash, no startup apps, no game posture/scale
-            // — with the overlay armed and Steam supplied; EnterGameMode brings the rest back.
-            Log.Info("Shell started with a live desktop — resuming in desktop mode (overlay armed).");
-            _desktopTray?.SetDesktop(true);
-            // No DesktopModeStarting fires for a session that never entered game
-            // mode, so clear the flag here: the game-mode-only CEF injections must
-            // not start next to a live explorer (and nothing would retract them).
-            _inGameMode = false;
-            _ = NotifyPluginModeAsync(WSGM.Plugin.Sdk.PluginSessionMode.Desktop);
-            // The third entry path the card services have to be started from. Game-mode boot
-            // and the desktop-to-game transition both call this; a session that starts next to a
-            // live desktop did not, and since DesktopModeStarting never fires for it either, the
-            // volume monitor was simply absent: a card pulled from the reader left its library in
-            // Steam's list, with Steam's storage page showing a drive that was not there (Claw,
-            // 2026-09-11). The policy decides what runs on the desktop; this only asks it.
-            ApplyCardServices(gameModeActive: false);
-            RequestSteamUiTransportGateCheck();
-            // Desktop mode watches Steam like game mode does; only a transition or an explicit
-            // Close Steam pauses it. That is what lets the session keep the client running.
-            _monitor.Paused = false;
-            WatchStartupAppsAndConfig();
-            QueueDesktopActions(startup: true);
-            _bootWork = Task.Run(StartDesktopSteamAsync);
-            return;
-        }
-
-        // Boot recomputes the posture value, so game mode re-applies it each start.
-        // Posture first: it changes the display scale, and the splash sizes itself
-        // to the final screen metrics.
-        _modes.ApplyGameModePosture();
-        EnterGameModeSurfaces();
-        ShowBootSplashIfEnabled();
-        WatchStartupAppsAndConfig();
-
-        _bootWork = Task.Run(async () =>
-        {
-            await RunLaunchSequenceAsync();
-            _ = TrimAfterBootSettlesAsync(_shutdownCancellation.Token);
-        });
     }
 
     private async Task NotifyPluginModeAsync(WSGM.Plugin.Sdk.PluginSessionMode mode)
