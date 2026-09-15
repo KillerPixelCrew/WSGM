@@ -7,6 +7,7 @@ internal static class Worker
 {
     internal static Action<object>? Checkpoint;
     internal static Action<object>? Progress;
+    internal static Func<object, CancellationToken, string>? Interaction;
     [StructLayout(LayoutKind.Sequential)]
     internal struct PowerStatus
     { internal byte Ac, Flags, Percent, Saver; internal uint RemainingSeconds, FullSeconds; }
@@ -41,9 +42,14 @@ internal static class Worker
             log.Add("identity", identity);
             log.Add("endpoints", endpoints.Select(e => e.Public).ToArray());
             log.Add("power-source", PowerSource());
+            if (request.ExpectedAc is { } expected && (!GetSystemPowerStatus(out var expectedSource) || expectedSource.Ac != expected))
+            {
+                throw new InvalidOperationException("Power source does not match this wizard step. No write was attempted.");
+            }
+
             string[] conflicts = Identity.ConflictingApps();
             log.Add("other-managers", conflicts);
-            log.Add("provenance", new { Version = "0.1.0", Hhd = "5b49c5d904257e042a704ade958fac0ba57af4b1", Hc = "1d85da30861f700868e48ae8f498a5c455896f7c", Evidence = "Experimental attended Ally X bring-up, not production support" });
+            log.Add("provenance", new { Version = "0.2.0", Hhd = "5b49c5d904257e042a704ade958fac0ba57af4b1", Hc = "1d85da30861f700868e48ae8f498a5c455896f7c", Evidence = "Experimental attended Ally X bring-up, not production support" });
             if (request.Action == ActionKind.Inventory)
             {
                 using var sensors = new Sensors(log);
@@ -77,15 +83,15 @@ internal static class Worker
             if (request.Action == ActionKind.Capture)
             {
                 using var input = new InputCapture(log, endpoints);
-                using var sensors = new Sensors(log);
+                using var sensors = request.Motion ? new Sensors(log) : null;
                 Progress?.Invoke(new { Message = "CAPTURING NOW: " + request.Label, Seconds = request.Seconds });
                 Stopwatch duration = Stopwatch.StartNew();
                 while (duration.Elapsed.TotalSeconds < request.Seconds)
                 {
                     cancel.ThrowIfCancellationRequested();
-                    Application.DoEvents(); input.PollXInput(); sensors.Poll(); Thread.Sleep(10);
+                    Application.DoEvents(); input.PollXInput(); sensors?.Poll(); Thread.Sleep(10);
                 }
-                input.Summary(); sensors.Summarize();
+                input.Summary(); sensors?.Summarize();
                 outcome = "captured";
             }
             else if (request.Action is ActionKind.ReadPower or ActionKind.Tdp or ActionKind.Profile or ActionKind.Fan)
@@ -213,10 +219,10 @@ internal static class Worker
             else
             {
                 Revalidate();
-                var candidates = endpoints.Where(e => request.Action == ActionKind.Rumble ? e.Rumble : e.Vendor).ToArray();
+                var candidates = endpoints.Where(e => request.Action == ActionKind.RumbleCalibration ? e.Rumble : e.Vendor).ToArray();
                 HidEndpoint endpoint = candidates.SingleOrDefault(e => e.Id == request.Endpoint)
                     ?? throw new InvalidOperationException("Select exactly one inventoried endpoint for this action.");
-                if (endpoint.OutputBytes < (request.Action == ActionKind.Rumble ? 9 : 64))
+                if (endpoint.OutputBytes < (request.Action == ActionKind.RumbleCalibration ? 9 : 64))
                 {
                     throw new InvalidOperationException("Expected output report is absent. No feature-report fallback is attempted.");
                 }
@@ -227,19 +233,15 @@ internal static class Worker
                     identity.Fingerprint,
                     Request = request,
                     Endpoint = endpoint.Public,
-                    Original = request.Action == ActionKind.Rgb ? "Operator asserted lights off; exact prior color/mode is not readable" : "Operator asserted motors silent"
+                    Original = request.Action == ActionKind.Rgb ? "Operator asserted lights off; exact prior color/mode is not readable" : "Silent baseline must be confirmed at the first calibration Ready prompt"
                 });
                 cleanup = "unverified";
                 try
                 {
                     cancel.ThrowIfCancellationRequested();
-                    if (request.Action == ActionKind.Rumble)
+                    if (request.Action == ActionKind.RumbleCalibration)
                     {
-                        byte weak = (byte)(request.Channel == 0 ? request.Value : 0), strong = (byte)(request.Channel == 1 ? request.Value : 0);
-                        Hid.Output(handle, endpoint, [0x0D, 0x0F, 0, 0, weak, strong, 0xFF, 0, 0xEB], log);
-                        Stopwatch pulse = Stopwatch.StartNew();
-                        Wait(request.PulseMilliseconds, cancel);
-                        log.Add("pulse-duration", new { RequestedMs = request.PulseMilliseconds, ActualBeforeStopMs = pulse.Elapsed.TotalMilliseconds });
+                        RumbleCalibration.Run(handle, endpoint, log, cancel);
                     }
                     else
                     {
@@ -252,13 +254,13 @@ internal static class Worker
                         Hid.Output(handle, endpoint, [0x5A, 0xB4], log);
                         Wait(2000, cancel);
                     }
-                    outcome = "write-returned-awaiting-operator-observation";
+                    outcome = request.Action == ActionKind.RumbleCalibration ? "calibration-complete" : "write-returned-awaiting-operator-observation";
                 }
                 finally
                 {
                     try
                     {
-                        if (request.Action == ActionKind.Rumble)
+                        if (request.Action == ActionKind.RumbleCalibration)
                         {
                             Hid.Output(handle, endpoint, [0x0D, 0x0F, 0, 0, 0, 0, 0xFF, 0, 0xEB], log);
                         }

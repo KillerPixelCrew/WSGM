@@ -16,9 +16,54 @@ public sealed class SafetyTests
     {
         Assert.Throws<InvalidOperationException>(() => Limits.Validate(new((ActionKind)999, "test")));
         Assert.Throws<InvalidOperationException>(() => Limits.Validate(new(ActionKind.Capture, "test", Seconds: 21)));
-        Assert.Throws<InvalidOperationException>(() => Limits.Validate(new(ActionKind.Rumble, "test", 51)));
-        Assert.Throws<InvalidOperationException>(() => Limits.Validate(new(ActionKind.Rumble, "test", 10, PulseMilliseconds: 2001)));
+        Assert.Throws<InvalidOperationException>(() => Limits.Validate(new(ActionKind.RumbleCalibration, "test", 51)));
+        Assert.Throws<InvalidOperationException>(() => Limits.Validate(new(ActionKind.ReadPower, "test", ExpectedAc: 2)));
         Assert.Throws<InvalidOperationException>(() => Limits.Validate(new(ActionKind.Rgb, "test", 3)));
+    }
+
+    [Fact]
+    public void RumbleBoundaryDoesNotInventAnUnfeltDefault()
+    {
+        var phase = new RumblePhase([50, 32, 20]);
+        phase.Answer(false);
+        Assert.True(phase.Complete);
+        Assert.Null(phase.LowestFelt);
+        Assert.Equal(50, phase.FirstNotFelt);
+        Assert.Equal("nothing-felt-at-ceiling", phase.Status);
+        Assert.Throws<InvalidOperationException>(() => phase.Answer(true));
+    }
+
+    [Fact]
+    public void RumbleRequiresAnAnswerToTheFinalPulse()
+    {
+        var phase = new RumblePhase([50, 32]);
+        phase.Answer(true);
+        Assert.False(phase.Complete);
+        Assert.Equal(32, phase.Current);
+        phase.Answer(false);
+        Assert.Equal(50, phase.LowestFelt);
+        Assert.Equal(32, phase.FirstNotFelt);
+        Assert.Equal("boundary-bracketed", phase.Status);
+    }
+
+    [Fact]
+    public void RumbleAllFeltKeepsTheOpenLowerBoundary()
+    {
+        var phase = new RumblePhase([20, 10]);
+        phase.Answer(true); phase.Answer(true);
+        Assert.Equal(10, phase.LowestFelt);
+        Assert.Null(phase.FirstNotFelt);
+        Assert.Equal("felt-at-lowest-tested-value", phase.Status);
+    }
+
+    [Fact]
+    public void RumbleCopiesAndValidatesItsSchedule()
+    {
+        int[] values = [50, 20];
+        var phase = new RumblePhase(values); values[0] = 1000;
+        Assert.Equal(50, phase.Current);
+        Assert.Throws<ArgumentException>(() => new RumblePhase([20, 50]));
+        Assert.Throws<ArgumentException>(() => new RumblePhase([]));
     }
 
     [Fact]

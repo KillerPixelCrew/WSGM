@@ -150,9 +150,11 @@ separate developer tool, not a new Device Lab CLI mutation command or a producti
 primary for Ally X behavior; HC is a Windows transport cross-reference. Use the pinned source
 comparison in `src/WSGM.Device.Asus.RogAllyX/REFERENCE.md`.
 
-Build/publish does not authorize running it on the current machine. Each tester action requires its
-GUI confirmation, and a missing readback or unknown cleanup must remain explicit. Do not add generic
-raw command entry, unattended writes or controller remapping without original-state restoration. The
-maintainer requested the compiled EXE be tracked under `tools/AllyXLab/Downloads`; update its
-SHA-256 alongside the binary after publishing reviewed source. Automated suites still wait for the
-maintainer's manual-testing report unless explicitly requested sooner.
+Build/publish does not authorize running it on the current machine. The single Start flow guides
+each action through inline Ready/feedback prompts. Rumble is one bounded interactive six-phase
+worker: Ready starts a phase and explicit felt/not-felt answers advance it. Missing readback or
+unknown cleanup must remain explicit. Do not add generic raw command entry, unattended writes or
+controller remapping without original-state restoration. The maintainer requested the compiled EXE
+be tracked under `tools/AllyXLab/Downloads`; update its SHA-256 alongside the binary after
+publishing reviewed source. Automated suites still wait for the maintainer's manual-testing report
+unless explicitly requested sooner.

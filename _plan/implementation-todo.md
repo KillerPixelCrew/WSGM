@@ -19,6 +19,13 @@ an operator-confirmed OFF baseline, and arbitrary original button mappings are n
 The production plugin remains passive. No remote hardware result is recorded. Test execution and
 the full gate are deferred under the manual-testing-first policy.
 
+The 0.2.0 follow-up replaces the tabbed/manual UI with one Start-driven wizard. Captures advance
+through named actions and poses; power and RGB steps choose their values. Rumble now runs in one
+worker with both motors and all three phases, inline felt/not-felt/replay feedback, optional A/B
+answers, and explicit boundary summaries. The ZIP save step is part of the finish flow, including
+after cancellation. The new binary replaces the same download. Hardware and Windows UI acceptance
+are still pending; automated suites remain deferred.
+
 ## ROG Ally X scaffold (2026-09-15)
 
 `src/WSGM.Device.Asus.RogAllyX` now contains a Device API 3 entry type, package manifest and MIT

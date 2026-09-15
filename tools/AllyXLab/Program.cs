@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 
@@ -52,6 +53,7 @@ internal static class Program
             Request request = document.RootElement.GetProperty("Request").Deserialize<Request>(SessionLog.Json)!;
             using var cancel = new CancellationTokenSource();
             using var ack = new AutoResetEvent(false);
+            using var answers = new BlockingCollection<string>(1);
             _ = Task.Run(async () => { await parent.WaitForExitAsync(); cancel.Cancel(); });
             _ = Task.Run(() =>
             {
@@ -62,6 +64,7 @@ internal static class Program
                     {
                         ack.Set();
                     }
+                    else if (line.StartsWith("ANSWER:", StringComparison.Ordinal)) { answers.TryAdd(line[7..]); }
                     else if (line == "CANCEL")
                     {
                         cancel.Cancel();
@@ -69,6 +72,22 @@ internal static class Program
                 }
                 cancel.Cancel();
             });
+            int promptId = 0;
+            Worker.Interaction = (data, token) =>
+            {
+                int id = ++promptId;
+                Console.WriteLine(JsonSerializer.Serialize(new { Kind = "question", Data = new { Id = id, Prompt = data } }, WireJson));
+                Console.Out.Flush();
+                while (true)
+                {
+                    string answer = answers.Take(token);
+                    string prefix = id + ":";
+                    if (answer.StartsWith(prefix, StringComparison.Ordinal))
+                    {
+                        return answer[prefix.Length..];
+                    }
+                }
+            };
             Worker.Progress = data => { Console.WriteLine(JsonSerializer.Serialize(new { Kind = "progress", Data = data }, WireJson)); Console.Out.Flush(); };
             Worker.Checkpoint = data =>
             {

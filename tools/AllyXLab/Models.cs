@@ -6,10 +6,10 @@ using System.Text.Json.Serialization;
 
 namespace WSGM.AllyXLab;
 
-internal enum ActionKind { Inventory, Capture, ReadPower, Tdp, Profile, Fan, Rumble, Rgb }
+internal enum ActionKind { Inventory, Capture, ReadPower, Tdp, Profile, Fan, RumbleCalibration, Rgb }
 
 internal sealed record Request(ActionKind Action, string Label, int Value = 0, int Channel = 0,
-    string Endpoint = "", int Seconds = 8, int PulseMilliseconds = 250);
+    string Endpoint = "", int Seconds = 8, int? ExpectedAc = null, bool Motion = false);
 
 internal sealed record LabEvent(double Milliseconds, string Kind, object Data);
 
@@ -38,7 +38,7 @@ internal sealed record Result(Request Request, string Outcome, string Cleanup, L
 
 internal static class Limits
 {
-    internal static bool Mutates(ActionKind kind) => kind is ActionKind.Tdp or ActionKind.Profile or ActionKind.Fan or ActionKind.Rumble or ActionKind.Rgb;
+    internal static bool Mutates(ActionKind kind) => kind is ActionKind.Tdp or ActionKind.Profile or ActionKind.Fan or ActionKind.RumbleCalibration or ActionKind.Rgb;
     internal static void Validate(Request request)
     {
         if (!Enum.IsDefined(request.Action) || request.Label.Length > 160 || request.Seconds is < 1 or > 20)
@@ -61,14 +61,14 @@ internal static class Limits
             throw new InvalidOperationException("Fan test permits a 10–30 percentage-point increase only.");
         }
 
-        if (request.Action == ActionKind.Rumble && (request.Value is < 1 or > 50 || request.Channel is < 0 or > 1))
+        if (request.Action == ActionKind.RumbleCalibration && (request.Value != 0 || request.Channel != 0))
         {
-            throw new InvalidOperationException("Rumble must select one motor at 1–50%.");
+            throw new InvalidOperationException("Guided calibration chooses both motors and all bounded pulse settings.");
         }
 
-        if (request.Action == ActionKind.Rumble && request.PulseMilliseconds is < 5 or > 2000)
+        if (request.ExpectedAc is < 0 or > 1)
         {
-            throw new InvalidOperationException("Rumble pulse must be 5–2000 ms.");
+            throw new InvalidOperationException("Invalid expected power source.");
         }
 
         if (request.Action == ActionKind.Rgb && (request.Value is < 0 or > 2 || request.Channel is < 0 or > 4))

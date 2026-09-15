@@ -29,9 +29,9 @@ internal sealed class Session
         WriteNew("session.json", new
         {
             SourceSnapshot = typeof(Session).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false).Cast<System.Reflection.AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "SourceSnapshot")?.Value,
-            Schema = 1,
+            Schema = 2,
             Tool = "AllyXLab",
-            Version = "0.1.0",
+            Version = "0.2.0",
             StartedUtc = DateTime.UtcNow,
             ExeSha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(Environment.ProcessPath!))),
             Notice = "No machine/user name, serial number, raw PnP path or arbitrary keyboard input is intentionally collected. ASUS raw reports may contain device-specific payloads; review before sharing."
@@ -51,7 +51,7 @@ internal sealed class Session
             File.Delete(RecoveryPath);
         }
     }
-    internal async Task<Result> RunAsync(Request request, Action<string> status)
+    internal async Task<Result> RunAsync(Request request, Action<string> status, Func<JsonElement, Task<string>>? interact = null)
     {
         if (Process is not null)
         {
@@ -85,7 +85,7 @@ internal sealed class Session
             await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { Nonce = nonce, Request = request }, Program.WireJson));
             await process.StandardInput.FlushAsync();
             Task<string> stderr = process.StandardError.ReadToEndAsync();
-            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(request.Action == ActionKind.RumbleCalibration ? 330 : 60));
             while (true)
             {
                 string? line = await process.StandardOutput.ReadLineAsync(deadline.Token);
@@ -118,9 +118,30 @@ internal sealed class Session
                     status("Original state saved. Performing the selected action; restoration follows.");
                     await process.StandardInput.WriteLineAsync("ACK"); await process.StandardInput.FlushAsync();
                 }
+                else if (kind == "question")
+                {
+                    if (interact is null)
+                    {
+                        throw new InvalidOperationException("A calibration prompt has no attended UI.");
+                    }
+
+                    string answer = await interact(data.GetProperty("Prompt").Clone()).WaitAsync(deadline.Token);
+                    if (answer is not ("ready" or "felt" or "not-felt" or "repeat" or "stop"))
+                    {
+                        throw new InvalidOperationException("Unknown calibration answer.");
+                    }
+
+                    try
+                    {
+                        await process.StandardInput.WriteLineAsync($"ANSWER:{data.GetProperty("Id").GetInt32()}:{answer}");
+                        await process.StandardInput.FlushAsync();
+                    }
+                    catch (IOException) when (answer == "stop") { } // A cancelled worker may already be returning its cleanup result.
+                }
                 else if (kind == "progress")
                 {
-                    status(data.GetProperty("Message").GetString() + " • " + data.GetProperty("Seconds").GetInt32() + " seconds");
+                    int seconds = data.GetProperty("Seconds").GetInt32();
+                    status(data.GetProperty("Message").GetString() + (seconds > 0 ? " • " + seconds + " seconds" : ""));
                 }
                 else if (kind == "result")
                 {

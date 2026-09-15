@@ -17,37 +17,47 @@ records its hash. It is an unsigned experimental build; no hardware pass is clai
 
 ## Tester instructions
 
-1. Disconnect other gamepads. Close games and device managers, including WSGM, Handheld Companion,
-   G-Helper and Armoury Crate. The tool refuses hardware writes while known competing applications
-   are running and never stops them or installs drivers. Some Armoury Crate background processes may
-   need to be closed by the tester; the ASUS driver must remain installed.
-2. Keep the battery above 30%, keep the vents clear, and do not change AC/DC state during a test.
-   Start with **Collect identity and interfaces**, then **Read power / fan state**.
-3. In **Buttons / motion**, select one named step at a time. Press **Start selected capture**, then
-   wait for **CAPTURING NOW** before moving. Capture neutral first, individual buttons, holds,
-   sticks/triggers, diagonals and chords. Note any launched OEM app or missing input.
-4. Capture the stationary gyro step without touching the device. Repeat after warming up. Capture
-   the six gravity poses and the three approximately 90-degree rotations. The output contains raw
-   fields, timestamps and per-field mean, standard deviation and range. These establish bias, axis
-   and scale candidates; the tool does not write sensor calibration or assume unknown units.
-5. In **Power / fans**, read first, then test one TDP envelope or firmware profile. Suggested TDP
-   values are 13 W and 17 W, with 25 W optional. The envelope sets all three limits to that value.
-   Firmware profile tests record the actual resulting limits rather than assuming preset values.
-   Repeat on AC and DC as separate tests. The fan test raises one captured curve by 15 percentage
-   points, capped at 99, and never lowers a captured duty value. Record which fan changed.
-6. In **Rumble calibration**, select the inventoried endpoint, one motor and one phase. Fire a step,
-   confirm the motors stopped, then record **Felt** or **Did not feel**. Complete sustained
-   strength, 30 ms tick strength and pulse-duration phases for both motors. A floor is a human
-   observation, not hardware readback. Add a note identifying the physical motor location.
-7. In **RGB**, establish an OFF baseline using OEM controls and close the other manager. Test the
-   primary colors and individual ring zones. Confirm the lights are OFF after each test and record
-   the actual illuminated zone. The remembered RGB mode/color may change; restore those using OEM
-   controls afterward. No automatic prior-color readback or exact RGB restoration is claimed.
-8. Use **STOP / restore** to cancel. Wait for restoration before closing. If cleanup is unknown,
-   review the recovery record and restore the recorded settings with OEM controls before confirming
-   recovery. Do not retry an uncertain write.
-9. Use **Open capture folder** to review the JSON, then **Review / export ZIP**. Send the ZIP back.
-   Nothing is uploaded automatically.
+1. Open the EXE and press **Start**. Close games, WSGM, HC, G-Helper and Armoury Crate first;
+   disconnect other controllers and keep the battery above 30%.
+2. Follow the single screen. It chooses the sequence and settings. Read the instruction, press
+   **Ready**, and perform the named button press or movement when **CAPTURING NOW** appears. The
+   next instruction appears automatically after the capture. Sensor streams are recorded during
+   motion steps rather than repeated during every button test. **Skip** records an unavailable step.
+3. During rumble, hold the device and answer **Felt it** or **Didn't feel it** after each pulse and
+   after the motors are silent. The wizard selects both motors, all phases, levels and pulse
+   lengths. **Felt it** advances to a weaker/shorter pulse; **Didn't feel it** records the boundary.
+   **Replay** repeats a pulse at your request. A/B also answer when exactly one XInput controller is
+   connected; touch buttons always work. You never need to configure a sweep or select an interface.
+4. Follow the lighting, charger and power/fan instructions. The wizard chooses colors, zones,
+   profiles and limits. Confirm what you see/hear. Power/fan tests read and restore original state.
+   RGB starts from a tester-confirmed OFF baseline; restore the remembered color/mode in the OEM
+   controls afterward.
+5. **Stop / save progress** or Escape cancels and waits for cleanup. Skipped, failed and interrupted
+   steps remain marked; they are never counted as completed measurements.
+6. At the end, review **Capture files** if desired and press **Save ZIP to Desktop**. Send that ZIP
+   back. The same finish screen is available after stopping early. No upload occurs automatically.
+
+Technical details and license notices remain available through the footer. Unknown or ambiguous
+interfaces are recorded as unavailable instead of asking the tester to guess.
+
+### Rumble calibration
+
+One worker holds the selected device for the whole calibration; it does not reopen and re-inventory
+between pulses. The six phases cover both motors independently:
+
+- Sustained strength: 1.5-second bursts at 50, 32, 20, 12, 8, 5, 3 and 1 percent.
+- Short-tick strength: the same levels, with 30 ms pulses.
+- Pulse duration: 200, 120, 70, 40, 25, 15, 10 and 5 ms at 50 percent.
+
+Each phase starts on **Ready** and ends at the first not-felt response or an explicit answer to the
+last pulse. It records the lowest confirmed felt value, the first not-felt value, and whether the
+boundary is bracketed, below the tested range, or absent because nothing was felt at the ceiling. A
+phase that is stopped stays incomplete. The report contains every actual pulse and answer plus
+per-motor boundaries. No default threshold is substituted for a missing observation.
+
+All pulses have zero-output cleanup before the feedback question. Replays are explicit, limited to
+two per trial, and do not advance the score. The interactive worker has a five-minute budget plus a
+30-second supervisor cleanup allowance. The ordinary test workers keep their 60-second deadline.
 
 ## What is captured
 
@@ -77,11 +87,12 @@ The read-only inventory can run on another Windows PC. Every other workflow requ
 ASUS RC72LA model/board family, a nonempty SKU and BIOS, and the exact ASUS vendor endpoint. This
 bring-up family gate is not the production plugin's future firmware allowlist.
 
-Every step runs in a separate copy of the same executable with a 60-second supervisor deadline.
-Hardware writes require a GUI confirmation and a durably saved, acknowledged recovery checkpoint.
-The worker reserves `Global\WSGM.DeviceOwner`. Parent death requests cancellation; a blocked driver
-call can still prevent cleanup. A timeout is reported as unknown restoration and blocks further
-writes until the tester confirms recovery. A driver call completing is not independent readback.
+Ordinary steps run in a separate copy of the same executable with a 60-second supervisor deadline.
+The guided rumble session uses one worker with the bounds described above. Hardware writes require
+an explicit wizard action and a durably saved, acknowledged recovery checkpoint. The worker reserves
+`Global\WSGM.DeviceOwner`. Parent death requests cancellation; a blocked driver call can still
+prevent cleanup. A timeout is reported as unknown restoration and blocks further writes until the
+tester confirms recovery. A driver call completing is not independent readback.
 
 Power and fan writes require two matching original snapshots, including both valid eight-point fan
 curves. If any original state is unavailable, writes are refused. Applied and restored values are
@@ -97,8 +108,8 @@ controller hiding or virtual-controller installation is provided.
 
 The rumble sequence follows Device Lab's Claw calibration in
 `src/WSGM.DeviceLab/Testing/AttendedPluginAction.cs`. Unlike the Claw's full-scale continuous sweep,
-this first Ally X version caps drive at 50% and bounds sustained steps to 1.5 seconds. Reported
-boundaries must retain that method. Sensor COM definitions come from the repository's
+this Ally X version caps drive at 50% and bounds sustained steps to 1.5 seconds. Reported boundaries
+must retain that method. Sensor COM definitions come from the repository's
 `tools/probe-legacy-sensors.ps1`. HHD is primary and HC supplies Windows transport cross-checks; see
 [the pinned source comparison](../../src/WSGM.Device.Asus.RogAllyX/REFERENCE.md).
 

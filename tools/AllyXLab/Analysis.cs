@@ -83,6 +83,7 @@ internal static class Analysis
         {
             Status = "Source/measurement candidates only; not an accepted hardware contract",
             Input = buttonCandidates,
+            RumbleCalibration = results.SelectMany(r => r.Events.Where(e => e.Kind == "rumble-calibration-summary").Select(e => e.Data)).ToArray(),
             StationaryBiasCandidates = stationary,
             GravityAxisCandidates = poses,
             Limits = "Sensor IDs are stable hashes of the local Sensor API ID. Custom fields may belong to a gyro rather than an accelerometer; classify by recorded sensor metadata. Six-pose summaries require all six poses, correct positioning, fresh samples and unit confirmation. Changed bytes may contain counters, axes or button bits. Repeated/counterexample trials are required.",
