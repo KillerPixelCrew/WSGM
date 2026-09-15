@@ -9,7 +9,7 @@ public sealed class ContractBoundaryTests
     {
         // Guarding the setting rather than the members: a plugin author reads this contract
         // through IntelliSense, so the enforcement disappearing is the regression worth catching.
-        XDocument contract = LoadProject("src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj");
+        XDocument contract = RepositoryFiles.LoadProject("src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj");
 
         Assert.Contains(contract.Descendants("GenerateDocumentationFile"), element => element.Value == "true");
         string warnings = string.Join(';', contract.Descendants("WarningsAsErrors").Select(element => element.Value));
@@ -17,22 +17,12 @@ public sealed class ContractBoundaryTests
         Assert.Contains("CS1573", warnings);
     }
 
-    private static XDocument LoadProject(string relativePath) =>
-        XDocument.Load(Path.Combine(RepositoryRoot, relativePath));
-
-    private static string RepositoryRoot
+    [Fact]
+    public void TheApiVersionIsPinnedSoRaisingItIsADeliberateAct()
     {
-        get
-        {
-            DirectoryInfo? directory = new(AppContext.BaseDirectory);
-            while (directory is not null
-                && !File.Exists(Path.Combine(directory.FullName, "WSGM.slnx")))
-            {
-                directory = directory.Parent;
-            }
-
-            return directory?.FullName
-                ?? throw new InvalidOperationException("The repository root was not found.");
-        }
+        // PluginManifestValidator requires exact equality, so every raise invalidates every
+        // published package. Version 2 added sections and categories; version 3 added the
+        // suppressed trace level and TraceChange.
+        Assert.Equal(3, WSGM.Device.Sdk.DeviceApi.Version);
     }
 }

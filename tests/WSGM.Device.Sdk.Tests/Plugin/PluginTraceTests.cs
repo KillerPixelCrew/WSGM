@@ -6,7 +6,7 @@ using WSGM.Device.Sdk.Testing;
 
 namespace WSGM.Device.Sdk.Tests;
 
-public sealed class PluginTraceChangeTests
+public sealed class PluginTraceTests
 {
     [Fact]
     public void ChangeReachesTheHostWithItsScopeKeyAndLevel()

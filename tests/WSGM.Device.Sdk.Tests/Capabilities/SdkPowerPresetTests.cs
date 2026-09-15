@@ -1,25 +1,11 @@
 using System.Text.Json;
 using WSGM.Device.Sdk.Capabilities;
+using static WSGM.Device.Tests.PowerLimitDescriptors;
 
 namespace WSGM.Device.Tests;
 
 public sealed class SdkPowerPresetTests
 {
-    private static CapabilityDescriptor Limit(CapabilityRole role) => new()
-    {
-        CapabilityId = role.ToString(),
-        Role = role,
-        ValueKind = CapabilityValueKind.Integer,
-        Persistence = CapabilityPersistence.Volatile,
-        Display = new() { Key = DisplayKey.SustainedPowerLimit },
-        SupportsRead = true,
-        SupportsWrite = true,
-        Unit = CapabilityUnit.Watt,
-        Minimum = 8,
-        Maximum = 37,
-        Step = 1,
-    };
-
     private static CapabilityDescriptor[] Pair(params DevicePowerPreset[] presets) =>
         [Limit(CapabilityRole.PowerSustainedLimit) with { PowerPresets = presets }, Limit(CapabilityRole.PowerSlowLimit)];
 

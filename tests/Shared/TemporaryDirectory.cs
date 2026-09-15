@@ -1,5 +1,9 @@
+// SPDX-License-Identifier: MIT
+
 namespace WSGM.Device.Tests;
 
+/// <summary>A uniquely named directory under the system temp folder, deleted on dispose.</summary>
+/// <remarks>Linked into several test projects, so it uses no test-framework API.</remarks>
 internal sealed class TemporaryDirectory : IDisposable
 {
     public TemporaryDirectory()

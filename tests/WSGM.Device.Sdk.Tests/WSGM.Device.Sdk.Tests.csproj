@@ -26,4 +26,10 @@
     <ProjectReference Include="..\..\src\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\Shared\PluginManifestFixture.cs" Link="Shared\PluginManifestFixture.cs" />
+    <Compile Include="..\Shared\RepositoryFiles.cs" Link="Shared\RepositoryFiles.cs" />
+    <Compile Include="..\Shared\TemporaryDirectory.cs" Link="Shared\TemporaryDirectory.cs" />
+  </ItemGroup>
+
 </Project>
