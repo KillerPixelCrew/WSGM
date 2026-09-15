@@ -45,7 +45,10 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
         {
             if (watts is < 8 or > 37)
             {
-                return Rejected(command, CapabilityReasonCode.ValueOutOfRange, "The power pair must be 8-37 W.");
+                return ClawResults.Rejected(
+                    command,
+                    CapabilityReasonCode.ValueOutOfRange,
+                    "The power pair must be 8-37 W.");
             }
             return await ApplyPairCoreAsync(command, before, watts, watts, cancellationToken).ConfigureAwait(false);
         }
@@ -58,7 +61,7 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
         // a silent lie.
         if (watts is < 8 or > 37 || before.BoostWatts < watts || before.BoostWatts > 37)
         {
-            return Rejected(command, CapabilityReasonCode.ValueOutOfRange,
+            return ClawResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange,
                 "PL1 must be 8-37 W and cannot exceed the current PL2 value.");
         }
 
@@ -74,7 +77,7 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
         PowerPair before = await ReadAsync(cancellationToken).ConfigureAwait(false);
         if (watts is < 8 or > 37 || watts < before.SustainedWatts)
         {
-            return Rejected(command, CapabilityReasonCode.ValueOutOfRange,
+            return ClawResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange,
                 "PL2 must be 8-37 W and cannot be below the current PL1 value.");
         }
 
@@ -90,7 +93,10 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
         PowerPair before = await ReadAsync(cancellationToken).ConfigureAwait(false);
         if ((before.Scenario & 0x80) == 0)
         {
-            return Rejected(command, CapabilityReasonCode.Unsupported, "Firmware does not support scenario selection.");
+            return ClawResults.Rejected(
+                command,
+                CapabilityReasonCode.Unsupported,
+                "Firmware does not support scenario selection.");
         }
         int target = scenario switch
         {
@@ -104,7 +110,7 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
         };
         if (target < 0)
         {
-            return Rejected(command, CapabilityReasonCode.ValueOutOfRange, "Unknown firmware scenario.");
+            return ClawResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange, "Unknown firmware scenario.");
         }
         cancellationToken.ThrowIfCancellationRequested();
         try
@@ -116,7 +122,7 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
             PowerPair readback = await ReadAsync(cancellationToken).ConfigureAwait(false);
             if (readback.Scenario == target)
             {
-                return Verified(command, new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = scenario });
+                return ClawResults.Verified(command, CapabilityValue.Choice(scenario));
             }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -133,14 +139,11 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
         {
             rollback = RollbackResult.RestoreFailed;
         }
-        return new CapabilityCommandResult
-        {
-            CommandId = command.CommandId,
-            Outcome = CommandOutcome.Indeterminate,
-            Reason = new CapabilityReason(CapabilityReasonCode.TransportFaulted, "Firmware scenario readback failed."),
-            Rollback = rollback,
-            CompletedAt = DateTimeOffset.UtcNow,
-        };
+        return ClawResults.Indeterminate(
+            command,
+            CapabilityReasonCode.TransportFaulted,
+            "Firmware scenario readback failed.",
+            rollback);
     }
 
     public async ValueTask<bool> RestoreAsync(PowerPair snapshot, CancellationToken cancellationToken)
@@ -179,7 +182,7 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
                 int value = command.CapabilityId == CapabilityIds.PowerSustained
                     ? readback.SustainedWatts
                     : readback.BoostWatts;
-                return Verified(command, Integer(value));
+                return ClawResults.Verified(command, CapabilityValue.Integer(value));
             }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -189,16 +192,11 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
         }
 
         RollbackResult rollback = await TryRestorePairAsync(before, CancellationToken.None).ConfigureAwait(false);
-        return new CapabilityCommandResult
-        {
-            CommandId = command.CommandId,
-            Outcome = CommandOutcome.Indeterminate,
-            Reason = new CapabilityReason(
-                CapabilityReasonCode.TransportFaulted,
-                "Power readback did not match the requested pair."),
-            Rollback = rollback,
-            CompletedAt = DateTimeOffset.UtcNow,
-        };
+        return ClawResults.Indeterminate(
+            command,
+            CapabilityReasonCode.TransportFaulted,
+            "Power readback did not match the requested pair.",
+            rollback);
     }
 
     private async ValueTask WritePairOrderedAsync(
@@ -263,31 +261,6 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
         }
         return BinaryPrimitives.ReadInt32LittleEndian(response.AsSpan(1, sizeof(int)));
     }
-
-    private static CapabilityCommandResult Verified(CapabilityCommand command, CapabilityValue value) => new()
-    {
-        CommandId = command.CommandId,
-        Outcome = CommandOutcome.AppliedVerified,
-        ReadbackValue = value,
-        CompletedAt = DateTimeOffset.UtcNow,
-    };
-
-    private static CapabilityCommandResult Rejected(
-        CapabilityCommand command,
-        CapabilityReasonCode code,
-        string detail) => new()
-        {
-            CommandId = command.CommandId,
-            Outcome = CommandOutcome.Rejected,
-            Reason = new CapabilityReason(code, detail),
-            CompletedAt = DateTimeOffset.UtcNow,
-        };
-
-    private static CapabilityValue Integer(int value) => new()
-    {
-        Kind = CapabilityValueKind.Integer,
-        IntegerValue = value,
-    };
 }
 
 internal sealed class ClawA2VmChargeLimitCapability(IMsiWmiTransport transport)
@@ -325,7 +298,7 @@ internal sealed class ClawA2VmChargeLimitCapability(IMsiWmiTransport transport)
     {
         if (percent is < MinimumPercent or > MaximumPercent)
         {
-            return Rejected(
+            return ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.ValueOutOfRange,
                 $"The charge limit must be {MinimumPercent}-{MaximumPercent}%.");
@@ -339,13 +312,7 @@ internal sealed class ClawA2VmChargeLimitCapability(IMsiWmiTransport transport)
             ChargeLimitState readback = await ReadAsync(cancellationToken).ConfigureAwait(false);
             if (readback.Percent == percent)
             {
-                return new CapabilityCommandResult
-                {
-                    CommandId = command.CommandId,
-                    Outcome = CommandOutcome.AppliedVerified,
-                    ReadbackValue = Integer(readback.Percent),
-                    CompletedAt = DateTimeOffset.UtcNow,
-                };
+                return ClawResults.Verified(command, CapabilityValue.Integer(readback.Percent));
             }
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
@@ -357,16 +324,11 @@ internal sealed class ClawA2VmChargeLimitCapability(IMsiWmiTransport transport)
 
         RollbackResult rollback = await TryRestoreAsync(before.RawValue, CancellationToken.None)
             .ConfigureAwait(false);
-        return new CapabilityCommandResult
-        {
-            CommandId = command.CommandId,
-            Outcome = CommandOutcome.Indeterminate,
-            Reason = new CapabilityReason(
-                CapabilityReasonCode.TransportFaulted,
-                "Charge-limit readback did not match the requested policy."),
-            Rollback = rollback,
-            CompletedAt = DateTimeOffset.UtcNow,
-        };
+        return ClawResults.Indeterminate(
+            command,
+            CapabilityReasonCode.TransportFaulted,
+            "Charge-limit readback did not match the requested policy.",
+            rollback);
     }
 
     internal static byte Encode(int percent) => checked((byte)percent);
@@ -399,23 +361,6 @@ internal sealed class ClawA2VmChargeLimitCapability(IMsiWmiTransport transport)
         package[1] = rawValue;
         return _transport.InvokeSetterAsync("Set_Data", package, cancellationToken);
     }
-
-    private static CapabilityCommandResult Rejected(
-        CapabilityCommand command,
-        CapabilityReasonCode code,
-        string detail) => new()
-        {
-            CommandId = command.CommandId,
-            Outcome = CommandOutcome.Rejected,
-            Reason = new CapabilityReason(code, detail),
-            CompletedAt = DateTimeOffset.UtcNow,
-        };
-
-    private static CapabilityValue Integer(int value) => new()
-    {
-        Kind = CapabilityValueKind.Integer,
-        IntegerValue = value,
-    };
 }
 
 internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
@@ -470,7 +415,7 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
     {
         if (mode is not ("automatic" or "custom" or "full-speed"))
         {
-            return Rejected(command, "Unknown fan mode.");
+            return ClawResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange, "Unknown fan mode.");
         }
         (bool custom, bool full) = mode switch
         {
@@ -495,7 +440,7 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
             FanSnapshot readback = await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
             if (Flag(readback.CustomFlag) == custom && Flag(readback.FullSpeedFlag) == full)
             {
-                return Verified(command, Choice(mode));
+                return ClawResults.Verified(command, CapabilityValue.Choice(mode));
             }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -504,7 +449,11 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
         }
 
         RollbackResult rollback = await TryRestoreAsync(before, CancellationToken.None).ConfigureAwait(false);
-        return Indeterminate(command, "Fan-mode readback did not match.", rollback);
+        return ClawResults.Indeterminate(
+            command,
+            CapabilityReasonCode.TransportFaulted,
+            "Fan-mode readback did not match.",
+            rollback);
     }
 
     /// <summary>Writes one curve to both fan channels as a single all-or-nothing change.</summary>
@@ -527,7 +476,7 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
     {
         if (!TryValidateCurve(curve, out string? validationError))
         {
-            return Rejected(command, validationError!);
+            return ClawResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange, validationError!);
         }
 
         FanSnapshot before = await ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
@@ -554,7 +503,7 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
 
             if (applied)
             {
-                return Verified(command, Curve(curve));
+                return ClawResults.Verified(command, CapabilityValue.Curve([.. curve]));
             }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -563,7 +512,11 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
         }
 
         RollbackResult rollback = await TryRestoreAsync(before, CancellationToken.None).ConfigureAwait(false);
-        return Indeterminate(command, "Fan-table readback did not match.", rollback);
+        return ClawResults.Indeterminate(
+            command,
+            CapabilityReasonCode.TransportFaulted,
+            "Fan-table readback did not match.",
+            rollback);
     }
 
     public async ValueTask<bool> RestoreAsync(FanSnapshot snapshot, CancellationToken cancellationToken)
@@ -694,46 +647,6 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
     }
 
     private static bool Flag(byte value) => (value & 0x80) != 0;
-
-    private static CapabilityCommandResult Verified(CapabilityCommand command, CapabilityValue value) => new()
-    {
-        CommandId = command.CommandId,
-        Outcome = CommandOutcome.AppliedVerified,
-        ReadbackValue = value,
-        CompletedAt = DateTimeOffset.UtcNow,
-    };
-
-    private static CapabilityCommandResult Rejected(CapabilityCommand command, string detail) => new()
-    {
-        CommandId = command.CommandId,
-        Outcome = CommandOutcome.Rejected,
-        Reason = new CapabilityReason(CapabilityReasonCode.ValueOutOfRange, detail),
-        CompletedAt = DateTimeOffset.UtcNow,
-    };
-
-    private static CapabilityCommandResult Indeterminate(
-        CapabilityCommand command,
-        string detail,
-        RollbackResult rollback) => new()
-        {
-            CommandId = command.CommandId,
-            Outcome = CommandOutcome.Indeterminate,
-            Reason = new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail),
-            Rollback = rollback,
-            CompletedAt = DateTimeOffset.UtcNow,
-        };
-
-    private static CapabilityValue Choice(string value) => new()
-    {
-        Kind = CapabilityValueKind.Choice,
-        ChoiceValue = value,
-    };
-
-    private static CapabilityValue Curve(IReadOnlyList<CurvePoint> value) => new()
-    {
-        Kind = CapabilityValueKind.Curve,
-        CurveValue = [.. value],
-    };
 }
 
 internal sealed class ClawA2VmLightingCapability(IClawMcuTransport transport)
@@ -773,22 +686,7 @@ internal sealed class ClawA2VmLightingCapability(IClawMcuTransport transport)
         LightingState wanted = update(before);
         if (wanted == before)
         {
-            CapabilityValue currentValue = command.CapabilityId == CapabilityIds.LightingBrightness
-                ? Integer(before.Brightness)
-                : Color(command.InstanceId switch
-                {
-                    CapabilityInstances.RightRing => before.RightRingColor,
-                    CapabilityInstances.LeftRing => before.LeftRingColor,
-                    CapabilityInstances.Buttons => before.ButtonsColor,
-                    _ => throw new InvalidOperationException("Unknown lighting zone."),
-                });
-            return new CapabilityCommandResult
-            {
-                CommandId = command.CommandId,
-                Outcome = CommandOutcome.AppliedVerified,
-                ReadbackValue = currentValue,
-                CompletedAt = DateTimeOffset.UtcNow,
-            };
+            return VerifiedValue(command, before);
         }
 
         if (wanted.Brightness is < 0 or > 100
@@ -796,15 +694,10 @@ internal sealed class ClawA2VmLightingCapability(IClawMcuTransport transport)
             || !IsColor(wanted.LeftRingColor)
             || !IsColor(wanted.ButtonsColor))
         {
-            return new CapabilityCommandResult
-            {
-                CommandId = command.CommandId,
-                Outcome = CommandOutcome.Rejected,
-                Reason = new CapabilityReason(
-                    CapabilityReasonCode.ValueOutOfRange,
-                    "Lighting brightness or colour is outside the validated range."),
-                CompletedAt = DateTimeOffset.UtcNow,
-            };
+            return ClawResults.Rejected(
+                command,
+                CapabilityReasonCode.ValueOutOfRange,
+                "Lighting brightness or colour is outside the validated range.");
         }
 
         TimeSpan untilNextWrite = MinimumPersistentWriteInterval
@@ -813,16 +706,12 @@ internal sealed class ClawA2VmLightingCapability(IClawMcuTransport transport)
         {
             if (DateTimeOffset.UtcNow + untilNextWrite >= command.Deadline)
             {
-                return new CapabilityCommandResult
-                {
-                    CommandId = command.CommandId,
-                    Outcome = CommandOutcome.Rejected,
-                    Reason = new CapabilityReason(
+                return ClawResults.Rejected(
+                    command,
+                    new CapabilityReason(
                         CapabilityReasonCode.Quiescing,
                         "The lighting command deadline is too short for the persistent-write interval.",
-                        Retryable: true),
-                    CompletedAt = DateTimeOffset.UtcNow,
-                };
+                        Retryable: true));
             }
 
             await Task.Delay(untilNextWrite, cancellationToken).ConfigureAwait(false);
@@ -836,15 +725,10 @@ internal sealed class ClawA2VmLightingCapability(IClawMcuTransport transport)
 
         if (!ClawWriteBudget.IsAvailable(command.Deadline))
         {
-            return new CapabilityCommandResult
-            {
-                CommandId = command.CommandId,
-                Outcome = CommandOutcome.Rejected,
-                Reason = new CapabilityReason(
-                    CapabilityReasonCode.Quiescing,
-                    "Insufficient command budget for a persistent lighting write."),
-                CompletedAt = DateTimeOffset.UtcNow,
-            };
+            return ClawResults.Rejected(
+                command,
+                CapabilityReasonCode.Quiescing,
+                "Insufficient command budget for a persistent lighting write.");
         }
 
         // The exact bytes the device held before this command, kept for the rollback below. This
@@ -872,16 +756,11 @@ internal sealed class ClawA2VmLightingCapability(IClawMcuTransport transport)
             RollbackResult rollback = await RollbackAsync(before, restore, CancellationToken.None)
                 .ConfigureAwait(false);
             PluginTrace.Failure("lighting", "Persistent lighting write was cancelled", exception);
-            return new CapabilityCommandResult
-            {
-                CommandId = command.CommandId,
-                Outcome = CommandOutcome.Indeterminate,
-                Reason = new CapabilityReason(
-                    CapabilityReasonCode.Quiescing,
-                    "The persistent lighting write was cancelled after application began."),
-                Rollback = rollback,
-                CompletedAt = DateTimeOffset.UtcNow,
-            };
+            return ClawResults.Indeterminate(
+                command,
+                CapabilityReasonCode.Quiescing,
+                "The persistent lighting write was cancelled after application began.",
+                rollback);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -890,50 +769,25 @@ internal sealed class ClawA2VmLightingCapability(IClawMcuTransport transport)
             RollbackResult rollback = await RollbackAsync(before, restore, CancellationToken.None)
                 .ConfigureAwait(false);
             PluginTrace.Failure("lighting", "Persistent lighting write failed", exception);
-            return new CapabilityCommandResult
-            {
-                CommandId = command.CommandId,
-                Outcome = CommandOutcome.Indeterminate,
-                Reason = new CapabilityReason(
-                    CapabilityReasonCode.TransportFaulted,
-                    $"The persistent lighting write failed: {exception.Message}"),
-                Rollback = rollback,
-                CompletedAt = DateTimeOffset.UtcNow,
-            };
+            return ClawResults.Indeterminate(
+                command,
+                CapabilityReasonCode.TransportFaulted,
+                $"The persistent lighting write failed: {exception.Message}",
+                rollback);
         }
 
         if (readback != wanted || _observedProfile is null || !_observedProfile.SequenceEqual(payload))
         {
             RollbackResult rollback = await RollbackAsync(before, restore, CancellationToken.None)
                 .ConfigureAwait(false);
-            return new CapabilityCommandResult
-            {
-                CommandId = command.CommandId,
-                Outcome = CommandOutcome.Indeterminate,
-                Reason = new CapabilityReason(
-                    CapabilityReasonCode.TransportFaulted,
-                    "Persistent lighting readback did not match the committed profile."),
-                Rollback = rollback,
-                CompletedAt = DateTimeOffset.UtcNow,
-            };
+            return ClawResults.Indeterminate(
+                command,
+                CapabilityReasonCode.TransportFaulted,
+                "Persistent lighting readback did not match the committed profile.",
+                rollback);
         }
 
-        CapabilityValue value = command.CapabilityId == CapabilityIds.LightingBrightness
-            ? Integer(readback.Brightness)
-            : Color(command.InstanceId switch
-            {
-                CapabilityInstances.RightRing => readback.RightRingColor,
-                CapabilityInstances.LeftRing => readback.LeftRingColor,
-                CapabilityInstances.Buttons => readback.ButtonsColor,
-                _ => throw new InvalidOperationException("Unknown lighting zone."),
-            });
-        return new CapabilityCommandResult
-        {
-            CommandId = command.CommandId,
-            Outcome = CommandOutcome.AppliedVerified,
-            ReadbackValue = value,
-            CompletedAt = DateTimeOffset.UtcNow,
-        };
+        return VerifiedValue(command, readback);
     }
 
     /// <summary>Restores the exact profile the device held before an unverified write.</summary>
@@ -1015,21 +869,15 @@ internal sealed class ClawA2VmLightingCapability(IClawMcuTransport transport)
         LightingState state)
     {
         CapabilityValue currentValue = command.CapabilityId == CapabilityIds.LightingBrightness
-            ? Integer(state.Brightness)
-            : Color(command.InstanceId switch
+            ? CapabilityValue.Integer(state.Brightness)
+            : CapabilityValue.Color(command.InstanceId switch
             {
                 CapabilityInstances.RightRing => state.RightRingColor,
                 CapabilityInstances.LeftRing => state.LeftRingColor,
                 CapabilityInstances.Buttons => state.ButtonsColor,
                 _ => throw new InvalidOperationException("Unknown lighting zone."),
             });
-        return new CapabilityCommandResult
-        {
-            CommandId = command.CommandId,
-            Outcome = CommandOutcome.AppliedVerified,
-            ReadbackValue = currentValue,
-            CompletedAt = DateTimeOffset.UtcNow,
-        };
+        return ClawResults.Verified(command, currentValue);
     }
 
     private static int ReadColor(byte[] payload, int offset) =>
@@ -1043,18 +891,6 @@ internal sealed class ClawA2VmLightingCapability(IClawMcuTransport transport)
     }
 
     private static bool IsColor(int color) => color is >= 0 and <= 0xFFFFFF;
-
-    private static CapabilityValue Integer(int value) => new()
-    {
-        Kind = CapabilityValueKind.Integer,
-        IntegerValue = value,
-    };
-
-    private static CapabilityValue Color(int value) => new()
-    {
-        Kind = CapabilityValueKind.Color,
-        ColorValue = value,
-    };
 }
 
 internal static class CapabilityIds

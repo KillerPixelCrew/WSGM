@@ -232,7 +232,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         ArgumentNullException.ThrowIfNull(command);
         if (!_active || _descriptorSet is null || _quiescing)
         {
-            return Rejected(
+            return ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.Quiescing,
                 "The Claw device cycle is inactive or quiescing.");
@@ -244,7 +244,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return Rejected(
+            return ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.Quiescing,
                 "The command was cancelled before its serialized hardware turn began.");
@@ -254,7 +254,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         {
             if (!_active || _descriptorSet is null || _quiescing)
             {
-                return Rejected(
+                return ClawResults.Rejected(
                     command,
                     CapabilityReasonCode.Quiescing,
                     "The Claw device cycle started quiescing before this command could run.");
@@ -1263,7 +1263,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         ClawServiceStatus? service = ServiceForCapability(command.CapabilityId);
         if (descriptor is null || service is null)
         {
-            return Rejected(
+            return ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.Unsupported,
                 $"Capability '{CapabilityKey(command.CapabilityId, command.InstanceId)}' is not available.");
@@ -1271,7 +1271,10 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
         if (command.ApplyPowerPair && descriptor.PairedPowerLimitId is null)
         {
-            return Rejected(command, CapabilityReasonCode.Unsupported, "This capability does not declare a power pair.");
+            return ClawResults.Rejected(
+                command,
+                CapabilityReasonCode.Unsupported,
+                "This capability does not declare a power pair.");
         }
 
         ClawIdentityState identity;
@@ -1287,14 +1290,14 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return Rejected(
+            return ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.Quiescing,
                 "Command was cancelled before hardware application began.");
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            return Rejected(
+            return ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.TransportFaulted,
                 $"Current-state revalidation failed: {ex.GetType().Name}.");
@@ -1307,7 +1310,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         refusal ??= ValidateCommand(command, descriptor, identity.OnAcPower);
         if (refusal is not null)
         {
-            return Rejected(command, refusal);
+            return ClawResults.Rejected(command, refusal);
         }
 
         CapabilityCommandResult result;
@@ -1441,7 +1444,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     {
         if (_arcSync is not { IsAvailable: true } display)
         {
-            return ValueTask.FromResult(Rejected(
+            return ValueTask.FromResult(ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.Unsupported,
                 "No variable-refresh capable panel is present."));
@@ -1450,7 +1453,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         bool requested = command.RequestedValue!.BooleanValue!.Value;
         if (!display.TryWrite(requested))
         {
-            return ValueTask.FromResult(Rejected(
+            return ValueTask.FromResult(ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.TransportFaulted,
                 $"The display driver did not apply variable refresh {(requested ? "on" : "off")}."));
@@ -1458,13 +1461,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
         // Verified rather than unverified: TryWrite only reports success once the profile has been
         // read back and agrees, so the readback carried here is an observation and not a hope.
-        return ValueTask.FromResult(new CapabilityCommandResult
-        {
-            CommandId = command.CommandId,
-            Outcome = CommandOutcome.AppliedVerified,
-            ReadbackValue = Boolean(requested),
-            CompletedAt = DateTimeOffset.UtcNow,
-        });
+        return ValueTask.FromResult(ClawResults.Verified(command, CapabilityValue.Boolean(requested)));
     }
 
     /// <remarks>
@@ -1478,7 +1475,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         if (_arcSync is not { IsEnduranceGamingAvailable: true } display
             || display.ReadEnduranceGaming() is not { } current)
         {
-            return ValueTask.FromResult(Rejected(
+            return ValueTask.FromResult(ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.Unsupported,
                 "The graphics driver does not offer Endurance Gaming on this device."));
@@ -1508,7 +1505,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
         if (!display.TryWriteEnduranceGaming(control, mode))
         {
-            return ValueTask.FromResult(Rejected(
+            return ValueTask.FromResult(ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.TransportFaulted,
                 $"The graphics driver did not apply Endurance Gaming {control}/{mode}."));
@@ -1516,13 +1513,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
         // Verified rather than unverified: the transport reports success only after reading both
         // fields back and finding them equal to what was asked for.
-        return ValueTask.FromResult(new CapabilityCommandResult
-        {
-            CommandId = command.CommandId,
-            Outcome = CommandOutcome.AppliedVerified,
-            ReadbackValue = Choice(requested),
-            CompletedAt = DateTimeOffset.UtcNow,
-        });
+        return ValueTask.FromResult(ClawResults.Verified(command, CapabilityValue.Choice(requested)));
     }
 
     /// <remarks>
@@ -1533,7 +1524,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     {
         if (_arcSync is not { IsShaderDownloadAvailable: true } display)
         {
-            return ValueTask.FromResult(Rejected(
+            return ValueTask.FromResult(ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.Unsupported,
                 "The graphics driver does not offer prebuilt shader download on this device."));
@@ -1542,19 +1533,13 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         bool requested = command.RequestedValue!.BooleanValue!.Value;
         if (!display.TryWriteShaderDownload(requested))
         {
-            return ValueTask.FromResult(Rejected(
+            return ValueTask.FromResult(ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.TransportFaulted,
                 $"The graphics driver did not apply shader download {(requested ? "on" : "off")}."));
         }
 
-        return ValueTask.FromResult(new CapabilityCommandResult
-        {
-            CommandId = command.CommandId,
-            Outcome = CommandOutcome.AppliedVerified,
-            ReadbackValue = Boolean(requested),
-            CompletedAt = DateTimeOffset.UtcNow,
-        });
+        return ValueTask.FromResult(ClawResults.Verified(command, CapabilityValue.Boolean(requested)));
     }
 
     /// <remarks>
@@ -1572,7 +1557,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     {
         if (_arcSync is not { IsSharedGpuMemoryAvailable: true } display)
         {
-            return ValueTask.FromResult(Rejected(
+            return ValueTask.FromResult(ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.Unsupported,
                 "The graphics driver does not offer a shared memory split on this device."));
@@ -1582,7 +1567,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         if (requested < IntelGraphicsMemoryTransport.MinimumPercent
             || requested > IntelGraphicsMemoryTransport.MaximumPercent)
         {
-            return ValueTask.FromResult(Rejected(
+            return ValueTask.FromResult(ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.ValueOutOfRange,
                 $"The GPU memory share must be {IntelGraphicsMemoryTransport.MinimumPercent}-"
@@ -1591,19 +1576,13 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
         if (!display.TryWriteSharedGpuMemory(requested))
         {
-            return ValueTask.FromResult(Rejected(
+            return ValueTask.FromResult(ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.TransportFaulted,
                 $"The graphics driver did not store a GPU memory share of {requested} percent."));
         }
 
-        return ValueTask.FromResult(new CapabilityCommandResult
-        {
-            CommandId = command.CommandId,
-            Outcome = CommandOutcome.AppliedVerified,
-            ReadbackValue = Integer(requested),
-            CompletedAt = DateTimeOffset.UtcNow,
-        });
+        return ValueTask.FromResult(ClawResults.Verified(command, CapabilityValue.Integer(requested)));
     }
 
     /// <remarks>
@@ -1621,7 +1600,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     {
         if (_arcSync is not { } display || FlipModeChoices() is not { Count: > 1 } choices)
         {
-            return ValueTask.FromResult(Rejected(
+            return ValueTask.FromResult(ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.Unsupported,
                 "The graphics driver does not offer frame presentation modes on this device."));
@@ -1630,7 +1609,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         string requested = command.RequestedValue!.ChoiceValue ?? "";
         if (!choices.Contains(requested))
         {
-            return ValueTask.FromResult(Rejected(
+            return ValueTask.FromResult(ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.ValueOutOfRange,
                 $"The driver does not offer the '{requested}' frame presentation mode."));
@@ -1639,19 +1618,13 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         uint bit = Array.Find(FlipModes, mode => mode.Value == requested).Bit;
         if (!display.TryWriteFlipMode(bit))
         {
-            return ValueTask.FromResult(Rejected(
+            return ValueTask.FromResult(ClawResults.Rejected(
                 command,
                 CapabilityReasonCode.TransportFaulted,
                 $"The graphics driver did not store the '{requested}' frame presentation mode."));
         }
 
-        return ValueTask.FromResult(new CapabilityCommandResult
-        {
-            CommandId = command.CommandId,
-            Outcome = CommandOutcome.AppliedVerified,
-            ReadbackValue = Choice(requested),
-            CompletedAt = DateTimeOffset.UtcNow,
-        });
+        return ValueTask.FromResult(ClawResults.Verified(command, CapabilityValue.Choice(requested)));
     }
 
     private ValueTask<CapabilityCommandResult> ApplyFanCurveCommandAsync(
@@ -2108,12 +2081,12 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     {
         if (descriptor.CapabilityId == CapabilityIds.PowerSustained)
         {
-            return _power!.LastObserved is { } value ? Integer(value.SustainedWatts) : null;
+            return _power!.LastObserved is { } value ? CapabilityValue.Integer(value.SustainedWatts) : null;
         }
 
         if (descriptor.CapabilityId == CapabilityIds.PowerBoost)
         {
-            return _power!.LastObserved is { } value ? Integer(value.BoostWatts) : null;
+            return _power!.LastObserved is { } value ? CapabilityValue.Integer(value.BoostWatts) : null;
         }
 
         if (descriptor.CapabilityId == CapabilityIds.Scenario)
@@ -2123,7 +2096,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
         if (descriptor.CapabilityId == CapabilityIds.ChargeLimit)
         {
-            return _chargeLimit!.LastObserved is { } value ? Integer(value.Percent) : null;
+            return _chargeLimit!.LastObserved is { } value ? CapabilityValue.Integer(value.Percent) : null;
         }
 
         if (descriptor.CapabilityId == CapabilityIds.FanMode)
@@ -2137,7 +2110,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             // two tables can only disagree if something outside WSGM wrote one of them, and the
             // next write puts them back together.
             FanSnapshot? value = _fans!.LastObserved;
-            return value is null ? null : Curve(value.Left);
+            return value is null ? null : CapabilityValue.Curve(ClawA2VmFanCapability.DecodeCurve(value.Left));
         }
 
         if (descriptor.CapabilityId == CapabilityIds.FanRpm)
@@ -2145,19 +2118,20 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             FanTelemetry? value = _telemetry!.LastTelemetry;
             return value is null
                 ? null
-                : Integer(descriptor.InstanceId == CapabilityInstances.Left ? value.LeftRpm : value.RightRpm);
+                : CapabilityValue.Integer(
+                    descriptor.InstanceId == CapabilityInstances.Left ? value.LeftRpm : value.RightRpm);
         }
 
         if (descriptor.CapabilityId == CapabilityIds.Temperature)
         {
             return _telemetry!.LastTelemetry is { } value
-                ? Integer(value.TemperatureCelsius)
+                ? CapabilityValue.Integer(value.TemperatureCelsius)
                 : null;
         }
 
         if (descriptor.CapabilityId == CapabilityIds.LightingBrightness)
         {
-            return _lighting!.LastObserved is { } value ? Integer(value.Brightness) : null;
+            return _lighting!.LastObserved is { } value ? CapabilityValue.Integer(value.Brightness) : null;
         }
 
         if (descriptor.CapabilityId == CapabilityIds.LightingColor)
@@ -2165,7 +2139,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             LightingState? value = _lighting!.LastObserved;
             return value is null
                 ? null
-                : Color(descriptor.InstanceId switch
+                : CapabilityValue.Color(descriptor.InstanceId switch
                 {
                     CapabilityInstances.RightRing => value.RightRingColor,
                     CapabilityInstances.LeftRing => value.LeftRingColor,
@@ -2178,7 +2152,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         {
             // A sink has no value to report. Its descriptor says so, and its state has to agree or
             // the state is rejected for a kind mismatch the way the descriptor set was.
-            return new CapabilityValue { Kind = CapabilityValueKind.None };
+            return CapabilityValue.None();
         }
 
         if (descriptor.CapabilityId == CapabilityIds.VariableRefreshRate)
@@ -2190,13 +2164,13 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             // through exactly that availability — never rendered. One log line every ten seconds
             // said all of this; it took a missing row to make anyone read it.
             ArcSyncState? state = _arcSync?.Read();
-            return state is { Supported: true } observed ? Boolean(observed.Enabled) : null;
+            return state is { Supported: true } observed ? CapabilityValue.Boolean(observed.Enabled) : null;
         }
 
         if (descriptor.CapabilityId == CapabilityIds.EnduranceGaming)
         {
             return _arcSync?.ReadEnduranceGaming() is { } endurance
-                ? Choice(endurance.Control switch
+                ? CapabilityValue.Choice(endurance.Control switch
                 {
                     EnduranceGamingControl.On => "on",
                     EnduranceGamingControl.Auto => "auto",
@@ -2207,7 +2181,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
         if (descriptor.CapabilityId == CapabilityIds.ShaderDownload)
         {
-            return _arcSync?.ReadShaderDownload() is { } shader ? Boolean(shader) : null;
+            return _arcSync?.ReadShaderDownload() is { } shader ? CapabilityValue.Boolean(shader) : null;
         }
 
         if (descriptor.CapabilityId == CapabilityIds.DriverVsync)
@@ -2215,20 +2189,20 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             // An adapter that stores nothing is at Intel's default, which is application default.
             uint stored = _arcSync?.ReadFlipMode() ?? 0;
             (uint Bit, string Value) match = Array.Find(FlipModes, mode => mode.Bit == stored);
-            return Choice(match.Value ?? "application-default");
+            return CapabilityValue.Choice(match.Value ?? "application-default");
         }
 
         if (descriptor.CapabilityId == CapabilityIds.SharedGpuMemory)
         {
             // The stored percentage, not the size the driver currently reports. Those two disagree
             // between a write and the next restart, and the row has to show what was asked for.
-            return _arcSync?.ReadSharedGpuMemory() is { } memory ? Integer(memory.Percent) : null;
+            return _arcSync?.ReadSharedGpuMemory() is { } memory ? CapabilityValue.Integer(memory.Percent) : null;
         }
 
         if (descriptor.CapabilityId == CapabilityIds.EnduranceGamingMode)
         {
             return _arcSync?.ReadEnduranceGaming() is { } target
-                ? Choice(target.Mode switch
+                ? CapabilityValue.Choice(target.Mode switch
                 {
                     EnduranceGamingMode.Balanced => "balanced",
                     EnduranceGamingMode.Battery => "battery",
@@ -2237,7 +2211,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                 : null;
         }
 
-        return Choice(OwnershipOf(
+        return CapabilityValue.Choice(OwnershipOf(
             descriptor.CapabilityId == CapabilityIds.Motion ? _motion!.State : _controller!.State));
     }
 
@@ -2891,40 +2865,8 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             Persistence = CapabilityPersistence.Volatile,
         };
 
-    private static CapabilityValue Integer(int value) => new()
-    {
-        Kind = CapabilityValueKind.Integer,
-        IntegerValue = value,
-    };
-
-    private static CapabilityValue Boolean(bool value) => new()
-    {
-        Kind = CapabilityValueKind.Boolean,
-        BooleanValue = value,
-    };
-
-    private static CapabilityValue Color(int value) => new()
-    {
-        Kind = CapabilityValueKind.Color,
-        ColorValue = value,
-    };
-
-    private static CapabilityValue Curve(FanTable table) => new()
-    {
-        Kind = CapabilityValueKind.Curve,
-        CurveValue = ClawA2VmFanCapability.DecodeCurve(table),
-    };
-
-    private static CapabilityValue Choice(string value) => new()
-    {
-        Kind = CapabilityValueKind.Choice,
-        ChoiceValue = value,
-    };
-
-    private static CapabilityValue Scenario(byte raw) => new()
-    {
-        Kind = CapabilityValueKind.Choice,
-        ChoiceValue = (raw & 0xC0) != 0xC0 ? "inactive" : (raw & 0x3F) switch
+    private static CapabilityValue Scenario(byte raw) => CapabilityValue.Choice(
+        (raw & 0xC0) != 0xC0 ? "inactive" : (raw & 0x3F) switch
         {
             0 => "comfort",
             1 => "green",
@@ -2932,59 +2874,30 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             3 => "user",
             4 => "sport",
             _ => "unknown",
-        },
-    };
+        });
 
-    private static CapabilityValue FanMode(FanSnapshot snapshot) => new()
-    {
-        Kind = CapabilityValueKind.Choice,
-        ChoiceValue = (snapshot.CustomFlag & 0x80) != 0
+    private static CapabilityValue FanMode(FanSnapshot snapshot) => CapabilityValue.Choice(
+        (snapshot.CustomFlag & 0x80) != 0
             ? "custom"
             : (snapshot.FullSpeedFlag & 0x80) != 0
                 ? "full-speed"
-                : "automatic",
-    };
+                : "automatic");
 
-    private static CapabilityCommandResult Rejected(
-        CapabilityCommand command,
-        CapabilityReasonCode code,
-        string detail) => new()
-        {
-            CommandId = command.CommandId,
-            Outcome = CommandOutcome.Rejected,
-            Reason = new CapabilityReason(code, detail),
-            CompletedAt = DateTimeOffset.UtcNow,
-        };
-
-    private static CapabilityCommandResult Rejected(
-        CapabilityCommand command,
-        CapabilityReason reason) => new()
-        {
-            CommandId = command.CommandId,
-            Outcome = CommandOutcome.Rejected,
-            Reason = reason,
-            CompletedAt = DateTimeOffset.UtcNow,
-        };
-
-    private static CapabilityCommandResult Indeterminate(
-        CapabilityCommand command,
-        string detail) => new()
-        {
-            CommandId = command.CommandId,
-            Outcome = CommandOutcome.Indeterminate,
-            Reason = new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail),
-            // Admission succeeded and the handler failed without confirming a rollback. Journalled
-            // resources remain outstanding, so claiming any restoration here would be fabricated.
-            Rollback = RollbackResult.RestoreFailed,
-            CompletedAt = DateTimeOffset.UtcNow,
-        };
+    // Admission succeeded and the handler failed without confirming a rollback. Journalled resources
+    // remain outstanding, so claiming any restoration here would be fabricated.
+    private static CapabilityCommandResult Indeterminate(CapabilityCommand command, string detail) =>
+        ClawResults.Indeterminate(
+            command,
+            CapabilityReasonCode.TransportFaulted,
+            detail,
+            RollbackResult.RestoreFailed);
 
     private static ValueTask<CapabilityCommandResult> ReadOnlyHandler(
         CapabilityCommand command,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(Rejected(
+        return ValueTask.FromResult(ClawResults.Rejected(
             command,
             CapabilityReasonCode.Unsupported,
             "This capability is read-only."));

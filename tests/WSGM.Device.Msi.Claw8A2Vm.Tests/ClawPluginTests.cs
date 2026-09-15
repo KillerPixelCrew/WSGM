@@ -29,7 +29,7 @@ public sealed class ClawPluginTests
             wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress) <= wmi.ReadData(ClawHardwareFacts.PowerBoostAddress));
         ClawA2VmPowerCapability power = new(wmi);
         var command = Command(CapabilityIds.PowerSustained, null,
-            new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = target }) with
+            CapabilityValue.Integer(target)) with
         { ApplyPowerPair = true };
         var result = await power.ApplySustainedAsync(command, target, CancellationToken.None);
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
@@ -49,7 +49,7 @@ public sealed class ClawPluginTests
         };
         ClawA2VmPowerCapability power = new(wmi);
         var command = Command(CapabilityIds.PowerSustained, null,
-            new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 12 }) with
+            CapabilityValue.Integer(12)) with
         { ApplyPowerPair = true };
         var result = await power.ApplySustainedAsync(command, 12, CancellationToken.None);
         Assert.Equal(CommandOutcome.Indeterminate, result.Outcome);
@@ -259,11 +259,7 @@ public sealed class ClawPluginTests
         CapabilityCommand command = Command(
             CapabilityIds.LightingBrightness,
             instanceId: null,
-            new CapabilityValue
-            {
-                Kind = CapabilityValueKind.Integer,
-                IntegerValue = 75,
-            });
+            CapabilityValue.Integer(75));
         mcu.AfterNextWrite = cancellation.Cancel;
 
         CapabilityCommandResult result = await lighting.ApplyAsync(
@@ -289,11 +285,7 @@ public sealed class ClawPluginTests
         CapabilityCommand command = Command(
             CapabilityIds.LightingBrightness,
             instanceId: null,
-            new CapabilityValue
-            {
-                Kind = CapabilityValueKind.Integer,
-                IntegerValue = 75,
-            });
+            CapabilityValue.Integer(75));
 
         CapabilityCommandResult result = await lighting.ApplyAsync(
             command,
@@ -327,11 +319,7 @@ public sealed class ClawPluginTests
         CapabilityCommand command = Command(
             CapabilityIds.LightingBrightness,
             instanceId: null,
-            new CapabilityValue
-            {
-                Kind = CapabilityValueKind.Integer,
-                IntegerValue = 75,
-            });
+            CapabilityValue.Integer(75));
 
         CapabilityCommandResult result = await lighting.ApplyAsync(
             command,
@@ -358,11 +346,7 @@ public sealed class ClawPluginTests
         CapabilityCommand command = Command(
             CapabilityIds.ChargeLimit,
             instanceId: null,
-            new CapabilityValue
-            {
-                Kind = CapabilityValueKind.Integer,
-                IntegerValue = percent,
-            });
+            CapabilityValue.Integer(percent));
 
         CapabilityCommandResult result = await chargeLimit.ApplyAsync(
             command,
@@ -419,19 +403,15 @@ public sealed class ClawPluginTests
         CapabilityCommand command = Command(
             CapabilityIds.FanCurve,
             instanceId: null,
-            new CapabilityValue
-            {
-                Kind = CapabilityValueKind.Curve,
-                CurveValue =
-                [
-                    new CurvePoint(0, 0),
-                    new CurvePoint(50, 40),
-                    new CurvePoint(60, 50),
-                    new CurvePoint(70, 60),
-                    new CurvePoint(80, 70),
-                    new CurvePoint(90, 80),
-                ],
-            });
+            CapabilityValue.Curve(
+            [
+                new CurvePoint(0, 0),
+                new CurvePoint(50, 40),
+                new CurvePoint(60, 50),
+                new CurvePoint(70, 60),
+                new CurvePoint(80, 70),
+                new CurvePoint(90, 80),
+            ]));
 
         CapabilityCommandResult result = await fan.ApplyCurveAsync(
             command,
@@ -464,19 +444,15 @@ public sealed class ClawPluginTests
         CapabilityCommand command = Command(
             CapabilityIds.FanCurve,
             instanceId: null,
-            new CapabilityValue
-            {
-                Kind = CapabilityValueKind.Curve,
-                CurveValue =
-                [
-                    new CurvePoint(0, 0),
-                    new CurvePoint(50, 40),
-                    new CurvePoint(60, 50),
-                    new CurvePoint(70, 60),
-                    new CurvePoint(80, 70),
-                    new CurvePoint(90, 80),
-                ],
-            });
+            CapabilityValue.Curve(
+            [
+                new CurvePoint(0, 0),
+                new CurvePoint(50, 40),
+                new CurvePoint(60, 50),
+                new CurvePoint(70, 60),
+                new CurvePoint(80, 70),
+                new CurvePoint(90, 80),
+            ]));
 
         CapabilityCommandResult result = await fan.ApplyCurveAsync(
             command,
@@ -716,11 +692,7 @@ public sealed class ClawPluginTests
         CapabilityCommand command = Command(
             CapabilityIds.PowerSustained,
             instanceId: null,
-            new CapabilityValue
-            {
-                Kind = CapabilityValueKind.Integer,
-                IntegerValue = 25,
-            });
+            CapabilityValue.Integer(25));
 
         CapabilityCommandResult result = await plugin.ExecuteCommandAsync(command, CancellationToken.None);
 
@@ -782,7 +754,7 @@ public sealed class ClawPluginTests
         await plugin.StartAsync(StartContext(host, state.Root), CancellationToken.None);
         Assert.Equal("inactive", host.CapabilityStates.Last(s => s.CapabilityId == CapabilityIds.Scenario).ObservedValue?.ChoiceValue);
         var result = await plugin.ExecuteCommandAsync(Command(CapabilityIds.Scenario, null,
-            new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = scenario }), CancellationToken.None);
+            CapabilityValue.Choice(scenario)), CancellationToken.None);
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
         Assert.Equal(expected, wmi.ReadData(ClawHardwareFacts.ScenarioAddress));
         Assert.Equal(scenario, result.ReadbackValue?.ChoiceValue);
@@ -815,7 +787,7 @@ public sealed class ClawPluginTests
         };
         ClawA2VmPowerCapability capability = new(wmi);
         var result = await capability.ApplyScenarioAsync(Command(CapabilityIds.Scenario, null,
-            new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = "sport" }), "sport", cancellation.Token);
+            CapabilityValue.Choice("sport")), "sport", cancellation.Token);
         Assert.Equal(CommandOutcome.Indeterminate, result.Outcome);
         Assert.Equal(RollbackResult.RestoredVerified, result.Rollback);
         Assert.Equal(new PowerPair(30, 37, 0xC1), await capability.ReadAsync(CancellationToken.None));
@@ -829,7 +801,7 @@ public sealed class ClawPluginTests
         wmi.SetData(ClawHardwareFacts.ScenarioAddress, 1);
         ClawA2VmPowerCapability capability = new(wmi);
         var result = await capability.ApplyScenarioAsync(Command(CapabilityIds.Scenario, null,
-            new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = "sport" }), "sport", CancellationToken.None);
+            CapabilityValue.Choice("sport")), "sport", CancellationToken.None);
         Assert.Equal(CommandOutcome.Rejected, result.Outcome);
         Assert.Empty(wmi.Writes);
     }
@@ -843,7 +815,7 @@ public sealed class ClawPluginTests
         wmi.SetData(ClawHardwareFacts.ScenarioAddress, initial);
         ClawA2VmPowerCapability capability = new(wmi);
         var result = await capability.ApplyScenarioAsync(Command(CapabilityIds.Scenario, null,
-            new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = "inactive" }), "inactive", default);
+            CapabilityValue.Choice("inactive")), "inactive", default);
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
         Assert.Equal(expected, wmi.ReadData(ClawHardwareFacts.ScenarioAddress));
     }
@@ -854,7 +826,7 @@ public sealed class ClawPluginTests
         FakeWmiTransport wmi = new();
         ClawA2VmPowerCapability capability = new(wmi);
         var result = await capability.ApplyScenarioAsync(Command(CapabilityIds.Scenario, null,
-            new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = "turbo" }), "turbo", default);
+            CapabilityValue.Choice("turbo")), "turbo", default);
         Assert.Equal(CommandOutcome.Rejected, result.Outcome);
         Assert.Equal(CapabilityReasonCode.ValueOutOfRange, result.Reason?.Code);
         Assert.Empty(wmi.Writes);
@@ -877,7 +849,7 @@ public sealed class ClawPluginTests
             { host.CapabilityPublicationBlock = blocked; }
         };
         var command = Command(CapabilityIds.Scenario, null,
-            new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = "sport" }) with
+            CapabilityValue.Choice("sport")) with
         { Deadline = DateTimeOffset.UtcNow.AddSeconds(10) };
         Task<CapabilityCommandResult> applying = plugin.ExecuteCommandAsync(command, default).AsTask();
         try
@@ -906,11 +878,7 @@ public sealed class ClawPluginTests
         CapabilityCommand command = Command(
             CapabilityIds.ChargeLimit,
             instanceId: null,
-            new CapabilityValue
-            {
-                Kind = CapabilityValueKind.Integer,
-                IntegerValue = 60,
-            });
+            CapabilityValue.Integer(60));
 
         CapabilityCommandResult result = await plugin.ExecuteCommandAsync(command, CancellationToken.None);
         PluginStopResult stop = await plugin.StopAsync(
@@ -940,11 +908,7 @@ public sealed class ClawPluginTests
         CapabilityCommand command = Command(
             CapabilityIds.PowerSustained,
             instanceId: null,
-            new CapabilityValue
-            {
-                Kind = CapabilityValueKind.Integer,
-                IntegerValue = 25,
-            });
+            CapabilityValue.Integer(25));
 
         CapabilityCommandResult result = await plugin.ExecuteCommandAsync(command, CancellationToken.None);
         PluginStopResult stop = await plugin.StopAsync(
