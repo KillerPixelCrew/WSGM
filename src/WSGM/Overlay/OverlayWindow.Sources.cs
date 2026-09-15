@@ -1,3 +1,4 @@
+using System.Linq;
 using System;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -12,7 +13,14 @@ public partial class OverlayWindow
     internal void AttachPowerPresets(DevicePowerPresetSelection selection)
     {
         DispatcherTimer refresh = new() { Interval = TimeSpan.FromSeconds(1) };
-        refresh.Tick += async (_, _) => await selection.RefreshAsync();
+        // Polled only while its rows can be seen: on their Device page, or pinned to Quick access.
+        refresh.Tick += async (_, _) =>
+        {
+            if (DevicePowerPresetContainer.IsEffectivelyVisible || PinShowing("section.device.power-presets"))
+            {
+                await selection.RefreshAsync();
+            }
+        };
         Opened += async (_, _) => { refresh.Start(); await selection.RefreshAsync(); };
         Closed += (_, _) => { refresh.Stop(); selection.Dispose(); };
         DevicePowerPresetHost.Attach(selection);
@@ -56,6 +64,9 @@ public partial class OverlayWindow
         RenderPins();
     }
 
+    /// <summary>Whether a pinned row is on screen: its id is pinned and the Quick access root shows.</summary>
+    private bool PinShowing(string id) => PanelQuickAccess.IsEffectivelyVisible && _pins.Contains(id);
+
     internal void AttachSteamOwnership(Func<SteamControllerHandoff?> getOwner)
     {
         void Refresh()
@@ -81,7 +92,16 @@ public partial class OverlayWindow
         ReleaseSteamOwnership.Click += (_, _) => { getOwner()?.ReleaseManually(); Refresh(); };
         ReacquireSteamOwnership.Click += (_, _) => { getOwner()?.ReacquireManually(); Refresh(); };
         DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(250) };
-        timer.Tick += (_, _) => Refresh();
+        // Polled only while the rows can be seen: on the Controller page, or pinned to Quick access,
+        // whose mirrors follow these buttons' enabled state.
+        timer.Tick += (_, _) =>
+        {
+            if (PanelSystemController.IsEffectivelyVisible
+                || PinShowing("system.release-steam") || PinShowing("system.reacquire-steam"))
+            {
+                Refresh();
+            }
+        };
         Opened += (_, _) => { Refresh(); timer.Start(); };
         Closed += (_, _) => timer.Stop();
         Refresh();
