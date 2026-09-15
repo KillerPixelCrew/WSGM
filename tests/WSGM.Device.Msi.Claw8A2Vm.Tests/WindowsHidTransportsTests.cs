@@ -2,7 +2,8 @@ using System.Reflection;
 
 namespace WSGM.Device.Msi.Claw8A2Vm.Tests;
 
-public sealed class McuDisposalTests
+[Collection("plugin-trace")]
+public sealed class WindowsHidTransportsTests
 {
     [Fact]
     public async Task DisposalLetsTheCurrentOwnerReleaseAndWaitersRejectWithoutOpeningHardware()
@@ -27,5 +28,18 @@ public sealed class McuDisposalTests
         await Assert.ThrowsAsync<ObjectDisposedException>(() => mode.WaitAsync(TimeSpan.FromSeconds(2)));
         await transport.DisposeAsync();
         Assert.Equal(1, gate.CurrentCount);
+    }
+
+    [Fact]
+    public void RumblePayloadPadsToTheAdvertisedHidOutputLength()
+    {
+        byte[] report = ClawControllerCodec.EncodeRumble(0x22, 0x44, 64);
+
+        Assert.Equal(64, report.Length);
+        Assert.Equal(0x05, report[0]);
+        Assert.Equal(0x01, report[1]);
+        Assert.Equal(0x22, report[4]);
+        Assert.Equal(0x44, report[5]);
+        Assert.All(report[6..], value => Assert.Equal(0, value));
     }
 }

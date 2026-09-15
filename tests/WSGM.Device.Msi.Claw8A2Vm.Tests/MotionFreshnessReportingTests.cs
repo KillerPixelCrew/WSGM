@@ -1,6 +1,7 @@
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Testing;
+using WSGM.Device.Tests;
 
 namespace WSGM.Device.Msi.Claw8A2Vm.Tests;
 
@@ -103,28 +104,11 @@ public sealed class MotionFreshnessReportingTests : IDisposable
     {
         TestPluginHostAdapter host = new(1);
         PluginTrace.Install(host);
-        CapturingMotionSource source = new();
+        FakeMotionSource source = new();
         MotionService motion = new(source);
         await motion.AcquireAsync(
             new ClawCycleContext(1, DateTimeOffset.MaxValue),
             CancellationToken.None);
         return (motion, host, source.Publish!);
-    }
-
-    private sealed class CapturingMotionSource : IClawMotionSource
-    {
-        public Func<MotionSample, ValueTask>? Publish { get; private set; }
-
-        public ValueTask<bool> StartAsync(
-            Func<MotionSample, ValueTask> publish,
-            CancellationToken cancellationToken)
-        {
-            Publish = publish;
-            return ValueTask.FromResult(true);
-        }
-
-        public ValueTask StopAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
-
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

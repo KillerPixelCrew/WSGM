@@ -1,7 +1,9 @@
+using System.Reflection;
 using System.Runtime.InteropServices;
 
 namespace WSGM.Device.Msi.Claw8A2Vm.Tests;
 
+[Collection("plugin-trace")]
 public sealed class FirmwareChordTests
 {
     [Fact]
@@ -183,6 +185,7 @@ public sealed class FirmwareChordTests
     [InlineData(0xAEu)] // Volume down
     [InlineData(0xAFu)] // Volume up
     [InlineData(0x48u)] // Unknown future firmware target
+
     public void OtherKeys_PassThroughEvenWithWindowsHeld(uint target)
     {
         FirmwareChordStateMachine state = new();
@@ -232,5 +235,42 @@ public sealed class FirmwareChordTests
         state.Reset();
         Assert.Equal(default, state.Observe(NativeKeyboard.VK_LWIN, keyDown: false, injected: false));
         Assert.Equal(default, state.Observe(NativeKeyboard.VK_G, keyDown: false, injected: false));
+    }
+
+    [Fact]
+    public void Observe_FirmwareOrphanGUpAndWinGDown_SuppressButModifiedOrphansPass()
+    {
+        FirmwareChordStateMachine firmware = new();
+        _ = firmware.Observe(NativeKeyboard.VK_LWIN, keyDown: true, injected: false);
+        ChordDecision orphan = firmware.Observe(NativeKeyboard.VK_G, keyDown: false, injected: false);
+
+        Assert.True(orphan.Suppress);
+        Assert.True(orphan.ReleaseLeftWindows);
+        firmware.CommitSyntheticReleases(leftAccepted: true, rightAccepted: false);
+        Assert.True(firmware.Observe(NativeKeyboard.VK_LWIN, keyDown: false, injected: false).Suppress);
+
+        FirmwareChordStateMachine physical = new();
+        _ = physical.Observe(NativeKeyboard.VK_LWIN, keyDown: true, injected: false);
+        Assert.True(physical.Observe(NativeKeyboard.VK_G, keyDown: true, injected: false).Suppress);
+        physical.CommitSyntheticReleases(leftAccepted: true, rightAccepted: false);
+        Assert.True(physical.Observe(NativeKeyboard.VK_G, keyDown: false, injected: false).Suppress);
+
+        FirmwareChordStateMachine modified = new();
+        _ = modified.Observe(NativeKeyboard.VK_CONTROL, keyDown: true, injected: false);
+        _ = modified.Observe(NativeKeyboard.VK_LWIN, keyDown: true, injected: false);
+        Assert.False(modified.Observe(NativeKeyboard.VK_G, keyDown: false, injected: false).Suppress);
+    }
+
+    [Fact]
+    public void NativeKeyboard_GetMessageUsesSignedResultAndPreservesTheWin32Error()
+    {
+        MethodInfo method = Assert.IsAssignableFrom<MethodInfo>(typeof(NativeKeyboard).GetMethod(
+            nameof(NativeKeyboard.GetMessage),
+            BindingFlags.Public | BindingFlags.Static));
+        DllImportAttribute import = Assert.IsType<DllImportAttribute>(
+            method.GetCustomAttribute<DllImportAttribute>());
+
+        Assert.Equal(typeof(int), method.ReturnType);
+        Assert.True(import.SetLastError);
     }
 }

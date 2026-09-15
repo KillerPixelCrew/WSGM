@@ -26,4 +26,8 @@
         Include="..\..\src\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\Shared\TemporaryDirectory.cs" Link="Shared\TemporaryDirectory.cs" />
+  </ItemGroup>
+
 </Project>
