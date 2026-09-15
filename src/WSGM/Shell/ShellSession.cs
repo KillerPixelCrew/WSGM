@@ -2974,13 +2974,13 @@ public sealed class ShellSession : IAsyncDisposable
     }
 
     private void OnOsdPowerCapabilitiesChanged(IReadOnlyList<DeviceCapabilityView> views) =>
-        UpdateOsdPowerStatus();
+        UpdateOsdPowerStatus(views);
 
     private void OnOsdPowerConfigurationChanged() => UpdateOsdPowerStatus();
 
     private void OnOsdAutoTdpStatusChanged(AutoTdpStatus status) => UpdateOsdPowerStatus();
 
-    private void UpdateOsdPowerStatus()
+    private void UpdateOsdPowerStatus(IReadOnlyList<DeviceCapabilityView>? views = null)
     {
         PerformanceService? performance = _performance;
         DeviceCoordinator? coordinator = _deviceCoordinator;
@@ -2990,7 +2990,7 @@ public sealed class ShellSession : IAsyncDisposable
         }
 
         NativeQamTdpState tdp = DeviceCoordinatorNativeQamTdpService
-            .Project(coordinator.Capabilities.Snapshot()).State;
+            .Project(views ?? coordinator.Capabilities.Snapshot()).State;
         AutoTdpStatus? autoTdp = _autoTdp?.Status;
         bool enabled = _autoTdp?.Enabled ?? false;
         bool running = enabled && autoTdp?.State is AutoTdpState.Controlling;

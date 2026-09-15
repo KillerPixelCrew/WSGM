@@ -315,16 +315,17 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             .Take(128)
             .Select(view => ToOverlayCapability(view, declaredSectionIds))
             .ToList();
-        if (_coordinator.ManualTdpMode.Unified)
+        if (_coordinator.ManualTdpUnified)
         {
             for (int index = 0; index < capabilities.Count; index++)
             {
                 capabilities[index] = ProjectManualTdp(capabilities[index], true);
             }
         }
+        PhysicalGlyphSelectionResult glyphSelectionState = _coordinator.PhysicalGlyphSelectionSnapshot();
         DescriptorRow glyphSelection = PhysicalGlyphSelectionView(
             _coordinator.PhysicalGlyphSelection,
-            _coordinator.PhysicalGlyphSelectionSnapshot());
+            glyphSelectionState);
         DescriptorRow autoTdp = AutoTdpView(
             _coordinator.AutoTdpEnabled,
             _autoTdp?.Status,
@@ -339,7 +340,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         (IReadOnlyList<DeviceAuthoredProfile> Profiles, string? SelectedProfileId, bool ApplicationScoped)?
             authored = _coordinator.AuthoredProfileSelection();
         DeviceOverlayGlyphPreview? glyphPreview = GlyphPreview(
-            _coordinator.PhysicalGlyphSelectionSnapshot(),
+            glyphSelectionState,
             _glyphs,
             // The input test is live only while the plugin's canonical samples are actually
             // reaching WSGM. Offering it otherwise would show a map that can never light up.
@@ -378,12 +379,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     null));
             }
         }
-        capabilities = capabilities
-            .Select((capability, index) => (Capability: capability, Index: index))
-            .OrderBy(item => item.Capability.Section)
-            .ThenBy(item => item.Index)
-            .Select(item => item.Capability)
-            .ToList();
+        // OrderBy is stable, so rows keep their order within a section.
+        capabilities = [.. capabilities.OrderBy(capability => capability.Section)];
         string detail = package is null
             ? state is DeviceCycleState.Detected or DeviceCycleState.Passive
                 ? "No compatible verified device package is active."

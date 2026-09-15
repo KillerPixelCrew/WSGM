@@ -179,15 +179,20 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
     internal DevicePowerAssignments PowerAssignments { get; }
 
-    internal (bool Available, bool Unified) ManualTdpMode
+    internal (bool Available, bool Unified) ManualTdpMode =>
+        (IntegrationEnabled && _capabilities.Snapshot().Any(view =>
+            view.Descriptor.Role == CapabilityRole.PowerSustainedLimit && view.Descriptor.PairedPowerLimitId is not null),
+        ManualTdpUnified);
+
+    /// <summary>Whether manual TDP is unified for the running application. Unlike
+    /// <see cref="ManualTdpMode"/>, this builds no capability snapshot.</summary>
+    internal bool ManualTdpUnified
     {
         get
         {
             var application = _config.Performance.FindApplication(_runningApplicationId);
-            bool available = IntegrationEnabled && _capabilities.Snapshot().Any(view =>
-                view.Descriptor.Role == CapabilityRole.PowerSustainedLimit && view.Descriptor.PairedPowerLimitId is not null);
-            return (available, ManualTdpPolicy.Resolve(_config.Performance, application,
-                application?.UsePerGameProfile == true)?.Unified == true);
+            return ManualTdpPolicy.Resolve(_config.Performance, application,
+                application?.UsePerGameProfile == true)?.Unified == true;
         }
     }
 
@@ -2031,13 +2036,14 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
-        bool primaryPowerLimit = _capabilities.Snapshot().Any(view =>
+        IReadOnlyList<DeviceCapabilityView> views = _capabilities.Snapshot();
+        bool primaryPowerLimit = views.Any(view =>
             view.Descriptor.Role is CapabilityRole.PowerSustainedLimit
             && string.Equals(view.Descriptor.CapabilityId, capabilityId, StringComparison.Ordinal)
             && string.Equals(view.Descriptor.InstanceId, instanceId, StringComparison.Ordinal));
         if (!primaryPowerLimit)
         {
-            var primary = _capabilities.Snapshot().FirstOrDefault(view =>
+            var primary = views.FirstOrDefault(view =>
                 view.Descriptor.PairedPowerLimitId == capabilityId && instanceId is null);
             if (primary?.Projection.State.ObservedValue?.IntegerValue is { } sustained)
             {

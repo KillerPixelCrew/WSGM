@@ -985,10 +985,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
             return;
         }
 
-        uint? singleAppId = observation.Reachable && observation.AppIds.Distinct().Take(2).ToArray()
-            is [uint appId]
-            ? appId
-            : null;
+        uint? singleAppId = observation.Reachable ? SingleAppId(observation.AppIds) : null;
         DateTimeOffset now = DateTimeOffset.UtcNow;
         if (ShouldResolveProfile(singleAppId, _profileAppId, _profile, now, _nextProfileRetry))
         {
@@ -1010,6 +1007,24 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         {
             Publish(observation, _profile);
         }
+    }
+
+    /// <summary>The one distinct AppID Steam reports, or null for none or several.</summary>
+    private static uint? SingleAppId(IReadOnlyList<uint> appIds)
+    {
+        uint? single = null;
+        foreach (uint appId in appIds)
+        {
+            if (single is null)
+            {
+                single = appId;
+            }
+            else if (single != appId)
+            {
+                return null;
+            }
+        }
+        return single;
     }
 
     /// <summary>Decides when an AppID needs a fresh executable or install-folder lookup.</summary>

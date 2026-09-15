@@ -92,27 +92,33 @@ public sealed class StartupAppWatcher : IDisposable
         }
 
         _pollInFlight = true;
-        // FindProcessIds takes a full process snapshot PER WATCHED APP — off the UI
-        // thread, with only the resulting booleans marshalled back, so the 16 ms
-        // gamepad poll and the overlay animations never wait on it. All watcher state
-        // stays UI-thread owned in Apply.
+        // One process snapshot for every watched app, taken off the UI thread with only
+        // the resulting booleans marshalled back, so the 16 ms gamepad poll and the
+        // overlay animations never wait on it. All watcher state stays UI-thread owned
+        // in Apply.
         CancellationToken lifetime = _lifetime.Token;
         Log.Observe(Task.Run(() =>
         {
             var alive = new bool[probes.Count];
+            HashSet<string>? running = null;
+            try
+            {
+                var names = new string[probes.Count];
+                for (var i = 0; i < probes.Count; i++)
+                {
+                    names[i] = probes[i].Name;
+                }
+                running = WindowFinder.FindRunningNames(names);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Startup app liveness poll failed: {ex.Message}");
+            }
             for (var i = 0; i < probes.Count; i++)
             {
-                try
-                {
-                    alive[i] = WindowFinder.FindProcessIds(probes[i].Name).Count > 0;
-                }
-                catch (Exception ex)
-                {
-                    // An unknown result must never read as a crash: a failed probe
-                    // would otherwise relaunch an app that is still running.
-                    Log.Warn($"Startup app liveness poll failed for '{probes[i].Name}': {ex.Message}");
-                    alive[i] = true;
-                }
+                // An unknown result must never read as a crash: a failed probe
+                // would otherwise relaunch an app that is still running.
+                alive[i] = running?.Contains(probes[i].Name) ?? true;
             }
             if (!lifetime.IsCancellationRequested)
             {

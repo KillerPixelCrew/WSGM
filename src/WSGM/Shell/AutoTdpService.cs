@@ -158,11 +158,29 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// <returns>Whether an active session was forced off.</returns>
     internal bool RefreshPrerequisites()
     {
-        bool disabled = Enabled && Availability.TargetFrametimeMs is null;
+        AutoTdpAvailability availability = Availability;
+        bool disabled = Enabled && availability.TargetFrametimeMs is null;
         if (disabled) { Apply(false); }
-        StatusChanged?.Invoke(Status);
+        bool enabled = Enabled;
+        bool changed;
+        lock (_gate)
+        {
+            changed = _reportedAvailability != availability || _reportedEnabled != enabled;
+            _reportedAvailability = availability;
+            _reportedEnabled = enabled;
+        }
+        if (changed)
+        {
+            StatusChanged?.Invoke(Status);
+        }
         return disabled;
     }
+
+    // What the last prerequisite refresh reported. The refresh runs on every tick and every
+    // performance poll, and its subscribers rebuild Steam and OSD state, so it raises only when
+    // availability or the enabled flag moved.
+    private AutoTdpAvailability? _reportedAvailability;
+    private bool _reportedEnabled;
 
     internal static double TargetFrametime(PerformanceState? state) =>
         state is { FrameLimitQuality: PerformanceReadbackQuality.Verified, Observed.FrameLimit: > 0 }

@@ -31,6 +31,10 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private readonly object _gate = new();
     private readonly Action<Action> _postToUi;
     private readonly Dictionary<DeviceCapabilityKey, CapabilityDescriptor> _descriptors = [];
+
+    // The same descriptors in snapshot order, sorted once per descriptor set rather than on every
+    // snapshot a state delta builds.
+    private KeyValuePair<DeviceCapabilityKey, CapabilityDescriptor>[] _orderedDescriptors = [];
     private readonly Dictionary<DeviceCapabilityKey, CapabilityCommandResult> _lastResults = [];
     private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _pendingValues = [];
 
@@ -50,7 +54,9 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// <summary>Overlay sections of the accepted descriptor set, replaced with each set.</summary>
     private IReadOnlyList<CapabilitySection> _sections = [];
     private DevicePluginRuntime? _client;
-    private DeviceDesiredProfile? _desiredProfile;
+    // The desired profile's preferences by capability, indexed when the profile changes. The first
+    // preference for a capability wins, as the linear search this replaced did.
+    private Dictionary<DeviceCapabilityKey, DeviceCapabilityPreference> _desiredPreferences = [];
     private string? _hardwareProfileId;
     private string? _applicationId;
     private long _descriptorGeneration;
@@ -80,6 +86,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             _cycleGeneration = cycleGeneration;
             _descriptorGeneration = 0;
             _descriptors.Clear();
+            _orderedDescriptors = [];
             _states.Clear();
             _lastResults.Clear();
             _pendingValues.Clear();
@@ -102,7 +109,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     {
         lock (_gate)
         {
-            _desiredProfile = desiredProfile;
+            _desiredPreferences = IndexPreferences(desiredProfile);
             _onAcPower = onAcPower;
             _hardwareProfileId = hardwareProfileId;
             _applicationId = applicationId;
@@ -416,6 +423,12 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             {
                 _descriptors.Add(Key(descriptor), descriptor);
             }
+            _orderedDescriptors = [.. _descriptors];
+            Array.Sort(_orderedDescriptors, static (left, right) =>
+            {
+                int order = string.CompareOrdinal(left.Key.CapabilityId, right.Key.CapabilityId);
+                return order != 0 ? order : string.CompareOrdinal(left.Key.InstanceId, right.Key.InstanceId);
+            });
 
             _states.Clear();
             _pendingValues.Clear();
@@ -557,9 +570,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private IReadOnlyList<DeviceCapabilityView> BuildSnapshotUnderGate(DateTimeOffset now)
     {
         List<DeviceCapabilityView> views = [];
-        foreach ((DeviceCapabilityKey key, CapabilityDescriptor descriptor) in _descriptors
-            .OrderBy(item => item.Key.CapabilityId, StringComparer.Ordinal)
-            .ThenBy(item => item.Key.InstanceId, StringComparer.Ordinal))
+        foreach ((DeviceCapabilityKey key, CapabilityDescriptor descriptor) in _orderedDescriptors)
         {
             CapabilityState state = _states.TryGetValue(key, out CapabilityStateDelta? latest)
                 ? latest.State
@@ -609,16 +620,27 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
     private ResolvedDeviceDesiredValue ResolveDesired(DeviceCapabilityKey key)
     {
-        DeviceCapabilityPreference? preference = _desiredProfile?.Capabilities.FirstOrDefault(
-            item => string.Equals(item.CapabilityId, key.CapabilityId, StringComparison.Ordinal)
-                && string.Equals(item.InstanceId, key.InstanceId, StringComparison.Ordinal));
-        return preference is null
+        return !_desiredPreferences.TryGetValue(key, out DeviceCapabilityPreference? preference)
             ? new ResolvedDeviceDesiredValue(null, DeviceDesiredValueSource.None)
             : DeviceDesiredStateResolver.Resolve(
                 preference,
                 _onAcPower,
                 _hardwareProfileId,
                 _applicationId);
+    }
+
+    private static Dictionary<DeviceCapabilityKey, DeviceCapabilityPreference> IndexPreferences(
+        DeviceDesiredProfile? profile)
+    {
+        Dictionary<DeviceCapabilityKey, DeviceCapabilityPreference> index = [];
+        if (profile is not null)
+        {
+            foreach (DeviceCapabilityPreference preference in profile.Capabilities)
+            {
+                index.TryAdd(new DeviceCapabilityKey(preference.CapabilityId, preference.InstanceId), preference);
+            }
+        }
+        return index;
     }
 
     private CapabilityState UnknownState(DeviceCapabilityKey key) => new()

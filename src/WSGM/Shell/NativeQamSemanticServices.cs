@@ -713,7 +713,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
     internal SteamPowerLimitState PowerLimit => ProjectPowerLimits(
         _coordinator?.Capabilities.Snapshot() ?? []) with
     {
-        Unified = _coordinator?.ManualTdpMode.Unified == true,
+        Unified = _coordinator?.ManualTdpUnified == true,
         CanSelectMode = _coordinator?.ManualTdpMode.Available == true,
     };
 

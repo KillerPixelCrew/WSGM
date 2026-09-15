@@ -26,7 +26,7 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
         var views = coordinator.Capabilities.Snapshot();
         if (!snapshot.Visible || plugin is null || views.Count == 0) { _views.Clear(); _scope = ""; return []; }
         var first = views[0].Projection.State;
-        string scope = $"{plugin}:{first.CycleGeneration}:{first.DescriptorGeneration}:{coordinator.ManualTdpMode.Unified}";
+        string scope = $"{plugin}:{first.CycleGeneration}:{first.DescriptorGeneration}:{coordinator.ManualTdpUnified}";
         if (_scope != scope) { _scope = scope; _generation++; }
         _identity = new(plugin, "device");
         List<PluginAction> actions = [];
