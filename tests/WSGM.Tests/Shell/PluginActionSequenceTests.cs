@@ -1,18 +1,12 @@
 using WSGM.Core;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using static WSGM.Tests.PluginBuilders;
 
 namespace WSGM.Tests;
 
 public sealed class PluginActionSequenceTests
 {
-    private static PluginActionStep Step(string id, int timeoutSeconds = 30) => new()
-    {
-        Plugin = new("wsgm.ir", "blaster"),
-        ActionId = id,
-        TimeoutSeconds = timeoutSeconds,
-    };
-
     [Fact]
     public async Task EntryStopsAtTheFirstStepThatDidNotSucceed()
     {

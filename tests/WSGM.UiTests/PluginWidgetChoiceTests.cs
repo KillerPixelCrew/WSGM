@@ -1,5 +1,5 @@
-using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.LogicalTree;
 using Avalonia.VisualTree;
@@ -8,6 +8,7 @@ using WSGM.Input;
 using WSGM.Overlay;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using WSGM.Tests;
 
 namespace WSGM.UiTests;
 
@@ -20,7 +21,7 @@ public sealed class PluginWidgetChoiceTests
         ChoiceSource source = new();
         CommonPluginPanel panel = new(source, new PluginWidgetPin("test", "device", "fan"));
         Window window = new() { Content = panel, Width = 600, Height = 500 };
-        Buttons buttons = new();
+        FakeButtonSource buttons = new();
         using GamepadNavigation navigation = new(buttons, window, () => { });
         try
         {
@@ -46,12 +47,6 @@ public sealed class PluginWidgetChoiceTests
             Assert.Equal("turbo", source.Requested);
         }
         finally { window.Close(); }
-    }
-
-    private sealed class Buttons : IUiButtonSource
-    {
-        public event Action<GamepadButtons>? ButtonPressed;
-        internal void Press(GamepadButtons buttons) => ButtonPressed?.Invoke(buttons);
     }
 
     [AvaloniaFact]

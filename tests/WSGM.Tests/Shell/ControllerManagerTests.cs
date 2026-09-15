@@ -4,6 +4,7 @@ using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Input;
 using WSGM.Shell;
+using static WSGM.Tests.ControllerBuilders;
 
 namespace WSGM.Tests;
 
@@ -153,7 +154,7 @@ public sealed class ControllerManagerTests
             CancellationToken.None);
 
         ControllerManagerStatus status = await manager.ApplyRunningApplicationAsync(
-            Running("steam:70"),
+            Running(applicationId: "steam:70"),
             CancellationToken.None);
 
         Assert.Equal(ManagedControllerTarget.DualShock4, status.Target);
@@ -183,7 +184,7 @@ public sealed class ControllerManagerTests
             CancellationToken.None);
 
         ControllerManagerStatus status = await manager.ApplyRunningApplicationAsync(
-            Running("steam:220"),
+            Running(applicationId: "steam:220"),
             CancellationToken.None);
 
         Assert.Equal(ManagedControllerTarget.SteamDeckComposite, status.Target);
@@ -567,27 +568,11 @@ public sealed class ControllerManagerTests
     private static ControllerSelection Disabled(string detail) =>
         new(Enabled: false, ManagedControllerTarget.SteamDeckComposite, [], detail);
 
-    private static DeviceApplicationTargetOverride Override(
-        string applicationId,
-        ManagedControllerTarget target) =>
-        new() { ApplicationId = applicationId, Target = target };
-
     private static PhysicalDeviceIdentity Device() => new()
     {
         InstancePath = @"HID\VID_0DB0&PID_1901\7&CLAW",
         RequiresHiding = true,
     };
-
-    private static RunningApplicationTargetSnapshot Running(string applicationId) => new(
-        1,
-        1,
-        RunningApplicationTargetState.Active,
-        applicationId,
-        70,
-        @"C:\Games\game.exe",
-        "game",
-        DateTimeOffset.UtcNow,
-        null);
 
     private static CanonicalControllerSample Sample(long sequence, CanonicalButtons buttons) => new()
     {

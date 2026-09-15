@@ -1,5 +1,6 @@
 using WSGM.Core;
 using WSGM.Shell;
+using static WSGM.Tests.ControllerBuilders;
 
 namespace WSGM.Tests;
 
@@ -97,9 +98,4 @@ public sealed class ControllerTargetSelectionTests
 
         Assert.Same(config.ControllerTargets, ControllerSelection.From(config).Overrides);
     }
-
-    private static DeviceApplicationTargetOverride Override(
-        string applicationId,
-        ManagedControllerTarget target) =>
-        new() { ApplicationId = applicationId, Target = target };
 }

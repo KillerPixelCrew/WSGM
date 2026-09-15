@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using WSGM.Device.Sdk.Input;
 using WSGM.Input;
+using static WSGM.Tests.ControllerSamples;
 
 namespace WSGM.Tests;
 
@@ -108,12 +109,4 @@ public sealed class DualShock4ReportTests
         DualShock4Report.Write(sample, frame);
         return frame;
     }
-
-    private static CanonicalControllerSample Sample(CanonicalButtons buttons) => new()
-    {
-        Sequence = 1,
-        CycleGeneration = 1,
-        Timestamp = DateTimeOffset.UnixEpoch,
-        Buttons = buttons,
-    };
 }

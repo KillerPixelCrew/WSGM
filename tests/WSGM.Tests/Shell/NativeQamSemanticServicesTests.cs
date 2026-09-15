@@ -4,6 +4,7 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Input;
 using WSGM.Shell;
+using static WSGM.Tests.ControllerBuilders;
 
 namespace WSGM.Tests;
 
@@ -575,7 +576,7 @@ public sealed class NativeQamSemanticServicesTests
     {
         SteamControllerTargetState state = ProjectTarget(
             enabled: false,
-            Status(ControllerManagementState.Off, null, "Controller management is off."));
+            Status(ControllerManagementState.Off, null, "Controller management is off.", source: UiInputSource.SdlWithSteamLease));
 
         Assert.False(state.Available);
         Assert.Empty(state.Targets);
@@ -590,7 +591,7 @@ public sealed class NativeQamSemanticServicesTests
     {
         SteamControllerTargetState state = ProjectTarget(
             enabled: true,
-            Status(ControllerManagementState.Idle, ManagedControllerTarget.Xbox360),
+            Status(ControllerManagementState.Idle, ManagedControllerTarget.Xbox360, source: UiInputSource.SdlWithSteamLease),
             supportedTargets:
             [
                 ManagedControllerTarget.SteamDeckComposite,
@@ -615,7 +616,7 @@ public sealed class NativeQamSemanticServicesTests
         // setting again. The production backend supports only the Deck composite today.
         SteamControllerTargetState state = ProjectTarget(
             enabled: true,
-            Status(ControllerManagementState.Idle, ManagedControllerTarget.SteamDeckComposite),
+            Status(ControllerManagementState.Idle, ManagedControllerTarget.SteamDeckComposite, source: UiInputSource.SdlWithSteamLease),
             supportedTargets: [ManagedControllerTarget.SteamDeckComposite]);
 
         Assert.True(state.Available);
@@ -631,7 +632,7 @@ public sealed class NativeQamSemanticServicesTests
         // back as observed would make a target that never came up look like it had.
         SteamControllerTargetState state = ProjectTarget(
             enabled: true,
-            Status(ControllerManagementState.Idle, ManagedControllerTarget.DualShock4));
+            Status(ControllerManagementState.Idle, ManagedControllerTarget.DualShock4, source: UiInputSource.SdlWithSteamLease));
 
         Assert.Equal(nameof(ManagedControllerTarget.DualShock4), state.SelectedTarget);
         Assert.Empty(state.ObservedTarget);
@@ -642,7 +643,7 @@ public sealed class NativeQamSemanticServicesTests
     {
         SteamControllerTargetState state = ProjectTarget(
             enabled: true,
-            Status(ControllerManagementState.Active, ManagedControllerTarget.SteamDeckComposite));
+            Status(ControllerManagementState.Active, ManagedControllerTarget.SteamDeckComposite, source: UiInputSource.SdlWithSteamLease));
 
         Assert.Equal(nameof(ManagedControllerTarget.SteamDeckComposite), state.SelectedTarget);
         Assert.Equal(nameof(ManagedControllerTarget.SteamDeckComposite), state.ObservedTarget);
@@ -657,7 +658,7 @@ public sealed class NativeQamSemanticServicesTests
             Status(
                 ControllerManagementState.Faulted,
                 ManagedControllerTarget.Xbox360,
-                "The virtual controller could not be attached."));
+                "The virtual controller could not be attached.", source: UiInputSource.SdlWithSteamLease));
 
         Assert.False(state.Available);
         Assert.Equal("failed", state.Progress);
@@ -674,7 +675,7 @@ public sealed class NativeQamSemanticServicesTests
             Status(
                 ControllerManagementState.Active,
                 ManagedControllerTarget.Xbox360,
-                applicationId: "steam:70"));
+                applicationId: "steam:70", source: UiInputSource.SdlWithSteamLease));
 
         Assert.True(state.ApplicationRestartRequired);
     }
@@ -684,7 +685,7 @@ public sealed class NativeQamSemanticServicesTests
     {
         SteamControllerTargetState state = ProjectTarget(
             enabled: true,
-            Status(ControllerManagementState.Active, ManagedControllerTarget.Xbox360));
+            Status(ControllerManagementState.Active, ManagedControllerTarget.Xbox360, source: UiInputSource.SdlWithSteamLease));
 
         Assert.False(state.ApplicationRestartRequired);
     }
@@ -696,7 +697,7 @@ public sealed class NativeQamSemanticServicesTests
         // controller the result is a target that never moves. That is worth saying.
         SteamControllerTargetState state = ProjectTarget(
             enabled: true,
-            Status(ControllerManagementState.Idle, ManagedControllerTarget.Xbox360, detail: string.Empty),
+            Status(ControllerManagementState.Idle, ManagedControllerTarget.Xbox360, detail: string.Empty, source: UiInputSource.SdlWithSteamLease),
             packageInstalled: false);
 
         Assert.True(state.Available);
@@ -752,17 +753,4 @@ public sealed class NativeQamSemanticServicesTests
             status,
             packageInstalled,
             supportedTargets ?? Enum.GetValues<ManagedControllerTarget>());
-
-    private static ControllerManagerStatus Status(
-        ControllerManagementState state,
-        ManagedControllerTarget? target,
-        string detail = "",
-        string? applicationId = null) =>
-        new(
-            state,
-            target,
-            ControllerTargetSource.GlobalDefault,
-            applicationId,
-            UiInputSource.SdlWithSteamLease,
-            detail);
 }

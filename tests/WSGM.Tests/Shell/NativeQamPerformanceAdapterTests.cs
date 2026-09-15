@@ -1,6 +1,7 @@
 using System.Text.Json;
 using WSGM.Core;
 using WSGM.Shell;
+using static WSGM.Tests.PerformanceBuilders;
 
 namespace WSGM.Tests;
 
@@ -140,7 +141,7 @@ public sealed class NativeQamPerformanceAdapterTests
     [Fact]
     public async Task SteamHeaderKeepsTheAppIdBeforeTheExecutableIsKnown()
     {
-        await using PerformanceService service = Service();
+        await using PerformanceService service = Service(new PerformancePolicy(new PerformanceValues(60, 1), []));
         await service.SetTargetAsync(
             new PerformanceApplicationTarget("steam:42", 42, null));
         PerformanceServiceNativeQamAdapter adapter = new(service);
@@ -161,7 +162,7 @@ public sealed class NativeQamPerformanceAdapterTests
     [Fact]
     public async Task DeltaForAnApplicationThatIsNoLongerCurrentIsRefused()
     {
-        await using PerformanceService service = Service();
+        await using PerformanceService service = Service(new PerformancePolicy(new PerformanceValues(60, 1), []));
         await service.SetTargetAsync(
             new PerformanceApplicationTarget("steam:42", 42, "current.exe"));
         PerformanceServiceNativeQamAdapter adapter = new(service);
@@ -181,9 +182,4 @@ public sealed class NativeQamPerformanceAdapterTests
         Assert.Contains("stale AppID 41", result.Error);
         Assert.False(service.Current.ApplicationProfileEnabled);
     }
-
-    private static PerformanceService Service() => new(
-        new SimulatedRtssAdapter(),
-        static (_, _) => Task.CompletedTask,
-        new PerformancePolicy(new PerformanceValues(60, 1), []));
 }

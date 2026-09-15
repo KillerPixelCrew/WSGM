@@ -86,7 +86,7 @@ public sealed class RtssLauncherTests
         // program repeatedly, which at best wastes work and at worst produces the "multiple
         // processes match" case discovery already treats as degraded.
         int starts = 0;
-        TestTimeProvider clock = new();
+        ManualTimeProvider clock = new(DateTimeOffset.Parse("2026-09-02T12:00:00Z"));
         RtssLauncher launcher = new(
             _ =>
             {
@@ -112,7 +112,7 @@ public sealed class RtssLauncherTests
         // and AutoTDP frametimes for the rest of the session. A later NotRunning probe past the
         // cooldown starts it again; the probe state already guarantees no second copy exists.
         int starts = 0;
-        TestTimeProvider clock = new();
+        ManualTimeProvider clock = new(DateTimeOffset.Parse("2026-09-02T12:00:00Z"));
         RtssLauncher launcher = new(
             _ =>
             {
@@ -155,13 +155,6 @@ public sealed class RtssLauncherTests
 
     /// <summary>Already-cancelled, so the settle delay returns at once instead of waiting.</summary>
     private static CancellationToken Cancelled() => new(canceled: true);
-
-    private sealed class TestTimeProvider : TimeProvider
-    {
-        public DateTimeOffset Now { get; set; } = DateTimeOffset.Parse("2026-09-02T12:00:00Z");
-
-        public override DateTimeOffset GetUtcNow() => Now;
-    }
 
     private static RtssProbe Probe(RtssAvailability availability) => new(
         availability,

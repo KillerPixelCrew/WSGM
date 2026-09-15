@@ -2,20 +2,19 @@ using System.Text.Json;
 using WSGM.Core;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using static WSGM.Tests.PluginBuilders;
 
 namespace WSGM.Tests;
 
 public sealed class CommonPluginSettingsTests
 {
-    private static DateTimeOffset Deadline => DateTimeOffset.UtcNow.AddSeconds(5);
-
     [Fact]
     public async Task DefaultsAndHardwareReadbackNeverBecomeSavedPreferences()
     {
-        MemoryStore store = new();
+        MemoryPluginConfigurationStore store = new();
         PluginHost host = new(action => action(), store);
         Configurable plugin = new();
-        var registration = Admit(host, plugin);
+        var registration = Admit(host, plugin, category: PluginCategories.Peripheral);
         await registration.StartAsync(Deadline, default);
         Assert.Empty(store.Config.PluginConfigurations);
         Assert.Equal(0, registration.Settings!.Desired!.Revision);
@@ -34,10 +33,10 @@ public sealed class CommonPluginSettingsTests
     [Fact]
     public async Task StaleUserEditsDoNotDispatchAndCanBeCorrectedAfterRefresh()
     {
-        MemoryStore store = new();
+        MemoryPluginConfigurationStore store = new();
         PluginHost host = new(action => action(), store);
         Configurable plugin = new();
-        var registration = Admit(host, plugin);
+        var registration = Admit(host, plugin, category: PluginCategories.Peripheral);
         await registration.StartAsync(Deadline, default);
         var changes = new Dictionary<string, PluginValue> { ["level"] = new(Number: 40) };
         await registration.ConfigureAsync(0, changes, Deadline, default);
@@ -53,10 +52,10 @@ public sealed class CommonPluginSettingsTests
     [Fact]
     public async Task FailedPersistencePreventsDispatchAndWrongConfirmationKeepsDesiredRevision()
     {
-        MemoryStore store = new();
+        MemoryPluginConfigurationStore store = new();
         PluginHost host = new(action => action(), store);
         Configurable plugin = new();
-        var registration = Admit(host, plugin);
+        var registration = Admit(host, plugin, category: PluginCategories.Peripheral);
         await registration.StartAsync(Deadline, default);
         var changes = new Dictionary<string, PluginValue> { ["level"] = new(Number: 40) };
         store.FailSave = true;
@@ -88,16 +87,13 @@ public sealed class CommonPluginSettingsTests
         Assert.All(restored.Values, value => Assert.True(value.Value.IsValid));
     }
 
-    private static PluginRegistration Admit(PluginHost host, Configurable plugin) =>
-        host.Admit(plugin, new(plugin.Id, "one"), PluginCategories.Peripheral, PluginCategoryPolicy.Multiple, false, 1, "fixture-state");
-
     [Fact]
     public async Task ConfigurationReloadAppliesNewExternalIntentOnceWithoutRetryingAnUnconfirmedRevision()
     {
-        MemoryStore store = new();
+        MemoryPluginConfigurationStore store = new();
         PluginHost host = new(action => action(), store);
         Configurable plugin = new();
-        var registration = Admit(host, plugin);
+        var registration = Admit(host, plugin, category: PluginCategories.Peripheral);
         await registration.StartAsync(Deadline, default);
         store.Save(registration.Identity, 0, new Dictionary<string, PluginValue> { ["level"] = new(Number: 40) });
         plugin.Outcome = PluginConfigurationOutcome.Unconfirmed;
@@ -115,10 +111,10 @@ public sealed class CommonPluginSettingsTests
     [Fact]
     public async Task APluginFailureAfterSavingLeavesTheRequestedPreferenceUnconfirmed()
     {
-        MemoryStore store = new();
+        MemoryPluginConfigurationStore store = new();
         PluginHost host = new(action => action(), store);
         Configurable plugin = new();
-        var registration = Admit(host, plugin);
+        var registration = Admit(host, plugin, category: PluginCategories.Peripheral);
         await registration.StartAsync(Deadline, default);
         plugin.FailConfiguration = true;
         await Assert.ThrowsAsync<IOException>(() => registration.ConfigureAsync(0,
@@ -127,22 +123,6 @@ public sealed class CommonPluginSettingsTests
         Assert.Equal(PluginConfigurationOutcome.Unconfirmed, registration.Settings!.Result!.Outcome);
         Assert.Equal(2, plugin.Deliveries.Count);
         await Close(registration);
-    }
-
-    private static async Task Close(PluginRegistration registration)
-    { Assert.True(await registration.StopAsync(Deadline, default)); await registration.DisposeAsync(); }
-
-    private sealed class MemoryStore : IPluginConfigurationStore
-    {
-        internal AppConfig Config { get; } = new();
-        internal bool FailSave { get; set; }
-        public SavedPluginConfiguration Read(PluginInstanceIdentity identity) => ApplicationPluginConfigurationStore.ReadFrom(Config, identity);
-        public SavedPluginConfiguration Save(PluginInstanceIdentity identity, long revision, IReadOnlyDictionary<string, PluginValue> changes)
-        {
-            if (FailSave) { throw new IOException("Fixture persistence failure"); }
-            ApplicationPluginConfigurationStore.SaveInto(Config, identity, revision, changes);
-            return Read(identity);
-        }
     }
 
     private sealed class Configurable : IPlugin, IConfigurablePlugin

@@ -1,5 +1,6 @@
 using WSGM.Device.Sdk.Input;
 using WSGM.Input;
+using static WSGM.Tests.ControllerSamples;
 
 namespace WSGM.Tests;
 
@@ -258,12 +259,4 @@ public sealed class SteamDeckNeptuneReportTests
         SteamDeckNeptuneReport.Write(sample, frame);
         return frame;
     }
-
-    private static CanonicalControllerSample Sample(CanonicalButtons buttons) => new()
-    {
-        Sequence = 1,
-        CycleGeneration = 1,
-        Timestamp = DateTimeOffset.UtcNow,
-        Buttons = buttons,
-    };
 }

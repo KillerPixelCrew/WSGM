@@ -1,6 +1,7 @@
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Input;
 using WSGM.Overlay;
+using static WSGM.Tests.ControllerSamples;
 
 namespace WSGM.Tests;
 
@@ -96,18 +97,4 @@ public sealed class GlyphInputTestMapTests
             },
             pressed);
     }
-
-    private static CanonicalControllerSample Sample(
-        CanonicalButtons buttons,
-        float leftTrigger = 0,
-        float rightTrigger = 0) =>
-        new()
-        {
-            Sequence = 1,
-            CycleGeneration = 1,
-            Timestamp = DateTimeOffset.UnixEpoch,
-            Buttons = buttons,
-            LeftTrigger = leftTrigger,
-            RightTrigger = rightTrigger,
-        };
 }

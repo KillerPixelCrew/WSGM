@@ -2,6 +2,7 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
 using WSGM.Shell;
+using static WSGM.Tests.ControllerBuilders;
 
 namespace WSGM.Tests;
 
@@ -530,20 +531,6 @@ public sealed class AutoTdpServiceTests
         uint processId = 1) =>
         new(processId, executable, frametimeMs, 60, 100);
 
-    private static RunningApplicationTargetSnapshot Running(
-        string executable,
-        long generation = 1,
-        string applicationId = "steam:70") => new(
-        generation,
-        1,
-        RunningApplicationTargetState.Active,
-        applicationId,
-        70,
-        executable,
-        "game",
-        DateTimeOffset.UtcNow,
-        null);
-
     private sealed record Write(string CapabilityId, string? InstanceId, CapabilityValue Value);
 
     private sealed class FakeFrametimeSource : IFrametimeSource
@@ -663,7 +650,7 @@ public sealed class AutoTdpServiceTests
                 CompletedAt = DateTimeOffset.UtcNow,
             });
         }
-        AutoTdpService service = new(new Frames(), () => views,
+        AutoTdpService service = new(new FakeFrametimeSource { Live = [new(1, "game.exe", 22, 60, 100)] }, () => views,
             (power, value, pair, _) => Write(power.Descriptor.CapabilityId, value, pair), () => 16.6);
         service.Apply(true);
         for (int i = 0; i < 3; i++) { await service.TickAsync(CancellationToken.None); }
@@ -689,7 +676,7 @@ public sealed class AutoTdpServiceTests
         int writes = 0;
         Task<CapabilityCommandResult> Write(DeviceCapabilityView _, CapabilityValue value, bool pair, CancellationToken token)
         { writes++; throw new InvalidOperationException("No write should be dispatched."); }
-        await using AutoTdpService service = new(new Frames(), () => [View("primary", 12, true)], Write, () => 16.6);
+        await using AutoTdpService service = new(new FakeFrametimeSource { Live = [new(1, "game.exe", 22, 60, 100)] }, () => [View("primary", 12, true)], Write, () => 16.6);
         Assert.False(service.Availability.Available);
         service.Apply(true);
         for (int i = 0; i < 8; i++) { await service.TickAsync(CancellationToken.None); }
@@ -716,7 +703,7 @@ public sealed class AutoTdpServiceTests
             },
         };
         DeviceCapabilityView[] views = [primary, View("boost", 17, false)];
-        await using AutoTdpService service = new(new Frames(), () => views,
+        await using AutoTdpService service = new(new FakeFrametimeSource { Live = [new(1, "game.exe", 22, 60, 100)] }, () => views,
             (_, _, _, _) => throw new InvalidOperationException("No command was requested."), () => 16.6);
         Assert.False(service.Availability.Available);
         views[0] = primary with
@@ -736,14 +723,9 @@ public sealed class AutoTdpServiceTests
             Projection = primary.Projection with
             { State = primary.Projection.State with { CycleGeneration = 2 } }
         };
-        await using AutoTdpService service = new(new Frames(), () => [primary, View("boost", 17, false)],
+        await using AutoTdpService service = new(new FakeFrametimeSource { Live = [new(1, "game.exe", 22, 60, 100)] }, () => [primary, View("boost", 17, false)],
             (_, _, _, _) => throw new InvalidOperationException("No command was requested."), () => 16.6);
         Assert.False(service.Availability.Available);
-    }
-
-    private sealed class Frames : IFrametimeSource
-    {
-        public IReadOnlyList<RtssFrametimeSample> ReadLive() => [new(1, "game.exe", 22, 60, 100)];
     }
 
     private static DeviceCapabilityView View(string id, int watts, bool primary) => new(

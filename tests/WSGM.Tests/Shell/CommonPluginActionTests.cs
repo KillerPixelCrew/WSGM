@@ -1,12 +1,11 @@
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using static WSGM.Tests.PluginBuilders;
 
 namespace WSGM.Tests;
 
 public sealed class CommonPluginActionTests
 {
-    private static DateTimeOffset Deadline => DateTimeOffset.UtcNow.AddSeconds(5);
-
     [Fact]
     public async Task SessionAutomationInvokerUsesTheAdmittedInstanceAndItsCurrentGeneration()
     {
@@ -105,12 +104,6 @@ public sealed class CommonPluginActionTests
         var wrongType = new Provider { Ui = [new("quick", "Quick", "remote", PluginUiKind.Toggle, "value", "send", "value")] };
         Assert.Throws<ArgumentException>(() => new CommonPluginActions(wrongType));
     }
-
-    private static PluginRegistration Admit(PluginHost host, Provider plugin) => host.Admit(plugin, new(plugin.Id, "one"),
-        PluginCategories.Infrared, PluginCategoryPolicy.Multiple, false, 1, "fixture-state");
-
-    private static async Task Close(PluginRegistration registration)
-    { Assert.True(await registration.StopAsync(Deadline, default)); await registration.DisposeAsync(); }
 
     private sealed class Provider : IPlugin, IPluginActions, IPluginUi
     {

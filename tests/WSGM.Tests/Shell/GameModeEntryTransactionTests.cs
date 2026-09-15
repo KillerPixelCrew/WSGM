@@ -1,20 +1,19 @@
-using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using WindowsDeviceControl;
+using static WSGM.Tests.PluginBuilders;
 
 namespace WSGM.Tests;
 
 public sealed class GameModeEntryTransactionTests
 {
     private static readonly DisplayTargetIdentity Tv = new(@"\\?\tv", null, null, "Living room TV", 0, 0, 1);
+
     private static readonly DisplayTargetIdentity Desk = new(@"\\?\desk", null, null, "Desk", 0, 0, 2);
 
     private static DisplayLayout Layout(DisplayTargetIdentity target) =>
         new([new(target, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60))]);
-
-    private static PluginActionStep Step(string id) =>
-        new() { Plugin = new("wsgm.ir", "blaster"), ActionId = id };
 
     private static GameModeLaunchConfiguration Custom() => new()
     {

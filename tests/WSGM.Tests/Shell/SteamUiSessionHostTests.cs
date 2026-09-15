@@ -2,6 +2,7 @@ using System.Text.Json;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Shell;
+using static WSGM.Tests.AsyncConditions;
 
 namespace WSGM.Tests;
 
@@ -326,15 +327,6 @@ public sealed class SteamUiSessionHostTests
         Assert.NotEqual(SteamUiPatchState.Disabled, carousel.State);
     }
 
-    private static async Task WaitForAsync(Func<bool> condition)
-    {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        while (!condition())
-        {
-            await Task.Delay(TimeSpan.FromMilliseconds(10), timeout.Token);
-        }
-    }
-
     private sealed class SessionHostTransport : ISteamUiTransport
     {
         private readonly Dictionary<SteamUiTargetRole, SteamUiGenerations> _generations = new()
@@ -529,10 +521,7 @@ public sealed class SteamUiSessionHostTests
             public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         }
     }
-}
 
-public sealed class SteamUiSessionRoutingTests
-{
     [Fact]
     public async Task RouterReturnsExplicitSuccessAndMalformedPayloadRefusal()
     {
@@ -553,7 +542,7 @@ public sealed class SteamUiSessionRoutingTests
         host.Apply(true);
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
             snapshot.Id == "steam-ui.bridge"
-            && snapshot.State == SteamUiPatchState.Verified));
+            && snapshot.State == SteamUiPatchState.Verified), timeoutSeconds: 3);
 
         transport.EmitRequest(
             "wsgm.native-qam.shell",
@@ -561,14 +550,14 @@ public sealed class SteamUiSessionRoutingTests
             sequence: 1,
             actionGeneration: 1,
             payload: null);
-        await WaitForAsync(() => transport.Responses.Count >= 1);
+        await WaitForAsync(() => transport.Responses.Count >= 1, timeoutSeconds: 3);
         transport.EmitRequest(
             "steam-ui.power-limit",
             "setPrimaryLimit",
             sequence: 2,
             actionGeneration: 1,
             payload: new { watts = "not-a-number" });
-        await WaitForAsync(() => transport.Responses.Count >= 2);
+        await WaitForAsync(() => transport.Responses.Count >= 2, timeoutSeconds: 3);
 
         Assert.Equal(1, toggles);
         Assert.True(transport.Responses[0].GetProperty("ok").GetBoolean());
@@ -611,7 +600,7 @@ public sealed class SteamUiSessionRoutingTests
         host.Apply(true);
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
             snapshot.Id == "steam-ui.bridge"
-            && snapshot.State == SteamUiPatchState.Verified));
+            && snapshot.State == SteamUiPatchState.Verified), timeoutSeconds: 3);
 
         transport.EmitRequest(
             "wsgm.native-qam.shell",
@@ -636,7 +625,7 @@ public sealed class SteamUiSessionRoutingTests
             actionGeneration: 2,
             payload: null);
         await WaitForAsync(() => transport.Responses.Any(response =>
-            response.GetProperty("sequence").GetInt64() == 2));
+            response.GetProperty("sequence").GetInt64() == 2), timeoutSeconds: 3);
 
         Assert.Equal(2, calls);
         Assert.DoesNotContain(
@@ -660,23 +649,14 @@ public sealed class SteamUiSessionRoutingTests
 
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
             snapshot.Id == "steam-ui.frame-limit"
-            && snapshot.State == SteamUiPatchState.Verified));
-        await WaitForAsync(() => performance.ObserverCount == 1);
+            && snapshot.State == SteamUiPatchState.Verified), timeoutSeconds: 3);
+        await WaitForAsync(() => performance.ObserverCount == 1, timeoutSeconds: 3);
 
         transport.BridgeHandshakeSucceeds = false;
         transport.AdvanceSharedGeneration();
-        await WaitForAsync(() => performance.ObserverCount == 0);
+        await WaitForAsync(() => performance.ObserverCount == 0, timeoutSeconds: 3);
 
         Assert.Equal(0, performance.ObserverCount);
-    }
-
-    private static async Task WaitForAsync(Func<bool> condition)
-    {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-        while (!condition())
-        {
-            await Task.Delay(TimeSpan.FromMilliseconds(10), timeout.Token);
-        }
     }
 
     private sealed class RoutingTransport : ISteamUiTransport

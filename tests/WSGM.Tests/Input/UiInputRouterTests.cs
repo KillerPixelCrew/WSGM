@@ -1,6 +1,7 @@
 using WSGM.Device.Sdk.Input;
 using WSGM.Input;
 using WSGM.Shell;
+using static WSGM.Tests.ControllerSamples;
 
 namespace WSGM.Tests;
 
@@ -135,7 +136,7 @@ public sealed class UiInputRouterTests
         // Without a bound, a control the incoming source never reports would stay suppressed
         // forever. Here the timeout expires while A is still held, so the next sample releases the
         // suppression and the following press works.
-        FakeTimeProvider time = new(DateTimeOffset.UnixEpoch);
+        ManualTimeProvider time = new(DateTimeOffset.UnixEpoch);
         FakeButtonSource sdl = new();
         using UiInputRouter router = new(sdl, time);
         router.Submit(Sample(CanonicalButtons.A));
@@ -227,30 +228,6 @@ public sealed class UiInputRouterTests
         router.Submit(Sample(CanonicalButtons.B));
 
         Assert.Empty(seen);
-    }
-
-    private static CanonicalControllerSample Sample(CanonicalButtons buttons) => new()
-    {
-        Sequence = 1,
-        CycleGeneration = 1,
-        Timestamp = DateTimeOffset.UnixEpoch,
-        Buttons = buttons,
-    };
-
-    private sealed class FakeButtonSource : IUiButtonSource
-    {
-        public event Action<GamepadButtons>? ButtonPressed;
-
-        internal void Press(GamepadButtons buttons) => ButtonPressed?.Invoke(buttons);
-    }
-
-    private sealed class FakeTimeProvider(DateTimeOffset now) : TimeProvider
-    {
-        private DateTimeOffset _now = now;
-
-        public override DateTimeOffset GetUtcNow() => _now;
-
-        internal void Advance(TimeSpan delta) => _now += delta;
     }
 }
 

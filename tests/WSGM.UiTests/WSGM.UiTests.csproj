@@ -18,6 +18,8 @@
     <PackageReference Include="Avalonia.Skia" Version="12.1.1" />
     <ProjectReference Include="../../src/WSGM/WSGM.csproj" />
     <Compile Include="../Shared/RepositoryFiles.cs" Link="Shared/RepositoryFiles.cs" />
+    <Compile Include="../WSGM.Tests/Fakes/FakeButtonSource.cs" Link="Fakes/FakeButtonSource.cs" />
+    <Compile Include="../WSGM.Tests/Fakes/FakeHybridCoreApi.cs" Link="Fakes/FakeHybridCoreApi.cs" />
     <Using Include="Xunit" />
     <None Update="Baselines/*.png" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures/*.json" CopyToOutputDirectory="PreserveNewest" />

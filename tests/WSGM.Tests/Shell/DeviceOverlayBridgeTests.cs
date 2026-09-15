@@ -1,9 +1,9 @@
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Lifecycle;
-using WSGM.Input;
 using WSGM.Overlay;
 using WSGM.Shell;
+using static WSGM.Tests.ControllerBuilders;
 
 namespace WSGM.Tests;
 
@@ -423,19 +423,6 @@ public sealed class DeviceOverlayBridgeTests
     {
         Assert.Null(DeviceOverlayBridge.NextProfile([], "anything"));
     }
-
-    private static ControllerManagerStatus Status(
-        ControllerManagementState state,
-        ManagedControllerTarget? target,
-        string detail = "",
-        string? applicationId = null) =>
-        new(
-            state,
-            target,
-            ControllerTargetSource.GlobalDefault,
-            applicationId,
-            UiInputSource.ManagedCanonical,
-            detail);
 
     private static DeviceAuthoredProfile Profile(string id, string name) => new()
     {

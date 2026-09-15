@@ -1,4 +1,5 @@
 using WSGM.Core;
+using static WSGM.Tests.PerformanceBuilders;
 
 namespace WSGM.Tests;
 
@@ -616,14 +617,9 @@ public sealed class PerformanceServiceTests
     [Fact]
     public async Task TheServiceRunsWithNoDevicePlatformPresent()
     {
-        await using PerformanceService service = NewService();
+        await using PerformanceService service = Service();
 
         Assert.True(service.Enabled);
         Assert.NotNull(service.Current);
     }
-
-    private static PerformanceService NewService() => new(
-        new SimulatedRtssAdapter(),
-        static (_, _) => Task.CompletedTask,
-        PerformancePolicy.Empty);
 }

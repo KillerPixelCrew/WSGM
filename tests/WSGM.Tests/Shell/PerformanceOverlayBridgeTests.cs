@@ -1,6 +1,7 @@
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Shell;
+using static WSGM.Tests.PerformanceBuilders;
 
 namespace WSGM.Tests;
 
@@ -146,7 +147,7 @@ public sealed class PerformanceOverlayBridgeTests
     [Fact]
     public async Task TheOverlayProjectionRendersItsRowsWithNoDevicePlatformPresent()
     {
-        await using PerformanceService service = NewService();
+        await using PerformanceService service = Service();
         using PerformanceOverlayBridge bridge = new(service);
 
         PerformanceOverlaySnapshot snapshot = bridge.Snapshot();
@@ -161,7 +162,7 @@ public sealed class PerformanceOverlayBridgeTests
     [Fact]
     public async Task ObservationIsLeasedByTheOverlayRatherThanByTheDeviceCycle()
     {
-        await using PerformanceService service = NewService();
+        await using PerformanceService service = Service();
         using PerformanceOverlayBridge bridge = new(service);
 
         Assert.Equal(0, service.ObserverCount);
@@ -173,9 +174,4 @@ public sealed class PerformanceOverlayBridgeTests
         lease.Dispose();
         Assert.Equal(0, service.ObserverCount);
     }
-
-    private static PerformanceService NewService() => new(
-        new SimulatedRtssAdapter(),
-        static (_, _) => Task.CompletedTask,
-        PerformancePolicy.Empty);
 }

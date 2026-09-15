@@ -171,25 +171,4 @@ public sealed class CommonPluginManagerTests
         Assert.Equal(2, Assert.Single(manager.Snapshot()).Registration!.Context.Generation);
         await manager.StopAsync(Deadline);
     }
-
-    private sealed class FakePlugin(string id) : IPlugin
-    {
-        public string Id => id;
-        internal int Starts { get; private set; }
-        internal int Stops { get; private set; }
-        internal int Disposals { get; private set; }
-        internal int Suspends { get; private set; }
-        internal int Resumes { get; private set; }
-        internal bool Released { get; init; } = true;
-        public ValueTask<PluginHealth> StartAsync(IPluginHost host, PluginContext context, CancellationToken cancellationToken)
-        { Starts++; return ValueTask.FromResult(PluginHealth.Ready); }
-        public ValueTask SessionChangedAsync(PluginContext context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
-        public ValueTask SuspendAsync(PluginContext context, CancellationToken cancellationToken)
-        { Suspends++; return ValueTask.CompletedTask; }
-        public ValueTask ResumeAsync(PluginContext context, CancellationToken cancellationToken)
-        { Resumes++; return ValueTask.CompletedTask; }
-        public ValueTask<bool> StopAsync(PluginContext context, CancellationToken cancellationToken)
-        { Stops++; return ValueTask.FromResult(Released); }
-        public ValueTask DisposeAsync() { Disposals++; return ValueTask.CompletedTask; }
-    }
 }

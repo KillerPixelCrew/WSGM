@@ -1,12 +1,10 @@
 using WSGM.Core;
+using static WSGM.Tests.PerformanceBuilders;
 
 namespace WSGM.Tests;
 
 public sealed class PerformanceApplicationProfileTests
 {
-    private static PerformanceService Service(PerformancePolicy policy) =>
-        new(new SimulatedRtssAdapter(), (_, _) => Task.CompletedTask, policy);
-
     private static PerformancePolicy Global(int frameLimit) => new(
         new PerformanceValues(frameLimit, 2),
         []);
