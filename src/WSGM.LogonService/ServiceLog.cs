@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 
 namespace WSGM.LogonService;
 
@@ -10,14 +11,15 @@ namespace WSGM.LogonService;
 /// failures never take the service down.</summary>
 internal static class ServiceLog
 {
-    private const long RotateBytes = 1024 * 1024;
-    private static readonly object Gate = new();
-
-    private static string Directory => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "WSGM");
-
-    /// <summary>Absolute path of the service log file.</summary>
-    internal static string LogPath => Path.Combine(Directory, "wsgm-service.log");
+    private static readonly RotatingFileLog Log = new(
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "WSGM",
+            "wsgm-service.log"),
+        rotateAtBytes: 1024 * 1024,
+        archiveSuffixes: [".old"],
+        new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+        writeRetries: 0);
 
     internal static void Info(string message) => Write("INFO", message);
 
@@ -25,32 +27,6 @@ internal static class ServiceLog
 
     internal static void Error(string message) => Write("ERROR", message);
 
-    private static void Write(string level, string message)
-    {
-        try
-        {
-            lock (Gate)
-            {
-                System.IO.Directory.CreateDirectory(Directory);
-                try
-                {
-                    var info = new FileInfo(LogPath);
-                    if (info.Exists && info.Length > RotateBytes)
-                    {
-                        File.Move(LogPath, LogPath + ".old", overwrite: true);
-                    }
-                }
-                catch
-                {
-                    // Rotation is cosmetic.
-                }
-                File.AppendAllText(LogPath,
-                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{level}] {message}{Environment.NewLine}");
-            }
-        }
-        catch
-        {
-            // Never let logging break the service.
-        }
-    }
+    private static void Write(string level, string message) =>
+        Log.Append($"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{level}] {message}{Environment.NewLine}");
 }

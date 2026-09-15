@@ -23,6 +23,8 @@
          must not pull in Avalonia or the rest of WSGM). -->
     <Compile Include="..\WSGM\Core\BootManifest.cs" Link="Shared\BootManifest.cs" />
     <Compile Include="..\WSGM\Core\AtomicFile.cs" Link="Shared\AtomicFile.cs" />
+    <!-- Rotating diagnostics log, shared with the launch wrapper the same way. -->
+    <Compile Include="..\WSGM.Launch\RotatingFileLog.cs" Link="Shared\RotatingFileLog.cs" />
     <Compile Include="..\WSGM\Interop\Win32Common.cs" Link="Shared\Win32Common.cs" />
   </ItemGroup>
 </Project>
