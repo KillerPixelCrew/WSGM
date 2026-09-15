@@ -171,7 +171,7 @@ WSGM's Device-page visual fixture. Refresh that host fixture after changing desc
 ## Packaging
 
 ```powershell
-./eng/pack-claw.ps1
+./eng/pack-device.ps1 -Source src/WSGM.Device.Msi.Claw8A2Vm -RequireGlyphs
 ```
 
 This publishes framework-dependent, since WSGM loads the plugin into its own process which already

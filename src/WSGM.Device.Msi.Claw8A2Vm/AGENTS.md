@@ -21,7 +21,8 @@ dotnet test tests/WSGM.Device.Msi.Claw8A2Vm.Tests/WSGM.Device.Msi.Claw8A2Vm.Test
 
 The plugin targets `net10.0-windows10.0.19041.0` and x64. `plugin.wsgm.json` is authoritative for
 package ID, plugin version, API version, entry assembly, and entry type; a release tag must match
-it. When package verification is requested, run `./eng/pack-claw.ps1`; it performs the
+it. When package verification is requested, run
+`./eng/pack-device.ps1 -Source src/WSGM.Device.Msi.Claw8A2Vm -RequireGlyphs`; it performs the
 framework-dependent publish, glyph staging, offline Device Lab validation, and deterministic package
 creation. Do not tag, publish, or release unless explicitly asked.
 

@@ -39,7 +39,7 @@ if (-not ($outputFull + [IO.Path]::DirectorySeparatorChar).StartsWith(
 $deviceLabRoot = Join-Path $root "src\WSGM.DeviceLab"
 $deviceLabProject = Join-Path $deviceLabRoot "WSGM.DeviceLab.csproj"
 $pluginRoot = Join-Path $root "src\WSGM.Device.Msi.Claw8A2Vm"
-$pluginPack = Join-Path $root "eng\pack-claw.ps1"
+$pluginPack = Join-Path $root "eng\pack-device.ps1"
 $pluginSource = $pluginRoot
 $manifestFile = Join-Path $pluginSource "plugin.wsgm.json"
 
@@ -183,6 +183,8 @@ try {
 
     $packageBuildRoot = Join-Path $temporaryRoot "Packed"
     $packArguments = @{
+        Source = $pluginSource
+        RequireGlyphs = $true
         OutputRoot = $packageBuildRoot
         Configuration = $Configuration
         RuntimeIdentifier = $RuntimeIdentifier

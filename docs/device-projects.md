@@ -35,18 +35,19 @@ When a package or publish artifact is needed:
 ```powershell
 dotnet pack src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj --configuration Release --output publish/sdk
 ./eng/publish-device-lab.ps1
-./eng/pack-claw.ps1
+./eng/pack-device.ps1 -Source src/WSGM.Device.Msi.Claw8A2Vm -RequireGlyphs
 ```
 
-`eng/stage-device-components.ps1` builds installer components from these same sources. The HC
-packaging script is retained as `eng/pack-handheld-companion.ps1` for future implementation. Both
-packers use `eng/device-package-output.ps1` to replace an existing archive atomically or publish a
-new one without overwriting a competing file. A failed replacement preserves the previous archive.
+`eng/stage-device-components.ps1` builds installer components from these same sources.
+`eng/pack-device.ps1 -Source <project directory>` packs any device project, so the HC and Ally X
+scaffolds stay packable; add `-RequireGlyphs` for a package that ships physical glyphs. It uses
+`eng/device-package-output.ps1` to replace an existing archive atomically or publish a new one
+without overwriting a competing file. A failed replacement preserves the previous archive.
 
 The four imported source trees and their matching test trees retain their original MIT licenses.
 Each has a `LICENSE` file. The new Ally X scaffold is also MIT-licensed. The imported packaging
-scripts (`eng/publish-device-lab.ps1`, `eng/pack-claw.ps1`, and `eng/pack-handheld-companion.ps1`)
-retain the MIT license of their respective source projects. Their shared
+scripts (`eng/publish-device-lab.ps1` and `eng/pack-device.ps1`, which merges the former Claw and HC
+packers) retain the MIT license of their respective source projects. Their shared
 `eng/device-package-output.ps1` helper is also MIT-licensed. WSGM's main application remains
 GPL-3.0-or-later.
 

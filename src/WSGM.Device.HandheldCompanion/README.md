@@ -25,9 +25,9 @@ dotnet build src/WSGM.Device.HandheldCompanion/WSGM.Device.HandheldCompanion.csp
 dotnet test tests/WSGM.Device.HandheldCompanion.Tests/WSGM.Device.HandheldCompanion.Tests.csproj
 ```
 
-The empty assembly builds, but it is not an installable plugin. The packaging script is kept for
-later and cannot produce a working package until the entry type exists. The scaffold is not in the
-installer.
+The empty assembly builds, but it is not an installable plugin. `eng/pack-device.ps1` can pack the
+project, but it cannot produce a working package until the entry type exists. The scaffold is not in
+the installer.
 
 ## Licence
 
