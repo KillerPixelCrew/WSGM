@@ -556,6 +556,14 @@ public sealed class PerformanceConfig
 
     /// <summary>Per-application overrides keyed by WSGM's canonical application identity.</summary>
     public List<PerformanceApplicationConfig> Applications { get; set; } = [];
+
+    /// <summary>The stored entry for one application, if there is one.</summary>
+    /// <param name="applicationId">The canonical application id, or null.</param>
+    /// <returns>The entry, or null when the id is empty or has no entry.</returns>
+    internal PerformanceApplicationConfig? FindApplication(string? applicationId) =>
+        string.IsNullOrEmpty(applicationId)
+            ? null
+            : Applications.Find(application => application.ApplicationId == applicationId);
 }
 
 /// <summary>One persistent RTSS application-profile override.</summary>

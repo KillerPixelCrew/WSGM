@@ -28,6 +28,64 @@ internal sealed record NativeQamTdpState(
 /// </remarks>
 internal static class NativeQamUi
 {
+    /// <summary>An integer value that lies on a descriptor's range and step, or null.</summary>
+    /// <param name="value">The value to check.</param>
+    /// <param name="minimum">The lowest allowed value.</param>
+    /// <param name="maximum">The highest allowed value.</param>
+    /// <param name="step">The step from <paramref name="minimum"/>.</param>
+    /// <returns>The integer, or null when it is missing or off the range.</returns>
+    internal static int? ValidInteger(CapabilityValue? value, int minimum, int maximum, int step) =>
+        value is { Kind: CapabilityValueKind.Integer, IntegerValue: { } integer }
+        && integer >= minimum
+        && integer <= maximum
+        && (integer - minimum) % step == 0
+            ? integer
+            : null;
+
+    /// <summary>The word Steam shows for a command's progress.</summary>
+    /// <param name="progress">The progress to describe.</param>
+    /// <returns>The word, or empty when idle.</returns>
+    internal static string ProgressText(CommandProgress progress) => progress switch
+    {
+        CommandProgress.Pending => "applying",
+        CommandProgress.Completed => "completed",
+        CommandProgress.Failed => "failed",
+        CommandProgress.Uncertain => "uncertain",
+        _ => string.Empty,
+    };
+
+    /// <summary>The bounded status line for a device control.</summary>
+    /// <param name="view">The capability view.</param>
+    /// <param name="available">Whether the control is usable now.</param>
+    /// <param name="unavailable">The text when it is unusable and the device gave no reason.</param>
+    /// <param name="outOfRange">The text when the desired value no longer fits the descriptor.</param>
+    /// <returns>The status line.</returns>
+    internal static string StatusText(DeviceCapabilityView view, bool available, string unavailable, string outOfRange)
+    {
+        string? detail = view.LastResult?.Reason?.Detail
+            ?? view.Projection.State.Reason?.Detail;
+        if (!available && string.IsNullOrWhiteSpace(detail))
+        {
+            detail = unavailable;
+        }
+        else if (view.Projection.DesiredValueOutOfRange)
+        {
+            detail = outOfRange;
+        }
+
+        return SteamUiText.Bound(detail);
+    }
+
+    /// <summary>The Steam command result for a finished device command.</summary>
+    /// <param name="result">The device command result.</param>
+    /// <param name="fallback">The failure text when the device gave no reason.</param>
+    /// <returns>Success when the value reached the device, else the failure with its reason.</returns>
+    internal static SteamUiCommandResult CommandResult(CapabilityCommandResult result, string fallback)
+    {
+        bool succeeded = result.Outcome.IsApplied();
+        return new SteamUiCommandResult(succeeded, succeeded ? null : result.Reason?.Detail ?? fallback);
+    }
+
     /// <summary>Runs one manager call on the UI thread.</summary>
     /// <param name="action">The call to make.</param>
     /// <param name="cancellationToken">Checked before dispatch; the call itself is not cancelled.</param>
@@ -719,11 +777,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
             // A person moved the TDP control in the Steam menu, so AutoTDP steps aside for it.
             CapabilityCommandOrigin.User,
             cancellationToken).ConfigureAwait(false);
-        bool succeeded = result.Outcome is
-            CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified;
-        return new SteamUiCommandResult(
-            succeeded,
-            succeeded ? null : result.Reason?.Detail ?? OutcomeText(result.Outcome));
+        return NativeQamUi.CommandResult(result, OutcomeText(result.Outcome));
     }
 
     public void Dispose()
@@ -781,8 +835,8 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
                 descriptor.InstanceId, descriptor.CapabilityId);
         }
 
-        int? desired = ValidInteger(projection.DesiredValue, minimum, maximum, step);
-        int? observed = ValidInteger(state.ObservedValue, minimum, maximum, step);
+        int? desired = NativeQamUi.ValidInteger(projection.DesiredValue, minimum, maximum, step);
+        int? observed = NativeQamUi.ValidInteger(state.ObservedValue, minimum, maximum, step);
         bool available = state.Available
             && state.Quality is HardwareStateQuality.Observed or HardwareStateQuality.Verified
             && observed.HasValue;
@@ -795,7 +849,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
                 step,
                 desired,
                 observed,
-                ProgressText(projection.Progress),
+                NativeQamUi.ProgressText(projection.Progress),
                 status),
             descriptor.InstanceId, descriptor.CapabilityId);
     }
@@ -803,48 +857,11 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
     private void OnCapabilityViewsChanged(IReadOnlyList<DeviceCapabilityView> views) =>
         StateChanged?.Invoke();
 
-    private static int? ValidInteger(
-        CapabilityValue? value,
-        int minimum,
-        int maximum,
-        int step)
-    {
-        if (value?.Kind is not CapabilityValueKind.Integer
-            || value.IntegerValue is not int integer
-            || integer < minimum
-            || integer > maximum
-            || (integer - minimum) % step != 0)
-        {
-            return null;
-        }
-
-        return integer;
-    }
-
-    private static string ProgressText(CommandProgress progress) => progress switch
-    {
-        CommandProgress.Pending => "applying",
-        CommandProgress.Completed => "completed",
-        CommandProgress.Failed => "failed",
-        CommandProgress.Uncertain => "uncertain",
-        _ => string.Empty,
-    };
-
-    private static string StatusText(DeviceCapabilityView view, bool available)
-    {
-        string? detail = view.LastResult?.Reason?.Detail
-            ?? view.Projection.State.Reason?.Detail;
-        if (!available && string.IsNullOrWhiteSpace(detail))
-        {
-            detail = "The requested power limit is not currently available.";
-        }
-        else if (view.Projection.DesiredValueOutOfRange)
-        {
-            detail = "The desired power limit is outside the current descriptor.";
-        }
-
-        return SteamUiText.Bound(detail);
-    }
+    private static string StatusText(DeviceCapabilityView view, bool available) => NativeQamUi.StatusText(
+        view,
+        available,
+        "The requested power limit is not currently available.",
+        "The desired power limit is outside the current descriptor.");
 
     private static NativeQamTdpState Unavailable(string detail) => new(
         false,
@@ -994,13 +1011,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
             CommandTimeout,
             CapabilityCommandOrigin.User,
             cancellationToken).ConfigureAwait(false);
-        bool succeeded = result.Outcome is
-            CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified;
-        return new SteamUiCommandResult(
-            succeeded,
-            succeeded
-                ? null
-                : result.Reason?.Detail ?? $"The device command ended as {result.Outcome}.");
+        return NativeQamUi.CommandResult(result, $"The device command ended as {result.Outcome}.");
     }
 
     public void Dispose()
@@ -1051,7 +1062,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
                 compatible,
                 ValidColor(view.Projection.DesiredValue),
                 ValidColor(view.Projection.State.ObservedValue),
-                ProgressText(view.Projection.Progress),
+                NativeQamUi.ProgressText(view.Projection.Progress),
                 StatusText(view, compatible)));
         }
 
@@ -1083,9 +1094,9 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
             minimum,
             maximum,
             step,
-            ValidInteger(view.Projection.DesiredValue, minimum, maximum, step),
-            ValidInteger(view.Projection.State.ObservedValue, minimum, maximum, step),
-            ProgressText(view.Projection.Progress),
+            NativeQamUi.ValidInteger(view.Projection.DesiredValue, minimum, maximum, step),
+            NativeQamUi.ValidInteger(view.Projection.State.ObservedValue, minimum, maximum, step),
+            NativeQamUi.ProgressText(view.Projection.Progress),
             StatusText(view, available: true));
     }
 
@@ -1129,21 +1140,6 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
                 || ValidColor(state.ObservedValue).HasValue);
     }
 
-    private static int? ValidInteger(
-        CapabilityValue? value,
-        int minimum,
-        int maximum,
-        int step) => value is
-        {
-            Kind: CapabilityValueKind.Integer,
-            IntegerValue: { } integer,
-        }
-        && integer >= minimum
-        && integer <= maximum
-        && (integer - minimum) % step == 0
-            ? integer
-            : null;
-
     private static int? ValidColor(CapabilityValue? value) => value is
     {
         Kind: CapabilityValueKind.Color,
@@ -1152,30 +1148,11 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
             ? value.ColorValue
             : null;
 
-    private static string ProgressText(CommandProgress progress) => progress switch
-    {
-        CommandProgress.Pending => "applying",
-        CommandProgress.Completed => "completed",
-        CommandProgress.Failed => "failed",
-        CommandProgress.Uncertain => "uncertain",
-        _ => string.Empty,
-    };
-
-    private static string StatusText(DeviceCapabilityView view, bool available)
-    {
-        string? detail = view.LastResult?.Reason?.Detail
-            ?? view.Projection.State.Reason?.Detail;
-        if (!available && string.IsNullOrWhiteSpace(detail))
-        {
-            detail = "The device control is not currently available.";
-        }
-        else if (view.Projection.DesiredValueOutOfRange)
-        {
-            detail = "The desired value is outside the current descriptor.";
-        }
-
-        return SteamUiText.Bound(detail);
-    }
+    private static string StatusText(DeviceCapabilityView view, bool available) => NativeQamUi.StatusText(
+        view,
+        available,
+        "The device control is not currently available.",
+        "The desired value is outside the current descriptor.");
 
     private void OnCapabilityViewsChanged(IReadOnlyList<DeviceCapabilityView> views) =>
         StateChanged?.Invoke();

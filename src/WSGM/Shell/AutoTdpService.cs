@@ -688,7 +688,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             CapabilityCommandResult result = await command.ConfigureAwait(false);
             bool applied = power.Descriptor.PairedPowerLimitId is not null
                 ? result.Outcome == CommandOutcome.AppliedVerified && result.ReadbackValue?.IntegerValue == decision.Watts
-                : IsApplied(result.Outcome);
+                : result.Outcome.IsApplied();
             lock (_gate)
             {
                 if (result.Outcome == CommandOutcome.Rejected && !_powerMayDiffer)
@@ -731,17 +731,6 @@ internal sealed class AutoTdpService : IAsyncDisposable
             _write.Release();
         }
     }
-
-    /// <summary>Whether an outcome means the value reached the device.</summary>
-    /// <param name="outcome">The capability command outcome.</param>
-    /// <returns><see langword="true"/> for a written value, verified or not.</returns>
-    /// <remarks>
-    /// <see cref="CommandOutcome.AppliedUnverified"/> counts: a device with no readback for its
-    /// power limit is normal, and refusing to trust it would disable AutoTDP on that hardware.
-    /// Everything else — queued, refused, timed out, interrupted — did not demonstrably arrive.
-    /// </remarks>
-    private static bool IsApplied(CommandOutcome outcome) =>
-        outcome is CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified;
 
     private void MarkWriteUnapplied()
     {

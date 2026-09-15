@@ -135,6 +135,5 @@ internal sealed class DevicePowerAssignments(
     }
 
     internal static PerformanceApplicationConfig? Application(DevicePowerAssignmentContext current) =>
-        current.Config.Applications.FirstOrDefault(application => application.UsePerGameProfile
-            && application.ApplicationId == current.ApplicationId);
+        current.Config.FindApplication(current.ApplicationId) is { UsePerGameProfile: true } application ? application : null;
 }

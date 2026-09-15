@@ -183,7 +183,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     {
         get
         {
-            var application = _config.Performance.Applications.Find(entry => entry.ApplicationId == _runningApplicationId);
+            var application = _config.Performance.FindApplication(_runningApplicationId);
             bool available = IntegrationEnabled && _capabilities.Snapshot().Any(view =>
                 view.Descriptor.Role == CapabilityRole.PowerSustainedLimit && view.Descriptor.PairedPowerLimitId is not null);
             return (available, ManualTdpPolicy.Resolve(_config.Performance, application,
@@ -200,7 +200,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             string? applicationId = _runningApplicationId;
             await PersistConfigurationAsync(config =>
             {
-                var application = config.Performance.Applications.Find(entry => entry.ApplicationId == applicationId);
+                var application = config.Performance.FindApplication(applicationId);
                 bool own = application?.UsePerGameProfile == true;
                 var profile = ManualTdpPolicy.Resolve(config.Performance, application, own)
                     ?? new ManualTdpProfile(false, null,
@@ -240,8 +240,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             { throw new InvalidOperationException("The running application, device or configuration changed before saving the assignment."); }
             await PersistConfigurationAsync(config =>
             {
-                var application = config.Performance.Applications.FirstOrDefault(item =>
-                    item.ApplicationId == applicationId && item.UsePerGameProfile);
+                var application = config.Performance.FindApplication(applicationId) is { UsePerGameProfile: true } perGame ? perGame : null;
                 if (application is not null)
                 {
                     if (ac) { application.AcPowerPreset = reference; }
@@ -1909,7 +1908,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         if (origin == CapabilityCommandOrigin.User
             && FindDescriptor(capabilityId, instanceId)?.Role == CapabilityRole.PowerSustainedLimit)
         {
-            var application = _config.Performance.Applications.Find(entry => entry.ApplicationId == _runningApplicationId);
+            var application = _config.Performance.FindApplication(_runningApplicationId);
             applyPowerPair |= ManualTdpPolicy.Resolve(_config.Performance, application,
                 application?.UsePerGameProfile == true)?.Unified == true;
         }
@@ -1985,7 +1984,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                     cancellationToken).ConfigureAwait(false);
             }
             else if (origin is CapabilityCommandOrigin.DesiredStateRestore
-                && result.Outcome is CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified
+                && result.Outcome.IsApplied()
                 && FindDescriptor(capabilityId, instanceId)?.Role is CapabilityRole.PowerSustainedLimit
                 && value?.IntegerValue is { } watts)
             {
@@ -2008,7 +2007,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             string? applicationId = _runningApplicationId;
             await PersistConfigurationAsync(config =>
             {
-                var application = config.Performance.Applications.Find(entry => entry.ApplicationId == applicationId);
+                var application = config.Performance.FindApplication(applicationId);
                 bool own = application?.UsePerGameProfile == true;
                 var profile = ManualTdpPolicy.Resolve(config.Performance, application, own);
                 if (profile is null) { return; }
@@ -2029,8 +2028,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     {
         if (_autoTdpManualOverride is not { } note
             || value?.IntegerValue is not { } watts
-            || result.Outcome is not (CommandOutcome.AppliedVerified
-                or CommandOutcome.AppliedUnverified))
+            || !result.Outcome.IsApplied())
         {
             return;
         }
@@ -2072,8 +2070,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     {
         if (_manualVariableRefreshOverride is not { } note
             || value?.BooleanValue is not { } enabled
-            || result.Outcome is not (CommandOutcome.AppliedVerified
-                or CommandOutcome.AppliedUnverified)
+            || !result.Outcome.IsApplied()
             || FindDescriptor(capabilityId, instanceId)?.Role
                 is not CapabilityRole.VariableRefreshRate)
         {
@@ -2122,8 +2119,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         if (value is null
-            || result.Outcome is not (CommandOutcome.AppliedVerified
-                or CommandOutcome.AppliedUnverified))
+            || !result.Outcome.IsApplied())
         {
             return;
         }
@@ -2560,7 +2556,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                     cancellationToken,
                     view.Projection.State.CycleGeneration,
                     view.Projection.State.DescriptorGeneration).ConfigureAwait(false);
-                if (result.Outcome is CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified)
+                if (result.Outcome.IsApplied())
                 {
                     applied++;
                     continue;

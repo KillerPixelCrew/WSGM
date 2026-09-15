@@ -2129,7 +2129,7 @@ public sealed class ShellSession : IAsyncDisposable
 
         // Verified counts, unverified counts. A timeout does not: whether the panel changed is
         // unknown, and reporting success would leave Steam's toggle disagreeing with the display.
-        return result.Outcome is CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified;
+        return result.Outcome.IsApplied();
     }
 
     /// <summary>Applies a refresh rate the user chose by hand.</summary>
@@ -3014,12 +3014,7 @@ public sealed class ShellSession : IAsyncDisposable
 
         _lastReconciledApplicationId = identityKey;
 
-        PerformanceApplicationConfig? entry = applicationId is { Length: > 0 } id
-            ? _config.Performance.Applications.Find(application => string.Equals(
-                application.ApplicationId,
-                id,
-                StringComparison.Ordinal))
-            : null;
+        PerformanceApplicationConfig? entry = _config.Performance.FindApplication(applicationId);
         bool perGameActive = entry?.UsePerGameProfile ?? false;
 
         if (power is not null && !coordinator.PowerAssignments.HasCurrentAssignment)
@@ -3155,14 +3150,7 @@ public sealed class ShellSession : IAsyncDisposable
     /// </remarks>
     private void PersistManualPowerLimit(int watts)
     {
-        string? applicationId = _performance?.Current.Target?.ApplicationId;
-        PerformanceApplicationConfig? entry = applicationId is { Length: > 0 } id
-            ? _config.Performance.Applications.Find(application => string.Equals(
-                application.ApplicationId,
-                id,
-                StringComparison.Ordinal))
-            : null;
-        bool applicationLayer = entry is { UsePerGameProfile: true };
+        (string? applicationId, PerformanceApplicationConfig? entry, bool applicationLayer) = ActivePerformanceLayer();
         int? current = applicationLayer ? entry!.TdpWatts : _config.Performance.TdpWatts;
         var manual = ManualTdpPolicy.Resolve(_config.Performance, entry, applicationLayer);
         if (manual is not null) { current = manual.Unified ? manual.UnifiedWatts : manual.SustainedWatts; }
@@ -3177,29 +3165,20 @@ public sealed class ShellSession : IAsyncDisposable
             return;
         }
 
-        ConfigStore.Mutate(config =>
-        {
-            if (applicationLayer)
+        SaveToPerformanceLayer(
+            applicationId,
+            applicationLayer,
+            target =>
             {
-                PerformanceApplicationConfig? target = config.Performance.Applications.Find(
-                    application => string.Equals(
-                        application.ApplicationId,
-                        applicationId,
-                        StringComparison.Ordinal));
-                if (target is not null)
-                {
-                    if (manual is null) { target.TdpWatts = watts; }
-                    else { target.ManualTdp = ManualTdpPolicy.WithTarget(manual, watts); }
-                    return;
-                }
-            }
-
-            if (manual is null) { config.Performance.TdpWatts = watts; }
-            else { config.Performance.ManualTdp = ManualTdpPolicy.WithTarget(manual, watts); }
-        });
-        Log.Info(
-            $"Power limit {watts} W saved to the "
-            + (applicationLayer ? $"profile for {applicationId}." : "global profile."));
+                if (manual is null) { target.TdpWatts = watts; }
+                else { target.ManualTdp = ManualTdpPolicy.WithTarget(manual, watts); }
+            },
+            global =>
+            {
+                if (manual is null) { global.TdpWatts = watts; }
+                else { global.ManualTdp = ManualTdpPolicy.WithTarget(manual, watts); }
+            },
+            $"Power limit {watts} W");
     }
 
     /// <summary>Applies a variable-refresh state the user set.</summary>
@@ -3230,14 +3209,7 @@ public sealed class ShellSession : IAsyncDisposable
     /// </remarks>
     private void PersistManualVariableRefresh(bool enabled)
     {
-        string? applicationId = _performance?.Current.Target?.ApplicationId;
-        PerformanceApplicationConfig? entry = applicationId is { Length: > 0 } id
-            ? _config.Performance.Applications.Find(application => string.Equals(
-                application.ApplicationId,
-                id,
-                StringComparison.Ordinal))
-            : null;
-        bool applicationLayer = entry is { UsePerGameProfile: true };
+        (string? applicationId, PerformanceApplicationConfig? entry, bool applicationLayer) = ActivePerformanceLayer();
         bool? current = applicationLayer ? entry!.VariableRefreshRate : _config.Performance.VariableRefreshRate;
 
         _profileVrrImposed = true;
@@ -3246,27 +3218,46 @@ public sealed class ShellSession : IAsyncDisposable
             return;
         }
 
+        SaveToPerformanceLayer(
+            applicationId,
+            applicationLayer,
+            target => target.VariableRefreshRate = enabled,
+            global => global.VariableRefreshRate = enabled,
+            $"Variable refresh {(enabled ? "on" : "off")}");
+    }
+
+    /// <summary>The running application's performance entry and whether its own layer is in force.</summary>
+    private (string? ApplicationId, PerformanceApplicationConfig? Entry, bool ApplicationLayer) ActivePerformanceLayer()
+    {
+        string? applicationId = _performance?.Current.Target?.ApplicationId;
+        PerformanceApplicationConfig? entry = _config.Performance.FindApplication(applicationId);
+        return (applicationId, entry, entry is { UsePerGameProfile: true });
+    }
+
+    /// <summary>Saves a hand-set preference to the application layer when it is in force, else globally.</summary>
+    /// <param name="applicationId">The running application.</param>
+    /// <param name="applicationLayer">Whether its own layer was in force when the value was set.</param>
+    /// <param name="application">Writes the value to the application's entry.</param>
+    /// <param name="global">Writes the value to the global layer.</param>
+    /// <param name="saved">What was saved, for the log.</param>
+    private static void SaveToPerformanceLayer(
+        string? applicationId,
+        bool applicationLayer,
+        Action<PerformanceApplicationConfig> application,
+        Action<PerformanceConfig> global,
+        string saved)
+    {
         ConfigStore.Mutate(config =>
         {
-            if (applicationLayer)
+            if (applicationLayer && config.Performance.FindApplication(applicationId) is { } target)
             {
-                PerformanceApplicationConfig? target = config.Performance.Applications.Find(
-                    application => string.Equals(
-                        application.ApplicationId,
-                        applicationId,
-                        StringComparison.Ordinal));
-                if (target is not null)
-                {
-                    target.VariableRefreshRate = enabled;
-                    return;
-                }
+                application(target);
+                return;
             }
 
-            config.Performance.VariableRefreshRate = enabled;
+            global(config.Performance);
         });
-        Log.Info(
-            $"Variable refresh {(enabled ? "on" : "off")} saved to the "
-            + (applicationLayer ? $"profile for {applicationId}." : "global profile."));
+        Log.Info($"{saved} saved to the " + (applicationLayer ? $"profile for {applicationId}." : "global profile."));
     }
 
     private DeviceCapabilityView? FindPowerLimitCapability() =>
@@ -3400,7 +3391,7 @@ public sealed class ShellSession : IAsyncDisposable
             applyPowerPair: paired).ConfigureAwait(false);
         bool applied = paired
             ? result.Outcome == CommandOutcome.AppliedVerified && result.ReadbackValue?.IntegerValue == watts
-            : result.Outcome is CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified;
+            : result.Outcome.IsApplied();
         if (!applied)
         {
             Log.Warn(
@@ -3571,21 +3562,6 @@ public sealed class ShellSession : IAsyncDisposable
         {
             Log.Error($"Managed controller capture failed for {surfaceId}", ex);
         }
-    }
-
-    private PluginSettingsScope? ActivePluginScope(Func<PluginSettingsScope, bool> predicate)
-    {
-        string? device = _deviceCoordinator?.ActiveDeviceDefinitionId;
-        string? plugin = _deviceCoordinator?.InstalledPackage?.Manifest?.Id;
-        if (device is null || plugin is null)
-        {
-            return null;
-        }
-
-        return _config.DeviceIntegration.PluginSettings.LastOrDefault(candidate =>
-            string.Equals(candidate.DeviceDefinitionId, device, StringComparison.Ordinal)
-            && string.Equals(candidate.PluginId, plugin, StringComparison.Ordinal)
-            && predicate(candidate));
     }
 
     internal static void MergePerformancePolicy(
