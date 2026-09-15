@@ -27,6 +27,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "device-lab-publish.ps1")
 $outputFull = [IO.Path]::GetFullPath($OutputRoot)
 $repositoryFull = [IO.Path]::GetFullPath($root).TrimEnd(
     [IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
@@ -56,101 +57,10 @@ $temporaryMarkerValue = "WSGM device component stage v1"
 New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
 Set-Content -LiteralPath $temporaryMarker -Value $temporaryMarkerValue -NoNewline
 
-function Invoke-ComponentPublish(
-    [string]$Project,
-    [string]$Destination
-) {
-    $arguments = @(
-        "publish",
-        $Project,
-        "--configuration", $Configuration,
-        "--runtime", $RuntimeIdentifier,
-        "--self-contained", "true",
-        "--output", $Destination,
-        "/p:PublishSingleFile=false",
-        "/p:TreatWarningsAsErrors=true",
-        "-m:1"
-    )
-    if ($NoRestore) {
-        $arguments += "--no-restore"
-    }
-
-    & dotnet @arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "Publishing $Project failed."
-    }
-}
-
-function Assert-RegularSourceFile([string]$Path) {
-    $item = Get-Item -LiteralPath $Path
-    if ($item.LinkType -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-        throw "Component metadata may not be copied through a link or reparse point: $Path"
-    }
-}
-
-function Copy-DotNetRuntimeNotices(
-    [string]$AssetsPath,
-    [string]$Destination
-) {
-    if (-not (Test-Path -LiteralPath $AssetsPath -PathType Leaf)) {
-        throw "Component restore assets are missing: $AssetsPath"
-    }
-
-    $assets = Get-Content -LiteralPath $AssetsPath -Raw | ConvertFrom-Json -Depth 100
-    $runtimePackName = "Microsoft.NETCore.App.Runtime.$RuntimeIdentifier"
-    $frameworks = @($assets.project.frameworks.psobject.Properties | ForEach-Object { $_.Value })
-    $runtimeDependencies = @(
-        $frameworks |
-            ForEach-Object { $_.downloadDependencies } |
-            Where-Object { [string]$_.name -ieq $runtimePackName }
-    )
-    if ($runtimeDependencies.Count -ne 1) {
-        throw "Component restore must resolve exactly one $runtimePackName pack."
-    }
-
-    $versionRange = ([string]$runtimeDependencies[0].version -replace '^\[|\]$', '')
-    $bounds = @($versionRange.Split(',') | ForEach-Object { $_.Trim() })
-    if ($bounds.Count -ne 2 -or $bounds[0] -cne $bounds[1] -or
-        [string]::IsNullOrWhiteSpace($bounds[0])) {
-        throw "Component runtime pack version is not exact: $($runtimeDependencies[0].version)"
-    }
-
-    $runtimePack = $null
-    foreach ($packageFolder in $assets.packageFolders.psobject.Properties.Name) {
-        $candidate = Join-Path (
-            Join-Path $packageFolder $runtimePackName.ToLowerInvariant()) $bounds[0]
-        if (Test-Path -LiteralPath $candidate -PathType Container) {
-            $runtimePack = $candidate
-            break
-        }
-    }
-    if ($null -eq $runtimePack) {
-        throw "Resolved component runtime pack was not found in the restored package folders."
-    }
-
-    foreach ($notice in @(
-        @{ Source = "LICENSE.TXT"; Destination = "DotNetRuntime-LICENSE.txt" },
-        @{ Source = "THIRD-PARTY-NOTICES.TXT"; Destination = "DotNetRuntime-THIRD-PARTY-NOTICES.txt" }
-    )) {
-        $source = Join-Path $runtimePack $notice.Source
-        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
-            throw "Required .NET runtime notice is missing: $source"
-        }
-        Assert-RegularSourceFile $source
-        Copy-Item -LiteralPath $source -Destination (Join-Path $Destination $notice.Destination) -Force
-    }
-}
-
 try {
     $deviceLabDestination = Join-Path $temporaryRoot "Tools\DeviceLab"
-    Invoke-ComponentPublish -Project $deviceLabProject -Destination $deviceLabDestination
-    Copy-DotNetRuntimeNotices -AssetsPath (
-        Join-Path $deviceLabRoot "obj\project.assets.json") -Destination $deviceLabDestination
-
-    $deviceLabLicense = Join-Path $deviceLabRoot "LICENSE"
-    Assert-RegularSourceFile $deviceLabLicense
-    Copy-Item -LiteralPath $deviceLabLicense -Destination (
-        Join-Path $deviceLabDestination "LICENSE.txt") -Force
+    Publish-DeviceLab -Root $root -Destination $deviceLabDestination -Configuration $Configuration `
+        -RuntimeIdentifier $RuntimeIdentifier -NoRestore:$NoRestore
 
     $validator = Join-Path $deviceLabDestination "wsgm-device.exe"
     foreach ($requiredToolFile in @(
@@ -170,10 +80,6 @@ try {
     $entryAssembly = [string]$manifest.entryAssembly
     if ($packageId -cne $BuiltInPackageId) {
         throw "The built-in package declares id '$packageId', not the expected '$BuiltInPackageId'."
-    }
-    if ($packageId -notmatch '^[A-Za-z0-9._-]+$' -or
-        $packageVersion -notmatch '^[0-9]+(?:\.[0-9]+){1,3}$') {
-        throw "$manifestFile has an unsafe package id or version."
     }
     if ([IO.Path]::IsPathRooted($entryAssembly) -or
         [IO.Path]::GetFileName($entryAssembly) -cne $entryAssembly -or

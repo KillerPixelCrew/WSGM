@@ -25,6 +25,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "device-lab-publish.ps1")
 $project = Join-Path $root "src\WSGM.DeviceLab\WSGM.DeviceLab.csproj"
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $projectText = Get-Content -LiteralPath $project -Raw
@@ -130,69 +131,8 @@ try {
     [IO.Directory]::CreateDirectory($destinationParent) | Out-Null
     [IO.Directory]::CreateDirectory($staging) | Out-Null
 
-    & dotnet publish $project `
-        --configuration $Configuration `
-        --runtime $RuntimeIdentifier `
-        --self-contained true `
-        --output $staging `
-        /p:Version=$Version `
-        /p:PublishSingleFile=false `
-        /p:TreatWarningsAsErrors=true `
-        -m:1
-    if ($LASTEXITCODE -ne 0) {
-        throw "Publishing Device Lab failed."
-    }
-
-# The runtime notices, taken from the pack this publish actually restored.
-$assetsPath = Join-Path $root "src\WSGM.DeviceLab\obj\project.assets.json"
-if (-not (Test-Path -LiteralPath $assetsPath -PathType Leaf)) {
-    throw "Restore assets are missing: $assetsPath"
-}
-
-$assets = Get-Content -LiteralPath $assetsPath -Raw | ConvertFrom-Json -Depth 100
-$runtimePackName = "Microsoft.NETCore.App.Runtime.$RuntimeIdentifier"
-$frameworks = @($assets.project.frameworks.psobject.Properties | ForEach-Object { $_.Value })
-$runtimeDependencies = @(
-    $frameworks |
-        ForEach-Object { $_.downloadDependencies } |
-        Where-Object { [string]$_.name -ieq $runtimePackName }
-)
-if ($runtimeDependencies.Count -ne 1) {
-    throw "Restore must resolve exactly one $runtimePackName pack."
-}
-
-# An exact pin, not a range: the notice must describe one specific redistributed runtime.
-$versionRange = ([string]$runtimeDependencies[0].version -replace '^\[|\]$', '')
-$bounds = @($versionRange.Split(',') | ForEach-Object { $_.Trim() })
-if ($bounds.Count -ne 2 -or $bounds[0] -cne $bounds[1] -or [string]::IsNullOrWhiteSpace($bounds[0])) {
-    throw "Runtime pack version is not exact: $($runtimeDependencies[0].version)"
-}
-
-$runtimePack = $null
-foreach ($packageFolder in $assets.packageFolders.psobject.Properties.Name) {
-    $candidate = Join-Path (Join-Path $packageFolder ($runtimePackName.ToLowerInvariant())) $bounds[0]
-    if (Test-Path -LiteralPath $candidate -PathType Container) {
-        $runtimePack = $candidate
-        break
-    }
-}
-if ($null -eq $runtimePack) {
-    throw "Resolved runtime pack was not found in the restored package folders."
-}
-
-foreach ($notice in @(
-    @{ Source = "LICENSE.TXT"; Destination = "DotNetRuntime-LICENSE.txt" },
-    @{ Source = "THIRD-PARTY-NOTICES.TXT"; Destination = "DotNetRuntime-THIRD-PARTY-NOTICES.txt" }
-)) {
-    $source = Join-Path $runtimePack $notice.Source
-    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
-        throw "Required .NET runtime notice is missing: $source"
-    }
-    Copy-Item -LiteralPath $source -Destination (Join-Path $staging $notice.Destination) -Force
-}
-
-Copy-Item -LiteralPath (Join-Path $root "src\WSGM.DeviceLab\LICENSE") `
-    -Destination (Join-Path $staging "LICENSE.txt") -Force
+    Publish-DeviceLab -Root $root -Destination $staging -Configuration $Configuration `
+        -RuntimeIdentifier $RuntimeIdentifier -Version $Version
 
 Set-Content -LiteralPath (Join-Path $staging $markerName) `
     -Value $markerValue -NoNewline -Encoding UTF8

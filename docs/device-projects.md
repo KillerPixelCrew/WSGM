@@ -48,7 +48,7 @@ The four imported source trees and their matching test trees retain their origin
 Each has a `LICENSE` file. The new Ally X scaffold is also MIT-licensed. The imported packaging
 scripts (`eng/publish-device-lab.ps1` and `eng/pack-device.ps1`, which merges the former Claw and HC
 packers) retain the MIT license of their respective source projects. Their shared
-`eng/device-package-output.ps1` helper is also MIT-licensed. WSGM's main application remains
+`eng/device-package-output.ps1` and `eng/device-lab-publish.ps1` helpers are also MIT-licensed. WSGM's main application remains
 GPL-3.0-or-later.
 
 The Generic PC repository contained only a design scaffold, with no implemented behavior to move. It

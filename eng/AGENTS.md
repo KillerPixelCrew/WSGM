@@ -34,6 +34,10 @@ codes, and safe to rerun.
 - Device packers share `device-package-output.ps1` for archive publication. Keep staging on the
   destination volume, replace owned archives atomically, and use create-new semantics otherwise.
   Never delete the previous archive before its replacement commits.
+- `publish-device-lab.ps1` and `stage-device-components.ps1` publish Device Lab through
+  `device-lab-publish.ps1`, which copies the exact restored runtime notices and the licence. The
+  unsafe package id and version refusal lives in `pack-device.ps1` only; staging keeps its built-in
+  identity, entry assembly, glyph and extracted-tree checks.
 - Staging must validate package identity, version, architecture, and required files before copying
   anything into the installer tree.
 - eng/dev-deploy.ps1 is an attended, machine-specific operation. It checks the supported board,
