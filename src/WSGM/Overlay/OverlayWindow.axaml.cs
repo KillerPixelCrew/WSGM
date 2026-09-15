@@ -1591,31 +1591,12 @@ public partial class OverlayWindow : Window
                 return;
             }
 
-            bool restoreAfterInvoke = button.IsFocused;
-            button.IsEnabled = false;
-            try
-            {
-                await bridge.InvokeAsync(capability, _deviceLifetime.Token);
-            }
-            catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
-            {
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Device overlay command failed: {capability.CapabilityId}, {ex.Message}");
-            }
-            finally
-            {
-                if (!_closed)
-                {
-                    button.IsEnabled = capability.CanInvoke;
-                    if (restoreAfterInvoke && button.IsEffectivelyVisible
-                        && FocusManager?.GetFocusedElement() is null)
-                    {
-                        button.Focus(NavigationMethod.Directional);
-                    }
-                }
-            }
+            await RunRowCommandAsync(
+                button,
+                capability.CanInvoke,
+                restoreFocus: true,
+                token => bridge.InvokeAsync(capability, token),
+                $"Device overlay command failed: {capability.CapabilityId}");
         };
         return button;
     }
@@ -1847,27 +1828,54 @@ public partial class OverlayWindow : Window
                 return;
             }
 
-            button.IsEnabled = false;
-            try
-            {
-                await source.InvokeAsync(descriptor, _deviceLifetime.Token);
-            }
-            catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
-            {
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Performance overlay command failed: {descriptor.Id}, {ex.Message}");
-            }
-            finally
-            {
-                if (!_closed)
-                {
-                    button.IsEnabled = descriptor.CanInvoke;
-                }
-            }
+            await RunRowCommandAsync(
+                button,
+                descriptor.CanInvoke,
+                restoreFocus: false,
+                token => source.InvokeAsync(descriptor, token),
+                $"Performance overlay command failed: {descriptor.Id}");
         };
         return button;
+    }
+
+    /// <summary>Runs a row's command with the row disabled, under the overlay's device lifetime.</summary>
+    /// <param name="button">The row that started the command.</param>
+    /// <param name="enabledAfter">Whether the row can be pressed again afterwards.</param>
+    /// <param name="restoreFocus">Puts focus back on the row when the command left nothing focused.</param>
+    /// <param name="command">The command to run.</param>
+    /// <param name="failure">The log line prefix when the command fails.</param>
+    private async Task RunRowCommandAsync(
+        Button button,
+        bool enabledAfter,
+        bool restoreFocus,
+        Func<CancellationToken, Task> command,
+        string failure)
+    {
+        bool restoreAfterInvoke = restoreFocus && button.IsFocused;
+        button.IsEnabled = false;
+        try
+        {
+            await command(_deviceLifetime.Token);
+        }
+        catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"{failure}, {ex.Message}");
+        }
+        finally
+        {
+            if (!_closed)
+            {
+                button.IsEnabled = enabledAfter;
+                if (restoreAfterInvoke && button.IsEffectivelyVisible
+                    && FocusManager?.GetFocusedElement() is null)
+                {
+                    button.Focus(NavigationMethod.Directional);
+                }
+            }
+        }
     }
 
     /// <summary>Puts the shared performance rows where the user will look for them.</summary>

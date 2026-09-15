@@ -113,7 +113,7 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
             }
             Raise(nameof(VolumePercent));
             Raise(nameof(VolumeText));
-            QueueVolumeWrite(normalized);
+            _volumeWrite.Queue(normalized, () => _disposed, WriteVolume, FailSticky);
         }
     }
 
@@ -147,7 +147,7 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
                 InputMuted = false;
             }
             Raise(nameof(InputVolumePercent));
-            QueueInputVolumeWrite(normalized);
+            _inputVolumeWrite.Queue(normalized, () => _disposed, WriteInputVolume, FailSticky);
         }
     }
 
@@ -230,14 +230,10 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
     private bool _disposed;
     private bool _stickyError;
     private string _endpointSummary = "";
-    private readonly object _volumeGate = new();
-    private readonly object _inputVolumeGate = new();
+    private readonly CoalescingVolumeWrite _volumeWrite = new("Volume");
+    private readonly CoalescingVolumeWrite _inputVolumeWrite = new("Microphone volume");
     private readonly SemaphoreSlim _outputSelectionGate = new(1, 1);
     private readonly SemaphoreSlim _inputSelectionGate = new(1, 1);
-    private int? _pendingVolume;
-    private bool _volumeWorkerRunning;
-    private int? _pendingInputVolume;
-    private bool _inputVolumeWorkerRunning;
     private EndpointSelectionTracker _outputSelection;
     private EndpointSelectionTracker _inputSelection;
     private bool _hasOutputSnapshot;
@@ -648,153 +644,50 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private void QueueVolumeWrite(int percentage)
+    private void WriteVolume(int requested)
     {
-        lock (_volumeGate)
+        var result = CoreAudio.SetVolume(requested, out var muted);
+        if (result < 0)
         {
-            _pendingVolume = percentage;
-            if (_volumeWorkerRunning)
-            {
-                return;
-            }
-            _volumeWorkerRunning = true;
+            PostFailure($"Set volume failed (HRESULT 0x{result:X8}).", sticky: true);
+            return;
         }
 
-        _ = Task.Run(() =>
+        Log.Info($"Taskbar volume set to {requested}% (muted={muted != 0}).");
+        VolumeFeedback.Play();
+        Dispatcher.UIThread.Post(() =>
         {
-            try
+            if (!_disposed)
             {
-                while (true)
-                {
-                    int requested;
-                    lock (_volumeGate)
-                    {
-                        if (_pendingVolume is not int pending || _disposed)
-                        {
-                            _volumeWorkerRunning = false;
-                            return;
-                        }
-                        requested = pending;
-                        _pendingVolume = null;
-                    }
-
-                    try
-                    {
-                        var result = CoreAudio.SetVolume(requested, out var muted);
-                        if (result >= 0)
-                        {
-                            Log.Info($"Taskbar volume set to {requested}% (muted={muted != 0}).");
-                            VolumeFeedback.Play();
-                            Dispatcher.UIThread.Post(() =>
-                            {
-                                if (!_disposed)
-                                {
-                                    ApplyVolume(requested, muted != 0);
-                                    _stickyError = false;
-                                    ErrorText = "";
-                                }
-                            });
-                        }
-                        else
-                        {
-                            PostFailure($"Set volume failed (HRESULT 0x{result:X8}).", sticky: true);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        // Report and carry on: unwinding the loop would strand
-                        // _volumeWorkerRunning at true and silently drop every
-                        // later slider move.
-                        PostFailure($"Volume write failed: {ex.Message}", sticky: true);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                // The flag is the only thing that lets a later write start a
-                // worker at all, so it must be cleared on the abnormal exit too.
-                lock (_volumeGate)
-                {
-                    _volumeWorkerRunning = false;
-                }
-                Log.Warn($"Volume write worker stopped: {ex.Message}");
+                ApplyVolume(requested, muted != 0);
+                _stickyError = false;
+                ErrorText = "";
             }
         });
     }
 
-    private void QueueInputVolumeWrite(int percentage)
+    private void WriteInputVolume(int requested)
     {
-        lock (_inputVolumeGate)
+        int result = CoreAudio.SetVolume(CoreAudio.AudioDirection.Capture, requested, out int muted);
+        if (result < 0)
         {
-            _pendingInputVolume = percentage;
-            if (_inputVolumeWorkerRunning)
-            {
-                return;
-            }
-            _inputVolumeWorkerRunning = true;
+            PostFailure($"Set microphone volume failed (HRESULT 0x{result:X8}).", sticky: true);
+            return;
         }
 
-        _ = Task.Run(() =>
+        Log.Info($"Microphone volume set to {requested}% (muted={muted != 0}).");
+        Dispatcher.UIThread.Post(() =>
         {
-            try
+            if (!_disposed)
             {
-                while (true)
-                {
-                    int requested;
-                    lock (_inputVolumeGate)
-                    {
-                        if (_pendingInputVolume is not int pending || _disposed)
-                        {
-                            _inputVolumeWorkerRunning = false;
-                            return;
-                        }
-                        requested = pending;
-                        _pendingInputVolume = null;
-                    }
-
-                    try
-                    {
-                        int result = CoreAudio.SetVolume(
-                            CoreAudio.AudioDirection.Capture,
-                            requested,
-                            out int muted);
-                        if (result >= 0)
-                        {
-                            Log.Info(
-                                $"Microphone volume set to {requested}% (muted={muted != 0}).");
-                            Dispatcher.UIThread.Post(() =>
-                            {
-                                if (!_disposed)
-                                {
-                                    ApplyInputVolume(requested, muted != 0);
-                                    _stickyError = false;
-                                    ErrorText = "";
-                                }
-                            });
-                        }
-                        else
-                        {
-                            PostFailure(
-                                $"Set microphone volume failed (HRESULT 0x{result:X8}).",
-                                sticky: true);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        PostFailure($"Microphone volume write failed: {ex.Message}", sticky: true);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                lock (_inputVolumeGate)
-                {
-                    _inputVolumeWorkerRunning = false;
-                }
-                Log.Warn($"Microphone volume write worker stopped: {ex.Message}");
+                ApplyInputVolume(requested, muted != 0);
+                _stickyError = false;
+                ErrorText = "";
             }
         });
     }
+
+    private void FailSticky(string message) => PostFailure(message, sticky: true);
 
     /// <summary>Adopts a volume state another WSGM writer has ALREADY applied to
     /// Core Audio — the hardware volume buttons — so the taskbar slider does not
@@ -854,13 +747,82 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
             _timer.Tick -= OnTick;
             _timer = null;
         }
-        lock (_volumeGate)
+        _volumeWrite.Clear();
+        _inputVolumeWrite.Clear();
+    }
+
+    /// <summary>Runs one direction's volume writes on a worker, collapsing a burst of slider moves
+    /// into the latest value.</summary>
+    /// <param name="label">What is written, for the failure messages.</param>
+    private sealed class CoalescingVolumeWrite(string label)
+    {
+        private readonly object _gate = new();
+        private int? _pending;
+        private bool _running;
+
+        /// <summary>Records the latest value and starts a worker unless one is already running.</summary>
+        internal void Queue(int percentage, Func<bool> stopped, Action<int> write, Action<string> fail)
         {
-            _pendingVolume = null;
+            lock (_gate)
+            {
+                _pending = percentage;
+                if (_running)
+                {
+                    return;
+                }
+                _running = true;
+            }
+
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    while (true)
+                    {
+                        int requested;
+                        lock (_gate)
+                        {
+                            if (_pending is not int pending || stopped())
+                            {
+                                _running = false;
+                                return;
+                            }
+                            requested = pending;
+                            _pending = null;
+                        }
+
+                        try
+                        {
+                            write(requested);
+                        }
+                        catch (Exception ex)
+                        {
+                            // Report and carry on: unwinding the loop would strand _running at
+                            // true and silently drop every later slider move.
+                            fail($"{label} write failed: {ex.Message}");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // The flag is the only thing that lets a later write start a worker at all,
+                    // so it must be cleared on the abnormal exit too.
+                    lock (_gate)
+                    {
+                        _running = false;
+                    }
+                    Log.Warn($"{label} write worker stopped: {ex.Message}");
+                }
+            });
         }
-        lock (_inputVolumeGate)
+
+        /// <summary>Drops a value that has not been written yet.</summary>
+        internal void Clear()
         {
-            _pendingInputVolume = null;
+            lock (_gate)
+            {
+                _pending = null;
+            }
         }
     }
 }

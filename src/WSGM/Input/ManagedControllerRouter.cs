@@ -580,44 +580,35 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         return delivered;
     }
 
-    internal async Task NeutralizeAsync(string reason, CancellationToken cancellationToken)
-    {
-        await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await NeutralizeUnderGateAsync(reason, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _transition.Release();
-        }
-    }
+    internal Task NeutralizeAsync(string reason, CancellationToken cancellationToken) =>
+        UnderGateAsync(() => NeutralizeUnderGateAsync(reason, cancellationToken), cancellationToken);
 
-    internal async Task RemoveAsync(string reason, CancellationToken cancellationToken)
-    {
-        await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await RemoveUnderGateAsync(reason, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _transition.Release();
-        }
-    }
+    internal Task RemoveAsync(string reason, CancellationToken cancellationToken) =>
+        UnderGateAsync(() => RemoveUnderGateAsync(reason, cancellationToken), cancellationToken);
 
     internal async Task<HidTargetHandle> ReplaceAsync(
         ManagedControllerTarget kind,
         long sourceGeneration,
         CancellationToken cancellationToken)
     {
-        await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        HidTargetHandle? target = null;
+        await UnderGateAsync(async () =>
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             await RemoveUnderGateAsync("target-replacement", cancellationToken).ConfigureAwait(false);
-            return await CreateUnderGateAsync(kind, sourceGeneration, cancellationToken)
+            target = await CreateUnderGateAsync(kind, sourceGeneration, cancellationToken)
                 .ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
+        return target!;
+    }
+
+    /// <summary>Runs one target transition while holding the transition gate.</summary>
+    private async Task UnderGateAsync(Func<Task> transition, CancellationToken cancellationToken)
+    {
+        await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await transition().ConfigureAwait(false);
         }
         finally
         {
