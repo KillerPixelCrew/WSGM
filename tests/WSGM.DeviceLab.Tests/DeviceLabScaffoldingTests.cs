@@ -214,7 +214,7 @@ public sealed class DeviceLabScaffoldingTests
             {
                 CommandId = Guid.NewGuid(),
                 CapabilityId = "example.integration-toggle",
-                RequestedValue = new() { Kind = CapabilityValueKind.Boolean, BooleanValue = true },
+                RequestedValue = CapabilityValue.Boolean(true),
                 ExpectedCycleGeneration = 1,
                 ExpectedDescriptorGeneration = 1,
                 Deadline = DateTimeOffset.UtcNow.AddSeconds(2),

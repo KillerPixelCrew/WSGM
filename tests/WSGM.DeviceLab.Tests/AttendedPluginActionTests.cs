@@ -334,11 +334,7 @@ public sealed class AttendedPluginActionTests
             {
                 CapabilityId = descriptor.CapabilityId,
                 Available = true,
-                ObservedValue = new CapabilityValue
-                {
-                    Kind = CapabilityValueKind.Text,
-                    TextValue = "Dock",
-                },
+                ObservedValue = CapabilityValue.Text("Dock"),
                 Quality = HardwareStateQuality.Verified,
                 DescriptorGeneration = 4,
                 CycleGeneration = 7,
@@ -400,7 +396,7 @@ public sealed class AttendedPluginActionTests
             {
                 CapabilityId = "power.sustained",
                 Available = true,
-                ObservedValue = Integer(18),
+                ObservedValue = CapabilityValue.Integer(18),
                 Quality = quality,
                 ObservedAt = DateTimeOffset.UnixEpoch,
                 DescriptorGeneration = 4,
@@ -462,28 +458,12 @@ public sealed class AttendedPluginActionTests
         CustomLabel = label,
     };
 
-    private static CapabilityValue Integer(int value) => new()
-    {
-        Kind = CapabilityValueKind.Integer,
-        IntegerValue = value,
-    };
-
-    private static CapabilityValue Boolean(bool value) => new()
-    {
-        Kind = CapabilityValueKind.Boolean,
-        BooleanValue = value,
-    };
-
     private static CapabilityValue RoleValue(CapabilityDescriptor descriptor, bool available) =>
         descriptor.ValueKind switch
         {
-            CapabilityValueKind.Choice => new CapabilityValue
-            {
-                Kind = CapabilityValueKind.Choice,
-                ChoiceValue = available ? "plugin" : "device",
-            },
-            CapabilityValueKind.None => new CapabilityValue { Kind = CapabilityValueKind.None },
-            _ => Boolean(available),
+            CapabilityValueKind.Choice => CapabilityValue.Choice(available ? "plugin" : "device"),
+            CapabilityValueKind.None => CapabilityValue.None(),
+            _ => CapabilityValue.Boolean(available),
         };
 
     private static CapabilityCommandResult Verified(CapabilityCommand command) => Result(

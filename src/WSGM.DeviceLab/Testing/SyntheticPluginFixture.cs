@@ -152,11 +152,7 @@ internal static class SyntheticPluginFixture
     {
         CommandId = Guid.NewGuid(),
         CapabilityId = SyntheticDockPlugin.BeaconCapabilityId,
-        RequestedValue = new CapabilityValue
-        {
-            Kind = CapabilityValueKind.Boolean,
-            BooleanValue = true,
-        },
+        RequestedValue = CapabilityValue.Boolean(true),
         ExpectedDescriptorGeneration = 1,
         ExpectedCycleGeneration = expectedDeviceGeneration,
         Deadline = DateTimeOffset.UtcNow.AddSeconds(5),
@@ -229,11 +225,7 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                 Maximum = 5000,
                 Step = 100,
                 Unit = CapabilityUnit.Millisecond,
-                Default = new CapabilityValue
-                {
-                    Kind = CapabilityValueKind.Integer,
-                    IntegerValue = 1000,
-                },
+                Default = CapabilityValue.Integer(1000),
             },
             new PluginSettingDescriptor
             {
@@ -245,11 +237,7 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                     CustomLabel = "Verbose tracing",
                 },
                 SectionId = "dock.advanced",
-                Default = new CapabilityValue
-                {
-                    Kind = CapabilityValueKind.Boolean,
-                    BooleanValue = false,
-                },
+                Default = CapabilityValue.Boolean(false),
             },
             new PluginSettingDescriptor
             {
@@ -274,11 +262,7 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                         CustomLabel = "Balanced",
                     }),
                 ],
-                Default = new CapabilityValue
-                {
-                    Kind = CapabilityValueKind.Choice,
-                    ChoiceValue = "balanced",
-                },
+                Default = CapabilityValue.Choice("balanced"),
             },
             new PluginSettingDescriptor
             {
@@ -290,11 +274,7 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                     CustomLabel = "Indicator tint",
                 },
                 SectionId = "dock.advanced",
-                Default = new CapabilityValue
-                {
-                    Kind = CapabilityValueKind.Color,
-                    ColorValue = 0x00A0FF,
-                },
+                Default = CapabilityValue.Color(0x00A0FF),
             },
             new PluginSettingDescriptor
             {
@@ -307,11 +287,7 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                 },
                 SectionId = "dock.general",
                 MaximumLength = 32,
-                Default = new CapabilityValue
-                {
-                    Kind = CapabilityValueKind.Text,
-                    TextValue = "Dock",
-                },
+                Default = CapabilityValue.Text("Dock"),
             },
             new PluginSettingDescriptor
             {
@@ -323,11 +299,7 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                     CustomLabel = "Stray control",
                 },
                 SectionId = "dock.never-declared",
-                Default = new CapabilityValue
-                {
-                    Kind = CapabilityValueKind.Boolean,
-                    BooleanValue = false,
-                },
+                Default = CapabilityValue.Boolean(false),
             },
         ],
     };
@@ -605,11 +577,7 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
     {
         CapabilityId = BeaconCapabilityId,
         Available = true,
-        ObservedValue = new CapabilityValue
-        {
-            Kind = CapabilityValueKind.Boolean,
-            BooleanValue = value,
-        },
+        ObservedValue = CapabilityValue.Boolean(value),
         Quality = HardwareStateQuality.Verified,
         ObservedAt = DateTimeOffset.UtcNow,
         DescriptorGeneration = 1,

@@ -946,11 +946,7 @@ internal static class AttendedPluginActionRunner
                     return false;
                 }
 
-                value = new CapabilityValue
-                {
-                    Kind = CapabilityValueKind.Boolean,
-                    BooleanValue = boolean,
-                };
+                value = CapabilityValue.Boolean(boolean);
                 break;
             case CapabilityValueKind.Integer:
                 if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int integer))
@@ -974,11 +970,7 @@ internal static class AttendedPluginActionRunner
                     return false;
                 }
 
-                value = new CapabilityValue
-                {
-                    Kind = CapabilityValueKind.Integer,
-                    IntegerValue = integer,
-                };
+                value = CapabilityValue.Integer(integer);
                 break;
             case CapabilityValueKind.Choice:
                 if (!descriptor.Choices.Any(choice => string.Equals(
@@ -990,11 +982,7 @@ internal static class AttendedPluginActionRunner
                     return false;
                 }
 
-                value = new CapabilityValue
-                {
-                    Kind = CapabilityValueKind.Choice,
-                    ChoiceValue = text,
-                };
+                value = CapabilityValue.Choice(text);
                 break;
             case CapabilityValueKind.Color:
                 string colorText = text.StartsWith('#') ? text[1..] : text;
@@ -1006,11 +994,7 @@ internal static class AttendedPluginActionRunner
                     return false;
                 }
 
-                value = new CapabilityValue
-                {
-                    Kind = CapabilityValueKind.Color,
-                    ColorValue = color,
-                };
+                value = CapabilityValue.Color(color);
                 break;
             case CapabilityValueKind.Curve:
                 if (!TryParseCurve(text, out IReadOnlyList<CurvePoint>? points))
@@ -1019,11 +1003,7 @@ internal static class AttendedPluginActionRunner
                     return false;
                 }
 
-                value = new CapabilityValue
-                {
-                    Kind = CapabilityValueKind.Curve,
-                    CurveValue = points,
-                };
+                value = CapabilityValue.Curve(points);
                 break;
             case CapabilityValueKind.Text:
                 string? textError = null;
@@ -1038,11 +1018,7 @@ internal static class AttendedPluginActionRunner
                     return false;
                 }
 
-                value = new CapabilityValue
-                {
-                    Kind = CapabilityValueKind.Text,
-                    TextValue = text,
-                };
+                value = CapabilityValue.Text(text);
                 break;
             case CapabilityValueKind.None:
             default:
