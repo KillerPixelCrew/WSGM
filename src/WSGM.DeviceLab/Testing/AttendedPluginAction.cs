@@ -356,15 +356,93 @@ internal static class AttendedPluginActionRunner
             return Failed(kind, "A fresh controller cycle generation could not be allocated.");
         }
 
+        bool isPulse = kind is AttendedPluginActionKind.HapticPulse;
+        bool pulseSent = false;
+        HapticOutputFrame? pulse = null;
+        ManagedControllerRun run = await WithManagedControllerAsync(
+            plugin,
+            host,
+            descriptorSet!,
+            descriptor!,
+            requiredRole,
+            controllerGeneration,
+            ActionBudget,
+            stopHaptics: isPulse,
+            ActionLabel(kind),
+            isPulse
+                ? async () =>
+                {
+                    pulse = new HapticOutputFrame
+                    {
+                        TargetGeneration = controllerGeneration,
+                        LowFrequency = 0.35F,
+                        HighFrequency = 0.35F,
+                        Timestamp = DateTimeOffset.UtcNow,
+                    };
+                    await plugin.ApplyHapticOutputAsync(pulse, cancellationToken).ConfigureAwait(false);
+                    pulseSent = true;
+                    await Task.Delay(HapticPulseDuration, cancellationToken).ConfigureAwait(false);
+                }
+                : null,
+            cancellationToken).ConfigureAwait(false);
+
+        bool actionPassed = run.ManagementEnabled && run.AvailabilityObserved;
+        if (isPulse)
+        {
+            actionPassed = actionPassed && pulseSent && run.StopSent;
+        }
+
+        return new AttendedPluginActionReport
+        {
+            Kind = kind,
+            Passed = actionPassed && run.RestorationVerified && run.Error is null,
+            CapabilityId = descriptor!.CapabilityId,
+            InstanceId = descriptor.InstanceId,
+            HapticPulse = pulse,
+            HapticPulseSent = pulseSent,
+            HapticStopAttempted = run.StopAttempted,
+            HapticStopSent = run.StopSent,
+            ControllerManagementEnabled = run.ManagementEnabled,
+            ControllerAvailabilityObserved = run.AvailabilityObserved,
+            ControllerRelease = run.Release,
+            RestorationVerified = run.RestorationVerified,
+            Error = run.Error,
+        };
+    }
+
+    /// <summary>Enables managed controller output for one generation and always hands it back.</summary>
+    /// <param name="plugin">Already-started exact-device plugin.</param>
+    /// <param name="host">Recorder containing the plugin's live semantic publications.</param>
+    /// <param name="descriptorSet">Set holding the selected role descriptor.</param>
+    /// <param name="descriptor">Role descriptor that must become available.</param>
+    /// <param name="requiredRole">Role named when availability is not observed.</param>
+    /// <param name="controllerGeneration">Fresh controller cycle generation for this action.</param>
+    /// <param name="managementBudget">Deadline budget for enabling management.</param>
+    /// <param name="stopHaptics">Whether haptic output is zeroed before the controller is released.</param>
+    /// <param name="actionLabel">Label for an action failure.</param>
+    /// <param name="whileAvailable">Work that runs only once the role is observed as available.</param>
+    /// <param name="cancellationToken">Cancels enabling and the action, never the cleanup.</param>
+    /// <returns>Management, availability and restoration details, with any accumulated error.</returns>
+    private static async Task<ManagedControllerRun> WithManagedControllerAsync(
+        IDevicePlugin plugin,
+        TestPluginHostAdapter host,
+        CapabilityDescriptorSet descriptorSet,
+        CapabilityDescriptor descriptor,
+        CapabilityRole requiredRole,
+        long controllerGeneration,
+        TimeSpan managementBudget,
+        bool stopHaptics,
+        string actionLabel,
+        Func<Task>? whileAvailable,
+        CancellationToken cancellationToken)
+    {
         bool managementAttempted = false;
         bool managementEnabled = false;
         bool availabilityObserved = false;
-        bool pulseSent = false;
         bool stopAttempted = false;
         bool stopSent = false;
         bool restorationVerified = false;
         PluginControllerRelease? release = null;
-        HapticOutputFrame? pulse = null;
         string? error = null;
         try
         {
@@ -373,41 +451,31 @@ internal static class AttendedPluginActionRunner
                 new PluginControllerManagementContext(
                     Enabled: true,
                     controllerGeneration,
-                    DateTimeOffset.UtcNow + ActionBudget),
+                    DateTimeOffset.UtcNow + managementBudget),
                 cancellationToken).ConfigureAwait(false);
             managementEnabled = true;
             availabilityObserved = IsAvailableAtGeneration(
                 host,
-                descriptorSet!,
-                descriptor!,
+                descriptorSet,
+                descriptor,
                 controllerGeneration);
             if (!availabilityObserved)
             {
                 AppendError(ref error,
                     $"The plugin did not publish {requiredRole} as available for controller generation {controllerGeneration}.");
             }
-
-            if (kind is AttendedPluginActionKind.HapticPulse && availabilityObserved)
+            else if (whileAvailable is not null)
             {
-                pulse = new HapticOutputFrame
-                {
-                    TargetGeneration = controllerGeneration,
-                    LowFrequency = 0.35F,
-                    HighFrequency = 0.35F,
-                    Timestamp = DateTimeOffset.UtcNow,
-                };
-                await plugin.ApplyHapticOutputAsync(pulse, cancellationToken).ConfigureAwait(false);
-                pulseSent = true;
-                await Task.Delay(HapticPulseDuration, cancellationToken).ConfigureAwait(false);
+                await whileAvailable().ConfigureAwait(false);
             }
         }
         catch (Exception exception)
         {
-            AppendError(ref error, $"{ActionLabel(kind)} failed: {exception.Message}");
+            AppendError(ref error, $"{actionLabel} failed: {exception.Message}");
         }
         finally
         {
-            if (kind is AttendedPluginActionKind.HapticPulse)
+            if (stopHaptics)
             {
                 stopAttempted = true;
                 try
@@ -448,29 +516,24 @@ internal static class AttendedPluginActionRunner
             }
         }
 
-        bool actionPassed = managementEnabled && availabilityObserved;
-        if (kind is AttendedPluginActionKind.HapticPulse)
-        {
-            actionPassed = actionPassed && pulseSent && stopSent;
-        }
-
-        return new AttendedPluginActionReport
-        {
-            Kind = kind,
-            Passed = actionPassed && restorationVerified && error is null,
-            CapabilityId = descriptor!.CapabilityId,
-            InstanceId = descriptor.InstanceId,
-            HapticPulse = pulse,
-            HapticPulseSent = pulseSent,
-            HapticStopAttempted = stopAttempted,
-            HapticStopSent = stopSent,
-            ControllerManagementEnabled = managementEnabled,
-            ControllerAvailabilityObserved = availabilityObserved,
-            ControllerRelease = release,
-            RestorationVerified = restorationVerified,
-            Error = error,
-        };
+        return new ManagedControllerRun(
+            managementEnabled,
+            availabilityObserved,
+            stopAttempted,
+            stopSent,
+            release,
+            restorationVerified,
+            error);
     }
+
+    private readonly record struct ManagedControllerRun(
+        bool ManagementEnabled,
+        bool AvailabilityObserved,
+        bool StopAttempted,
+        bool StopSent,
+        PluginControllerRelease? Release,
+        bool RestorationVerified,
+        string? Error);
 
     private static bool TrySelectCapability(
         TestPluginHostAdapter host,
@@ -574,100 +637,36 @@ internal static class AttendedPluginActionRunner
             return Failed(kind, "A fresh controller cycle generation could not be allocated.");
         }
 
-        bool managementAttempted = false;
-        bool managementEnabled = false;
-        bool availabilityObserved = false;
-        bool stopAttempted = false;
-        bool stopSent = false;
-        bool restorationVerified = false;
-        PluginControllerRelease? release = null;
         AttendedHapticSweepReport? sweep = null;
-        string? error = null;
-        try
-        {
-            managementAttempted = true;
-            await plugin.SetControllerManagementAsync(
-                new PluginControllerManagementContext(
-                    Enabled: true,
-                    controllerGeneration,
-                    DateTimeOffset.UtcNow + SweepBudget),
-                cancellationToken).ConfigureAwait(false);
-            managementEnabled = true;
-            availabilityObserved = IsAvailableAtGeneration(
-                host,
-                descriptorSet!,
-                descriptor!,
-                controllerGeneration);
-            if (!availabilityObserved)
-            {
-                AppendError(ref error,
-                    $"The plugin did not publish {CapabilityRole.HapticSink} as available for controller generation {controllerGeneration}.");
-            }
-            else
-            {
-                sweep = await RunSweepPhasesAsync(plugin, host, controllerGeneration, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-        }
-        catch (Exception exception)
-        {
-            AppendError(ref error, $"{ActionLabel(kind)} failed: {exception.Message}");
-        }
-        finally
-        {
-            stopAttempted = true;
-            try
-            {
-                using CancellationTokenSource stopDeadline = Deadline();
-                await plugin.ApplyHapticOutputAsync(
-                    HapticOutputFrame.Stop(controllerGeneration, DateTimeOffset.UtcNow),
-                    stopDeadline.Token).ConfigureAwait(false);
-                stopSent = true;
-            }
-            catch (Exception exception)
-            {
-                AppendError(ref error, $"Haptic zero-output cleanup failed: {exception.Message}");
-            }
-
-            if (managementAttempted)
-            {
-                try
-                {
-                    using CancellationTokenSource releaseDeadline = Deadline();
-                    release = await plugin.ReleaseControllerAsync(
-                        new PluginControllerReleaseContext(
-                            HandoffScope.ControllerOnly,
-                            DateTimeOffset.UtcNow + ActionBudget),
-                        releaseDeadline.Token).ConfigureAwait(false);
-                    restorationVerified = IsVerifiedRelease(release);
-                    if (!restorationVerified)
-                    {
-                        AppendError(ref error,
-                            $"Controller topology restore was not verified ({release.Step}, {release.Result}).");
-                    }
-                }
-                catch (Exception exception)
-                {
-                    AppendError(ref error, $"Controller topology restore failed: {exception.Message}");
-                }
-            }
-        }
+        ManagedControllerRun run = await WithManagedControllerAsync(
+            plugin,
+            host,
+            descriptorSet!,
+            descriptor!,
+            CapabilityRole.HapticSink,
+            controllerGeneration,
+            SweepBudget,
+            stopHaptics: true,
+            ActionLabel(kind),
+            async () => sweep = await RunSweepPhasesAsync(plugin, host, controllerGeneration, cancellationToken)
+                .ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
 
         return new AttendedPluginActionReport
         {
             Kind = kind,
-            Passed = managementEnabled && availabilityObserved && sweep is { Completed: true }
-                && stopSent && restorationVerified && error is null,
+            Passed = run.ManagementEnabled && run.AvailabilityObserved && sweep is { Completed: true }
+                && run.StopSent && run.RestorationVerified && run.Error is null,
             CapabilityId = descriptor!.CapabilityId,
             InstanceId = descriptor.InstanceId,
-            HapticStopAttempted = stopAttempted,
-            HapticStopSent = stopSent,
-            ControllerManagementEnabled = managementEnabled,
-            ControllerAvailabilityObserved = availabilityObserved,
-            ControllerRelease = release,
-            RestorationVerified = restorationVerified,
+            HapticStopAttempted = run.StopAttempted,
+            HapticStopSent = run.StopSent,
+            ControllerManagementEnabled = run.ManagementEnabled,
+            ControllerAvailabilityObserved = run.AvailabilityObserved,
+            ControllerRelease = run.Release,
+            RestorationVerified = run.RestorationVerified,
             HapticSweep = sweep,
-            Error = error,
+            Error = run.Error,
         };
     }
 
