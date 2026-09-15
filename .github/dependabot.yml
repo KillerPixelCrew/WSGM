@@ -17,7 +17,7 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: "cargo"
-    directory: "/native/SteamInput"
+    directory: "/external/steam-input-lease"
     schedule:
       interval: "weekly"
     groups:

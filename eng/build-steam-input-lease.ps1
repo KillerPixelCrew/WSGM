@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-Builds the vendored Steam Input Lease library and stages its output for WSGM.
+Builds the Steam Input Lease library and stages its output for WSGM.
 
 .DESCRIPTION
-The library lives in this repository at native\SteamInput and is built from
+The library is the external\steam-input-lease submodule and is built from
 source on every WSGM build, so the shipped gate can never drift from the code
 next to it. Its build output is staged into src\WSGM\Native\SteamInputLease,
 which WSGM.csproj copies beside the application executable and the installer ships.
@@ -22,12 +22,12 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$library = Join-Path $root "native\SteamInput"
+$library = Join-Path $root "external\steam-input-lease"
 $manifest = Join-Path $library "Cargo.toml"
 $staging = Join-Path $root "src\WSGM\Native\SteamInputLease"
 
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
-    throw "Rust toolchain not found. Install it from https://rustup.rs — WSGM builds native\SteamInput from source."
+    throw "Rust toolchain not found. Install it from https://rustup.rs — WSGM builds external\steam-input-lease from source."
 }
 
 if ($Validate) {

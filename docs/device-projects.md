@@ -48,8 +48,8 @@ The four imported source trees and their matching test trees retain their origin
 Each has a `LICENSE` file. The new Ally X scaffold is also MIT-licensed. The imported packaging
 scripts (`eng/publish-device-lab.ps1` and `eng/pack-device.ps1`, which merges the former Claw and HC
 packers) retain the MIT license of their respective source projects. Their shared
-`eng/device-package-output.ps1` and `eng/device-lab-publish.ps1` helpers are also MIT-licensed. WSGM's main application remains
-GPL-3.0-or-later.
+`eng/device-package-output.ps1` and `eng/device-lab-publish.ps1` helpers are also MIT-licensed.
+WSGM's main application remains GPL-3.0-or-later.
 
 The Generic PC repository contained only a design scaffold, with no implemented behavior to move. It
 is retired. Windows-wide features belong in Core; device-specific integrations still belong in
@@ -67,8 +67,8 @@ original repositories; these identifiers record the exact source baseline for th
 | WSGM.Device.Msi.Claw8A2Vm     | `e7092811840c835b43e98a4eeb1c75c9cc6b435a` |
 | WSGM.Device.HandheldCompanion | `ea52f2332fe5d69ac6f39e81b553a22332f26c13` |
 
-Only `external/steam-ui-toolkit`, `external/windows-device-control`, and `native/SteamInput` remain
-Git submodules. There are no nested SDK pins to advance.
+Only `external/steam-input-lease`, `external/steam-ui-toolkit`, and
+`external/windows-device-control` remain Git submodules. There are no nested SDK pins to advance.
 
 ## Portable Ally X tester
 

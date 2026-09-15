@@ -14,7 +14,7 @@ dependency-light, and usable before the desktop application starts.
   normal exit must restore the lease exactly once.
 - Use the canonical controller bindings supplied by the pinned dependency; do not maintain a
   divergent local copy. SteamInterop sources are linked from
-  native/SteamInput/bindings/SteamInterop.Net.
+  external/steam-input-lease/bindings/SteamInterop.Net.
 - The scheduled-task fallback uses UTF-16 XML, InteractiveToken, and the established principal. Do
   not add /NoUACCheck or weaken task identity checks.
 - Named-pipe access grants the intended user SID explicitly. Do not substitute CurrentUserOnly when

@@ -29,7 +29,7 @@ when the guidance conflicts.
   session, UI, overlay, settings, recovery, and per-user state.
 - src/WSGM.Launch is the console launcher for de-elevation and input-lease containment.
   src/WSGM.LogonService is the minimal SYSTEM service used at logon.
-- native/SteamInput owns the Steam Input shim. external/windows-device-control and
+- external/steam-input-lease owns the Steam Input shim. external/windows-device-control and
   external/steam-ui-toolkit own their respective reusable libraries.
 - src/WSGM.Plugin.Sdk holds common plugin contracts. The resident Shell host admits the existing
   Device runtime through an adapter and independently manages explicitly enabled non-device packages.
@@ -96,9 +96,9 @@ Inspect both the main tree and nested repositories before work:
 
 The direct submodules are:
 
+- external/steam-input-lease
 - external/steam-ui-toolkit
 - external/windows-device-control
-- native/SteamInput
 
 The device projects use src/WSGM.Device.Sdk directly. Update contracts, consumers, tests, and
 documentation in the same WSGM pull request. No device gitlinks or nested SDK copies remain.

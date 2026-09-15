@@ -11,7 +11,7 @@ if (-not $MinHookSource) {
         ForEach-Object { Get-ChildItem $_.FullName -Directory -Filter 'minhook-sys-0.1.1' } |
         Select-Object -First 1
     if (-not $crate) {
-        throw 'Restore native/SteamInput Cargo dependencies, or supply -MinHookSource for minhook-sys 0.1.1.'
+        throw 'Restore external/steam-input-lease Cargo dependencies, or supply -MinHookSource for minhook-sys 0.1.1.'
     }
     $MinHookSource = Join-Path $crate.FullName 'minhook'
 }

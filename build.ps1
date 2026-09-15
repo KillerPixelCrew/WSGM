@@ -27,7 +27,7 @@ finally {
     Pop-Location
 }
 
-# The Steam Input gate is built from the source in native\SteamInput on every
+# The Steam Input gate is built from the source in external\steam-input-lease on every
 # release build, so a shipped installer can never carry a gate older than the
 # code beside it. This must precede the publish, which copies the staged output.
 Write-Host "== Building Steam Input Lease (Rust) ==" -ForegroundColor Cyan

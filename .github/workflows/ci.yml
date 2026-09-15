@@ -36,8 +36,8 @@ jobs:
           node-version: 24
           cache: npm
 
-      # verify.ps1 builds the vendored Steam Input Lease library from
-      # native/SteamInput and runs its clippy/test gates, so the runner needs a
+      # verify.ps1 builds the Steam Input Lease library from the
+      # external/steam-input-lease submodule and runs its clippy/test gates, so the runner needs a
       # Rust toolchain with clippy. windows-latest ships rustup already.
       - name: Add Rust clippy component
         shell: pwsh
@@ -62,8 +62,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            native/SteamInput/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('native/SteamInput/Cargo.lock') }}
+            external/steam-input-lease/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('external/steam-input-lease/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Lint, format, build, test, and collect coverage

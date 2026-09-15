@@ -37,7 +37,6 @@ src/WSGM/Core/SteamUiAssets/Source/**/*.ts
 # repositories; formatting them from here would both create churn and dirty a
 # working tree this repo only pins — and the reformatted files could never be
 # committed from here anyway.
-native/SteamInput/
 external/
 
 # Vendored upstream source. Reformatting it would destroy the diff against

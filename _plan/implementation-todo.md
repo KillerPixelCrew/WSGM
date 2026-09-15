@@ -575,7 +575,7 @@ WSGM.exe (self-contained CoreCLR)
 Real separate boundaries
   WSGM.LogonService                  SYSTEM logon/watchdog process
   WSGM.Launch                        per-game medium-integrity wrapper
-  native/SteamInput                  Steam Input lease/proxy ABI (submodule)
+  external/steam-input-lease         Steam Input lease/proxy ABI (submodule)
   src/WSGM.Device.Sdk                public plugin and package contract (MIT)
   external/windows-device-control    radio/Wi-Fi/audio/brightness library (submodule)
   external/steam-ui-toolkit          CDP transport, patch lifecycle, bridge, modules (submodule)

@@ -43,10 +43,10 @@
     <Compile
         Include="..\..\third_party\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\LoadingIndicatorMode.cs"
         Link="ThirdParty\LoadingIndicators\LoadingIndicatorMode.cs" />
-    <!-- The in-repo Steam Input binding is the single managed ABI source. Both
+    <!-- The Steam Input Lease submodule's binding is the single managed ABI source. Both
          WSGM and WSGM.Launch compile it directly; there is no application mirror. -->
     <Compile
-        Include="..\..\native\SteamInput\bindings\SteamInterop.Net\*.cs"
+        Include="..\..\external\steam-input-lease\bindings\SteamInterop.Net\*.cs"
         LinkBase="SteamInterop" />
   </ItemGroup>
   <ItemGroup>
@@ -61,7 +61,7 @@
     <!-- steam-input-lease.exe is deliberately NOT shipped: WSGM.Launch.exe is the
          single user-facing wrapper and links the canonical binding source, so it
          holds the lease itself and carries the CLI's status/rescan diagnostics.
-         The Rust CLI stays a development tool inside native\SteamInput. -->
+         The Rust CLI stays a development tool inside external\steam-input-lease. -->
     <None Include="Native\SteamInputLease\*.txt"
           Condition="'$(SkipNativeArtifacts)' != 'true'"
           Link="%(Filename)%(Extension)"

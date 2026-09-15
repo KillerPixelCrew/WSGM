@@ -3,11 +3,11 @@
 WSGM's side of the Steam Input lease: why the overlay needs it, how the gate DLL reaches Steam, who
 owns the lease while surfaces open and close, and what to look at when it fails on a device. The
 native library (proxy DLL, pipe protocol, hooks, controller recovery) is documented in
-`native\SteamInput\README.md` and is not repeated here.
+`external\steam-input-lease\README.md` and is not repeated here.
 
 Related:
 
-- `native\SteamInput\README.md` — the gate DLL, ABI, hook coverage and recovery internals.
+- `external\steam-input-lease\README.md` — the gate DLL, ABI, hook coverage and recovery internals.
 - `docs\steam-cef-system.md` — the Steam cold-start hang and the transport gate that fixed it.
 
 ## Why the lease exists

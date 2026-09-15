@@ -57,7 +57,7 @@ session.
 | MSI Claw device behavior                                 | `src/WSGM.Device.Msi.Claw8A2Vm`     |
 | Reusable Steam CEF transport/patch/surfaces              | `external/steam-ui-toolkit`         |
 | Reusable Windows radio/audio/brightness/power primitives | `external/windows-device-control`   |
-| Native Steam Input shim/lease                            | `native/SteamInput`                 |
+| Native Steam Input shim/lease                            | `external/steam-input-lease`        |
 
 WSGM owns policy, orchestration, session state, and adapters. Device projects share this repository
 and one SDK project reference. Keep them separate assemblies. Only the reusable libraries and Steam

@@ -23,10 +23,10 @@
     <DebugType>none</DebugType>
   </PropertyGroup>
 
-  <!-- The wrapper and WSGM compile the same canonical in-repo binding sources.
+  <!-- The wrapper and WSGM compile the same canonical binding sources from the submodule.
        The native DLLs already ship beside both executables in the app directory. -->
   <ItemGroup>
-    <Compile Include="..\..\native\SteamInput\bindings\SteamInterop.Net\*.cs"
+    <Compile Include="..\..\external\steam-input-lease\bindings\SteamInterop.Net\*.cs"
              LinkBase="SteamInterop" />
   </ItemGroup>
 </Project>
