@@ -61,13 +61,13 @@ dotnet test tests/WSGM.Tests/WSGM.Tests.csproj --configuration Release --filter 
 For reload, overlay publication, tray/Explorer, and shutdown ownership, start with these concrete
 files:
 
-- `tests/WSGM.Tests/ConfigurationTests.cs`
-- `tests/WSGM.Tests/QuickAccessSheetTests.cs`
-- `tests/WSGM.Tests/SessionModesTests.cs`
-- `tests/WSGM.Tests/ApplicationShutdownTests.cs`
-- `tests/WSGM.Tests/TrayProtocolTests.cs`
-- `tests/WSGM.Tests/ExplorerReadinessTests.cs`
-- `tests/WSGM.Tests/ExplorerShellPolicyTests.cs`
+- `tests/WSGM.Tests/Core/ConfigurationTests.cs`
+- `tests/WSGM.Tests/Overlay/QuickAccessSheetTests.cs`
+- `tests/WSGM.Tests/Shell/SessionModesTests.cs`
+- `tests/WSGM.Tests/Core/ApplicationShutdownTests.cs`
+- `tests/WSGM.Tests/Core/TrayProtocolTests.cs`
+- `tests/WSGM.Tests/Shell/ExplorerReadinessTests.cs`
+- `tests/WSGM.Tests/Core/ExplorerShellPolicyTests.cs`
 
 Current gaps need dedicated regression tests: repeated watcher initialization, stale reload after
 dispose, dispatcher-only publication to the current view model, duplicate game-mode entry retaining

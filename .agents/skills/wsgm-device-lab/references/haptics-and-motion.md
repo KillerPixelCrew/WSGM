@@ -138,7 +138,7 @@ Key implementation/evidence paths:
   `ClawResources.cs`
 - WSGM `Input/ViiperControllerBackend.cs`, `ManagedControllerRouter.cs`,
   `SteamDeckNeptuneReport.cs`, `DualShock4Report.cs`
-- `tests/WSGM.Tests/SteamDeckNeptuneReportTests.cs`, `ControllerDependencyAdapterTests.cs`,
+- `tests/WSGM.Tests/Input/SteamDeckNeptuneReportTests.cs`, `ControllerDependencyAdapterTests.cs`,
   `ManagedControllerBackendTests.cs`
 
 Hardware-free validation:
