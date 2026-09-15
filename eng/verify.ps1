@@ -99,27 +99,23 @@ try {
     # pins, and the result could never be committed from here anyway. Each has its own gates.
     $notOurs = @("third_party/", "external/")
 
-    $formatArgs = @("format", "WSGM.slnx", "whitespace", "--no-restore", "--verbosity", "minimal")
-    foreach ($path in $notOurs) { $formatArgs += @("--exclude", $path) }
-    if (-not $Fix) { $formatArgs += "--verify-no-changes" }
-    & dotnet @formatArgs
-    if ($LASTEXITCODE -ne 0) { throw "C# whitespace format check failed" }
-
     # The documentation diagnostics are build errors already (warnaserror below). Left in the
     # style pass, the fixer for them splices `/// <inheritdoc/>` into the middle of a declaration
     # under -Fix, which corrupted CardButton.cs on 2026-09-03; they are for a person to write.
     $documentationDiagnostics = @("--exclude-diagnostics", "CS1591", "CS1573")
-    $styleArgs = @("format", "WSGM.slnx", "style", "--no-restore", "--severity", "warn", "--verbosity", "minimal") + $documentationDiagnostics
-    foreach ($path in $notOurs) { $styleArgs += @("--exclude", $path) }
-    if (-not $Fix) { $styleArgs += "--verify-no-changes" }
-    & dotnet @styleArgs
-    if ($LASTEXITCODE -ne 0) { throw "C# style check failed" }
-
-    $analyzerArgs = @("format", "WSGM.slnx", "analyzers", "--no-restore", "--severity", "warn", "--verbosity", "minimal") + $documentationDiagnostics
-    foreach ($path in $notOurs) { $analyzerArgs += @("--exclude", $path) }
-    if (-not $Fix) { $analyzerArgs += "--verify-no-changes" }
-    & dotnet @analyzerArgs
-    if ($LASTEXITCODE -ne 0) { throw "C# analyzer check failed" }
+    $formatModes = @(
+        @{ Name = "whitespace"; Severity = @(); Excluded = @(); Failure = "C# whitespace format check failed" },
+        @{ Name = "style"; Severity = @("--severity", "warn"); Excluded = $documentationDiagnostics; Failure = "C# style check failed" },
+        @{ Name = "analyzers"; Severity = @("--severity", "warn"); Excluded = $documentationDiagnostics; Failure = "C# analyzer check failed" }
+    )
+    foreach ($mode in $formatModes) {
+        $formatArgs = @("format", "WSGM.slnx", $mode.Name, "--no-restore") + $mode.Severity +
+            @("--verbosity", "minimal") + $mode.Excluded
+        foreach ($path in $notOurs) { $formatArgs += @("--exclude", $path) }
+        if (-not $Fix) { $formatArgs += "--verify-no-changes" }
+        & dotnet @formatArgs
+        if ($LASTEXITCODE -ne 0) { throw $mode.Failure }
+    }
 
     dotnet build WSGM.slnx --configuration Release --no-restore --warnaserror -m:1
     if ($LASTEXITCODE -ne 0) { throw "dotnet build failed" }
