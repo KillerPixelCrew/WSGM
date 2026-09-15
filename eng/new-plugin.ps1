@@ -3,14 +3,15 @@
 .SYNOPSIS
 Creates a common plugin project with a harmless status/action example.
 .DESCRIPTION
-Creates a new directory only. The generated project references this checkout's common SDK.
-No package is installed, enabled, or executed by this command.
+Creates a new directory only. The generated project references this checkout's common SDK, and its
+manifest takes the SDK's API version and passes the SDK's manifest validation before anything is
+written. No package is installed, enabled, or executed by this command.
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidatePattern('^[a-z0-9][a-z0-9._-]{0,127}$')][string]$Id,
+    [Parameter(Mandatory)][string]$Id,
     [Parameter(Mandatory)][string]$Output,
-    [ValidatePattern('^[a-z0-9][a-z0-9._-]{0,127}$')][string]$Category = 'wsgm.peripheral'
+    [string]$Category = 'wsgm.peripheral'
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -21,6 +22,26 @@ $parent = [IO.Directory]::GetParent($target)
 if ($null -eq $parent -or -not $parent.Exists) { throw 'The output parent must already exist.' }
 for ($ancestor = $parent; $null -ne $ancestor; $ancestor = $ancestor.Parent) {
     if ($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Output cannot traverse a reparse point.' }
+}
+$manifestTool = Join-Path $PSScriptRoot 'plugin-manifest.cs'
+$apiOutput = @(& dotnet run --file $manifestTool -- api-version 2>&1)
+if ($LASTEXITCODE -ne 0) { throw "Reading the Plugin SDK API version failed:`n$($apiOutput -join [Environment]::NewLine)" }
+$apiVersion = [int]"$($apiOutput[-1])"
+$manifestJson = [ordered]@{
+    id = $Id; name = $Id; version = '0.1.0'; category = $Category
+    minimumApiVersion = $apiVersion; maximumApiVersion = $apiVersion
+    entryAssembly = 'ExamplePlugin.dll'; entryType = 'ExamplePlugin.Plugin'
+    dependencies = @(); permissions = @()
+} | ConvertTo-Json -Depth 8
+# The identity is spliced into generated source below, so it must pass the SDK's rules first.
+$manifestProbe = [IO.Path]::GetTempFileName()
+try {
+    [IO.File]::WriteAllText($manifestProbe, $manifestJson)
+    $validation = @(& dotnet run --file $manifestTool -- validate $manifestProbe 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "The Plugin SDK rejected the plugin identity:`n$($validation -join [Environment]::NewLine)" }
+}
+finally {
+    Remove-Item -LiteralPath $manifestProbe -Force -ErrorAction SilentlyContinue
 }
 $sdk = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../src/WSGM.Plugin.Sdk/WSGM.Plugin.Sdk.csproj'))
 $sdkXml = [Security.SecurityElement]::Escape($sdk)
@@ -92,11 +113,5 @@ public sealed class Plugin : IPlugin, IPluginActions, IPluginUi
 }
 '@
 [IO.File]::WriteAllText((Join-Path $target 'Plugin.cs'), $source.Replace('__PLUGIN_ID__', $Id))
-$manifest = [ordered]@{
-    id = $Id; name = $Id; version = '0.1.0'; category = $Category
-    minimumApiVersion = 1; maximumApiVersion = 1
-    entryAssembly = 'ExamplePlugin.dll'; entryType = 'ExamplePlugin.Plugin'
-    dependencies = @(); permissions = @()
-}
-[IO.File]::WriteAllText((Join-Path $target 'plugin.wsgm.json'), ($manifest | ConvertTo-Json -Depth 8))
+[IO.File]::WriteAllText((Join-Path $target 'plugin.wsgm.json'), $manifestJson)
 Write-Output "Created $target. Build with dotnet build, then package with eng/package-plugin.ps1."

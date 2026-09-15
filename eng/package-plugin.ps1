@@ -3,9 +3,10 @@
 .SYNOPSIS
 Builds and archives a common plugin without loading or installing it.
 .DESCRIPTION
-Uses a new staging directory and create-new archive publication. The host performs full SDK
-manifest and dependency validation at discovery. This command checks the package identity,
-API range, entry path and required output before creating the archive.
+Uses a new staging directory and create-new archive publication. The manifest is validated by this
+checkout's common Plugin SDK through plugin-manifest.cs, the reader the host uses at discovery. This
+command then checks the common category, entry file and package contents before creating the
+archive. The host still resolves dependencies at discovery.
 #>
 [CmdletBinding()]
 param(
@@ -30,18 +31,11 @@ try {
     & dotnet publish $projectPath -c Release --no-self-contained -o $payload
     if ($LASTEXITCODE -ne 0) { throw "Plugin publish failed ($LASTEXITCODE)." }
     $manifestPath = Join-Path $payload 'plugin.wsgm.json'
-    if ((Get-Item -LiteralPath $manifestPath).Length -gt 65536) { throw 'Manifest exceeds 64 KiB.' }
+    $validation = @(& dotnet run --file (Join-Path $PSScriptRoot 'plugin-manifest.cs') -- validate $manifestPath 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "The Plugin SDK rejected the manifest:`n$($validation -join [Environment]::NewLine)" }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-    if ($manifest.id -cnotmatch '^[a-z0-9][a-z0-9._-]{0,127}$' -or
-        $manifest.category -cnotmatch '^[a-z0-9][a-z0-9._-]{0,127}$' -or $manifest.category -eq 'wsgm.device') {
-        throw 'Invalid common plugin identity or category.'
-    }
-    $null = [Version]::Parse($manifest.version)
-    if ($manifest.minimumApiVersion -lt 1 -or $manifest.minimumApiVersion -gt 1 -or $manifest.maximumApiVersion -lt 1) {
-        throw 'Incompatible common SDK API range.'
-    }
-    if ($manifest.entryAssembly -cnotmatch '^[A-Za-z0-9_-][A-Za-z0-9._-]*\.dll$' -or
-        -not (Test-Path -LiteralPath (Join-Path $payload $manifest.entryAssembly) -PathType Leaf)) {
+    if ($manifest.category -eq 'wsgm.device') { throw 'Invalid common plugin identity or category.' }
+    if (-not (Test-Path -LiteralPath (Join-Path $payload $manifest.entryAssembly) -PathType Leaf)) {
         throw 'Entry assembly must exist at the package root.'
     }
     $files = @(Get-ChildItem -LiteralPath $payload -Recurse -Force)

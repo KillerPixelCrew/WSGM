@@ -149,17 +149,20 @@ From a source checkout, create a new output directory with a harmless common plu
 .\eng\package-plugin.ps1 -Project C:\work\CounterPlugin\Plugin.csproj -Archive C:\work\counter-0.1.0.zip
 ```
 
-The template references this checkout's MIT common SDK and demonstrates lifecycle, effective state,
-a named action and declarative status/button contributions. `-Category wsgm.infrared` or another
-stable category changes metadata without introducing a Core specialization. Device packages keep the
-existing Device Lab scaffold, validation and hardware harness.
+The template references this checkout's MIT common SDK, takes its API version from it, and
+demonstrates lifecycle, effective state, a named action and declarative status/button contributions.
+`-Category wsgm.infrared` or another stable category changes metadata without introducing a Core
+specialization. Device packages keep the existing Device Lab scaffold, validation and hardware
+harness.
 
-Packaging runs the project's build, checks essential manifest/output fields and creates a new ZIP.
-It does not execute the plugin entry type, install, enable or replace a package. Full common
-manifest, dependency and UI/action validation remains authoritative in the host. Trust build inputs
-before publishing; MSBuild is executable code. Extract an approved archive into the protected
-`%ProgramFiles%\WSGM\Plugins\<plugin-id>` directory while the instance is stopped, then enable it in
-Settings. Updating follows explicit disable, confirmed cleanup, replacement and re-enable.
+Packaging runs the project's build, validates the manifest with this checkout's
+`PluginManifestReader` through `eng/plugin-manifest.cs`, checks the entry file and output, and
+creates a new ZIP. It does not execute the plugin entry type, install, enable or replace a package.
+Full common manifest, dependency and UI/action validation remains authoritative in the host. Trust
+build inputs before publishing; MSBuild is executable code. Extract an approved archive into the
+protected `%ProgramFiles%\WSGM\Plugins\<plugin-id>` directory while the instance is stopped, then
+enable it in Settings. Updating follows explicit disable, confirmed cleanup, replacement and
+re-enable.
 
 The existing `CommonPluginPackageTests` fixture is an offline example harness covering
 configuration, actions, state and lifecycle without external hardware. Use the same contract pattern

@@ -40,6 +40,8 @@ codes, and safe to rerun.
   identity, entry assembly, glyph and extracted-tree checks.
 - Staging must validate package identity, version, architecture, and required files before copying
   anything into the installer tree.
+- `new-plugin.ps1` and `package-plugin.ps1` take the common API version and manifest validation from
+  the Plugin SDK through `plugin-manifest.cs`. Do not restate identity patterns or API ranges there.
 - eng/dev-deploy.ps1 is an attended, machine-specific operation. It checks the supported board,
   stops and restarts live WSGM or Steam processes, and stages a plugin. Never invoke it as a smoke
   test.
