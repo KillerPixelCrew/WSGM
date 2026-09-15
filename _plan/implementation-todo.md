@@ -4,6 +4,36 @@ Status: the previous implementation baseline is on `master`; the current open wo
 15 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
 submodule changes, without feature branches or pull requests.
 
+## ROG Ally X portable tester (2026-09-15)
+
+The maintainer requested a single EXE for an attended remote tester. `tools/AllyXLab` provides
+Windows identity/interface inventory, guided native button and motion captures, Claw-style rumble
+calibration phases, visual RGB checks and ASUS power/profile/fan write-readback-restoration steps.
+It uses HHD as primary reference and HC to cross-check the Windows ATKACPI transport. The tool and
+its guard tests are separate from the production solution and installer. The requested compiled EXE
+is tracked under `tools/AllyXLab/Downloads`; its README provides the direct download link.
+
+The Release single-file publish and guard-test project compilation passed with warnings-as-errors.
+Hardware actions remain experimental. Missing original readback blocks power/fan writes; RGB uses
+an operator-confirmed OFF baseline, and arbitrary original button mappings are not rewritten.
+The production plugin remains passive. No remote hardware result is recorded. Test execution and
+the full gate are deferred under the manual-testing-first policy.
+
+## ROG Ally X scaffold (2026-09-15)
+
+`src/WSGM.Device.Asus.RogAllyX` now contains a Device API 3 entry type, package manifest and MIT
+license, and is included in `WSGM.slnx`. It always declines detection, stays passive and rejects
+commands. Exact identity, transports, capabilities and hardware validation remain unimplemented.
+The maintainer has no local Ally X, but has arranged a remote tester. HHD is the primary implementation reference, especially
+for buttons, because the maintainer reports buggy HC button handling. Reference-derived work must
+remain distinct from hardware validation. It is not installed or shipped by the installer. See its
+README for the bring-up sequence. HHD and HC are cloned under ignored `_ref` paths; the plugin
+reference note pins both revisions and records source-derived controls and conflicting behavior.
+Release win-x64 compilation passed with SDK style enforcement disabled; the plugin-only build
+then passed with style checks and warnings-as-errors enabled. A normal dependency build is blocked
+by five existing IDE0055 diagnostics in `ImmutableGlyphPackageDirectorySource.cs`. Automated suites
+and the full gate are deferred until maintainer manual testing; no live hardware validation is claimed.
+
 ## Experimental game return (2026-09-13)
 
 Open apps game return now waits for deferred sheet closure and input-lease release, asks Steam to

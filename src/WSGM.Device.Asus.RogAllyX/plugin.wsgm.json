@@ -1,0 +1,8 @@
+{
+  "id": "wsgm.device.asus.rog-ally-x",
+  "name": "ASUS ROG Ally X (scaffold)",
+  "version": "0.1.0",
+  "apiVersion": 3,
+  "entryAssembly": "WSGM.Device.Asus.RogAllyX.dll",
+  "entryType": "WSGM.Device.Asus.RogAllyX.DevicePlugin"
+}

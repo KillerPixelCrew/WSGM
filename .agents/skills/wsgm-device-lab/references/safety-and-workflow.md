@@ -141,3 +141,18 @@ Offline suite:
 ```powershell
 dotnet test tests/WSGM.DeviceLab.Tests/WSGM.DeviceLab.Tests.csproj --configuration Release
 ```
+
+## Portable Ally X bring-up
+
+The maintainer explicitly requested `tools/AllyXLab` as a self-contained Windows EXE for a remote
+Ally X tester. Its README defines the closed, attended workflows and recovery behavior. This is a
+separate developer tool, not a new Device Lab CLI mutation command or a production plugin. HHD is
+primary for Ally X behavior; HC is a Windows transport cross-reference. Use the pinned source
+comparison in `src/WSGM.Device.Asus.RogAllyX/REFERENCE.md`.
+
+Build/publish does not authorize running it on the current machine. Each tester action requires its
+GUI confirmation, and a missing readback or unknown cleanup must remain explicit. Do not add generic
+raw command entry, unattended writes or controller remapping without original-state restoration. The
+maintainer requested the compiled EXE be tracked under `tools/AllyXLab/Downloads`; update its
+SHA-256 alongside the binary after publishing reviewed source. Automated suites still wait for the
+maintainer's manual-testing report unless explicitly requested sooner.

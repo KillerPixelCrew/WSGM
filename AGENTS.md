@@ -40,6 +40,10 @@ when the guidance conflicts.
 - src/WSGM.Device.Sdk is the device contract. src/WSGM.DeviceLab is the hardware
   validation tool. src/WSGM.Device.Msi.Claw8A2Vm is the machine-specific package.
   src/WSGM.Device.HandheldCompanion is a design scaffold, not a working plugin.
+  src/WSGM.Device.Asus.RogAllyX is a passive scaffold that never matches hardware yet.
+  For Ally X work, use HHD as the primary implementation reference, especially for buttons; the
+  maintainer reports buggy HC button handling. An attended remote tester is available; the portable
+  tool in tools/AllyXLab records evidence but does not establish production support.
   Their tests live under tests, and WSGM.slnx builds them against one SDK project.
 - WSGM supports exactly one installed device integration package at a time. With device integration
   disabled, there is no Device plugin lifecycle, controller target, Device hardware write, or AutoTDP;

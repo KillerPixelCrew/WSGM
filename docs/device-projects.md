@@ -1,20 +1,21 @@
 # Device projects in WSGM
 
-The SDK, Device Lab, Claw plugin, and Handheld Companion scaffold are maintained in this repository.
-Their source lives under `src`, their tests under `tests`, and `WSGM.slnx` includes them all. Every
-consumer references `src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj`, so a contract change and its
-consumers build and go through review together.
+The SDK, Device Lab, Claw plugin, Handheld Companion scaffold and ROG Ally X scaffold are maintained
+in this repository. Their source lives under `src`, their tests under `tests`, and `WSGM.slnx`
+includes them all. Every consumer references `src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj`, so a
+contract change and its consumers build and go through review together.
 
-| Project            | Source and documentation                                                        | Status                                                    |
-| ------------------ | ------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| SDK                | [WSGM.Device.Sdk](../src/WSGM.Device.Sdk/README.md)                             | Public MIT contract and NuGet package support             |
-| Device Lab         | [WSGM.DeviceLab](../src/WSGM.DeviceLab/README.md)                               | Separate GUI/CLI executable, optional installer component |
-| MSI Claw           | [WSGM.Device.Msi.Claw8A2Vm](../src/WSGM.Device.Msi.Claw8A2Vm/README.md)         | Built-in reference plugin, loaded dynamically             |
-| Handheld Companion | [WSGM.Device.HandheldCompanion](../src/WSGM.Device.HandheldCompanion/README.md) | Design scaffold and IPC proposal, no working plugin yet   |
+| Project            | Source and documentation                                                        | Status                                                         |
+| ------------------ | ------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| SDK                | [WSGM.Device.Sdk](../src/WSGM.Device.Sdk/README.md)                             | Public MIT contract and NuGet package support                  |
+| Device Lab         | [WSGM.DeviceLab](../src/WSGM.DeviceLab/README.md)                               | Separate GUI/CLI executable, optional installer component      |
+| MSI Claw           | [WSGM.Device.Msi.Claw8A2Vm](../src/WSGM.Device.Msi.Claw8A2Vm/README.md)         | Built-in reference plugin, loaded dynamically                  |
+| ASUS ROG Ally X    | [WSGM.Device.Asus.RogAllyX](../src/WSGM.Device.Asus.RogAllyX/README.md)         | Passive scaffold, exact detection and hardware support pending |
+| Handheld Companion | [WSGM.Device.HandheldCompanion](../src/WSGM.Device.HandheldCompanion/README.md) | Design scaffold and IPC proposal, no working plugin yet        |
 
 WSGM still references only the SDK at compile time. Device Lab and plugins remain separate
 assemblies with their existing lifecycle and package boundaries. The installer continues to ship the
-Claw package and optional Device Lab tool; it does not ship the HC scaffold.
+Claw package and optional Device Lab tool; it does not ship the HC or Ally X scaffolds.
 
 Run from the repository root:
 
@@ -43,10 +44,11 @@ packers use `eng/device-package-output.ps1` to replace an existing archive atomi
 new one without overwriting a competing file. A failed replacement preserves the previous archive.
 
 The four imported source trees and their matching test trees retain their original MIT licenses.
-Each has a `LICENSE` file. The imported packaging scripts (`eng/publish-device-lab.ps1`,
-`eng/pack-claw.ps1`, and `eng/pack-handheld-companion.ps1`) retain the MIT license of their
-respective source projects. Their shared `eng/device-package-output.ps1` helper is also
-MIT-licensed. WSGM's main application remains GPL-3.0-or-later.
+Each has a `LICENSE` file. The new Ally X scaffold is also MIT-licensed. The imported packaging
+scripts (`eng/publish-device-lab.ps1`, `eng/pack-claw.ps1`, and `eng/pack-handheld-companion.ps1`)
+retain the MIT license of their respective source projects. Their shared
+`eng/device-package-output.ps1` helper is also MIT-licensed. WSGM's main application remains
+GPL-3.0-or-later.
 
 The Generic PC repository contained only a design scaffold, with no implemented behavior to move. It
 is retired. Windows-wide features belong in Core; device-specific integrations still belong in
@@ -66,3 +68,11 @@ original repositories; these identifiers record the exact source baseline for th
 
 Only `external/steam-ui-toolkit`, `external/windows-device-control`, and `native/SteamInput` remain
 Git submodules. There are no nested SDK pins to advance.
+
+## Portable Ally X tester
+
+[Ally X Lab](../tools/AllyXLab/README.md) is a separate developer tool for an attended remote
+tester. Its self-contained EXE is committed under `tools/AllyXLab/Downloads` at the maintainer's
+request. It and `tests/WSGM.AllyXLab.Tests` build independently of `WSGM.slnx`; neither is an
+installer component. The source comparison and outstanding hardware validation live beside the Ally
+X plugin.

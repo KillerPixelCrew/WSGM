@@ -5,6 +5,7 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/WSGM/WSGM.csproj" />
+    <Project Path="src/WSGM.Device.Asus.RogAllyX/WSGM.Device.Asus.RogAllyX.csproj" />
     <Project Path="src/WSGM.Device.HandheldCompanion/WSGM.Device.HandheldCompanion.csproj" />
     <Project Path="src/WSGM.Device.Msi.Claw8A2Vm/WSGM.Device.Msi.Claw8A2Vm.csproj" />
     <Project Path="src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj" />

@@ -1,0 +1,33 @@
+{
+  "sourceSnapshot": "7de4b49dc22daeada979dba0f507d7b7641ac59a459297a79246eca21a8fe9f0",
+  "sourceFiles": {
+    ".editorconfig": "b05b390e5bfbb6b9225d6732be7019d0508d93e2e97f1eb9c9326fa5e9d11a21",
+    "Directory.Build.props": "82b45994d68195a0b83425c7e2b8acda49709b720620635fd3f8590740d55581",
+    "tools/AllyXLab/Analysis.cs": "7e2370bc8b63634f364abab70775dd0be439daec7043857c4d71a25ce7bd0f73",
+    "tools/AllyXLab/AsusControl.cs": "7045ebae86d52b3277067caa8adad4dd9cfa971c434a9a0784d318c3b157ef90",
+    "tools/AllyXLab/Hid.cs": "39ccc9c84fd253188367bd9bf5ff3455ab5a830d2f4c06e2d83c1c6f0bee3487",
+    "tools/AllyXLab/Identity.cs": "e24bf9145075497d7284246d78330da3b2b65a7238f2775f7dde37ddadf34410",
+    "tools/AllyXLab/InputCapture.cs": "08f2c6d9b1dc362be167f0446df32458b91b458d508369109c5d2886b8b2ef38",
+    "tools/AllyXLab/MainForm.cs": "e3d05e696d05651627f1b6821fd0556230252a4b5b6658dd490f22d23104ef50",
+    "tools/AllyXLab/Models.cs": "f42960f6c1706cb0854f05a358477c1731f2a53904b9db476c9e0155e22095b7",
+    "tools/AllyXLab/Notices/DOTNET-LICENSE.txt": "cfc21f5e8bd655ae997eec916138b707b1d290b83272c02a95c9f821b8c87310",
+    "tools/AllyXLab/Notices/DOTNET-THIRD-PARTY.txt": "c6926930d0181fa515076603e1305461b1bce5275a8b35337d75d2eef3acad4a",
+    "tools/AllyXLab/Notices/SYSTEM-MANAGEMENT-THIRD-PARTY.txt": "c6926930d0181fa515076603e1305461b1bce5275a8b35337d75d2eef3acad4a",
+    "tools/AllyXLab/Notices/WINDOWS-DESKTOP-LICENSE.txt": "ae48df11a335dc1a615f4f938b69cba73bcf4485c4f97af49b38efb0f216353b",
+    "tools/AllyXLab/Notices/WSGM-LICENSE.txt": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+    "tools/AllyXLab/Program.cs": "587e3d301e0a65d3a63746a9a00999cbf9274c2fa7f20a33ca96a617da0ce81a",
+    "tools/AllyXLab/README.md": "d5235d89ad0af77e6b19411d4e6a584db970f16551ae02f7c0fefc236663b839",
+    "tools/AllyXLab/SensorInterop.cs": "8beec2166c40dd870848ba00aa2b653564197637302e5ae888b2bbd8a5a9d31b",
+    "tools/AllyXLab/Sensors.cs": "a370380168fc118f922ae70c47ace50ce48be57831696f19cb2024d3981e561c",
+    "tools/AllyXLab/Session.cs": "94c7859952f682525dfa3e66373d8622d0a41429644e666a9977c4e100e8fc33",
+    "tools/AllyXLab/WSGM.AllyXLab.csproj": "5c07f3e680affbd92092a543f197f1e0ed8b7b6ba6b7fd7fab2923fe2d206207",
+    "tools/AllyXLab/Worker.cs": "eb10ad45a4adef9c8ca53f345be5d24b188bdc72b10083dad626de11ea7ee755",
+    "tools/AllyXLab/app.manifest": "5b6142f1ebd2ba6e5fc929df2b2114a066e7bc1b59c6e71c9a52b7a2517402c0"
+  },
+  "sdk": "10.0.112",
+  "runtime": "win-x64 / .NET 10.0.12",
+  "configuration": "Release, self-contained, compressed single file",
+  "sizeBytes": 51849378,
+  "sha256": "f3439ec9cc146f7997804d2bffa9384cb7790a5e11c119e8899d0841f126ea44",
+  "validation": "Warning-clean publish. No Windows UI or Ally X hardware execution. Automated suites deferred until manual testing."
+}

@@ -517,3 +517,6 @@ _ref/
 
 # The MCP server config is tracked: it holds no machine-specific path, only the loopback CDP port
 # Steam already listens on, so every contributor gets the same Steam UI tooling.
+
+# Maintainer-requested portable Ally X tester download.
+!tools/AllyXLab/Downloads/AllyXLab.exe
