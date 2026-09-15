@@ -24,7 +24,7 @@ public sealed class VisualTests
     {
         using FakeDevice device = new();
         using UiFixture fixture = new();
-        using PowerSchemeSelection schemes = new(new PowerSchemes(new OverlayInteractionTests.FakePower()), _ => throw new InvalidOperationException("Unexpected power write"));
+        using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()), _ => throw new InvalidOperationException("Unexpected power write"));
         await schemes.RefreshAsync();
         OverlayWindow window = fixture.Overlay(width, height);
         // The category menus each destination root now shows. No power schemes and no device

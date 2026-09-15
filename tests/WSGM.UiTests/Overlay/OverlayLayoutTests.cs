@@ -1,16 +1,14 @@
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using WindowsDeviceControl;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
-using WSGM.Settings;
 using WSGM.Shell;
+using WindowsDeviceControl;
 
 namespace WSGM.UiTests;
 
@@ -63,7 +61,7 @@ public sealed class OverlayLayoutTests
     [AvaloniaFact]
     public async Task WindowsPowerPickerPinsWithoutDeviceIntegrationAndDetachesOnRemoval()
     {
-        using PowerSchemeSelection schemes = new(new PowerSchemes(new OverlayInteractionTests.FakePower()),
+        using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()),
             _ => throw new InvalidOperationException("Pinning must not apply a power plan"));
         await schemes.RefreshAsync();
         using FakeDevice device = new();
@@ -175,31 +173,6 @@ public sealed class OverlayLayoutTests
         Assert.DoesNotContain(UiFixture.Named<Panel>(window, "PinnedSectionsGrid").GetVisualDescendants(), control => control.GetType() == type);
     }
 
-    [AvaloniaTheory]
-    [InlineData(1024)]
-    [InlineData(1280)]
-    public void DisplaySettingsShowsReadableModesAndLabeledScaling(int width)
-    {
-        DisplayTargetIdentity target = new("fixture", null, null, "Internal display", 0, 0, 1);
-        using UiFixture fixture = new()
-        {
-            Displays = new([new(target, true, true,
-                new(target, 0, 0, 1920, 1200, DisplayRefresh.FromHertz(120), DpiPercent: 150, Hdr: true))],
-                "fixture", DateTimeOffset.UnixEpoch),
-        };
-        fixture.DisplayFacts[target.DevicePath] = new([new(1920, 1200, 120), new(1280, 800, 60)], true, 225);
-        var window = fixture.Settings(width, 800);
-        UiFixture.Click(window, UiFixture.Tab(window, 6));
-        var model = Assert.IsType<SettingsViewModel>(window.DataContext);
-        model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
-        model.CopyCurrentLayoutCommand.Execute(null);
-        Dispatcher.UIThread.RunJobs();
-        var text = window.GetVisualDescendants().OfType<TextBlock>().Where(control => control.IsEffectivelyVisible).ToArray();
-        Assert.DoesNotContain(text, control => control.Text?.Contains("DisplayMode {") == true);
-        Assert.Contains(text, control => control.Text == "Scale (%)");
-        VisualBaseline.Verify(window, "settings-display-custom-" + width);
-    }
-
     [AvaloniaFact]
     public async Task DisplayCategoryHasReadableWidthAndLabeledSelectors()
     {
@@ -223,24 +196,5 @@ public sealed class OverlayLayoutTests
         var section = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
         Assert.Single(section.GetVisualDescendants().OfType<Slider>());
         Assert.Equal(2, section.GetVisualDescendants().OfType<ComboBox>().Count());
-    }
-
-    [AvaloniaFact]
-    public void SettingsTabsScrollToTheirFullLabels()
-    {
-        using UiFixture fixture = new();
-        Window window = fixture.Settings(1024, 700);
-        var tabs = UiFixture.Named<TabStrip>(window, "Tabs");
-        for (int i = 0; i < tabs.Tabs!.Count; i++)
-        {
-            UiFixture.Click(window, UiFixture.Tab(window, i));
-            Dispatcher.UIThread.RunJobs();
-            Button button = UiFixture.Tab(window, i);
-            var label = button.GetVisualDescendants().OfType<TextBlock>().Single();
-            Assert.Equal(tabs.Tabs[i].Label, label.Text);
-            Assert.True(button.Bounds.Width >= label.Bounds.Width + 12);
-            var origin = button.TranslatePoint(default, tabs)!.Value;
-            Assert.InRange(origin.X, 0, tabs.Bounds.Width - button.Bounds.Width);
-        }
     }
 }

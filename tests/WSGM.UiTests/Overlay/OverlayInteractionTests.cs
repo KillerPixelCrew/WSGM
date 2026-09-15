@@ -1,16 +1,14 @@
-using System.ComponentModel;
 using System.Reflection;
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Avalonia;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Interop;
 using WSGM.Overlay;
 using WSGM.Shell;
 
@@ -62,7 +60,7 @@ public sealed class OverlayInteractionTests
         PerformanceConfig config = new() { AcPowerPreset = ac ? custom : balanced, BatteryPowerPreset = ac ? balanced : custom };
         DevicePowerPresets service = new(() => [Power(CapabilityRole.PowerSustainedLimit, 16), Power(CapabilityRole.PowerSlowLimit, 18)],
             (_, _, _, _, _, _) => throw new InvalidOperationException("Rendering must not write hardware"),
-            new WindowsPowerModes(new BalancedModeApi()));
+            new WindowsPowerModes(new ReadOnlyPowerModeApi()));
         DevicePowerAssignments assignments = new(service, () => new(config, null, "fixture", 1, true, ac),
             (_, _, _) => throw new InvalidOperationException("Rendering must not save assignments"));
         using DevicePowerPresetSelection model = new(service, false, assignments);
@@ -143,7 +141,7 @@ public sealed class OverlayInteractionTests
         DeviceCapabilityView[] views = [Power(CapabilityRole.PowerSustainedLimit, 17), Power(CapabilityRole.PowerSlowLimit, 18)];
         var service = new DevicePowerPresets(() => views,
             (_, _, _, _, _, _) => throw new InvalidOperationException("Inactive source must not write hardware"),
-            new WindowsPowerModes(new BalancedModeApi()));
+            new WindowsPowerModes(new ReadOnlyPowerModeApi()));
         PerformanceConfig config = new();
         int saves = 0;
         var assignments = new DevicePowerAssignments(service, () => new(config, null, "fixture", 1, true, true),
@@ -173,12 +171,6 @@ public sealed class OverlayInteractionTests
         await Task.WhenAll(refresh, finished.Task.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.Equal(1, saves);
         Assert.Equal("balanced", config.BatteryPowerPreset?.PresetId);
-    }
-
-    private sealed class BalancedModeApi : IPowerModeApi
-    {
-        public Guid Read() => Guid.Empty;
-        public void Set(Guid mode) => throw new InvalidOperationException("Inactive source must not change Windows mode");
     }
 
     [AvaloniaFact]
@@ -418,12 +410,6 @@ public sealed class OverlayInteractionTests
         (T?)(owner.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new MissingFieldException(owner.GetType().Name, name)).GetValue(owner);
 
-    private sealed class UnusedPowerModeApi : IPowerModeApi
-    {
-        public Guid Read() => throw new InvalidOperationException("Unexpected Windows power-mode read");
-        public void Set(Guid mode) => throw new InvalidOperationException("Unexpected Windows power-mode write");
-    }
-
     [AvaloniaFact]
     public async Task CorePowerSelectionStagesThenAppliesAndShowsFailureWithoutAPlugin()
     {
@@ -464,25 +450,5 @@ public sealed class OverlayInteractionTests
         Assert.Contains("Refresh", selection.Status);
         Assert.False(apply.IsEnabled);
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == selection.Status);
-    }
-
-    internal sealed class FakePower : IPowerSchemeApi
-    {
-        private static readonly Guid First = new("00000000-0000-0000-0000-000000000001");
-        private static readonly Guid Second = new("00000000-0000-0000-0000-000000000002");
-        private Guid _active = First;
-        internal int Writes { get; private set; }
-        internal bool Reject { get; set; }
-        internal Action? BeforeWrite { get; set; }
-        public Guid? Enumerate(uint index) => index switch { 0 => First, 1 => Second, _ => null };
-        public string ReadName(Guid id) => id == First ? "Balanced" : "Power saver";
-        public Guid ReadActive() => _active;
-        public void SetActive(Guid id)
-        {
-            BeforeWrite?.Invoke();
-            Writes++;
-            if (Reject) { throw new Win32Exception(5); }
-            _active = id;
-        }
     }
 }

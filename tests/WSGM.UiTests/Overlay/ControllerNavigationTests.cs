@@ -28,7 +28,7 @@ public sealed class ControllerNavigationTests
             },
         };
         using UiFixture fixture = new();
-        using PowerSchemeSelection schemes = new(new PowerSchemes(new OverlayInteractionTests.FakePower()),
+        using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()),
             _ => throw new InvalidOperationException("Unexpected power write"));
         await schemes.RefreshAsync();
         var window = fixture.Overlay();

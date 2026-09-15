@@ -1,14 +1,13 @@
 using System.Text.Json;
 using Avalonia.Controls;
-using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Headless;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Tests;
-using WSGM.Interop;
 using WSGM.Overlay;
 using WSGM.Shell;
 
@@ -57,7 +56,7 @@ public sealed class DevicePageCaptureTests
         using UiFixture fixture = new();
         var presets = new DevicePowerPresets(() => views,
             (_, _, _, _, _, _) => throw new InvalidOperationException("Unexpected hardware write"),
-            new WindowsPowerModes(new ModeApi()), () => true);
+            new WindowsPowerModes(new ReadOnlyPowerModeApi()), () => true);
         PerformanceConfig config = new()
         {
             AcPowerPreset = new() { PluginId = "claw", PresetId = "balanced" },
@@ -67,7 +66,7 @@ public sealed class DevicePageCaptureTests
             (_, _, _) => throw new InvalidOperationException("Unexpected assignment save"));
         using DevicePowerPresetSelection selection = new(presets, false, assignments);
         await selection.RefreshAsync();
-        using PowerSchemeSelection schemes = new(new PowerSchemes(new OverlayInteractionTests.FakePower()),
+        using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()),
             _ => throw new InvalidOperationException("Unexpected power plan write"));
         await schemes.RefreshAsync();
         OverlayWindow window = fixture.Overlay(width, height);
@@ -159,11 +158,5 @@ public sealed class DevicePageCaptureTests
         using var frame = window.CaptureRenderedFrame();
         Assert.NotNull(frame);
         frame.Save(path, new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
-    }
-
-    private sealed class ModeApi : IPowerModeApi
-    {
-        public Guid Read() => Guid.Empty;
-        public void Set(Guid mode) => throw new InvalidOperationException("Unexpected Windows write");
     }
 }

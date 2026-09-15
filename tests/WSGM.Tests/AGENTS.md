@@ -15,8 +15,11 @@ service.
   test-local abstractions.
 - Name tests for the observable contract and cover success, rejection, cancellation, partial
   failure, repetition, and cleanup where relevant.
-- Keep test-only helpers in this project. Do not add production branches solely to make a test
-  convenient.
+- Test files sit in the folder of the production type they cover (Core, Shell, Overlay and so on),
+  and tests for one type share one class. Keep test-only helpers in this project: in Fakes and
+  Builders once more than one test class needs them. Helpers several test projects need live in
+  tests/Shared, linked as source, with an MIT SPDX header and no xUnit API. Do not add production
+  branches solely to make a test convenient.
 
 During iteration, run the narrowest filter that proves the change:
 
