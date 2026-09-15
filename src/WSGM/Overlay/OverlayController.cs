@@ -1523,8 +1523,7 @@ public sealed class OverlayController : IDisposable
 
     private RadioWindow? _radioPanel;
     private GamepadNavigation? _radioNavigation;
-    private bool _radioClosePending;
-    private IDisposable? _pendingRadioClose;
+    private readonly DeferredPanelClose _radioClose = new();
 
     private KeyboardWindow? _keyboardWindow;
     private GamepadNavigation? _keyboardNavigation;
@@ -1690,51 +1689,24 @@ public sealed class OverlayController : IDisposable
     /// arrives, and it then lands on whatever is underneath.</summary>
     private void CloseRadioPanel()
     {
-        if (_radioPanel is null || _radioClosePending)
+        if (_radioPanel is not null)
         {
-            return;
+            _radioClose.Start(RunOnUiThreadAfter, () => _radioPanel?.Close());
         }
-        _radioClosePending = true;
-        _pendingRadioClose = RunOnUiThreadAfter(TouchInput.CloseGrace, () =>
-        {
-            _radioClosePending = false;
-            _pendingRadioClose = null;
-            _radioPanel?.Close();
-        });
     }
 
     /// <summary>Opens the Wi-Fi/Bluetooth panel under the sheet's status pills.</summary>
     /// <param name="bluetooth">True to open on the Bluetooth tab.</param>
     private void ShowRadioPanel(bool bluetooth)
     {
-        if (_audioPanel is not null)
-        {
-            _audioPanel.Close();
-        }
-        if (_ejectPanel is not null)
-        {
-            _ejectPanel.Close();
-        }
+        CloseOtherStatusPanels(_radioPanel);
         if (_radioPanel is not null)
         {
-            if (_radioClosePending)
-            {
-                _pendingRadioClose?.Dispose();
-                _pendingRadioClose = null;
-                _radioClosePending = false;
-            }
+            _radioClose.Cancel();
             // The tile carries which radio was tapped, so an open panel follows
             // it rather than leaving the user on the tab it opened with.
             _radioPanel.SelectTab(bluetooth);
-            if (_navigation is not null)
-            {
-                _navigation.IsEnabled = false;
-            }
-            if (_radioNavigation is not null)
-            {
-                _radioNavigation.IsEnabled = true;
-            }
-            _radioPanel.Activate();
+            ReactivateStatusPanel(_radioPanel, _radioNavigation);
             return;
         }
         if (_systemStatus is null)
@@ -1759,17 +1731,9 @@ public sealed class OverlayController : IDisposable
             _radioNavigation?.Dispose();
             _radioNavigation = null;
             _radioPanel = null;
-            _radioClosePending = false;
-            _pendingRadioClose?.Dispose();
-            _pendingRadioClose = null;
+            _radioClose.Cancel();
             Log.Info("Radio panel closed.");
-            // Hand focus back to the sheet, which is still open underneath.
-            if (_navigation is not null)
-            {
-                _navigation.IsEnabled = _audioPanel is null && _ejectPanel is null;
-            }
-            SyncSheetMouseActivation();
-            _overlay?.Activate();
+            ReturnToSheet();
         };
         SyncSheetMouseActivation();
         panel.Show();
@@ -1782,53 +1746,25 @@ public sealed class OverlayController : IDisposable
 
     private AudioWindow? _audioPanel;
     private GamepadNavigation? _audioNavigation;
-    private bool _audioClosePending;
-    private IDisposable? _pendingAudioClose;
+    private readonly DeferredPanelClose _audioClose = new();
 
     /// <summary>Closes the audio panel after the touch-promotion grace window.</summary>
     private void CloseAudioPanel()
     {
-        if (_audioPanel is null || _audioClosePending)
+        if (_audioPanel is not null)
         {
-            return;
+            _audioClose.Start(RunOnUiThreadAfter, () => _audioPanel?.Close());
         }
-        _audioClosePending = true;
-        _pendingAudioClose = RunOnUiThreadAfter(TouchInput.CloseGrace, () =>
-        {
-            _audioClosePending = false;
-            _pendingAudioClose = null;
-            _audioPanel?.Close();
-        });
     }
 
     /// <summary>Opens the master-volume and default-device panel under the sheet's status pills.</summary>
     private void ShowAudioPanel()
     {
-        if (_radioPanel is not null)
-        {
-            _radioPanel.Close();
-        }
-        if (_ejectPanel is not null)
-        {
-            _ejectPanel.Close();
-        }
+        CloseOtherStatusPanels(_audioPanel);
         if (_audioPanel is not null)
         {
-            if (_audioClosePending)
-            {
-                _pendingAudioClose?.Dispose();
-                _pendingAudioClose = null;
-                _audioClosePending = false;
-            }
-            if (_navigation is not null)
-            {
-                _navigation.IsEnabled = false;
-            }
-            if (_audioNavigation is not null)
-            {
-                _audioNavigation.IsEnabled = true;
-            }
-            _audioPanel.Activate();
+            _audioClose.Cancel();
+            ReactivateStatusPanel(_audioPanel, _audioNavigation);
             return;
         }
         if (_systemStatus is null)
@@ -1851,16 +1787,9 @@ public sealed class OverlayController : IDisposable
             _audioNavigation?.Dispose();
             _audioNavigation = null;
             _audioPanel = null;
-            _audioClosePending = false;
-            _pendingAudioClose?.Dispose();
-            _pendingAudioClose = null;
+            _audioClose.Cancel();
             Log.Info("Audio panel closed.");
-            if (_navigation is not null)
-            {
-                _navigation.IsEnabled = _radioPanel is null && _ejectPanel is null;
-            }
-            SyncSheetMouseActivation();
-            _overlay?.Activate();
+            ReturnToSheet();
         };
         SyncSheetMouseActivation();
         panel.Show();
@@ -1870,54 +1799,26 @@ public sealed class OverlayController : IDisposable
 
     private EjectWindow? _ejectPanel;
     private GamepadNavigation? _ejectNavigation;
-    private bool _ejectClosePending;
-    private IDisposable? _pendingEjectClose;
+    private readonly DeferredPanelClose _ejectClose = new();
 
     /// <summary>Closes the Safe Eject panel after the touch-promotion grace
     /// window; see the touch-promotion finding in <c>docs\overlay-and-input.md</c>.</summary>
     private void CloseEjectPanel()
     {
-        if (_ejectPanel is null || _ejectClosePending)
+        if (_ejectPanel is not null)
         {
-            return;
+            _ejectClose.Start(RunOnUiThreadAfter, () => _ejectPanel?.Close());
         }
-        _ejectClosePending = true;
-        _pendingEjectClose = RunOnUiThreadAfter(TouchInput.CloseGrace, () =>
-        {
-            _ejectClosePending = false;
-            _pendingEjectClose = null;
-            _ejectPanel?.Close();
-        });
     }
 
     /// <summary>Opens the Safe Eject panel under the sheet's status pills.</summary>
     private void ShowEjectPanel()
     {
-        if (_radioPanel is not null)
-        {
-            _radioPanel.Close();
-        }
-        if (_audioPanel is not null)
-        {
-            _audioPanel.Close();
-        }
+        CloseOtherStatusPanels(_ejectPanel);
         if (_ejectPanel is not null)
         {
-            if (_ejectClosePending)
-            {
-                _pendingEjectClose?.Dispose();
-                _pendingEjectClose = null;
-                _ejectClosePending = false;
-            }
-            if (_navigation is not null)
-            {
-                _navigation.IsEnabled = false;
-            }
-            if (_ejectNavigation is not null)
-            {
-                _ejectNavigation.IsEnabled = true;
-            }
-            _ejectPanel.Activate();
+            _ejectClose.Cancel();
+            ReactivateStatusPanel(_ejectPanel, _ejectNavigation);
             return;
         }
         if (_systemStatus is null)
@@ -1939,21 +1840,90 @@ public sealed class OverlayController : IDisposable
             _ejectNavigation?.Dispose();
             _ejectNavigation = null;
             _ejectPanel = null;
-            _ejectClosePending = false;
-            _pendingEjectClose?.Dispose();
-            _pendingEjectClose = null;
+            _ejectClose.Cancel();
             Log.Info("Eject panel closed.");
-            if (_navigation is not null)
-            {
-                _navigation.IsEnabled = _radioPanel is null && _audioPanel is null;
-            }
-            SyncSheetMouseActivation();
-            _overlay?.Activate();
+            ReturnToSheet();
         };
         SyncSheetMouseActivation();
         panel.Show();
         panel.DockBelowHeader(_overlay?.HeaderBottomScreenY ?? 0, _overlay?.RightScreenX ?? 0);
         panel.Activate();
+    }
+
+    /// <summary>Closes the status panels other than the one about to show, so only one is open.</summary>
+    private void CloseOtherStatusPanels(Avalonia.Controls.Window? keep)
+    {
+        if (_radioPanel is not null && !ReferenceEquals(_radioPanel, keep))
+        {
+            _radioPanel.Close();
+        }
+        if (_audioPanel is not null && !ReferenceEquals(_audioPanel, keep))
+        {
+            _audioPanel.Close();
+        }
+        if (_ejectPanel is not null && !ReferenceEquals(_ejectPanel, keep))
+        {
+            _ejectPanel.Close();
+        }
+    }
+
+    /// <summary>Brings an open status panel back to the front with navigation.</summary>
+    private void ReactivateStatusPanel(Avalonia.Controls.Window panel, GamepadNavigation? navigation)
+    {
+        if (_navigation is not null)
+        {
+            _navigation.IsEnabled = false;
+        }
+        if (navigation is not null)
+        {
+            navigation.IsEnabled = true;
+        }
+        panel.Activate();
+    }
+
+    /// <summary>Hands focus back to the sheet, which is still open underneath, after a status panel
+    /// closed.</summary>
+    private void ReturnToSheet()
+    {
+        if (_navigation is not null)
+        {
+            _navigation.IsEnabled = _radioPanel is null && _audioPanel is null && _ejectPanel is null;
+        }
+        SyncSheetMouseActivation();
+        _overlay?.Activate();
+    }
+
+    /// <summary>A status panel's close, held for the touch-promotion grace.</summary>
+    /// <remarks>Closing straight from the raw-touch callback destroys the window before the
+    /// synthesized click arrives, which then lands on whatever is underneath; the grace lets the
+    /// window's WndProc hook eat it. See docs\overlay-and-input.md.</remarks>
+    private sealed class DeferredPanelClose
+    {
+        private IDisposable? _timer;
+
+        internal bool Pending { get; private set; }
+
+        internal void Start(Func<TimeSpan, Action, IDisposable?> after, Action close)
+        {
+            if (Pending)
+            {
+                return;
+            }
+            Pending = true;
+            _timer = after(TouchInput.CloseGrace, () =>
+            {
+                Pending = false;
+                _timer = null;
+                close();
+            });
+        }
+
+        internal void Cancel()
+        {
+            _timer?.Dispose();
+            _timer = null;
+            Pending = false;
+        }
     }
 
     /// <summary>Closes whichever status panel is open, immediately — used when
