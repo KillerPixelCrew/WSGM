@@ -56,7 +56,7 @@ public sealed class NativeQamSemanticServicesTests
                 {
                     CapabilityId = "vendor.boost",
                     InstanceId = "pl2",
-                    ObservedValue = Integer(30),
+                    ObservedValue = CapabilityValue.Integer(30),
                 },
             },
         };
@@ -71,14 +71,14 @@ public sealed class NativeQamSemanticServicesTests
             Descriptor = pl1.Descriptor with { Maximum = 37 },
             Projection = pl1.Projection with
             {
-                State = pl1.Projection.State with { ObservedValue = Integer(37) },
+                State = pl1.Projection.State with { ObservedValue = CapabilityValue.Integer(37) },
             },
         };
         pl2 = pl2 with
         {
             Projection = pl2.Projection with
             {
-                State = pl2.Projection.State with { ObservedValue = Integer(37) },
+                State = pl2.Projection.State with { ObservedValue = CapabilityValue.Integer(37) },
             },
         };
         state = DeviceCoordinatorNativeQamTdpService.ProjectPowerLimits([pl1, pl2]);
@@ -341,7 +341,7 @@ public sealed class NativeQamSemanticServicesTests
             CapabilityId = descriptor.CapabilityId,
             InstanceId = descriptor.InstanceId,
             Available = true,
-            ObservedValue = Integer(17),
+            ObservedValue = CapabilityValue.Integer(17),
             Quality = HardwareStateQuality.Verified,
             ObservedAt = DateTimeOffset.UtcNow,
             DescriptorGeneration = 4,
@@ -352,9 +352,9 @@ public sealed class NativeQamSemanticServicesTests
             new CapabilityProjection
             {
                 State = state,
-                DesiredValue = Integer(18),
+                DesiredValue = CapabilityValue.Integer(18),
                 DesiredSource = DeviceDesiredValueSource.ApplicationOverride,
-                PendingValue = Integer(19),
+                PendingValue = CapabilityValue.Integer(19),
                 Progress = CommandProgress.Pending,
             },
             null);
@@ -383,7 +383,7 @@ public sealed class NativeQamSemanticServicesTests
             Unit = CapabilityUnit.Percent,
             Persistence = CapabilityPersistence.DevicePersistent,
         };
-        return DeviceView(descriptor, Integer(desired), Integer(observed));
+        return DeviceView(descriptor, CapabilityValue.Integer(desired), CapabilityValue.Integer(observed));
     }
 
     private static DeviceCapabilityView ColorDeviceView(
@@ -438,10 +438,4 @@ public sealed class NativeQamSemanticServicesTests
             },
             null);
     }
-
-    private static CapabilityValue Integer(int value) => new()
-    {
-        Kind = CapabilityValueKind.Integer,
-        IntegerValue = value,
-    };
 }

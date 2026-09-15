@@ -38,10 +38,10 @@ public sealed class DevicePlatformPolicyTests
         DeviceCapabilityPreference preference = new()
         {
             CapabilityId = "power.primary-limit",
-            GlobalDefault = Value(10),
-            AcPolicy = Value(12),
-            HardwareProfiles = [new DeviceNamedDesiredValue { ProfileId = "balanced", Value = Value(15) }],
-            ApplicationOverrides = [new DeviceApplicationDesiredValue { ApplicationId = "game", Value = Value(18) }],
+            GlobalDefault = CapabilityValue.Integer(10),
+            AcPolicy = CapabilityValue.Integer(12),
+            HardwareProfiles = [new DeviceNamedDesiredValue { ProfileId = "balanced", Value = CapabilityValue.Integer(15) }],
+            ApplicationOverrides = [new DeviceApplicationDesiredValue { ApplicationId = "game", Value = CapabilityValue.Integer(18) }],
         };
 
         Assert.Equal(18, DeviceDesiredStateResolver.Resolve(
@@ -97,17 +97,8 @@ public sealed class DevicePlatformPolicyTests
         Assert.True(DeviceCapabilityValidation.ValueMatches(Curve(-500, 5000), unbounded, out _));
     }
 
-    private static CapabilityValue Curve(int firstOutput, int secondOutput) => new()
-    {
-        Kind = CapabilityValueKind.Curve,
-        CurveValue = [new CurvePoint(0, firstOutput), new CurvePoint(100, secondOutput)],
-    };
-
-    private static CapabilityValue Value(int value) => new()
-    {
-        Kind = CapabilityValueKind.Integer,
-        IntegerValue = value,
-    };
+    private static CapabilityValue Curve(int firstOutput, int secondOutput) =>
+        CapabilityValue.Curve([new CurvePoint(0, firstOutput), new CurvePoint(100, secondOutput)]);
 
     private static CapabilityDescriptor Descriptor() => new()
     {
