@@ -1,5 +1,4 @@
 using System;
-using System.ComponentModel;
 using System.Globalization;
 using Avalonia.Threading;
 using WSGM.Core;
@@ -13,7 +12,7 @@ namespace WSGM.Shell;
 /// Radio and audio state are not read here. They live on <see cref="Radios"/>
 /// and <see cref="Audio"/>, which this object owns and starts; the same manager
 /// instances back the taskbar tiles and their panels, so each pair stays in sync.</summary>
-public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
+public sealed class SystemStatus : ObservableObject, IDisposable
 {
     /// <summary>
     /// Creates a status cluster, optionally over an audio manager owned by someone else.
@@ -45,9 +44,6 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
         Drives = drives ?? new RemovableDriveManager();
     }
 
-    /// <summary>Raised after a status property changes.</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     private readonly bool _ownsAudio;
     private readonly bool _ownsRadios;
     private readonly bool _ownsDrives;
@@ -59,7 +55,7 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     public string ClockText
     {
         get => _clockText;
-        private set => Set(ref _clockText, value, nameof(ClockText));
+        private set => SetFieldIfChanged(ref _clockText, value, nameof(ClockText));
     }
 
     private string _dateText = "";
@@ -67,7 +63,7 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     public string DateText
     {
         get => _dateText;
-        private set => Set(ref _dateText, value, nameof(DateText));
+        private set => SetFieldIfChanged(ref _dateText, value, nameof(DateText));
     }
 
     private bool _hasBattery;
@@ -77,7 +73,7 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     public bool HasBattery
     {
         get => _hasBattery;
-        private set => Set(ref _hasBattery, value, nameof(HasBattery));
+        private set => SetFieldIfChanged(ref _hasBattery, value, nameof(HasBattery));
     }
 
     private int _batteryPercent;
@@ -90,7 +86,7 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
             if (_batteryPercent != value)
             {
                 _batteryPercent = value;
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(BatteryPercent)));
+                Raise(nameof(BatteryPercent));
             }
         }
     }
@@ -100,7 +96,7 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     public string BatteryText
     {
         get => _batteryText;
-        private set => Set(ref _batteryText, value, nameof(BatteryText));
+        private set => SetFieldIfChanged(ref _batteryText, value, nameof(BatteryText));
     }
 
     /// <summary>Gets the Wi-Fi and Bluetooth manager backing the taskbar's radio
@@ -215,21 +211,5 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
         return (true, lifePercent, lifePercent + "%");
     }
 
-    private void Set(ref string field, string value, string name)
-    {
-        if (field != value)
-        {
-            field = value;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-        }
-    }
 
-    private void Set(ref bool field, bool value, string name)
-    {
-        if (field != value)
-        {
-            field = value;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-        }
-    }
 }

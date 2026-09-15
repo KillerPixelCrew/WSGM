@@ -16,41 +16,9 @@ using WSGM.Themes;
 
 namespace WSGM.Settings;
 
-/// <summary>Editable settings for one program launched after the shell starts.</summary>
-public sealed class StartupAppRow : INotifyPropertyChanged
-{
-    /// <summary>Raised after an editable startup-app field changes.</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
-    private string _path = "";
-    private string _args = "";
-    private bool _enabled = true;
-    private bool _elevated;
-    private bool _autoRelaunch;
-
-    /// <summary>Gets or sets the executable or protocol to launch.</summary>
-    public string Path { get => _path; set { _path = value; Raise(nameof(Path)); } }
-
-    /// <summary>Gets or sets the command-line arguments passed to the program.</summary>
-    public string Args { get => _args; set { _args = value; Raise(nameof(Args)); } }
-
-    /// <summary>Gets or sets whether this program participates in startup.</summary>
-    public bool Enabled { get => _enabled; set { _enabled = value; Raise(nameof(Enabled)); } }
-
-    /// <summary>Gets or sets whether the program needs an elevated launch.</summary>
-    public bool Elevated { get => _elevated; set { _elevated = value; Raise(nameof(Elevated)); } }
-
-    /// <summary>Gets or sets whether the program is watched and restarted when it exits.</summary>
-    public bool AutoRelaunch { get => _autoRelaunch; set { _autoRelaunch = value; Raise(nameof(AutoRelaunch)); } }
-
-    private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-}
-
 /// <summary>Binds persisted shell, startup, input, and display settings to the Settings window.</summary>
-public sealed partial class SettingsViewModel : INotifyPropertyChanged
+public sealed partial class SettingsViewModel : ObservableObject
 {
-    /// <summary>Raised after a settings value or dependent display value changes.</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     private readonly AppConfig _config;
     private readonly SettingsServices _services;
 
@@ -351,7 +319,7 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     public int RebindChoiceIndex
     {
         get => _rebindChoiceIndex;
-        set { _rebindChoiceIndex = value; Raise(nameof(RebindChoiceIndex)); }
+        set => SetField(ref _rebindChoiceIndex, value, nameof(RebindChoiceIndex));
     }
 
     /// <summary>The displays a migrated row can be pointed at: the ones seen most recently.</summary>
@@ -501,7 +469,7 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     public string PluginSettingsEmptyReason
     {
         get => _pluginSettingsEmptyReason;
-        set { _pluginSettingsEmptyReason = value; Raise(nameof(PluginSettingsEmptyReason)); }
+        set => SetField(ref _pluginSettingsEmptyReason, value, nameof(PluginSettingsEmptyReason));
     }
 
     /// <summary>Replaces the plugin settings page content.</summary>
@@ -785,7 +753,7 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     public string LaunchSummaryText
     {
         get => _launchSummaryText;
-        private set { _launchSummaryText = value; Raise(nameof(LaunchSummaryText)); }
+        private set => SetField(ref _launchSummaryText, value, nameof(LaunchSummaryText));
     }
 
     private int _waitForDisplayIndex;
@@ -793,7 +761,7 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     public int WaitForDisplayIndex
     {
         get => _waitForDisplayIndex;
-        set { _waitForDisplayIndex = value; Raise(nameof(WaitForDisplayIndex)); }
+        set => SetField(ref _waitForDisplayIndex, value, nameof(WaitForDisplayIndex));
     }
 
     /// <summary>"No display wait" followed by one entry per remembered display.</summary>
@@ -803,7 +771,7 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Gets or sets the transient status line shown in the window's
     /// bottom strip: last-save time on success, otherwise the failure text.</summary>
-    public string StatusText { get => _statusText; set { _statusText = value; Raise(nameof(StatusText)); } }
+    public string StatusText { get => _statusText; set => SetField(ref _statusText, value, nameof(StatusText)); }
 
     /// <summary>Gets the compact logon-service state for the status strip,
     /// derived from the same flag the boot manifest is projected from.</summary>
@@ -820,7 +788,7 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     public string SteamAutostartStatusText
     {
         get => _steamAutostartStatusText;
-        private set { _steamAutostartStatusText = value; Raise(nameof(SteamAutostartStatusText)); }
+        private set => SetField(ref _steamAutostartStatusText, value, nameof(SteamAutostartStatusText));
     }
 
     /// <summary>Reads startup sources on a worker. The synchronous Windows adapter waits for an
@@ -916,7 +884,7 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     public int SelectedSuggestionIndex
     {
         get => _selectedSuggestionIndex;
-        set { _selectedSuggestionIndex = value; Raise(nameof(SelectedSuggestionIndex)); }
+        set => SetField(ref _selectedSuggestionIndex, value, nameof(SelectedSuggestionIndex));
     }
 
     private void BuildStartupSuggestions()
@@ -969,7 +937,7 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     public bool SteamAutostartTakeoverAccepted
     {
         get => _steamAutostartTakeoverAccepted;
-        set { _steamAutostartTakeoverAccepted = value; Raise(nameof(SteamAutostartTakeoverAccepted)); }
+        set => SetField(ref _steamAutostartTakeoverAccepted, value, nameof(SteamAutostartTakeoverAccepted));
     }
 
     private int _startModeIndex = (int)SessionStartMode.Game;
@@ -982,14 +950,14 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Gets or sets whether WSGM leases the controller away from Steam
     /// Input while its focused surfaces are open. Off = Steam is never touched.</summary>
-    public bool SteamInputLeaseEnabled { get => _steamInputLeaseEnabled; set { _steamInputLeaseEnabled = value; Raise(nameof(SteamInputLeaseEnabled)); } }
+    public bool SteamInputLeaseEnabled { get => _steamInputLeaseEnabled; set => SetField(ref _steamInputLeaseEnabled, value, nameof(SteamInputLeaseEnabled)); }
 
     /// <summary>Gets or sets whether WSGM deploys its Steam Input shim into Steam's
     /// own install directory, so Steam loads it and WSGM never injects.</summary>
     public bool SteamInputManagementEnabled
     {
         get => _steamInputManagementEnabled;
-        set { _steamInputManagementEnabled = value; Raise(nameof(SteamInputManagementEnabled)); }
+        set => SetField(ref _steamInputManagementEnabled, value, nameof(SteamInputManagementEnabled));
     }
 
     private bool _steamInputManagementEnabled = true;
@@ -1083,7 +1051,7 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     public string DeviceOwnerStatusText
     {
         get => _deviceOwnerStatusText;
-        private set { _deviceOwnerStatusText = value; Raise(nameof(DeviceOwnerStatusText)); }
+        private set => SetField(ref _deviceOwnerStatusText, value, nameof(DeviceOwnerStatusText));
     }
 
     /// <summary>Refreshes the read-only owner snapshot without creating a device cycle.</summary>
@@ -1163,7 +1131,7 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     public bool PerformanceEnabled
     {
         get => _performanceEnabled;
-        set { _performanceEnabled = value; Raise(nameof(PerformanceEnabled)); }
+        set => SetField(ref _performanceEnabled, value, nameof(PerformanceEnabled));
     }
 
     private string _osdCustomOrder = "Time,GPU,CPU,VRAM,RAM,BATT,FPS";
@@ -1182,56 +1150,56 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     public string OsdCustomOrder
     {
         get => _osdCustomOrder;
-        set { _osdCustomOrder = value; Raise(nameof(OsdCustomOrder)); }
+        set => SetField(ref _osdCustomOrder, value, nameof(OsdCustomOrder));
     }
 
     /// <summary>Clock detail for the Custom overlay.</summary>
     public int OsdCustomTimeIndex
     {
         get => _osdCustomTimeIndex;
-        set { _osdCustomTimeIndex = value; Raise(nameof(OsdCustomTimeIndex)); }
+        set => SetField(ref _osdCustomTimeIndex, value, nameof(OsdCustomTimeIndex));
     }
 
     /// <summary>Framerate detail for the Custom overlay.</summary>
     public int OsdCustomFpsIndex
     {
         get => _osdCustomFpsIndex;
-        set { _osdCustomFpsIndex = value; Raise(nameof(OsdCustomFpsIndex)); }
+        set => SetField(ref _osdCustomFpsIndex, value, nameof(OsdCustomFpsIndex));
     }
 
     /// <summary>CPU detail for the Custom overlay.</summary>
     public int OsdCustomCpuIndex
     {
         get => _osdCustomCpuIndex;
-        set { _osdCustomCpuIndex = value; Raise(nameof(OsdCustomCpuIndex)); }
+        set => SetField(ref _osdCustomCpuIndex, value, nameof(OsdCustomCpuIndex));
     }
 
     /// <summary>Memory detail for the Custom overlay.</summary>
     public int OsdCustomRamIndex
     {
         get => _osdCustomRamIndex;
-        set { _osdCustomRamIndex = value; Raise(nameof(OsdCustomRamIndex)); }
+        set => SetField(ref _osdCustomRamIndex, value, nameof(OsdCustomRamIndex));
     }
 
     /// <summary>GPU detail for the Custom overlay.</summary>
     public int OsdCustomGpuIndex
     {
         get => _osdCustomGpuIndex;
-        set { _osdCustomGpuIndex = value; Raise(nameof(OsdCustomGpuIndex)); }
+        set => SetField(ref _osdCustomGpuIndex, value, nameof(OsdCustomGpuIndex));
     }
 
     /// <summary>Video-memory detail for the Custom overlay.</summary>
     public int OsdCustomVramIndex
     {
         get => _osdCustomVramIndex;
-        set { _osdCustomVramIndex = value; Raise(nameof(OsdCustomVramIndex)); }
+        set => SetField(ref _osdCustomVramIndex, value, nameof(OsdCustomVramIndex));
     }
 
     /// <summary>Battery detail for the Custom overlay.</summary>
     public int OsdCustomBatteryIndex
     {
         get => _osdCustomBatteryIndex;
-        set { _osdCustomBatteryIndex = value; Raise(nameof(OsdCustomBatteryIndex)); }
+        set => SetField(ref _osdCustomBatteryIndex, value, nameof(OsdCustomBatteryIndex));
     }
 
     /// <summary>Gets or sets how a frame cap is paired with the panel's refresh rate.</summary>
@@ -1244,22 +1212,22 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     public int FrameLimitStrategyIndex
     {
         get => _frameLimitStrategyIndex;
-        set { _frameLimitStrategyIndex = value; Raise(nameof(FrameLimitStrategyIndex)); }
+        set => SetField(ref _frameLimitStrategyIndex, value, nameof(FrameLimitStrategyIndex));
     }
 
     /// <summary>Gets or sets the master Steam CEF integration switch. Off closes the
     /// debug port, injects nothing, and hides the sub-toggles below and the overlay
     /// feature buttons.</summary>
-    public bool CefEnabled { get => _cefEnabled; set { _cefEnabled = value; Raise(nameof(CefEnabled)); } }
+    public bool CefEnabled { get => _cefEnabled; set => SetField(ref _cefEnabled, value, nameof(CefEnabled)); }
 
     /// <summary>Gets or sets the injected library filter tabs, tab order, and native-tab hiding.</summary>
-    public bool CefLibraryTabs { get => _cefLibraryTabs; set { _cefLibraryTabs = value; Raise(nameof(CefLibraryTabs)); } }
+    public bool CefLibraryTabs { get => _cefLibraryTabs; set => SetField(ref _cefLibraryTabs, value, nameof(CefLibraryTabs)); }
 
     /// <summary>Gets or sets the SD-card library manager (card tabs, badges, live labels).</summary>
-    public bool CefCardManager { get => _cefCardManager; set { _cefCardManager = value; Raise(nameof(CefCardManager)); } }
+    public bool CefCardManager { get => _cefCardManager; set => SetField(ref _cefCardManager, value, nameof(CefCardManager)); }
 
     /// <summary>Gets or sets Format SD Card + live library registration.</summary>
-    public bool CefSdFormat { get => _cefSdFormat; set { _cefSdFormat = value; Raise(nameof(CefSdFormat)); } }
+    public bool CefSdFormat { get => _cefSdFormat; set => SetField(ref _cefSdFormat, value, nameof(CefSdFormat)); }
 
     private bool _steamStorageFormat;
 
@@ -1273,39 +1241,39 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     public bool SteamStorageFormat
     {
         get => _steamStorageFormat;
-        set { _steamStorageFormat = value; Raise(nameof(SteamStorageFormat)); }
+        set => SetField(ref _steamStorageFormat, value, nameof(SteamStorageFormat));
     }
 
     /// <summary>Gets or sets the shortcut-artwork changer.</summary>
-    public bool CefArtwork { get => _cefArtwork; set { _cefArtwork = value; Raise(nameof(CefArtwork)); } }
+    public bool CefArtwork { get => _cefArtwork; set => SetField(ref _cefArtwork, value, nameof(CefArtwork)); }
 
     /// <summary>Gets or sets the Big Picture Wi-Fi indicator.</summary>
-    public bool CefWifiIndicator { get => _cefWifiIndicator; set { _cefWifiIndicator = value; Raise(nameof(CefWifiIndicator)); } }
+    public bool CefWifiIndicator { get => _cefWifiIndicator; set => SetField(ref _cefWifiIndicator, value, nameof(CefWifiIndicator)); }
 
     /// <summary>Gets or sets the fingerprint-gated native Steam Quick Access bootstrap.</summary>
-    public bool CefNativeQuickAccess { get => _cefNativeQuickAccess; set { _cefNativeQuickAccess = value; Raise(nameof(CefNativeQuickAccess)); } }
+    public bool CefNativeQuickAccess { get => _cefNativeQuickAccess; set => SetField(ref _cefNativeQuickAccess, value, nameof(CefNativeQuickAccess)); }
 
     /// <summary>Gets or sets the automatic download wake lock (keep the device awake
     /// while Steam reports an active download).</summary>
-    public bool CefDownloadKeepAwake { get => _cefDownloadKeepAwake; set { _cefDownloadKeepAwake = value; Raise(nameof(CefDownloadKeepAwake)); } }
+    public bool CefDownloadKeepAwake { get => _cefDownloadKeepAwake; set => SetField(ref _cefDownloadKeepAwake, value, nameof(CefDownloadKeepAwake)); }
 
     /// <summary>Gets or sets the Name/Size/Type sort buttons injected into Big
     /// Picture's download-queue header.</summary>
-    public bool CefDownloadQueueSort { get => _cefDownloadQueueSort; set { _cefDownloadQueueSort = value; Raise(nameof(CefDownloadQueueSort)); } }
+    public bool CefDownloadQueueSort { get => _cefDownloadQueueSort; set => SetField(ref _cefDownloadQueueSort, value, nameof(CefDownloadQueueSort)); }
 
     /// <summary>Gets or sets whether Big Picture Home's carousel lists the games on the
     /// libraries attached right now.</summary>
-    public bool CefConnectedLibraryCarousel { get => _cefConnectedLibraryCarousel; set { _cefConnectedLibraryCarousel = value; Raise(nameof(CefConnectedLibraryCarousel)); } }
+    public bool CefConnectedLibraryCarousel { get => _cefConnectedLibraryCarousel; set => SetField(ref _cefConnectedLibraryCarousel, value, nameof(CefConnectedLibraryCarousel)); }
 
     /// <summary>Gets or sets whether that carousel also lists owned games that are not
     /// installed, greyed.</summary>
-    public bool CefCarouselShowUninstalled { get => _cefCarouselShowUninstalled; set { _cefCarouselShowUninstalled = value; Raise(nameof(CefCarouselShowUninstalled)); } }
+    public bool CefCarouselShowUninstalled { get => _cefCarouselShowUninstalled; set => SetField(ref _cefCarouselShowUninstalled, value, nameof(CefCarouselShowUninstalled)); }
 
     /// <summary>Gets or sets muting system audio while the screen is off.</summary>
-    public bool MuteWhileDisplayOff { get => _muteWhileDisplayOff; set { _muteWhileDisplayOff = value; Raise(nameof(MuteWhileDisplayOff)); } }
+    public bool MuteWhileDisplayOff { get => _muteWhileDisplayOff; set => SetField(ref _muteWhileDisplayOff, value, nameof(MuteWhileDisplayOff)); }
 
     /// <summary>Gets or sets suspending again after a standby wake nothing accounts for.</summary>
-    public bool ResuspendUnexplainedWakes { get => _resuspendUnexplainedWakes; set { _resuspendUnexplainedWakes = value; Raise(nameof(ResuspendUnexplainedWakes)); } }
+    public bool ResuspendUnexplainedWakes { get => _resuspendUnexplainedWakes; set => SetField(ref _resuspendUnexplainedWakes, value, nameof(ResuspendUnexplainedWakes)); }
 
     private string _modernStandbyStatusText = "";
 
@@ -1318,11 +1286,11 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     public string ModernStandbyStatusText
     {
         get => _modernStandbyStatusText;
-        private set { _modernStandbyStatusText = value; Raise(nameof(ModernStandbyStatusText)); }
+        private set => SetField(ref _modernStandbyStatusText, value, nameof(ModernStandbyStatusText));
     }
 
     /// <summary>Gets or sets whether the log records debug detail.</summary>
-    public bool VerboseLogging { get => _verboseLogging; set { _verboseLogging = value; Raise(nameof(VerboseLogging)); } }
+    public bool VerboseLogging { get => _verboseLogging; set => SetField(ref _verboseLogging, value, nameof(VerboseLogging)); }
 
     /// <summary>Gets a user-facing explanation of the current sign-in behavior.</summary>
     public string ShellStatusText => !StartAtSignIn
@@ -1390,20 +1358,20 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     private bool _steamLaunchUnelevated;
 
     /// <summary>Gets or sets whether the Steam monitor restarts Steam after an unexpected exit.</summary>
-    public bool SteamAutoRelaunch { get => _steamAutoRelaunch; set { _steamAutoRelaunch = value; Raise(nameof(SteamAutoRelaunch)); } }
+    public bool SteamAutoRelaunch { get => _steamAutoRelaunch; set => SetField(ref _steamAutoRelaunch, value, nameof(SteamAutoRelaunch)); }
 
     /// <summary>Whether the complete Steam client starts at medium integrity.</summary>
     public bool SteamLaunchUnelevated
     {
         get => _steamLaunchUnelevated;
-        set { _steamLaunchUnelevated = value; Raise(nameof(SteamLaunchUnelevated)); }
+        set => SetField(ref _steamLaunchUnelevated, value, nameof(SteamLaunchUnelevated));
     }
 
     private string _steamGridDbApiKey = "";
 
     /// <summary>Gets or sets the user's SteamGridDB API key (for the Change Artwork
     /// feature). Empty disables it; get a free key at <see cref="Core.SteamGridDb.KeyPageUrl"/>.</summary>
-    public string SteamGridDbApiKey { get => _steamGridDbApiKey; set { _steamGridDbApiKey = value; Raise(nameof(SteamGridDbApiKey)); } }
+    public string SteamGridDbApiKey { get => _steamGridDbApiKey; set => SetField(ref _steamGridDbApiKey, value, nameof(SteamGridDbApiKey)); }
 
     private bool _screenscraperEnabled;
 
@@ -1413,17 +1381,17 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     /// per application, so there is nothing to obtain first, unlike SteamGridDB's personal key. See
     /// <see cref="Core.ScreenscraperCredentials"/>.
     /// </remarks>
-    public bool ScreenscraperEnabled { get => _screenscraperEnabled; set { _screenscraperEnabled = value; Raise(nameof(ScreenscraperEnabled)); } }
+    public bool ScreenscraperEnabled { get => _screenscraperEnabled; set => SetField(ref _screenscraperEnabled, value, nameof(ScreenscraperEnabled)); }
 
     private string _screenscraperUser = "";
 
     /// <summary>Gets or sets the optional Screenscraper account name, which raises the quota.</summary>
-    public string ScreenscraperUser { get => _screenscraperUser; set { _screenscraperUser = value; Raise(nameof(ScreenscraperUser)); } }
+    public string ScreenscraperUser { get => _screenscraperUser; set => SetField(ref _screenscraperUser, value, nameof(ScreenscraperUser)); }
 
     private string _screenscraperUserPassword = "";
 
     /// <summary>Gets or sets the password for <see cref="ScreenscraperUser"/>.</summary>
-    public string ScreenscraperUserPassword { get => _screenscraperUserPassword; set { _screenscraperUserPassword = value; Raise(nameof(ScreenscraperUserPassword)); } }
+    public string ScreenscraperUserPassword { get => _screenscraperUserPassword; set => SetField(ref _screenscraperUserPassword, value, nameof(ScreenscraperUserPassword)); }
 
     // --- Startup apps ---
     /// <summary>Gets the ordered startup programs shown in the settings editor.</summary>
@@ -1432,17 +1400,17 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     private int _startupDelayMs;
 
     /// <summary>Gets or sets the initial delay before launching configured startup programs.</summary>
-    public int StartupDelayMs { get => _startupDelayMs; set { _startupDelayMs = value; Raise(nameof(StartupDelayMs)); } }
+    public int StartupDelayMs { get => _startupDelayMs; set => SetField(ref _startupDelayMs, value, nameof(StartupDelayMs)); }
 
     private int _staggerDelayMs;
 
     /// <summary>Gets or sets the delay between successive configured startup programs.</summary>
-    public int StaggerDelayMs { get => _staggerDelayMs; set { _staggerDelayMs = value; Raise(nameof(StaggerDelayMs)); } }
+    public int StaggerDelayMs { get => _staggerDelayMs; set => SetField(ref _staggerDelayMs, value, nameof(StaggerDelayMs)); }
 
     private bool _bootSplashEnabled;
 
     /// <summary>Gets or sets whether a splash window is shown while game mode starts.</summary>
-    public bool BootSplashEnabled { get => _bootSplashEnabled; set { _bootSplashEnabled = value; Raise(nameof(BootSplashEnabled)); } }
+    public bool BootSplashEnabled { get => _bootSplashEnabled; set => SetField(ref _bootSplashEnabled, value, nameof(BootSplashEnabled)); }
 
     /// <summary>Moves a startup-program row by one position when the target remains in range.</summary>
     /// <param name="row">The row to move, or null (a no-op).</param>
@@ -1530,16 +1498,16 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     private int _glyphStyleIndex;
 
     /// <summary>Gets or sets whether a bottom-edge swipe opens quick access on its Open apps strip (game mode).</summary>
-    public bool GestureBottom { get => _gestureBottom; set { _gestureBottom = value; Raise(nameof(GestureBottom)); } }
+    public bool GestureBottom { get => _gestureBottom; set => SetField(ref _gestureBottom, value, nameof(GestureBottom)); }
 
     /// <summary>Gets or sets whether a top-edge swipe opens quick access.</summary>
-    public bool GestureTop { get => _gestureTop; set { _gestureTop = value; Raise(nameof(GestureTop)); } }
+    public bool GestureTop { get => _gestureTop; set => SetField(ref _gestureTop, value, nameof(GestureTop)); }
 
     /// <summary>Gets or sets whether a left-edge swipe opens Steam's Big Picture menu.</summary>
-    public bool GestureLeftSteamMenu { get => _gestureLeftSteamMenu; set { _gestureLeftSteamMenu = value; Raise(nameof(GestureLeftSteamMenu)); } }
+    public bool GestureLeftSteamMenu { get => _gestureLeftSteamMenu; set => SetField(ref _gestureLeftSteamMenu, value, nameof(GestureLeftSteamMenu)); }
 
     /// <summary>Gets or sets whether a right-edge swipe opens Steam's Big Picture quick-access menu.</summary>
-    public bool GestureRightSteamQuickAccess { get => _gestureRightSteamQuickAccess; set { _gestureRightSteamQuickAccess = value; Raise(nameof(GestureRightSteamQuickAccess)); } }
+    public bool GestureRightSteamQuickAccess { get => _gestureRightSteamQuickAccess; set => SetField(ref _gestureRightSteamQuickAccess, value, nameof(GestureRightSteamQuickAccess)); }
 
     /// <summary>Gets or sets the selected controller-glyph family index.</summary>
     public int GlyphStyleIndex { get => _glyphStyleIndex; set { _glyphStyleIndex = value; Raise(nameof(GlyphStyleIndex)); Raise(nameof(GlyphStyle)); } }
@@ -1556,7 +1524,7 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Gets or sets the UI accent color as a hex string (e.g. "#FF9D3D").
     /// An unparsable value falls back to the default accent when applied.</summary>
-    public string AccentColorHex { get => _accentColorHex; set { _accentColorHex = value; Raise(nameof(AccentColorHex)); } }
+    public string AccentColorHex { get => _accentColorHex; set => SetField(ref _accentColorHex, value, nameof(AccentColorHex)); }
 
     // --- Appearance: boot splash ---
     // The editor binds the SplashConfig instance directly ({Binding Splash.X}).
@@ -2569,73 +2537,4 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
         return ConfigStore.CloneJson(snapshot, ConfigJsonContext.Default.AppConfig);
     }
 
-    private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-}
-
-/// <summary>Editable placement of one boot-splash element. Writes through to the
-/// placement object inside the view model's splash section, so the section and the
-/// editor can never disagree; <see cref="Load"/> re-points it after a preset apply
-/// or theme import and re-raises every property.</summary>
-public sealed class SplashPlacementEditor : INotifyPropertyChanged
-{
-    /// <summary>Raised after a placement field changes.</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    private SplashElementPlacement _placement = new();
-
-    /// <summary>Points the editor at a splash section's placement object.</summary>
-    /// <param name="placement">The placement this editor writes through to.</param>
-    internal void Load(SplashElementPlacement placement)
-    {
-        _placement = placement;
-        Raise(nameof(Mode));
-        Raise(nameof(Anchor));
-        Raise(nameof(PaddingX));
-        Raise(nameof(PaddingY));
-        Raise(nameof(X));
-        Raise(nameof(Y));
-        Raise(nameof(IsAnchor));
-        Raise(nameof(IsAbsolute));
-    }
-
-    /// <summary>Gets or sets how the element is positioned. Also switches which
-    /// field group (<see cref="IsAnchor"/>/<see cref="IsAbsolute"/>) the editor shows.</summary>
-    public SplashPlacementMode Mode
-    {
-        get => _placement.Mode;
-        set
-        {
-            _placement.Mode = value;
-            Raise(nameof(Mode));
-            Raise(nameof(IsAnchor));
-            Raise(nameof(IsAbsolute));
-        }
-    }
-
-    /// <summary>Whether the editor shows the anchor + padding fields.</summary>
-    public bool IsAnchor => _placement.Mode == SplashPlacementMode.Anchor;
-
-    /// <summary>Whether the editor shows the absolute X/Y fields.</summary>
-    public bool IsAbsolute => _placement.Mode == SplashPlacementMode.Absolute;
-
-    /// <summary>Gets or sets the nine-grid anchor.</summary>
-    public SplashPlacementAnchor Anchor
-    {
-        get => _placement.Anchor;
-        set { _placement.Anchor = value; Raise(nameof(Anchor)); }
-    }
-
-    /// <summary>Gets or sets the horizontal padding from the anchored edge.</summary>
-    public int PaddingX { get => _placement.PaddingX; set { _placement.PaddingX = value; Raise(nameof(PaddingX)); } }
-
-    /// <summary>Gets or sets the vertical padding from the anchored edge.</summary>
-    public int PaddingY { get => _placement.PaddingY; set { _placement.PaddingY = value; Raise(nameof(PaddingY)); } }
-
-    /// <summary>Gets or sets the absolute X coordinate in logical pixels.</summary>
-    public int X { get => _placement.X; set { _placement.X = value; Raise(nameof(X)); } }
-
-    /// <summary>Gets or sets the absolute Y coordinate in logical pixels.</summary>
-    public int Y { get => _placement.Y; set { _placement.Y = value; Raise(nameof(Y)); } }
-
-    private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -28,11 +27,8 @@ namespace WSGM.Shell;
 /// Enumeration is disk-level too (the eject list only sees mounted volumes) and
 /// runs off-thread on demand — no background polling. Rows reconcile in place
 /// (gamepad-cursor discipline).</summary>
-public sealed class SdFormatManager : INotifyPropertyChanged
+public sealed class SdFormatManager : ObservableObject
 {
-    /// <summary>Raised after a status property changes.</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     /// <summary>Raised on the UI thread when a format run finishes, with the
     /// terminal message — the controller surfaces it even when the overlay has
     /// been closed mid-format.</summary>
@@ -1486,6 +1482,4 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         }
     }
 
-    private void Raise(string name) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

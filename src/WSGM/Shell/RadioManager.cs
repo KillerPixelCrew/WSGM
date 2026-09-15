@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -23,7 +22,7 @@ namespace WSGM.Shell;
 /// runs on the UI thread: a background refresh publishes results back through
 /// the dispatcher. Rows are reconciled in place, because rebuilding the
 /// collections would drop the control under the gamepad cursor.</summary>
-public sealed class RadioManager : INotifyPropertyChanged, IDisposable
+public sealed class RadioManager : ObservableObject, IDisposable
 {
     private readonly Action<string, Action<WindowsRadio.PairingRequest>, Action<WindowsRadio.PairingResult?, Exception?>> _pairBluetooth;
     private readonly BluetoothAudioConnection _bluetoothAudio;
@@ -40,9 +39,6 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         _pairBluetooth = pairBluetooth;
         _bluetoothAudio = bluetoothAudio;
     }
-    /// <summary>Raised after a status property changes.</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     /// <summary>Raised when Windows asks a pairing question and the UI must
     /// answer with <see cref="RespondToPairing"/>. Always on the UI thread.</summary>
     public event Action<PairingPrompt>? PairingRequested;
@@ -220,7 +216,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     public string ConnectedSsid
     {
         get => _connectedSsid;
-        private set => Set(ref _connectedSsid, value, nameof(ConnectedSsid));
+        private set => SetFieldIfChanged(ref _connectedSsid, value, nameof(ConnectedSsid));
     }
 
     private string _wifiStateText = "State unavailable";
@@ -228,7 +224,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     public string WifiStateText
     {
         get => _wifiStateText;
-        private set => Set(ref _wifiStateText, value, nameof(WifiStateText));
+        private set => SetFieldIfChanged(ref _wifiStateText, value, nameof(WifiStateText));
     }
 
     private string _bluetoothStateText = "State unavailable";
@@ -236,7 +232,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     public string BluetoothStateText
     {
         get => _bluetoothStateText;
-        private set => Set(ref _bluetoothStateText, value, nameof(BluetoothStateText));
+        private set => SetFieldIfChanged(ref _bluetoothStateText, value, nameof(BluetoothStateText));
     }
 
     /// <summary>Whether <see cref="StatusText"/> currently holds a scan
@@ -457,7 +453,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     public bool BluetoothScanning
     {
         get => _bluetoothScanning;
-        private set => Set(ref _bluetoothScanning, value, nameof(BluetoothScanning));
+        private set => SetFieldIfChanged(ref _bluetoothScanning, value, nameof(BluetoothScanning));
     }
 
     private void OnTick(object? sender, EventArgs e)
@@ -1380,24 +1376,6 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             _ => $"Pairing with {device} did not complete.",
         };
 
-    private void Set(ref string field, string value, string name)
-    {
-        if (field != value)
-        {
-            field = value;
-            Raise(name);
-        }
-    }
 
-    private void Set(ref bool field, bool value, string name)
-    {
-        if (field != value)
-        {
-            field = value;
-            Raise(name);
-        }
-    }
 
-    private void Raise(string name) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

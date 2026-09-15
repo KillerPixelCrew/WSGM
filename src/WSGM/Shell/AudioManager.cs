@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -11,11 +10,8 @@ using WSGM.Core;
 namespace WSGM.Shell;
 
 /// <summary>One active Core Audio endpoint shown by the taskbar audio panel.</summary>
-public sealed class AudioEndpointEntry : INotifyPropertyChanged
+public sealed class AudioEndpointEntry : ObservableObject
 {
-    /// <summary>Raised when the endpoint's presentation changes.</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     /// <summary>Creates a visible endpoint row.</summary>
     /// <param name="id">The opaque Windows endpoint identifier.</param>
     /// <param name="name">The friendly device name.</param>
@@ -39,7 +35,7 @@ public sealed class AudioEndpointEntry : INotifyPropertyChanged
             if (_name != value)
             {
                 _name = value;
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Name)));
+                Raise(nameof(Name));
             }
         }
     }
@@ -48,11 +44,8 @@ public sealed class AudioEndpointEntry : INotifyPropertyChanged
 /// <summary>Live master-volume and default audio-device state for the game-mode
 /// taskbar. Potentially slow Core Audio enumeration runs away from the Avalonia
 /// UI thread.</summary>
-public sealed class AudioManager : INotifyPropertyChanged, IDisposable
+public sealed class AudioManager : ObservableObject, IDisposable
 {
-    /// <summary>Raised after a bindable audio property changes.</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     /// <summary>Revision bookkeeping for one data flow's default-endpoint writes:
     /// rapid selections each take a revision, only the newest may publish UI
     /// state, and the flow counts as pending until that newest revision
@@ -730,8 +723,6 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
         });
     }
 
-    private void Raise(string property)
-        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(property));
 
     /// <summary>Stops refreshes and prevents pending native work from publishing
     /// into a closed taskbar.</summary>

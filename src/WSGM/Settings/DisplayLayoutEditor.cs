@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using WindowsDeviceControl;
@@ -17,7 +16,7 @@ internal sealed record DisplayCatalogFacts(
     IReadOnlyList<DisplayMode> Modes, bool HdrSupported, int MaximumDpiPercent);
 
 /// <summary>One display in the layout editor, present or remembered.</summary>
-public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
+public sealed class DisplayLayoutEditorRow : ObservableObject
 {
     private bool _active;
     private bool _isPrimary;
@@ -39,8 +38,6 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
     }
 
     /// <inheritdoc />
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     /// <summary>Raised after any edit, so the owner can revalidate the whole layout.</summary>
     internal event Action? Edited;
 
@@ -87,7 +84,7 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
         _mode ??= Modes.FirstOrDefault();
         RaiseAll();
         foreach (string name in new[] { nameof(Present), nameof(PresenceText), nameof(Modes), nameof(HasModes), nameof(HdrSupported), nameof(HdrHint) })
-        { PropertyChanged?.Invoke(this, new(name)); }
+        { Raise(name); }
     }
 
     /// <summary>Gets whether any mode is known, so the picker has something to offer.</summary>
@@ -124,12 +121,12 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
         if (!_resolutions.SequenceEqual(resolutions))
         {
             _resolutions = resolutions;
-            PropertyChanged?.Invoke(this, new(nameof(Resolutions)));
+            Raise(nameof(Resolutions));
         }
         if (!_refreshRates.SequenceEqual(rates))
         {
             _refreshRates = rates;
-            PropertyChanged?.Invoke(this, new(nameof(RefreshRates)));
+            Raise(nameof(RefreshRates));
         }
     }
 
@@ -184,8 +181,8 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
         {
             if (_isPrimary == value) { return; }
             _isPrimary = value;
-            PropertyChanged?.Invoke(this, new(nameof(IsPrimary)));
-            PropertyChanged?.Invoke(this, new(nameof(LayoutState)));
+            Raise(nameof(IsPrimary));
+            Raise(nameof(LayoutState));
             if (value) { PrimaryRequested?.Invoke(this); }
             Edited?.Invoke();
         }
@@ -266,15 +263,15 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
     {
         if (EqualityComparer<T>.Default.Equals(field, value)) { return; }
         field = value;
-        PropertyChanged?.Invoke(this, new(name));
-        if (name == nameof(HdrEnabled)) { PropertyChanged?.Invoke(this, new(nameof(HdrIndex))); }
+        Raise(name);
+        if (name == nameof(HdrEnabled)) { Raise(nameof(HdrIndex)); }
         if (name == nameof(Mode))
         {
             RefreshModeChoices();
             foreach (string related in new[] { nameof(Resolution), nameof(RefreshHz), nameof(HasModes) })
-            { PropertyChanged?.Invoke(this, new(related)); }
+            { Raise(related); }
         }
-        PropertyChanged?.Invoke(this, new(nameof(LayoutState)));
+        Raise(nameof(LayoutState));
         Edited?.Invoke();
     }
 
@@ -290,7 +287,7 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
             nameof(LayoutState), nameof(InspectorTitle), nameof(ConnectionText), nameof(HdrIndex), nameof(HasModes),
         })
         {
-            PropertyChanged?.Invoke(this, new(name));
+            Raise(name);
         }
     }
 }
@@ -305,7 +302,7 @@ public sealed class DisplayLayoutEditorRow : INotifyPropertyChanged
 /// editor cannot save something Windows would refuse. Choosing a primary display normalizes the
 /// whole arrangement so that display sits at 0,0, which is where Windows puts it; asking a user to
 /// do that subtraction themselves would be a way to fail the rule for no reason.</summary>
-public sealed class DisplayLayoutEditor : INotifyPropertyChanged
+public sealed class DisplayLayoutEditor : ObservableObject
 {
     private readonly Action _changed;
     private DisplayLayoutEditorRow? _requestedPrimary;
@@ -321,8 +318,6 @@ public sealed class DisplayLayoutEditor : INotifyPropertyChanged
     internal DisplayLayoutEditor(Action changed) => _changed = changed;
 
     /// <inheritdoc />
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     /// <summary>Gets one row per remembered display.</summary>
     public ObservableCollection<DisplayLayoutEditorRow> Rows { get; } = [];
 
@@ -334,9 +329,9 @@ public sealed class DisplayLayoutEditor : INotifyPropertyChanged
         {
             if (_selected == value) { return; }
             _selected = value;
-            PropertyChanged?.Invoke(this, new(nameof(Selected)));
-            PropertyChanged?.Invoke(this, new(nameof(HasSelection)));
-            PropertyChanged?.Invoke(this, new(nameof(SelectedNeedsRebind)));
+            Raise(nameof(Selected));
+            Raise(nameof(HasSelection));
+            Raise(nameof(SelectedNeedsRebind));
         }
     }
 
@@ -361,8 +356,8 @@ public sealed class DisplayLayoutEditor : INotifyPropertyChanged
         {
             if (_validationText == value) { return; }
             _validationText = value;
-            PropertyChanged?.Invoke(this, new(nameof(ValidationText)));
-            PropertyChanged?.Invoke(this, new(nameof(HasValidationError)));
+            Raise(nameof(ValidationText));
+            Raise(nameof(HasValidationError));
         }
     }
 
@@ -415,8 +410,8 @@ public sealed class DisplayLayoutEditor : INotifyPropertyChanged
         _undo.Clear();
         Revalidate();
         _previous = CaptureRows();
-        PropertyChanged?.Invoke(this, new(nameof(HasDisplays)));
-        PropertyChanged?.Invoke(this, new(nameof(CanUndo)));
+        Raise(nameof(HasDisplays));
+        Raise(nameof(CanUndo));
     }
 
     /// <summary>Builds the layout the rows describe, or null when none is active.</summary>
@@ -437,8 +432,8 @@ public sealed class DisplayLayoutEditor : INotifyPropertyChanged
         _undo.Clear();
         Revalidate();
         _previous = CaptureRows();
-        PropertyChanged?.Invoke(this, new(nameof(HasDisplays)));
-        PropertyChanged?.Invoke(this, new(nameof(CanUndo)));
+        Raise(nameof(HasDisplays));
+        Raise(nameof(CanUndo));
     }
 
     private void Attach(DisplayLayoutEditorRow row)
@@ -478,7 +473,7 @@ public sealed class DisplayLayoutEditor : INotifyPropertyChanged
         _undo.Push(_previous);
         Revalidate();
         _previous = CaptureRows();
-        PropertyChanged?.Invoke(this, new(nameof(CanUndo)));
+        Raise(nameof(CanUndo));
         _changed();
     }
 
@@ -504,7 +499,7 @@ public sealed class DisplayLayoutEditor : INotifyPropertyChanged
         Selected ??= Rows.FirstOrDefault();
         Revalidate();
         _previous = CaptureRows();
-        PropertyChanged?.Invoke(this, new(nameof(HasDisplays)));
+        Raise(nameof(HasDisplays));
     }
 
     /// <summary>Undoes one completed edit to this layout.</summary>
@@ -529,7 +524,7 @@ public sealed class DisplayLayoutEditor : INotifyPropertyChanged
         _requestedPrimary = null;
         Revalidate();
         _previous = CaptureRows();
-        PropertyChanged?.Invoke(this, new(nameof(CanUndo)));
+        Raise(nameof(CanUndo));
         _changed();
     }
 
@@ -611,11 +606,11 @@ public sealed class DisplayLayoutEditor : INotifyPropertyChanged
             finally { _loading = false; }
         }
 
-        PropertyChanged?.Invoke(this, new(nameof(HasUnboundRow)));
-        PropertyChanged?.Invoke(this, new(nameof(SelectedNeedsRebind)));
-        PropertyChanged?.Invoke(this, new(nameof(HasActiveDisplays)));
-        PropertyChanged?.Invoke(this, new(nameof(HasDisconnectedDisplay)));
-        PropertyChanged?.Invoke(this, new(nameof(Rows)));
+        Raise(nameof(HasUnboundRow));
+        Raise(nameof(SelectedNeedsRebind));
+        Raise(nameof(HasActiveDisplays));
+        Raise(nameof(HasDisconnectedDisplay));
+        Raise(nameof(Rows));
         if (active.Length == 0)
         {
             ValidationText = "";

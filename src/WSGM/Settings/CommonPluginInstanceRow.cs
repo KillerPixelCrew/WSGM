@@ -1,10 +1,9 @@
-using System.ComponentModel;
 using WSGM.Core;
 
 namespace WSGM.Settings;
 
 /// <summary>Explicit activation preference for one installed plugin instance.</summary>
-public sealed class CommonPluginInstanceRow : INotifyPropertyChanged
+public sealed class CommonPluginInstanceRow : ObservableObject
 {
     private bool _enabled;
     private bool _savedEnabled;
@@ -18,8 +17,6 @@ public sealed class CommonPluginInstanceRow : INotifyPropertyChanged
         _enabled = _savedEnabled = enabled;
     }
 
-    /// <summary>Raised when the user changes activation intent.</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
     /// <summary>Package identity.</summary>
     public string PluginId { get; }
     /// <summary>Stable instance identity.</summary>
@@ -38,7 +35,7 @@ public sealed class CommonPluginInstanceRow : INotifyPropertyChanged
         {
             if (_enabled == value) { return; }
             _enabled = value;
-            PropertyChanged?.Invoke(this, new(nameof(Enabled)));
+            Raise(nameof(Enabled));
         }
     }
 

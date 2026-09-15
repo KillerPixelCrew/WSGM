@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Linq;
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 
@@ -19,7 +19,7 @@ namespace WSGM.Settings;
 /// configures how the plugin behaves and WSGM keeps the value.
 /// </para>
 /// </remarks>
-public sealed class PluginSettingRowViewModel : INotifyPropertyChanged
+public sealed class PluginSettingRowViewModel : ObservableObject
 {
     private readonly PluginSettingDescriptor _descriptor;
     private bool _booleanValue;
@@ -49,8 +49,6 @@ public sealed class PluginSettingRowViewModel : INotifyPropertyChanged
     public event Action<string, CapabilityValue>? Edited;
 
     /// <inheritdoc />
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     /// <summary>The declared setting this row edits.</summary>
     public string SettingId => _descriptor.SettingId;
 
@@ -282,8 +280,6 @@ public sealed class PluginSettingRowViewModel : INotifyPropertyChanged
 
     private void Publish(CapabilityValue value) => Edited?.Invoke(SettingId, value);
 
-    private void Raise(string name) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
 /// <summary>One choice option with separate persisted identity and user-facing label.</summary>

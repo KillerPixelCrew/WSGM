@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -28,11 +27,8 @@ namespace WSGM.Shell;
 /// re-enumeration, off-thread, publishing back through the dispatcher. Rows are
 /// reconciled in place — rebuilding the collection would drop the control under
 /// the gamepad cursor.</summary>
-public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
+public sealed class RemovableDriveManager : ObservableObject, IDisposable
 {
-    /// <summary>Raised after a status property changes.</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     private DispatcherTimer? _timer;
     private int _refreshing;
     private string _lastSignature = "";
@@ -705,6 +701,4 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
             _ => "Windows refused to remove this drive right now. Try again in a moment.",
         };
 
-    private void Raise(string name) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

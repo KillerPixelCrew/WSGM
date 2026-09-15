@@ -1,4 +1,4 @@
-using System.ComponentModel;
+using WSGM.Core;
 
 namespace WSGM.Shell;
 
@@ -19,11 +19,8 @@ public enum EjectKind
 /// its volumes together), or one piece of removable media. A row instance
 /// survives refreshes so the gamepad cursor keeps its place; only its values are
 /// updated (the radio/Bluetooth row discipline).</summary>
-public sealed class RemovableDriveEntry : INotifyPropertyChanged
+public sealed class RemovableDriveEntry : ObservableObject
 {
-    /// <summary>Raised after a displayed value changes.</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     /// <summary>Creates a row.</summary>
     /// <param name="id">The device instance path (or "media:X" for a media row),
     /// which identifies the row across refreshes.</param>
@@ -187,6 +184,4 @@ public sealed class RemovableDriveEntry : INotifyPropertyChanged
         ? $"{Letters} — {SizeText}"
         : Letters;
 
-    private void Raise(string name) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

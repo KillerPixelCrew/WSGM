@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using Avalonia.Media.Imaging;
 using WSGM.Core;
 
@@ -11,11 +10,8 @@ namespace WSGM.Overlay;
 /// Mutable presentation state is INPC so the 1 s refresh can update chips IN PLACE —
 /// replacing the collection wholesale would destroy the focused button under the
 /// gamepad cursor on every tick.</summary>
-public sealed class AppSwitcherEntry : INotifyPropertyChanged
+public sealed class AppSwitcherEntry : ObservableObject
 {
-    /// <summary>Raised when a mutable presentation property changes.</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     /// <summary>Creates a switcher chip for an enumerated window.</summary>
     /// <param name="hwnd">The native window handle to activate.</param>
     /// <param name="title">The window title (tooltip text).</param>
@@ -106,16 +102,12 @@ public sealed class AppSwitcherEntry : INotifyPropertyChanged
         }
     }
 
-    private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
 /// <summary>One tray icon tile. Wraps the host's live record; Refresh() re-raises
 /// the bindable projections after a NIM_MODIFY.</summary>
-public sealed class TrayIconEntry : INotifyPropertyChanged
+public sealed class TrayIconEntry : ObservableObject
 {
-    /// <summary>Raised when the projected icon state changes.</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     /// <summary>Creates a tile over a live tray-icon record.</summary>
     /// <param name="icon">The host's icon record.</param>
     public TrayIconEntry(TrayIconTable.TrayIcon icon)
@@ -135,17 +127,14 @@ public sealed class TrayIconEntry : INotifyPropertyChanged
     /// <summary>Re-raises the projections after the underlying record changed.</summary>
     public void Refresh()
     {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Image)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Tip)));
+        Raise(nameof(Image));
+        Raise(nameof(Tip));
     }
 }
 
 /// <summary>State for the quick access sheet's Open apps strip and tray area.</summary>
-public sealed class AppSwitcherViewModel : INotifyPropertyChanged
+public sealed class AppSwitcherViewModel : ObservableObject
 {
-    /// <summary>Raised after a switcher property changes.</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     /// <summary>Application chips in first-seen order (stable across refreshes; new
     /// windows append, closed windows drop out).</summary>
     public ObservableCollection<AppSwitcherEntry> Entries { get; } = [];
@@ -270,5 +259,4 @@ public sealed class AppSwitcherViewModel : INotifyPropertyChanged
         HasTrayIcons = TrayIcons.Count > 0;
     }
 
-    private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

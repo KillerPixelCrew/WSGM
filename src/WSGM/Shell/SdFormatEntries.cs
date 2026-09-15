@@ -1,4 +1,4 @@
-using System.ComponentModel;
+using WSGM.Core;
 
 namespace WSGM.Shell;
 
@@ -7,11 +7,8 @@ namespace WSGM.Shell;
 /// updated (the radio/eject row discipline). The verification fields captured at
 /// enumeration time are re-checked against fresh handles immediately before the
 /// destructive work starts.</summary>
-public sealed class FormatTargetEntry : INotifyPropertyChanged
+public sealed class FormatTargetEntry : ObservableObject
 {
-    /// <summary>Raised after a displayed value changes.</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     /// <summary>Creates a row.</summary>
     /// <param name="id">The device instance path (or "disk:N" fallback), which
     /// identifies the row across refreshes.</param>
@@ -77,6 +74,4 @@ public sealed class FormatTargetEntry : INotifyPropertyChanged
     /// "looks like a Steam Deck card" hint.</summary>
     internal bool HasLinuxPartitions { get; set; }
 
-    private void Raise(string name) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

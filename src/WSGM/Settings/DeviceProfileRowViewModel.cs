@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Linq;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
@@ -13,7 +12,7 @@ namespace WSGM.Settings;
 /// conversion to the stored shape happens once, at save. Keeping two mutable representations in
 /// step during a drag is exactly the kind of bookkeeping that goes wrong silently.
 /// </remarks>
-public sealed class DeviceProfileRowViewModel : INotifyPropertyChanged
+public sealed class DeviceProfileRowViewModel : ObservableObject
 {
     private string _name;
     private IReadOnlyList<CurvePoint> _curve;
@@ -36,8 +35,6 @@ public sealed class DeviceProfileRowViewModel : INotifyPropertyChanged
     }
 
     /// <inheritdoc />
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     /// <summary>Stable identifier the overlay selects by. Never changes with a rename.</summary>
     public string ProfileId { get; }
 
@@ -156,6 +153,4 @@ public sealed class DeviceProfileRowViewModel : INotifyPropertyChanged
         Color = _color,
     };
 
-    private void Raise(string name) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using WSGM.Core;
@@ -10,7 +9,7 @@ using WSGM.Plugin.Sdk;
 namespace WSGM.Settings;
 
 /// <summary>One argument of one configured step, typed the way the plugin declared it.</summary>
-public sealed class PluginArgumentRow : INotifyPropertyChanged
+public sealed class PluginArgumentRow : ObservableObject
 {
     private readonly PluginActionStep _step;
     private readonly PluginSetting _field;
@@ -24,8 +23,6 @@ public sealed class PluginArgumentRow : INotifyPropertyChanged
     }
 
     /// <inheritdoc />
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     /// <summary>Gets the argument's label.</summary>
     public string Label => _field.Label;
 
@@ -76,16 +73,16 @@ public sealed class PluginArgumentRow : INotifyPropertyChanged
     private void Write(PluginValue value, string name)
     {
         _step.Arguments[_field.Key] = value;
-        PropertyChanged?.Invoke(this, new(name));
-        PropertyChanged?.Invoke(this, new(nameof(ValidationText)));
-        PropertyChanged?.Invoke(this, new(nameof(HasValidationError)));
+        Raise(name);
+        Raise(nameof(ValidationText));
+        Raise(nameof(HasValidationError));
         _changed();
     }
 }
 
 /// <summary>One configured step, with its arguments when the plugin that declares them is
 /// running.</summary>
-public sealed class PluginActionStepEditorRow : INotifyPropertyChanged
+public sealed class PluginActionStepEditorRow : ObservableObject
 {
     private readonly Action _changed;
 
@@ -100,8 +97,6 @@ public sealed class PluginActionStepEditorRow : INotifyPropertyChanged
     }
 
     /// <inheritdoc />
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     internal PluginActionStep Step { get; }
 
     /// <summary>Gets which plugin instance and action this step names.</summary>
@@ -131,7 +126,7 @@ public sealed class PluginActionStepEditorRow : INotifyPropertyChanged
         {
             if (Step.TimeoutSeconds == value) { return; }
             Step.TimeoutSeconds = Math.Clamp(value, 1, 120);
-            PropertyChanged?.Invoke(this, new(nameof(TimeoutSeconds)));
+            Raise(nameof(TimeoutSeconds));
             _changed();
         }
     }
@@ -156,7 +151,7 @@ public sealed class PluginActionStepEditorRow : INotifyPropertyChanged
 /// schema comes from the plugin, and the host captures that schema before the plugin starts, so
 /// there is nothing truthful to render for one that is not there. Deleting it is still allowed:
 /// removing a step you no longer want must not require starting a plugin.</summary>
-public sealed class PluginActionListEditor : INotifyPropertyChanged
+public sealed class PluginActionListEditor : ObservableObject
 {
     private readonly Action _changed;
     private IReadOnlyList<SettingsViewModel.PluginActionOption> _options = [];
@@ -168,8 +163,6 @@ public sealed class PluginActionListEditor : INotifyPropertyChanged
     }
 
     /// <inheritdoc />
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     /// <summary>Gets the session event this list runs at.</summary>
     public string Title { get; }
 
@@ -194,7 +187,7 @@ public sealed class PluginActionListEditor : INotifyPropertyChanged
     public int ChoiceIndex
     {
         get => _choiceIndex;
-        set { _choiceIndex = value; PropertyChanged?.Invoke(this, new(nameof(ChoiceIndex))); }
+        set => SetField(ref _choiceIndex, value, nameof(ChoiceIndex));
     }
 
     private int _choiceIndex = -1;
@@ -269,15 +262,15 @@ public sealed class PluginActionListEditor : INotifyPropertyChanged
 
     private void OnRowChanged()
     {
-        PropertyChanged?.Invoke(this, new(nameof(HasValidationError)));
+        Raise(nameof(HasValidationError));
         _changed();
     }
 
     private void RaiseState()
     {
-        PropertyChanged?.Invoke(this, new(nameof(CanAdd)));
-        PropertyChanged?.Invoke(this, new(nameof(HasEditor)));
-        PropertyChanged?.Invoke(this, new(nameof(AddHintText)));
-        PropertyChanged?.Invoke(this, new(nameof(HasValidationError)));
+        Raise(nameof(CanAdd));
+        Raise(nameof(HasEditor));
+        Raise(nameof(AddHintText));
+        Raise(nameof(HasValidationError));
     }
 }

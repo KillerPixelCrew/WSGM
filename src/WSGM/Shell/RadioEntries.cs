@@ -1,15 +1,12 @@
-using System.ComponentModel;
+using WSGM.Core;
 using WifiSecurity = WindowsDeviceControl.WindowsRadio.WifiSecurity;
 
 namespace WSGM.Shell;
 
 /// <summary>One row in the Wi-Fi list. A row instance survives refreshes so the
 /// gamepad cursor keeps its place; only its values are updated.</summary>
-public sealed class WifiNetworkEntry : INotifyPropertyChanged
+public sealed class WifiNetworkEntry : ObservableObject
 {
-    /// <summary>Raised after a displayed value changes.</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     /// <summary>Creates a row for a network.</summary>
     /// <param name="ssid">The network name, which also identifies the row.</param>
     public WifiNetworkEntry(string ssid) => Ssid = ssid;
@@ -22,7 +19,7 @@ public sealed class WifiNetworkEntry : INotifyPropertyChanged
     public int Signal
     {
         get => _signal;
-        internal set => Set(ref _signal, value, nameof(Signal));
+        internal set => SetFieldIfChanged(ref _signal, value, nameof(Signal));
     }
 
     private WifiSecurity _security;
@@ -128,7 +125,7 @@ public sealed class WifiNetworkEntry : INotifyPropertyChanged
     public bool Expanded
     {
         get => _expanded;
-        internal set => Set(ref _expanded, value, nameof(Expanded));
+        internal set => SetFieldIfChanged(ref _expanded, value, nameof(Expanded));
     }
 
     /// <summary>Gets the icon state: off is never used here (a listed network
@@ -154,35 +151,14 @@ public sealed class WifiNetworkEntry : INotifyPropertyChanged
     /// <summary>Gets the label for this row's action button.</summary>
     public string ActionText => Connected ? "Disconnect" : "Connect";
 
-    private void Set(ref int field, int value, string name)
-    {
-        if (field != value)
-        {
-            field = value;
-            Raise(name);
-        }
-    }
 
-    private void Set(ref bool field, bool value, string name)
-    {
-        if (field != value)
-        {
-            field = value;
-            Raise(name);
-        }
-    }
 
-    private void Raise(string name) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
 /// <summary>One row in the Bluetooth list. Same in-place refresh discipline as
 /// <see cref="WifiNetworkEntry"/>.</summary>
-public sealed class BluetoothDeviceEntry : INotifyPropertyChanged
+public sealed class BluetoothDeviceEntry : ObservableObject
 {
-    /// <summary>Raised after a displayed value changes.</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     /// <summary>Creates a row for a device.</summary>
     /// <param name="id">The stable logical device id.</param>
     public BluetoothDeviceEntry(string id) { Id = id; EndpointId = id; PairingEndpointId = id; }
@@ -372,7 +348,7 @@ public sealed class BluetoothDeviceEntry : INotifyPropertyChanged
     public bool Expanded
     {
         get => _expanded;
-        internal set => Set(ref _expanded, value, nameof(Expanded));
+        internal set => SetFieldIfChanged(ref _expanded, value, nameof(Expanded));
     }
 
     /// <summary>Gets the icon state: accent only for a live connection, muted
@@ -387,15 +363,5 @@ public sealed class BluetoothDeviceEntry : INotifyPropertyChanged
         : Connected ? "Connected"
         : Paired ? "Paired" : CanPair ? "Available" : "Not available";
 
-    private void Set(ref bool field, bool value, string name)
-    {
-        if (field != value)
-        {
-            field = value;
-            Raise(name);
-        }
-    }
 
-    private void Raise(string name) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

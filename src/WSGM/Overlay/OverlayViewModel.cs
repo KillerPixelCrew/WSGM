@@ -1,14 +1,10 @@
-using System.ComponentModel;
 using WSGM.Core;
 
 namespace WSGM.Overlay;
 
 /// <summary>State for the overlay, recomputed every time it is shown.</summary>
-public sealed class OverlayViewModel : INotifyPropertyChanged
+public sealed class OverlayViewModel : ObservableObject
 {
-    /// <summary>Raised after an overlay property or dependent display value changes.</summary>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     private bool _explorerRunning;
     private bool _homeAppAlive;
     private string _homeAppName = "Home app";
@@ -50,7 +46,7 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
     public GlyphStyle GlyphStyle
     {
         get => _glyphStyle;
-        set { _glyphStyle = value; Raise(nameof(GlyphStyle)); }
+        set => SetField(ref _glyphStyle, value, nameof(GlyphStyle));
     }
 
     private bool _confirmingCloseLauncher;
@@ -155,14 +151,14 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
     public string DisplayDcTimeout
     {
         get => _displayDcTimeout;
-        set { _displayDcTimeout = value; Raise(nameof(DisplayDcTimeout)); }
+        set => SetField(ref _displayDcTimeout, value, nameof(DisplayDcTimeout));
     }
 
     /// <summary>Current display-off timeout when plugged in.</summary>
     public string DisplayAcTimeout
     {
         get => _displayAcTimeout;
-        set { _displayAcTimeout = value; Raise(nameof(DisplayAcTimeout)); }
+        set => SetField(ref _displayAcTimeout, value, nameof(DisplayAcTimeout));
     }
 
     /// <summary>What a display-off row says when nothing bounds it.</summary>
@@ -175,28 +171,28 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
     public string DisplayDcDescription
     {
         get => _displayDcDescription;
-        set { _displayDcDescription = value; Raise(nameof(DisplayDcDescription)); }
+        set => SetField(ref _displayDcDescription, value, nameof(DisplayDcDescription));
     }
 
     /// <summary>The plugged-in display-off row's description, naming Steam's screensaver bound when there is one.</summary>
     public string DisplayAcDescription
     {
         get => _displayAcDescription;
-        set { _displayAcDescription = value; Raise(nameof(DisplayAcDescription)); }
+        set => SetField(ref _displayAcDescription, value, nameof(DisplayAcDescription));
     }
 
     /// <summary>Current standby timeout on battery.</summary>
     public string SleepDcTimeout
     {
         get => _sleepDcTimeout;
-        set { _sleepDcTimeout = value; Raise(nameof(SleepDcTimeout)); }
+        set => SetField(ref _sleepDcTimeout, value, nameof(SleepDcTimeout));
     }
 
     /// <summary>Current standby timeout when plugged in.</summary>
     public string SleepAcTimeout
     {
         get => _sleepAcTimeout;
-        set { _sleepAcTimeout = value; Raise(nameof(SleepAcTimeout)); }
+        set => SetField(ref _sleepAcTimeout, value, nameof(SleepAcTimeout));
     }
 
     private bool _showLibraryTabs = true;
@@ -293,5 +289,4 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
     /// </remarks>
     public bool InputLeaseUsesShim { get; set; } = true;
 
-    private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
