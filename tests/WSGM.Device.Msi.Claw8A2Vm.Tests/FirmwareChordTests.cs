@@ -269,8 +269,8 @@ public sealed class FirmwareChordTests
         var method = Assert.IsType<MethodInfo>(typeof(NativeKeyboard).GetMethod(
             nameof(NativeKeyboard.GetMessage),
             BindingFlags.Public | BindingFlags.Static), false);
-        var import = Assert.IsType<DllImportAttribute>(
-            method.GetCustomAttribute<DllImportAttribute>());
+        var import = Assert.IsType<LibraryImportAttribute>(
+            method.GetCustomAttribute<LibraryImportAttribute>());
 
         Assert.Equal(typeof(int), method.ReturnType);
         Assert.True(import.SetLastError);
