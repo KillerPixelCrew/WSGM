@@ -4,7 +4,8 @@ namespace WSGM.Interop;
 
 /// <summary>
 /// The display P/Invoke surface: DisplayConfig packets (per-monitor DPI scaling, advanced color,
-/// GDI source names) plus the EnumDisplay*/ChangeDisplaySettingsEx mode API. The DPI packets
+/// GDI source names) and display device enumeration. Mode enumeration and changes go through
+/// WindowsDeviceControl.DisplayModes, which serializes them with the overlay's mode changes. The DPI packets
 /// (types -3/-4) are undocumented but ABI-stable — the same mechanism the Settings app uses. Every
 /// packet is blittable; keep layouts exactly as verified.
 /// </summary>
@@ -15,13 +16,6 @@ internal static unsafe partial class NativeDisplay
     internal const int GetSourceNameType = 1;   // DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME
     internal const uint QdcOnlyActivePaths = 0x00000002;
 
-    internal const uint EnumCurrentSettings = 0xFFFFFFFF;
-    internal const uint DmPelsWidth = 0x00080000;
-    internal const uint DmPelsHeight = 0x00100000;
-    internal const uint DmDisplayFrequency = 0x00400000;
-    internal const uint CdsUpdateRegistry = 0x00000001;
-    internal const uint CdsTest = 0x00000002;
-    internal const uint CdsNoReset = 0x10000000;
     internal const uint DisplayDeviceActive = 0x00000001;
     internal const uint DisplayDevicePrimary = 0x00000004;
     internal const uint GetDeviceInterfaceName = 0x00000001;
@@ -95,22 +89,6 @@ internal static unsafe partial class NativeDisplay
         public fixed char DeviceKey[128];
     }
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    internal struct DevMode
-    {
-        public fixed char DeviceName[32];
-        public ushort SpecVersion, DriverVersion, Size, DriverExtra;
-        public uint Fields;
-        public int PositionX, PositionY;
-        public uint DisplayOrientation, DisplayFixedOutput;
-        public short Color, Duplex, YResolution, TTOption, Collate;
-        public fixed char FormName[32];
-        public ushort LogPixels;
-        public uint BitsPerPel, PelsWidth, PelsHeight, DisplayFlags, DisplayFrequency;
-        public uint ICMMethod, ICMIntent, MediaType, DitherType, Reserved1, Reserved2;
-        public uint PanningWidth, PanningHeight;
-    }
-
     [LibraryImport("user32.dll")]
     internal static partial int GetDisplayConfigBufferSizes(uint flags, out uint numPaths, out uint numModes);
 
@@ -131,10 +109,4 @@ internal static unsafe partial class NativeDisplay
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool EnumDisplayDevices(char* device, uint index, ref DisplayDevice displayDevice, uint flags);
 
-    [LibraryImport("user32.dll", EntryPoint = "EnumDisplaySettingsExW")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool EnumDisplaySettingsEx(char* deviceName, uint modeNum, ref DevMode devMode, uint flags);
-
-    [LibraryImport("user32.dll", EntryPoint = "ChangeDisplaySettingsExW")]
-    internal static partial int ChangeDisplaySettingsEx(char* deviceName, DevMode* devMode, nint hwnd, uint flags, nint param);
 }

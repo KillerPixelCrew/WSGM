@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Win32;
+using WindowsDeviceControl;
 using static WSGM.Interop.NativeDisplay;
 
 namespace WSGM.Core;
@@ -11,14 +12,18 @@ namespace WSGM.Core;
 /// This is the narrow GDI path behind the overlay's and Steam QAM's resolution and refresh-rate
 /// pickers: one display, no persistence, no registry staging. Saved multi-display arrangements are
 /// a different problem with different rules and live in
-/// <see cref="WindowsDeviceControl.DisplayLayouts"/>.</summary>
+/// <see cref="WindowsDeviceControl.DisplayLayouts"/>.
+///
+/// The native mode calls go through <see cref="DisplayModes"/>, which shares one gate with the
+/// overlay's per-target mode changes, so the two paths can never interleave a read and a
+/// write.</summary>
 public static unsafe class DisplayProfiles
 {
     /// <summary>Smallest resolution worth offering. Below this is legacy driver noise.</summary>
-    private const uint MinimumUsableWidth = 800;
+    private const int MinimumUsableWidth = 800;
 
     /// <summary>Smallest resolution height worth offering.</summary>
-    private const uint MinimumUsableHeight = 600;
+    private const int MinimumUsableHeight = 600;
 
     /// <summary>
     /// Discovers the resolutions the driver accepts on the primary display, at its current refresh
@@ -47,11 +52,11 @@ public static unsafe class DisplayProfiles
         => EnumerateAccepted(
             "resolutions",
             "accepted resolutions",
-            static (mode, current) => mode.BitsPerPel == current.BitsPerPel
-                && mode.DisplayFrequency == current.DisplayFrequency
-                && mode.PelsWidth >= MinimumUsableWidth
-                && mode.PelsHeight >= MinimumUsableHeight,
-            static (mode, current) => new CandidateMode(mode.PelsWidth, mode.PelsHeight, current.DisplayFrequency),
+            static (mode, current) => mode.BitsPerPixel == current.BitsPerPixel
+                && mode.RefreshHz == current.RefreshHz
+                && mode.Width >= MinimumUsableWidth
+                && mode.Height >= MinimumUsableHeight,
+            static (mode, current) => new CandidateMode(mode.Width, mode.Height, current.RefreshHz),
             static mode => $"{mode.Width}x{mode.Height}")
             .Select(mode => new DisplayResolution((int)mode.Width, (int)mode.Height))
             .ToArray();
@@ -75,41 +80,34 @@ public static unsafe class DisplayProfiles
         => EnumerateAccepted(
             "refresh rates",
             "accepted",
-            static (mode, current) => mode.PelsWidth == current.PelsWidth
-                && mode.PelsHeight == current.PelsHeight
-                && mode.BitsPerPel == current.BitsPerPel
-                && mode.DisplayFrequency > 1,
-            static (mode, current) => new CandidateMode(current.PelsWidth, current.PelsHeight, mode.DisplayFrequency),
+            static (mode, current) => mode.Width == current.Width
+                && mode.Height == current.Height
+                && mode.BitsPerPixel == current.BitsPerPixel
+                && mode.RefreshHz > 1,
+            static (mode, current) => new CandidateMode(current.Width, current.Height, mode.RefreshHz),
             static mode => mode.RefreshHz.ToString())
             .Select(mode => (int)mode.RefreshHz)
             .ToArray();
 
     /// <summary>A full candidate mode, so one test path serves both discovery axes.</summary>
-    private readonly record struct CandidateMode(uint Width, uint Height, uint RefreshHz);
+    private readonly record struct CandidateMode(int Width, int Height, int RefreshHz);
 
     private static IReadOnlyList<CandidateMode> EnumerateAccepted(
         string noun,
         string acceptedLabel,
-        Func<DevMode, DevMode, bool> keep,
-        Func<DevMode, DevMode, CandidateMode> candidate,
+        Func<PrimaryDisplayMode, PrimaryDisplayMode, bool> keep,
+        Func<PrimaryDisplayMode, PrimaryDisplayMode, CandidateMode> candidate,
         Func<CandidateMode, string> describe)
     {
-        var current = new DevMode { Size = (ushort)sizeof(DevMode) };
-        if (!EnumDisplaySettingsEx(null, EnumCurrentSettings, ref current, 0))
+        if (DisplayModes.ReadPrimaryMode() is not { } current)
         {
             Log.Warn($"Display modes: current settings unreadable; no {noun} discovered.");
             return [];
         }
 
         HashSet<CandidateMode> enumerated = [];
-        for (uint index = 0; ; index++)
+        foreach (PrimaryDisplayMode mode in DisplayModes.EnumeratePrimaryModes())
         {
-            var mode = new DevMode { Size = (ushort)sizeof(DevMode) };
-            if (!EnumDisplaySettingsEx(null, index, ref mode, 0))
-            {
-                break;
-            }
-
             if (keep(mode, current))
             {
                 enumerated.Add(candidate(mode, current));
@@ -123,10 +121,10 @@ public static unsafe class DisplayProfiles
             .ThenBy(entry => entry.Width)
             .ThenBy(entry => entry.RefreshHz))
         {
-            bool isCurrent = mode.Width == current.PelsWidth
-                && mode.Height == current.PelsHeight
-                && mode.RefreshHz == current.DisplayFrequency;
-            if (isCurrent || Test(current, mode))
+            bool isCurrent = mode.Width == current.Width
+                && mode.Height == current.Height
+                && mode.RefreshHz == current.RefreshHz;
+            if (isCurrent || DisplayModes.TestPrimaryMode(mode.Width, mode.Height, mode.RefreshHz))
             {
                 accepted.Add(mode);
             }
@@ -137,7 +135,7 @@ public static unsafe class DisplayProfiles
         }
 
         Log.Info(
-            $"Display modes: {current.PelsWidth}x{current.PelsHeight} at {current.DisplayFrequency} Hz, "
+            $"Display modes: {current.Width}x{current.Height} at {current.RefreshHz} Hz, "
             + $"{acceptedLabel} [{string.Join(",", accepted.Select(describe))}]"
             + (refused.Count is 0 ? "" : $", refused [{string.Join(",", refused)}]"));
         return accepted;
@@ -161,15 +159,10 @@ public static unsafe class DisplayProfiles
     public static bool TryApplyTransientRefreshRate(int refreshHz)
         => TryApplyTransient(
             $"{refreshHz} Hz",
-            current => current.DisplayFrequency == (uint)refreshHz,
-            current =>
-            {
-                var target = current;
-                target.DisplayFrequency = (uint)refreshHz;
-                return target;
-            },
-            static current => $"{current.DisplayFrequency} Hz",
-            current => $"{current.DisplayFrequency} Hz -> {refreshHz} Hz");
+            current => current.RefreshHz == refreshHz,
+            current => current with { RefreshHz = refreshHz },
+            static current => $"{current.RefreshHz} Hz",
+            current => $"{current.RefreshHz} Hz -> {refreshHz} Hz");
 
     /// <summary>
     /// Applies a resolution to the primary display without persisting it.
@@ -190,27 +183,20 @@ public static unsafe class DisplayProfiles
     public static bool TryApplyTransientResolution(int width, int height)
         => TryApplyTransient(
             $"{width}x{height}",
-            current => current.PelsWidth == (uint)width && current.PelsHeight == (uint)height,
-            current =>
-            {
-                var target = current;
-                target.PelsWidth = (uint)width;
-                target.PelsHeight = (uint)height;
-                return target;
-            },
-            static current => $"{current.PelsWidth}x{current.PelsHeight} at {current.DisplayFrequency} Hz",
-            current => $"{current.PelsWidth}x{current.PelsHeight} -> {width}x{height} "
-                + $"at {current.DisplayFrequency} Hz");
+            current => current.Width == width && current.Height == height,
+            current => current with { Width = width, Height = height },
+            static current => $"{current.Width}x{current.Height} at {current.RefreshHz} Hz",
+            current => $"{current.Width}x{current.Height} -> {width}x{height} "
+                + $"at {current.RefreshHz} Hz");
 
     private static bool TryApplyTransient(
         string what,
-        Func<DevMode, bool> alreadyApplied,
-        Func<DevMode, DevMode> retarget,
-        Func<DevMode, string> was,
-        Func<DevMode, string> transition)
+        Func<PrimaryDisplayMode, bool> alreadyApplied,
+        Func<PrimaryDisplayMode, PrimaryDisplayMode> retarget,
+        Func<PrimaryDisplayMode, string> was,
+        Func<PrimaryDisplayMode, string> transition)
     {
-        var current = new DevMode { Size = (ushort)sizeof(DevMode) };
-        if (!EnumDisplaySettingsEx(null, EnumCurrentSettings, ref current, 0))
+        if (DisplayModes.ReadPrimaryMode() is not { } current)
         {
             Log.Warn($"Display modes: refusing {what}; current settings unreadable.");
             return false;
@@ -221,9 +207,8 @@ public static unsafe class DisplayProfiles
             return true;
         }
 
-        DevMode target = retarget(current);
-        target.Fields = DmPelsWidth | DmPelsHeight | DmDisplayFrequency;
-        int status = ChangeDisplaySettingsEx(null, &target, 0, 0, 0);
+        PrimaryDisplayMode target = retarget(current);
+        int status = DisplayModes.ApplyPrimaryModeTransient(target.Width, target.Height, target.RefreshHz);
         if (status != 0)
         {
             Log.Warn($"Display modes: {what} refused with status {status} (was {was(current)}).");
@@ -236,23 +221,14 @@ public static unsafe class DisplayProfiles
 
     /// <summary>The resolution the primary display is running at.</summary>
     /// <returns>The resolution, or null when it cannot be read.</returns>
-    public static DisplayResolution? ReadCurrentResolution()
-    {
-        var current = new DevMode { Size = (ushort)sizeof(DevMode) };
-        return EnumDisplaySettingsEx(null, EnumCurrentSettings, ref current, 0)
-            ? new DisplayResolution((int)current.PelsWidth, (int)current.PelsHeight)
+    public static DisplayResolution? ReadCurrentResolution() =>
+        DisplayModes.ReadPrimaryMode() is { } current
+            ? new DisplayResolution(current.Width, current.Height)
             : null;
-    }
 
     /// <summary>The refresh rate the primary display is running at.</summary>
     /// <returns>The rate in Hz, or null when it cannot be read.</returns>
-    public static int? ReadCurrentRefreshRate()
-    {
-        var current = new DevMode { Size = (ushort)sizeof(DevMode) };
-        return EnumDisplaySettingsEx(null, EnumCurrentSettings, ref current, 0)
-            ? (int)current.DisplayFrequency
-            : null;
-    }
+    public static int? ReadCurrentRefreshRate() => DisplayModes.ReadPrimaryMode()?.RefreshHz;
 
     /// <summary>
     /// The refresh rates the primary panel advertises in its own EDID.
@@ -337,16 +313,6 @@ public static unsafe class DisplayProfiles
 
             return trimmed.Replace('#', '\\');
         }
-    }
-
-    private static bool Test(DevMode current, CandidateMode mode)
-    {
-        var candidate = current;
-        candidate.Fields = DmPelsWidth | DmPelsHeight | DmDisplayFrequency;
-        candidate.PelsWidth = mode.Width;
-        candidate.PelsHeight = mode.Height;
-        candidate.DisplayFrequency = mode.RefreshHz;
-        return ChangeDisplaySettingsEx(null, &candidate, 0, CdsTest, 0) == 0;
     }
 
     private static string FixedString(char* value, int length)
