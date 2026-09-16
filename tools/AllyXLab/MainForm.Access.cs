@@ -4,7 +4,7 @@ namespace WSGM.AllyXLab;
 /// and whether this tool can see the real controller at all.</summary>
 internal sealed partial class MainForm
 {
-    private IReadOnlyList<string>? _hidHideOriginal;
+    private string? _hidHideAdded;
 
     private async Task DeviceCheckAsync()
     {
@@ -54,7 +54,7 @@ internal sealed partial class MainForm
             string inverse = hidHide.Inverse ? "\n\nHidHide is in inverse mode on this machine, so its list means the opposite of usual. Nothing is changed unless you agree." : "";
             string answer = await Ask("HidHide is hiding controllers",
                 "HidHide is active and this tool is not on its allowed list, so the controller may be invisible here or replaced by a virtual one."
-                + "\n\nMay this tool add itself for the session? The list is put back exactly as it was when the session ends." + inverse,
+                + "\n\nMay this tool add itself for the session? Its entry is removed again when the session ends; other entries are left alone." + inverse,
                 ("allow", "Add this tool, then undo it later"), ("skip", "Leave HidHide alone"), ("stop", "Stop and save"));
             if (answer == "stop")
             {
@@ -66,8 +66,8 @@ internal sealed partial class MainForm
             {
                 try
                 {
-                    _hidHideOriginal = HidHideAccess.TryAllow(hidHide, log);
-                    _session.Observation("HidHide allowance", new { Added = _hidHideOriginal is not null, Entries = hidHide.Applications.Count });
+                    _hidHideAdded = HidHideAccess.TryAllow(log);
+                    _session.Observation("HidHide allowance", new { Added = _hidHideAdded is not null });
                 }
                 catch (Exception e) when (e is not OutOfMemoryException)
                 {
@@ -82,19 +82,19 @@ internal sealed partial class MainForm
 
     private void RestoreHidHide()
     {
-        if (_hidHideOriginal is not { } original)
+        if (_hidHideAdded is not { } added)
         {
             return;
         }
 
         SessionLog log = new();
-        bool restored = HidHideAccess.Restore(original, log);
-        _hidHideOriginal = null;
+        bool restored = HidHideAccess.Restore(added, log);
+        _hidHideAdded = null;
         _session.RecordLocal(new Result(new Request(ActionKind.Inventory, "HidHide restoration", Seconds: 1),
-            restored ? "restored-readback-matched" : "RESTORATION FAILED", restored ? "restored" : "unverified", log.Events, null));
+            restored ? "entry-removed-readback-matched" : "RESTORATION FAILED", restored ? "restored" : "unverified", log.Events, null));
         if (!restored)
         {
-            _session.Observation("HidHide restoration", "The allowed-application list did not read back as it was. Remove this tool's entry in the HidHide Configuration Client.");
+            _session.Observation("HidHide restoration", "This tool's entry is still on the allowed-application list, or the list could not be read. Remove the entry in the HidHide Configuration Client.");
         }
     }
 }

@@ -22,7 +22,8 @@ records its hash. It is an unsigned experimental build; no hardware pass is clai
    above 30%. The first screen looks for Armoury Crate, Handheld Companion, G-Helper, MSI Center,
    Winhanced and similar managers, says what each does to the evidence, and offers to close them for
    you; services are listed but never stopped. If HidHide is active and this tool is not on its
-   allowed list, it asks whether to add itself for the session and puts that list back at the end.
+   allowed list, it asks whether to add itself for the session and removes its own entry again at
+   the end, leaving any other entry alone.
 2. Follow the single screen. In the input part there is nothing to confirm: it names one control,
    you press it, and the next one appears by itself. Each control is asked for once. If a control
    does nothing, press **Nothing happened**; **Do it again** repeats a step and **Skip the rest**

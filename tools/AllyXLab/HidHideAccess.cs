@@ -21,8 +21,9 @@ internal sealed record HidHideState(bool Available, bool Active, bool Inverse, I
 /// <remarks>
 /// The control codes and the two path notations follow WSGM's reviewed implementation in
 /// <c>src/WSGM/Interop/NativeHidHide.cs</c> and <c>src/WSGM/Shell/HidHideOwnership.cs</c>. The
-/// original list is recorded before the change and restored at the end; nothing else in HidHide's
-/// configuration is touched, and the hiding switch itself is never flipped.
+/// list is read again just before each write, and restoring removes only the entry this tool
+/// added, so an entry someone else adds meanwhile (the HidHide Configuration Client, say) is kept.
+/// Nothing else in HidHide's configuration is touched, and the hiding switch is never flipped.
 /// </remarks>
 internal static class HidHideAccess
 {
@@ -55,40 +56,58 @@ internal static class HidHideAccess
     }
 
     /// <summary>Adds this executable to HidHide's allowed applications.</summary>
-    /// <param name="state">The state read before the change.</param>
     /// <param name="log">The session log.</param>
-    /// <returns>The list as it was before, so it can be restored, or null when nothing was written.</returns>
-    internal static IReadOnlyList<string>? TryAllow(HidHideState state, SessionLog log)
+    /// <returns>The entry that was added, so it can be removed again, or null when nothing was
+    /// written.</returns>
+    /// <remarks>The list is read here, not taken from the read before the consent prompt, so the
+    /// write carries whatever changed while the tester decided.</remarks>
+    internal static string? TryAllow(SessionLog log)
     {
-        ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(log);
         string self = Environment.ProcessPath ?? throw new InvalidOperationException("This tool has no image path.");
-        if (!state.Available || Contains(state.Applications, self))
+        HidHideState state = Read(log);
+        if (!state.Available || !string.IsNullOrEmpty(state.Detail) || Contains(state.Applications, self))
         {
-            log.Add("hidhide-allow-skipped", new { Reason = state.Available ? "already allowed" : "control device unavailable" });
+            log.Add("hidhide-allow-skipped", new
+            {
+                Reason = !state.Available || !string.IsNullOrEmpty(state.Detail) ? "control device unavailable" : "already allowed",
+            });
             return null;
         }
 
         List<string> updated = [.. state.Applications, self];
         Write(updated, log);
         log.Add("hidhide-allow", new { Added = self, Previous = state.Applications.Count, Now = updated.Count });
-        return state.Applications;
+        return self;
     }
 
-    /// <summary>Puts the allowed applications back exactly as they were.</summary>
-    /// <param name="original">The list recorded before the change.</param>
+    /// <summary>Removes the entry this tool added, leaving every other entry as it is now.</summary>
+    /// <param name="added">The entry <see cref="TryAllow"/> returned.</param>
     /// <param name="log">The session log.</param>
-    /// <returns>Whether the list read back equal to the original.</returns>
-    internal static bool Restore(IReadOnlyList<string> original, SessionLog log)
+    /// <returns>Whether the list read back without that entry.</returns>
+    internal static bool Restore(string added, SessionLog log)
     {
-        ArgumentNullException.ThrowIfNull(original);
+        ArgumentException.ThrowIfNullOrEmpty(added);
         ArgumentNullException.ThrowIfNull(log);
         try
         {
-            Write(original, log);
+            HidHideState current = Read(log);
+            if (!current.Available || !string.IsNullOrEmpty(current.Detail))
+            {
+                log.Add("hidhide-restore", new { Restored = false, Reason = "control device unavailable" });
+                return false;
+            }
+
+            List<string> remaining = [.. current.Applications.Where(entry => !IsEntry(entry, added))];
+            if (remaining.Count != current.Applications.Count)
+            {
+                Write(remaining, log);
+            }
+
             HidHideState after = Read(log);
-            bool restored = after.Available && after.Applications.SequenceEqual(original, StringComparer.OrdinalIgnoreCase);
-            log.Add("hidhide-restore", new { Restored = restored, Entries = original.Count });
+            bool restored = after.Available && string.IsNullOrEmpty(after.Detail)
+                && !after.Applications.Any(entry => IsEntry(entry, added));
+            log.Add("hidhide-restore", new { Restored = restored, Removed = current.Applications.Count - remaining.Count, Entries = after.Applications.Count });
             return restored;
         }
         catch (Exception e) when (e is Win32Exception or IOException or InvalidOperationException)
@@ -109,6 +128,10 @@ internal static class HidHideAccess
         return entries.Any(entry => string.Equals(entry, value, StringComparison.OrdinalIgnoreCase)
             || string.Equals(NormalizePath(entry), normalized, StringComparison.OrdinalIgnoreCase));
     }
+
+    // Only the exact string this tool wrote is its own; a matching entry in the other notation was
+    // put there by someone else.
+    private static bool IsEntry(string entry, string added) => string.Equals(entry, added, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Reduces a path to the form both notations agree on.</summary>
     /// <param name="value">A drive-letter path or an NT device path.</param>
