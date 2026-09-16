@@ -6,7 +6,9 @@ internal sealed partial class MainForm
 {
     private async Task RunRumbleSectionAsync()
     {
-        IReadOnlyList<MotorRoute> routes = Motors.Discover(Hid.Enumerate());
+        // Discovery opens every HID collection and probes XInput and Windows.Gaming.Input.
+        _status.Text = "Looking for ways to reach the motors…";
+        IReadOnlyList<MotorRoute> routes = await Task.Run(() => Motors.Discover(Hid.Enumerate()));
         _session.Observation("Motor routes", routes);
         if (routes.Count == 0)
         {
