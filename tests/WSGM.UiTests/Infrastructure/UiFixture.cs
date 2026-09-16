@@ -65,7 +65,7 @@ internal sealed class UiFixture : IDisposable
     ///     The actions a running plugin would declare. Empty means no plugin host, which is
     ///     what a standalone Settings process sees.
     /// </summary>
-    internal IReadOnlyList<SettingsViewModel.PluginActionOption> PluginActions { get; init; } = [];
+    internal IReadOnlyList<SettingsViewModel.PluginActionOption> PluginActions { get; set; } = [];
 
     private OverlayWindow.SessionState Session { get; } = new();
 

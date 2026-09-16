@@ -167,6 +167,7 @@ internal static class DeviceLabOutputPathPolicy
                 fullPath);
         }
 
+        // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
         switch (kind)
         {
             case DeviceLabOutputTargetKind.Directory

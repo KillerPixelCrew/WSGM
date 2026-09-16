@@ -321,6 +321,7 @@ internal sealed class HidHideOwnedDeltaManager
                     controllerReaderApplication,
                     cancellationToken).ConfigureAwait(false);
 
+                // ReSharper disable once LoopCanBeConvertedToQuery
                 foreach (var instancePath in physicalDevices
                              .Where(device => device.RequiresHiding)
                              .Select(device => device.InstancePath)

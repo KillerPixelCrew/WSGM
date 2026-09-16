@@ -542,6 +542,7 @@ public static class GlyphPackageImporter
         string path,
         Action<string, string> invalid)
     {
+        // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
         switch (asset.Format)
         {
             case GlyphAssetFormat.Svg:
@@ -569,14 +570,16 @@ public static class GlyphPackageImporter
             }
             case GlyphAssetFormat.Png:
             {
-                if (asset.ViewBox is not null || asset.PixelWidth is not > 0 || asset.PixelHeight is not > 0)
+                if (asset.ViewBox is not null || asset is not { PixelWidth: > 0, PixelHeight: > 0 })
                 {
                     invalid(path, "PNG artwork requires positive pixel dimensions and no view box.");
                     return;
                 }
 
-                if (asset.PixelWidth <= GlyphProfileLimits.MaxDimension
-                    && asset.PixelHeight <= GlyphProfileLimits.MaxDimension
+                if (asset is
+                    {
+                        PixelWidth: <= GlyphProfileLimits.MaxDimension, PixelHeight: <= GlyphProfileLimits.MaxDimension
+                    }
                     && (long)asset.PixelWidth.Value * asset.PixelHeight.Value
                     <= GlyphProfileLimits.MaxRasterPixels)
                 {

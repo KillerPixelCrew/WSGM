@@ -305,12 +305,9 @@ internal sealed class MainWindow : Window
         {
             var plan = _captureExportPlan;
             var previewConfirmed = exportReview.IsChecked is true;
-            await RunAsync(token => Task.Run<object?>(() =>
-            {
-                return plan is null
-                    ? throw new InvalidOperationException("Prepare a capture before exporting it.")
-                    : _application.ExportCapture(plan, previewConfirmed, token);
-            }, token));
+            await RunAsync(token => Task.Run<object?>(() => plan is null
+                ? throw new InvalidOperationException("Prepare a capture before exporting it.")
+                : _application.ExportCapture(plan, previewConfirmed, token), token));
         };
         return Tab(
             "Capture",
@@ -677,6 +674,7 @@ internal sealed class MainWindow : Window
         return message.Length <= maximumCharacters ? message : message[..maximumCharacters];
     }
 
+    // ReSharper disable once AsyncVoidEventHandlerMethod
     private async void HandleClosing(object? sender, WindowClosingEventArgs eventArgs)
     {
         if (_closeAfterOperation || _operation is not { } operation

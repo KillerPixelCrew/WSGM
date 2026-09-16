@@ -286,6 +286,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // The runtime first: it stops answering, cancels what is in flight and drains its own
         // request tasks, so nothing is still writing to the bridge when that is disposed below.
         await _runtime.DisposeAsync().ConfigureAwait(false);
+        // ReSharper disable once MethodHasAsyncOverload
         _shutdown.Cancel();
         try
         {
@@ -551,6 +552,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _screensaverEnabled = false;
         _glyphsEnabled = false;
         _surfaceObservationEnabled = false;
+        // ReSharper disable once MethodHasAsyncOverload
         _patches.SetPatchEnabled(_overlayActivation.Id, false);
         CancelAllInflightRequests();
         ReleasePerformanceObservation();
@@ -852,7 +854,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     private void QueueStatePublication()
     {
-        _runtime?.QueuePublication();
+        _runtime.QueuePublication();
     }
 
     private void SetPatchStates(bool bootstrap, bool components)

@@ -277,7 +277,7 @@ public partial class OverlayWindow
             {
                 button.IsEnabled = enabledAfter;
                 if (restoreAfterInvoke && button.IsEffectivelyVisible
-                                       && FocusManager?.GetFocusedElement() is null)
+                                       && FocusManager.GetFocusedElement() is null)
                 {
                     button.Focus(NavigationMethod.Directional);
                 }

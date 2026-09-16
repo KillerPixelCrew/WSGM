@@ -16,6 +16,7 @@ namespace WSGM.Device.Msi.Claw8A2Vm;
 ///     percentage but only across a restart, so a fresh write and this value legitimately disagree
 ///     until the machine reboots.
 /// </param>
+// ReSharper disable once NotAccessedPositionalProperty.Global
 internal readonly record struct IntelGraphicsMemoryState(int Percent, ulong ReportedAdapterBytes);
 
 /// <summary>

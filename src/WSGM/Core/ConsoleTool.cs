@@ -281,6 +281,7 @@ internal static class ConsoleTool
                 // hang the caller. Bound the drain: the documented contract is
                 // (-1, output), never a wait without end.
                 var drain = Task.WhenAll(stdout, stderr);
+                // ReSharper disable once MethodSupportsCancellation
                 if (await Task.WhenAny(drain, Task.Delay(DrainTimeoutMs)) == drain)
                 {
                     return (-1, $"{await stdout}{await stderr}");

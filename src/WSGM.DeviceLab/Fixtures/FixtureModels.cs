@@ -110,11 +110,9 @@ internal static class FixtureSchemaValidator
         ValidateArtifacts(manifest.ExpectedOutputs, FixtureSchema.ExpectedPrefix, errors);
 
         HashSet<string> allPaths = new(StringComparer.OrdinalIgnoreCase);
-        foreach (var artifact in manifest.Inputs.Concat(manifest.ExpectedOutputs)
-                     .Where(artifact => !allPaths.Add(artifact.Path)))
-        {
-            errors.Add(new CaptureValidationError(artifact.Path, "Fixture path is duplicated."));
-        }
+        errors.AddRange(manifest.Inputs.Concat(manifest.ExpectedOutputs)
+            .Where(artifact => !allPaths.Add(artifact.Path))
+            .Select(artifact => new CaptureValidationError(artifact.Path, "Fixture path is duplicated.")));
 
         return errors;
     }

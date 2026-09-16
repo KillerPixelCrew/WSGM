@@ -28,6 +28,7 @@ internal sealed class CommonPluginActions
         List<PluginAction> captured = [];
         foreach (var action in declared)
         {
+            // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
             if (action is null || !PluginConfigurationRules.ValidKey(action.Id) || !ids.Add(action.Id)
                 || !Label(action.Label) || !PluginConfigurationRules.IsValid(action.Arguments))
             {
@@ -55,11 +56,13 @@ internal sealed class CommonPluginActions
         }
 
         ids.Clear();
+        // ReSharper disable ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (contributions.Any(contribution =>
                 contribution is null || !PluginConfigurationRules.ValidKey(contribution.Id)
                                      || !ids.Add(contribution.Id) ||
                                      !PluginConfigurationRules.ValidKey(contribution.Category)
                                      || !Label(contribution.Label) || !ValidContribution(contribution)))
+            // ReSharper restore ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         {
             throw new ArgumentException("Plugin UI contribution has an invalid state or action link.");
         }
@@ -85,8 +88,10 @@ internal sealed class CommonPluginActions
         List<PluginWidget> captured = [];
         foreach (var widget in widgets)
         {
+            // ReSharper disable ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
             if (widget is null || !PluginConfigurationRules.ValidKey(widget.Id) || !ids.Add(widget.Id)
                 || !Label(widget.Label) || widget.ContributionIds is null || widget.ContributionIds.Count is < 1 or > 8
+                // ReSharper restore ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
                 || widget.ContributionIds.Distinct(StringComparer.Ordinal).Count() != widget.ContributionIds.Count
                 || widget.ContributionIds.Any(id => !controls.Contains(id))
                 || new[] { widget.Icon, widget.SecondaryStateKey, widget.VisibleStateKey, widget.EnabledStateKey }
@@ -134,6 +139,7 @@ internal sealed class CommonPluginActions
         try
         {
             var result = await _provider.ExecuteActionAsync(request, context, cancellationToken).ConfigureAwait(false);
+            // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
             if (result is null || result.OperationId != operationId || !Enum.IsDefined(result.Outcome))
             {
                 return new PluginActionResult(operationId, PluginActionOutcome.Unconfirmed,

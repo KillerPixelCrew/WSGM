@@ -313,6 +313,7 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
         // Closing the overlapped handle is the hard stop for a pending HID read. The reader token
         // was also cancelled above and is passed into the host callback, so a callback waiting on
         // its bounded publication channel can unwind before this wait.
+        // ReSharper disable once MethodHasAsyncOverload
         stream?.Dispose();
 
         if (reader is not null)

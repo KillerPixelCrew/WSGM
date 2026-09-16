@@ -303,7 +303,6 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
             Findings = PassiveCorrelationAnalyzer.Analyze(
                 new PassiveCorrelationRequest
                 {
-                    AnalysisId = $"correlate-{actionId}",
                     ActionId = actionId,
                     ExpectedSourceIds = sourceIds,
                     Events = events,

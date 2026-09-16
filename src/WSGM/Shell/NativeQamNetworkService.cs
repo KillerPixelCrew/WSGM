@@ -52,8 +52,10 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
         // not leave this service subscribed to a collection it no longer publishes; the sweep stop
         // still marshals to the UI thread that owns it.
         _radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
+        // ReSharper disable MethodHasAsyncOverload
         _poll.Dispose();
         _publishDebounce.Dispose();
+        // ReSharper restore MethodHasAsyncOverload
         await NativeQamUi.RunAsync(_radios.StopScanning).ConfigureAwait(false);
     }
 

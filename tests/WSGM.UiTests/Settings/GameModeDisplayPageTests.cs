@@ -400,7 +400,8 @@ public sealed class GameModeDisplayPageTests
                 new PluginSetting("port", "Port", PluginSettingKind.Text, new PluginValue(Text: "1"))),
             Option("tv-on")
         ];
-        using UiFixture fixture = new() { PluginActions = actions };
+        using UiFixture fixture = new();
+        fixture.PluginActions = actions;
         var model = Model(Open(fixture));
         var enter = model.ActionLists[0];
         Assert.True(enter.CanAdd);
@@ -431,7 +432,8 @@ public sealed class GameModeDisplayPageTests
             Option("dwell",
                 new PluginSetting("seconds", "Seconds", PluginSettingKind.Number, new PluginValue(Number: 2), 1, 10))
         ];
-        using UiFixture fixture = new() { PluginActions = actions };
+        using UiFixture fixture = new();
+        fixture.PluginActions = actions;
         var model = Model(Open(fixture));
         var enter = model.ActionLists[0];
         enter.ChoiceIndex = 0;
@@ -451,7 +453,8 @@ public sealed class GameModeDisplayPageTests
             Option("remote-press",
                 new PluginSetting("remote", "Remote", PluginSettingKind.Text, new PluginValue(Text: "tv")))
         ];
-        using UiFixture fixture = new() { PluginActions = actions };
+        using UiFixture fixture = new();
+        fixture.PluginActions = actions;
         var window = Open(fixture);
         var model = Model(window);
         var enter = model.ActionLists[0];

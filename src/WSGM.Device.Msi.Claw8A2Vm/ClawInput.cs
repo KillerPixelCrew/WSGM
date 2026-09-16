@@ -682,8 +682,8 @@ internal static partial class NativeKeyboard
     [LibraryImport("user32.dll", SetLastError = true)]
     public static partial uint SendInput(uint count, [In] Input[] inputs, int size);
 
-    [DllImport("user32.dll", SetLastError = true)]
-    public static extern int GetMessage(out Message message, nint window, uint minimum, uint maximum);
+    [LibraryImport("user32.dll", EntryPoint = "GetMessageA", SetLastError = true)]
+    public static partial int GetMessage(out Message message, nint window, uint minimum, uint maximum);
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

@@ -59,6 +59,7 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
         // disposal, and process exit still abandons the mutex, which the next waiter recovers.
         try
         {
+            // ReSharper disable once MethodSupportsCancellation
             await _releaseCompleted.Task.WaitAsync(ReleaseWait).ConfigureAwait(false);
         }
         catch (TimeoutException)
@@ -171,6 +172,7 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
 
             ownsMutex = true;
             _acquisition.TrySetResult(this);
+            // ReSharper disable once MethodSupportsCancellation
             _releaseRequested.Task.Wait();
         }
         catch (Exception ex)

@@ -10,12 +10,15 @@ internal sealed class FakeHybridCoreApi : IHybridCoreApi
 
     internal IReadOnlyList<HybridCoreClass> Classes { get; init; } = [new(0, 4, 4), new(1, 4, 4)];
 
+    // ReSharper disable once AutoPropertyCanBeMadeGetOnly.Global
     internal bool Configurable { get; init; } = true;
 
     internal bool IgnoreWrites { get; init; }
 
+    // ReSharper disable once AutoPropertyCanBeMadeGetOnly.Global
     internal IReadOnlyList<uint> HeterogeneousPolicies { get; init; } = [0, 1, 2, 3, 4];
 
+    // ReSharper disable once AutoPropertyCanBeMadeGetOnly.Global
     internal IReadOnlyList<HybridSchedulingPolicy> Policies { get; init; } =
     [
         HybridSchedulingPolicy.AllProcessors,
@@ -32,6 +35,7 @@ internal sealed class FakeHybridCoreApi : IHybridCoreApi
         [true] = new HybridCoreState(0, HybridSchedulingPolicy.Automatic, HybridSchedulingPolicy.Automatic)
     };
 
+    // ReSharper disable once CollectionNeverQueried.Global
     internal List<string> Calls { get; } = [];
 
     internal int Refreshes { get; private set; }

@@ -31,7 +31,3 @@ exclude:
       - src/WSGM/app.manifest
       - src/WSGM.Launch/app.manifest
       - src/WSGM.LogonService/app.manifest
-  # The taint rule flags every Process.Start. WSGM starts fixed Windows tools, configured
-  # applications and itself for the signed-in user, with arguments WSGM builds from fixed values
-  # and local configuration. No remote input reaches them.
-  - name: csharp_injection_rule-CommandInjection

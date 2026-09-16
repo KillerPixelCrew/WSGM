@@ -961,6 +961,7 @@ public sealed class ShellSession : IAsyncDisposable
     private void StartOverlay()
     {
         // StartSessionServices runs first and sets these.
+        // ReSharper disable once InvocationIsSkipped
         Debug.Assert(_modes is not null);
         if (!_overlayTestOnly)
         {
@@ -1099,6 +1100,7 @@ public sealed class ShellSession : IAsyncDisposable
     private void WireSessionEvents()
     {
         // The earlier setup steps set these before the session events are wired.
+        // ReSharper disable once InvocationIsSkipped
         Debug.Assert(_monitor is not null && _modes is not null && _performance is not null && _overlay is not null);
         _deviceCoordinator?.ConfigureOemActions(new DeviceOemActionServices
         {
@@ -1476,6 +1478,7 @@ public sealed class ShellSession : IAsyncDisposable
                         return;
                     }
 
+                    // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
                     switch (result)
                     {
                         case BootTakeoverResult.DesktopPreserved:
@@ -2694,6 +2697,7 @@ public sealed class ShellSession : IAsyncDisposable
 
         _disposed = true;
         _shutdownRequested = true;
+        // ReSharper disable once MethodHasAsyncOverload
         _shutdownCancellation.Cancel();
         _brightness?.Dispose();
         // Every cleanup step still runs after an earlier one fails; the collected
@@ -2740,6 +2744,7 @@ public sealed class ShellSession : IAsyncDisposable
             _overlay = null;
         }
 
+        // ReSharper disable once MethodHasAsyncOverload
         _tabBootSyncCancellation.Cancel();
 
         // Device cleanup is the safety-critical part of the outer application budget.

@@ -118,12 +118,12 @@ public sealed class ArtworkProviderTests
             [],
             [
                 new ArtworkProviderOutcome(
-                    "steamgriddb", "SteamGridDB", ArtworkProviderStatus.Ready,
-                    "SteamGridDB rate limit reached. Try again later.", 0),
+                    "SteamGridDB", ArtworkProviderStatus.Ready,
+                    "SteamGridDB rate limit reached. Try again later."),
                 new ArtworkProviderOutcome(
-                    "screenscraper", "Screenscraper.fr",
+                    "Screenscraper.fr",
                     new ArtworkProviderStatus(ArtworkProviderReadiness.Disabled, "Turned off in Settings."),
-                    null, 0)
+                    null)
             ]);
 
         Assert.Equal(["SteamGridDB: SteamGridDB rate limit reached. Try again later."], result.Failures);
@@ -137,12 +137,11 @@ public sealed class ArtworkProviderTests
         ArtworkSearchResult result = new(
             [],
             [
+                new ArtworkProviderOutcome("SteamGridDB", ArtworkProviderStatus.Ready, null),
                 new ArtworkProviderOutcome(
-                    "steamgriddb", "SteamGridDB", ArtworkProviderStatus.Ready, null, 0),
-                new ArtworkProviderOutcome(
-                    "screenscraper", "Screenscraper.fr",
+                    "Screenscraper.fr",
                     new ArtworkProviderStatus(ArtworkProviderReadiness.Disabled, "Turned off in Settings."),
-                    null, 0)
+                    null)
             ]);
 
         Assert.False(result.NoProviderAnswered);

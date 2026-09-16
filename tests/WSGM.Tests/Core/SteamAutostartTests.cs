@@ -204,8 +204,6 @@ public sealed class SteamAutostartScannerTests
 
 public sealed class SteamAutostartTakeoverTests
 {
-    private const string SteamExe = @"C:\Steam\steam.exe";
-
     private static SteamAutostartSource RunSource(bool enabled = true)
     {
         return new SteamAutostartSource(SteamAutostartKind.RunValue, SteamAutostartScope.User, @"HKCU\...\Run", "Steam",

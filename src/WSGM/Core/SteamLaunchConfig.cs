@@ -256,7 +256,7 @@ public static class SteamLaunchConfig
                 "await SteamClient.Apps.SetShortcutExe(app," +
                 SteamCef.JsString(snapshot.OriginalTarget) + ");" +
                 "await SteamClient.Apps.SetShortcutLaunchOptions(app," +
-                SteamCef.JsString(snapshot.OriginalLaunchOptions ?? "") + ");" +
+                SteamCef.JsString(snapshot.OriginalLaunchOptions) + ");" +
                 SettleJs +
                 "return JSON.stringify({ok:true});}" +
                 "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
@@ -265,7 +265,7 @@ public static class SteamLaunchConfig
         {
             expression =
                 "(async()=>{try{await SteamClient.Apps.SetAppLaunchOptions(" + app + "," +
-                SteamCef.JsString(snapshot.OriginalLaunchOptions ?? "") + ");" +
+                SteamCef.JsString(snapshot.OriginalLaunchOptions) + ");" +
                 SettleJs +
                 "return JSON.stringify({ok:true});}" +
                 "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";

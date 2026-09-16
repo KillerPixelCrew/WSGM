@@ -25,6 +25,9 @@ public partial class OverlayWindow
     /// </summary>
     private double _contentScale = 1.0;
 
+    // A backing field rather than `field`: with `field ??=` the compiler loses the non-null flow
+    // at the foreach in OverlayWindow.axaml.cs and fails the warning-clean build (CS8602).
+    // ReSharper disable once ReplaceWithFieldKeyword
     private SubView[]? _subViews;
 
     /// <summary>
@@ -483,7 +486,7 @@ public partial class OverlayWindow
     private void RememberDestinationState(OverlayDestination destination)
     {
         var previous = _session.Focus.Recall(destination);
-        var semanticKey = GetTopLevel(this)?.FocusManager?.GetFocusedElement()
+        var semanticKey = GetTopLevel(this)?.FocusManager.GetFocusedElement()
             is Control { Tag: string key }
             ? key
             : previous.SemanticKey;
@@ -492,7 +495,7 @@ public partial class OverlayWindow
 
     private string? CurrentSemanticFocusKey()
     {
-        return GetTopLevel(this)?.FocusManager?.GetFocusedElement()
+        return GetTopLevel(this)?.FocusManager.GetFocusedElement()
             is Control { Tag: string key }
             ? key
             : null;

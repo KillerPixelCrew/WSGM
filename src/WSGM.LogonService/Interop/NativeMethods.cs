@@ -49,7 +49,6 @@ internal static partial class NativeMethods
     internal const int TokenSessionIdClass = 12;
     internal const int TokenElevationTypeClass = 18;
     internal const int TokenLinkedTokenClass = 19;
-    internal const int TokenElevationTypeDefault = 1;
     internal const int TokenElevationTypeFull = 2;
     internal const int TokenElevationTypeLimited = 3;
     internal const uint MaximumAllowed = 0x02000000;

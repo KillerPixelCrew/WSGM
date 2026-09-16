@@ -443,6 +443,7 @@ internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
                         return action is ExplorerAnchorDisconnectAction.Exit;
                     }
 
+                    // ReSharper disable once AccessToDisposedClosure
                     await RecoverAfterOwnerLossAsync(expectedSessionId, stop).ConfigureAwait(false);
                     return true;
                 }
@@ -498,6 +499,7 @@ internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
                     var commandRead =
                         await CompleteCommandReadAsync(
                                 read,
+                                // ReSharper disable once AccessToDisposedClosure
                                 () => WaitAfterPipeDisconnectAsync(owner, ownerExit, stop))
                             .ConfigureAwait(false);
                     if (commandRead.DisconnectAction is { } action)

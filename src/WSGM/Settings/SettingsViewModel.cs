@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -79,37 +80,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         LoadCommonPlugins(CommonPluginCatalog.Discover(CommonPluginCatalog.InstalledRoot));
     }
 
-    /// <summary>
-    ///     Builds the view model over an ALREADY LOADED configuration instead of
-    ///     reading <c>%LOCALAPPDATA%\WSGM\config.json</c>. Tests must use this overload: the
-    ///     parameterless constructor's <see cref="ConfigStore.Load" /> reads the developer's
-    ///     real config, and its corrupt-file branch writes <c>config.bad.json</c> next to it,
-    ///     so merely constructing the view model touches the real per-user directory.
-    /// </summary>
-    /// <param name="config">
-    ///     The configuration this view model edits. It is taken over,
-    ///     not copied — the save path re-loads and merges before persisting anyway.
-    /// </param>
-    internal SettingsViewModel(AppConfig config)
-        : this(config, null, false)
-    {
-    }
-
-    /// <summary>Builds a testable settings model while selecting the named installed plugin.</summary>
-    /// <param name="config">The configuration this view model edits.</param>
-    /// <param name="installedPluginId">Installed package ID, or null when the slot is empty or invalid.</param>
-    internal SettingsViewModel(AppConfig config, string? installedPluginId)
-        : this(config, installedPluginId, true)
-    {
-    }
-
     internal SettingsViewModel(
         AppConfig config,
         string? installedPluginId,
         bool filterToInstalledPlugin,
         SettingsServices? services = null)
     {
-        _services = services ?? SettingsServices.Windows(this);
+        _services = services ?? SettingsServices.Windows();
         _queryDisplaysOnWorker = services is null;
         SaveCommand = new AsyncRelayCommand(SaveWithStatusAsync);
         OpenLogLocationCommand = new RelayCommand(OpenLogLocation);
@@ -470,8 +447,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         ? $"Sign-in start: {(StartModeIndex == (int)SessionStartMode.Desktop ? "Desktop" : "Game")}"
         : "Sign-in start: off";
 
+#pragma warning disable CA1822
     /// <summary>Gets the compact shell state for the status strip.</summary>
+    // ReSharper disable once MemberCanBeMadeStatic.Global
     public string ShellStateText => "Shell: Explorer";
+#pragma warning restore CA1822
 
     /// <summary>Gets what Windows would still start Steam from, refreshed on demand.</summary>
     public string SteamAutostartStatusText
@@ -647,6 +627,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// </summary>
     public bool QuickSetupAnswered { get; set; }
 
+#pragma warning disable CA1822
     /// <summary>
     ///     Gets a plain-language description of the shim deployment, naming the
     ///     file so a pasted screenshot is diagnostic on its own.
@@ -675,6 +656,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             };
         }
     }
+#pragma warning restore CA1822
 
     /// <summary>Gets or sets the shared RTSS performance integration master switch.</summary>
     public bool PerformanceEnabled
@@ -902,8 +884,10 @@ public sealed partial class SettingsViewModel : ObservableObject
             : "Game mode starts at sign-in through the WSGM logon service. Explorer stays your Windows shell.";
 
     // --- UAC prompt level ---
+#pragma warning disable CA1822
     /// <summary>Gets whether UAC consent prompts are disabled for the machine.</summary>
     public bool UacPromptsDisabled => UacSettings.Read().PromptsDisabled;
+#pragma warning restore CA1822
 
     /// <summary>Gets a user-facing explanation of the current UAC prompt policy.</summary>
     public string UacStatusText => UacPromptsDisabled
@@ -911,8 +895,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         : "UAC prompts are ON (Windows default). Each elevated launch shows a consent dialog, which interrupts boot-to-game on a handheld.";
 
     // --- Lock on wake ---
+#pragma warning disable CA1822
     /// <summary>Gets whether Windows will skip a sign-in prompt after display sleep.</summary>
     public bool LockOnWakeDisabled => LockScreenSettings.SignInOnWakeDisabled();
+#pragma warning restore CA1822
 
     /// <summary>Gets a user-facing explanation of the wake sign-in policy.</summary>
     public string LockOnWakeStatusText => LockOnWakeDisabled
@@ -920,10 +906,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         : "Windows currently asks you to sign in again after the screen sleeps (Windows default).";
 
     // --- Steam (the only launcher; located via registry, nothing to configure) ---
+#pragma warning disable CA1822
     /// <summary>Gets Steam discovery status because game mode requires Steam.</summary>
+    // ReSharper disable once MemberCanBeMadeStatic.Global
     public string SteamStatusText => Steam.ExePath is { } exe
         ? $"Detected: {exe}"
         : "Steam was not found on this PC. Install Steam first — WSGM is Steam-exclusive.";
+#pragma warning restore CA1822
 
     /// <summary>Gets or sets whether the Steam monitor restarts Steam after an unexpected exit.</summary>
     public bool SteamAutoRelaunch
@@ -943,10 +932,11 @@ public sealed partial class SettingsViewModel : ObservableObject
     ///     Gets or sets the user's SteamGridDB API key (for the Change Artwork
     ///     feature). Empty disables it; get a free key at <see cref="Core.SteamGridDb.KeyPageUrl" />.
     /// </summary>
+    [AllowNull]
     public string SteamGridDbApiKey
     {
         get;
-        set => SetField(ref field, value, nameof(SteamGridDbApiKey));
+        set => SetField(ref field, value ?? "", nameof(SteamGridDbApiKey));
     }
 
     /// <summary>Gets or sets whether Screenscraper.fr is searched alongside SteamGridDB.</summary>
@@ -962,17 +952,19 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     /// <summary>Gets or sets the optional Screenscraper account name, which raises the quota.</summary>
+    [AllowNull]
     public string ScreenscraperUser
     {
         get;
-        set => SetField(ref field, value, nameof(ScreenscraperUser));
+        set => SetField(ref field, value ?? "", nameof(ScreenscraperUser));
     }
 
     /// <summary>Gets or sets the password for <see cref="ScreenscraperUser" />.</summary>
+    [AllowNull]
     public string ScreenscraperUserPassword
     {
         get;
-        set => SetField(ref field, value, nameof(ScreenscraperUserPassword));
+        set => SetField(ref field, value ?? "", nameof(ScreenscraperUserPassword));
     }
 
     // --- Startup apps ---
@@ -1097,6 +1089,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     public static SplashSpinnerStyle[] SpinnerStyleValues { get; } = Enum.GetValues<SplashSpinnerStyle>();
 
     /// <summary>Sweep-line edges offered by the settings selector.</summary>
+    // ReSharper disable once CollectionNeverQueried.Global
     public static SweepEdge[] SweepEdgeValues { get; } = Enum.GetValues<SweepEdge>();
 
     /// <summary>Placement modes offered for the spinner and logo.</summary>
@@ -1184,7 +1177,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         && (!ShowDesktopLayout || DesktopLayout is { HasActiveDisplays: true, HasValidationError: false })
         && !ActionLists.Any(list => list.HasValidationError);
 
-    internal void LoadCommonPlugins(CommonPluginCatalog catalog)
+    private void LoadCommonPlugins(CommonPluginCatalog catalog)
     {
         CommonPlugins.Clear();
         foreach (var package in catalog.Packages)
@@ -1824,10 +1817,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         config.SteamAutoRelaunch = SteamAutoRelaunch;
         config.SteamLaunchUnelevated = SteamLaunchUnelevated;
-        config.SteamGridDbApiKey = (SteamGridDbApiKey ?? "").Trim();
+        config.SteamGridDbApiKey = SteamGridDbApiKey.Trim();
         config.ScreenscraperEnabled = ScreenscraperEnabled;
-        config.ScreenscraperUser = (ScreenscraperUser ?? "").Trim();
-        config.ScreenscraperUserPassword = (ScreenscraperUserPassword ?? "").Trim();
+        config.ScreenscraperUser = ScreenscraperUser.Trim();
+        config.ScreenscraperUserPassword = ScreenscraperUserPassword.Trim();
         config.StartupDelayMs = StartupDelayMs;
         config.StaggerDelayMs = StaggerDelayMs;
         config.BootSplashEnabled = BootSplashEnabled;
@@ -2827,7 +2820,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         Func<IReadOnlyList<SteamAutostartSource>> ScanSteamAutostart,
         Func<IReadOnlyList<SteamAutostartSource>, SteamAutostartTakeoverResult> ApplySteamAutostart)
     {
-        internal static SettingsServices Windows(SettingsViewModel owner)
+        internal static SettingsServices Windows()
         {
             return new SettingsServices(
                 () => OperatingSystem.IsWindows()
@@ -2892,4 +2885,30 @@ public sealed partial class SettingsViewModel : ObservableObject
         AppConfig Config,
         IReadOnlyList<string> FailedSlots,
         string? Failure);
+
+    /// <summary>
+    ///     Builds the view model over an ALREADY LOADED configuration instead of
+    ///     reading <c>%LOCALAPPDATA%\WSGM\config.json</c>. Tests must use this overload: the
+    ///     parameterless constructor's <see cref="ConfigStore.Load" /> reads the developer's
+    ///     real config, and its corrupt-file branch writes <c>config.bad.json</c> next to it,
+    ///     so merely constructing the view model touches the real per-user directory.
+    /// </summary>
+    /// <param name="config">
+    ///     The configuration this view model edits. It is taken over,
+    ///     not copied — the save path re-loads and merges before persisting anyway.
+    /// </param>
+    // ReSharper disable IntroduceOptionalParameters.Global
+    internal SettingsViewModel(AppConfig config)
+        : this(config, null, false)
+    {
+    }
+
+    /// <summary>Builds a testable settings model while selecting the named installed plugin.</summary>
+    /// <param name="config">The configuration this view model edits.</param>
+    /// <param name="installedPluginId">Installed package ID, or null when the slot is empty or invalid.</param>
+    internal SettingsViewModel(AppConfig config, string? installedPluginId)
+        : this(config, installedPluginId, true)
+    {
+    }
+    // ReSharper restore IntroduceOptionalParameters.Global
 }

@@ -224,9 +224,9 @@ internal sealed class PerformanceServiceNativeQamAdapter :
     public Task<SteamUiCommandResult> SetRefreshRateAsync(int hz, CancellationToken cancellationToken)
     {
         _ = cancellationToken;
-        if (ApplyRefreshRate is { } apply)
+        if (ApplyRefreshRate is not null)
         {
-            return Task.FromResult(apply(hz)
+            return Task.FromResult(ApplyRefreshRate(hz)
                 ? new SteamUiCommandResult(true, null)
                 : new SteamUiCommandResult(false, $"The display refused {hz} Hz."));
         }
@@ -432,8 +432,8 @@ internal sealed class PerformanceServiceNativeQamAdapter :
                 ApplyVariableRefreshRate is { } applyVrr =>
                 ApplyFlagAsync(applyVrr, change.AsFlag, "variable refresh rate", cancellationToken),
 
-            SteamPerformanceSetting.RefreshRateHz when ApplyRefreshRate is { } applyRefresh =>
-                Task.FromResult(applyRefresh(change.Value)
+            SteamPerformanceSetting.RefreshRateHz when ApplyRefreshRate is not null =>
+                Task.FromResult(ApplyRefreshRate(change.Value)
                     ? new SteamUiCommandResult(true, null)
                     : new SteamUiCommandResult(
                         false,

@@ -27,8 +27,10 @@ namespace WSGM.Core;
 /// </remarks>
 public static class ScreenscraperCredentials
 {
+#if DEBUG
     /// <summary>Environment variable carrying the developer debug password, for local builds.</summary>
     private const string DebugPasswordVariable = "WSGM_SCREENSCRAPER_DEBUG";
+#endif
 
     private static ReadOnlySpan<byte> Key => "Nz7qL2vX9kR4mB8pW1sD6tG3"u8;
 

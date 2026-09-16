@@ -461,7 +461,7 @@ public sealed class LibraryTabsView : OverlaySubView
         }
     }
 
-    private async Task SyncQuietly()
+    private static async Task SyncQuietly()
     {
         try
         {
@@ -558,6 +558,7 @@ public sealed class LibraryTabsView : OverlaySubView
 
     private void BuildFilterParams(StackPanel stack, FilterNode node)
     {
+        // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
         switch (node.Kind)
         {
             case FilterKind.Installed:

@@ -27,7 +27,6 @@ internal enum PerformanceControl
 /// <summary>Where a performance edit is stored.</summary>
 internal enum PerformancePersistenceTarget
 {
-    Automatic,
     Global,
     Application
 }

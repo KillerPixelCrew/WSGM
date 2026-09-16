@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using Avalonia.Media;
 using WSGM.Core;
@@ -176,6 +177,7 @@ public sealed class PluginSettingRowViewModel : ObservableObject
     }
 
     /// <summary>Gets or sets the value of a text setting.</summary>
+    [AllowNull]
     public string TextValue
     {
         get => _textValue;

@@ -64,17 +64,13 @@ internal static class LogonDecision
             return LogonAction.SkipStale;
         }
 
-        if (manifest is null)
+        return manifest switch
         {
-            return LogonAction.SkipNoManifest;
-        }
-
-        if (manifest is { GameModeBoot: false, DesktopResident: false })
-        {
-            return LogonAction.SkipDisabled;
-        }
-
-        return manifest.Elevate ? LogonAction.LaunchElevated : LogonAction.Launch;
+            null => LogonAction.SkipNoManifest,
+            { GameModeBoot: false, DesktopResident: false } => LogonAction.SkipDisabled,
+            { Elevate: true } => LogonAction.LaunchElevated,
+            _ => LogonAction.Launch
+        };
     }
 
     internal static string ArgumentsFor(BootManifest manifest)

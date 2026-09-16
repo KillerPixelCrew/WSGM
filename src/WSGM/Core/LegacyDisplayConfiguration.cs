@@ -38,7 +38,7 @@ internal sealed class LegacyDisplayRouteBinding
     public string? ActionId { get; set; }
 
     /// <summary>Explicit action arguments.</summary>
-    public Dictionary<string, PluginValue> Arguments { get; set; } = [];
+    public Dictionary<string, PluginValue>? Arguments { get; set; }
 
     /// <summary>Display identity the binding waited for.</summary>
     public DisplayTargetIdentity? Target { get; set; }

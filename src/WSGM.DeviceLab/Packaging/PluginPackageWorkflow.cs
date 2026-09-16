@@ -331,15 +331,12 @@ internal static class PluginPackageWorkflow
         List<PluginPackageValidationIssue> issues)
     {
         string[] forbiddenExtensions = [".sys", ".inf", ".cat", ".ps1", ".cmd", ".bat", ".reg"];
-        foreach (var path in paths.Where(path => forbiddenExtensions.Contains(
-                     Path.GetExtension(path),
-                     StringComparer.OrdinalIgnoreCase)))
-        {
-            issues.Add(Issue(
+        issues.AddRange(paths
+            .Where(path => forbiddenExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
+            .Select(path => Issue(
                 "forbidden-provisioning-artifact",
                 path,
-                "Developer packages cannot provision drivers, services, tasks, registry repair, or helper installation."));
-        }
+                "Developer packages cannot provision drivers, services, tasks, registry repair, or helper installation.")));
     }
 
     private static void ValidateGlyphProfiles(
@@ -352,13 +349,10 @@ internal static class PluginPackageWorkflow
         var imported = GlyphPackageImporter.Import(
             new SnapshotGlyphPackageSource(snapshot, cancellationToken));
 
-        foreach (var error in imported.Errors)
-        {
-            issues.Add(Issue(
-                $"glyph-{ToKebabCase(error.Code.ToString())}",
-                error.Path,
-                $"{error.ProfileId}: {error.Message}"));
-        }
+        issues.AddRange(imported.Errors.Select(error => Issue(
+            $"glyph-{ToKebabCase(error.Code.ToString())}",
+            error.Path,
+            $"{error.ProfileId}: {error.Message}")));
 
         if (!imported.IsValid)
         {
@@ -377,15 +371,13 @@ internal static class PluginPackageWorkflow
             expected.Add(profile.Manifest.NoticePath);
         }
 
-        foreach (var path in packageFiles.Where(path => path.StartsWith("glyphs/", StringComparison.Ordinal))
-                     .Except(expected, StringComparer.Ordinal)
-                     .Order(StringComparer.Ordinal))
-        {
-            issues.Add(Issue(
+        issues.AddRange(packageFiles.Where(path => path.StartsWith("glyphs/", StringComparison.Ordinal))
+            .Except(expected, StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .Select(path => Issue(
                 "glyph-unreferenced-file",
                 path,
-                "Glyph package file is not reachable from a directly enumerated profile."));
-        }
+                "Glyph package file is not reachable from a directly enumerated profile.")));
     }
 
     internal static string? PackageBudgetViolation(

@@ -538,32 +538,37 @@ public sealed class DevicePowerPresetsTests
                     await WaitForWrite.Task.WaitAsync(token);
                 }
 
-                var fail = FailAt == Calls.Count;
-                if (!fail)
+                if (FailAt == Calls.Count)
                 {
-                    var index = Array.FindIndex(Views, view => view.Descriptor.CapabilityId == id);
-                    LastScenario = value.ChoiceValue ?? LastScenario;
-                    Views[index] = Views[index] with
-                    {
-                        Projection = Views[index].Projection with
-                        {
-                            State = Views[index].Projection.State with
-                            {
-                                ObservedValue = value,
-                                CycleGeneration = ReplaceGeneration ? 2 : 1
-                            }
-                        }
-                    };
-                    AfterDeviceWrite?.Invoke(id);
+                    return Completed(CommandOutcome.Indeterminate);
                 }
 
-                return new CapabilityCommandResult
+                var index = Array.FindIndex(Views, view => view.Descriptor.CapabilityId == id);
+                LastScenario = value.ChoiceValue ?? LastScenario;
+                Views[index] = Views[index] with
                 {
-                    CommandId = Guid.NewGuid(),
-                    Outcome = fail ? CommandOutcome.Indeterminate : CommandOutcome.AppliedVerified,
-                    CompletedAt = DateTimeOffset.UtcNow
+                    Projection = Views[index].Projection with
+                    {
+                        State = Views[index].Projection.State with
+                        {
+                            ObservedValue = value,
+                            CycleGeneration = ReplaceGeneration ? 2 : 1
+                        }
+                    }
                 };
+                AfterDeviceWrite?.Invoke(id);
+                return Completed(CommandOutcome.AppliedVerified);
             }, new WindowsPowerModes(Api), () => OnAc);
+        }
+
+        private static CapabilityCommandResult Completed(CommandOutcome outcome)
+        {
+            return new CapabilityCommandResult
+            {
+                CommandId = Guid.NewGuid(),
+                Outcome = outcome,
+                CompletedAt = DateTimeOffset.UtcNow
+            };
         }
 
         internal void AddScenarios()

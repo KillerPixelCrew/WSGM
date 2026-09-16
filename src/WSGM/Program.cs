@@ -912,6 +912,7 @@ public static class Program
 
     /// <summary>Builds the Avalonia application configuration used by all UI modes.</summary>
     /// <returns>The configured Avalonia application builder.</returns>
+    // ReSharper disable once MemberCanBePrivate.Global
     public static AppBuilder BuildAvaloniaApp()
     {
         return AppBuilder.Configure<App>()

@@ -63,16 +63,15 @@ internal sealed class ApplicationPluginConfigurationStore : IPluginConfiguration
 
     internal static SavedPluginConfiguration ReadFrom(AppConfig config, PluginInstanceIdentity identity)
     {
-        var matches = config.PluginConfigurations?.Where(entry =>
-                          entry is not null && entry.PluginId == identity.PluginId &&
-                          entry.InstanceId == identity.InstanceId).ToArray()
-                      ?? throw new InvalidOperationException("Stored plugin configuration is invalid.");
+        var matches = config.PluginConfigurations.Where(entry =>
+            entry.PluginId == identity.PluginId && entry.InstanceId == identity.InstanceId).ToArray();
         if (matches.Length > 1)
         {
             throw new InvalidOperationException("Duplicate plugin preference identities.");
         }
 
         var saved = matches.SingleOrDefault();
+        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (saved is not null && (saved.Revision < 0 || saved.Values is null || saved.Values.Count > 128
                                   || saved.Values.Any(pair =>
                                       !PluginConfigurationRules.ValidKey(pair.Key) || !pair.Value.IsValid)))
@@ -121,7 +120,7 @@ internal sealed class ApplicationPluginConfigurationStore : IPluginConfiguration
             Values = values
         };
         config.PluginConfigurations.RemoveAll(entry =>
-            entry is not null && entry.PluginId == identity.PluginId && entry.InstanceId == identity.InstanceId);
+            entry.PluginId == identity.PluginId && entry.InstanceId == identity.InstanceId);
         config.PluginConfigurations.Add(saved);
     }
 }

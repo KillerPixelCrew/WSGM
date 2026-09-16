@@ -53,7 +53,7 @@ public partial class OverlayWindow
     /// </remarks>
     private bool IsEditingValueIn(Control list)
     {
-        if (GetTopLevel(this)?.FocusManager?.GetFocusedElement()
+        if (GetTopLevel(this)?.FocusManager.GetFocusedElement()
             is not Control focused)
         {
             return false;
@@ -316,7 +316,7 @@ public partial class OverlayWindow
             return;
         }
 
-        var focusedKey = GetTopLevel(this)?.FocusManager?.GetFocusedElement()
+        var focusedKey = GetTopLevel(this)?.FocusManager.GetFocusedElement()
             is Control focused
             ? focused.Tag as string
             : null;
@@ -645,6 +645,7 @@ public partial class OverlayWindow
             }
         }
 
+        // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
         switch (section)
         {
             // The authored fan profile, below the plugin's hardware profile. Two rows on one page

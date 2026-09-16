@@ -101,6 +101,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
         switch (request.Control)
         {
             case PerformanceControl.FrameLimit when request.Value is < 0 or > 1000:

@@ -158,6 +158,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     private TelemetryService? _telemetry;
 
     /// <summary>Creates the production plugin with Windows hardware transports.</summary>
+    // ReSharper disable once UnusedMember.Global
     public Claw8A2VmPlugin()
         : this(CreateWindowsServices())
     {
@@ -1843,7 +1844,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                     return ValueOutOfRange($"{integer} is above the maximum of {maximum}.");
                 }
 
-                if (descriptor.Step is not { } step || step <= 0)
+                if (descriptor.Step is not ({ } step and > 0))
                 {
                     return null;
                 }

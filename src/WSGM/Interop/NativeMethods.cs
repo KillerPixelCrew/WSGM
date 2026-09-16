@@ -59,7 +59,7 @@ internal static partial class NativeMethods
     internal const int SwRestore = 9;
 
     // ---- Touch-synthesized mouse message detection (overlay ghost-click eater) ----
-    internal const uint WmMouseMove = 0x0200;
+    private const uint WmMouseMove = 0x0200;
     internal const uint WmLButtonDown = 0x0201;
     internal const uint WmLButtonUp = 0x0202;
 
@@ -410,7 +410,7 @@ internal static partial class NativeMethods
     internal static partial bool IsIconic(nint hWnd);
 
     [LibraryImport("user32.dll")]
-    internal static partial nint GetMessageExtraInfo();
+    private static partial nint GetMessageExtraInfo();
 
     /// <summary>
     ///     Swallows the mouse messages Windows synthesizes behind a touch, for a window that

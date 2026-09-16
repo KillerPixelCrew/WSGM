@@ -913,6 +913,7 @@ internal static class DeviceCapabilityValidation
         HashSet<string> declaredIds = new(StringComparer.Ordinal);
         foreach (var section in set.Sections)
         {
+            // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
             if (section is null)
             {
                 error = "Descriptor set contains a null section.";
@@ -1109,6 +1110,7 @@ internal static class DeviceCapabilityValidation
             return false;
         }
 
+        // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
         switch (descriptor.ValueKind)
         {
             case CapabilityValueKind.Integer

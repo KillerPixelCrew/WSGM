@@ -104,8 +104,8 @@ internal static class InventoryRedaction
             [
                 .. inventory.NativeBinaries.Select(binary => binary with
                 {
-                    Path = Path.GetFileName(binary.Name) ?? string.Empty,
-                    Name = Path.GetFileName(binary.Name) ?? string.Empty
+                    Path = Path.GetFileName(binary.Name),
+                    Name = Path.GetFileName(binary.Name)
                 })
             ],
             Processes =
@@ -120,8 +120,7 @@ internal static class InventoryRedaction
                     CommandLine = null,
                     LoadedModulePaths =
                     [
-                        .. process.LoadedModulePaths.Select(path =>
-                            Path.GetFileName(path) ?? string.Empty)
+                        .. process.LoadedModulePaths.Select(path => Path.GetFileName(path))
                     ]
                 })
             ],

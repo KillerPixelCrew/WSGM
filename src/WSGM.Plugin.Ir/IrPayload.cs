@@ -57,12 +57,14 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
     {
         WriteIndented = true,
         MaxDepth = 16,
-        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        RespectNullableAnnotations = true,
+        RespectRequiredConstructorParameters = true
     };
 
     internal void Validate()
     {
-        if (Version != 1 || Commands is null || Scenes is null || Commands.Length > 4096 || Scenes.Length > 1024)
+        if (Version != 1 || Commands.Length > 4096 || Scenes.Length > 1024)
         {
             throw new InvalidDataException("Unsupported or oversized IR library.");
         }
@@ -70,11 +72,13 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
         HashSet<string> identities = new(StringComparer.Ordinal);
         foreach (var command in Commands)
         {
+            // ReSharper disable ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
             if (command is null || !ValidName(command.Id) || !identities.Add(command.Id)
                 || !ValidName(command.Device) || !ValidName(command.Name) || command.Payload is null)
             {
                 throw new InvalidDataException("Invalid or duplicate IR command.");
             }
+            // ReSharper restore ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
 
             command.Payload.Validate(command.Repeats, command.GapMs);
             command.TransmitPayload.Validate(command.Repeats, command.GapMs);
@@ -86,10 +90,12 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
             throw new InvalidDataException("Selected IR command is absent.");
         }
 
+        // ReSharper disable ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (Scenes.Any(scene => scene is null || !ValidName(scene.Id) || !scenes.Add(scene.Id) || !ValidName(scene.Name)
                                 || scene.Steps is not { Length: > 0 and <= 32 }
                                 || scene.Steps.Any(step => step is null || !identities.Contains(step.CommandId)
                                                                         || step.DelayAfterMs is < 0 or > 5000)))
+            // ReSharper restore ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         {
             throw new InvalidDataException("Invalid IR scene or missing command.");
         }

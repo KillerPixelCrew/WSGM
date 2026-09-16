@@ -93,8 +93,8 @@ internal static class AsusReadProtocol
         }
 
         curve = new FactoryFanCurve(
-            Array.AsReadOnly(response[..8].ToArray()),
-            Array.AsReadOnly(response.Slice(8, 8).ToArray()));
+            [.. response[..8]],
+            [.. response.Slice(8, 8)]);
         return true;
     }
 }

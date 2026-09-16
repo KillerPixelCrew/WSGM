@@ -198,6 +198,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
 
     internal async Task<DevicePluginState> StartAsync(
         DeviceIdentitySnapshot identity,
+        // ReSharper disable once ParameterOnlyUsedForPreconditionCheck.Global
         long cycleGeneration,
         bool controllerManagementEnabled,
         CancellationToken cancellationToken)
@@ -537,6 +538,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         }
     }
 
+    // ReSharper disable once UnusedMember.Global
     internal async Task<DeviceDiagnosticsSnapshot> GetDiagnosticsAsync(
         CancellationToken cancellationToken)
     {
@@ -1098,6 +1100,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
                 return;
             }
 
+            // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
             switch (level)
             {
                 case DeviceTraceLevel.Info:

@@ -10,15 +10,14 @@ internal sealed record DeviceLabOwnerInspection
 {
     /// <summary>Owner discovery outcome.</summary>
     public required DeviceOwnerDiscoveryState State { get; init; }
-
-    /// <summary>Bounded diagnostic detail when inspection was inconclusive.</summary>
-    public string? Detail { get; init; }
 }
 
 /// <summary>Handle-held reservation of the exact machine-wide production owner object.</summary>
 internal sealed class DeviceLabOwnerReservation : IDisposable
 {
     private static readonly Lock RetainedReservationGate = new();
+
+    // ReSharper disable once CollectionNeverQueried.Local
     private static readonly List<IDisposable> RetainedReservations = [];
     private IDisposable? _handle;
 
@@ -92,8 +91,7 @@ internal static class DeviceLabOwnerInspector
         {
             return new DeviceLabOwnerInspection
             {
-                State = DeviceOwnerDiscoveryState.Unknown,
-                Detail = exception.GetType().Name
+                State = DeviceOwnerDiscoveryState.Unknown
             };
         }
     }
@@ -133,21 +131,19 @@ internal static class DeviceLabOwnerInspector
                                               or WaitHandleCannotBeOpenedException
                                               or IOException)
         {
-            return ReservationResult(DeviceOwnerDiscoveryState.Unknown, detail: exception.GetType().Name);
+            return ReservationResult(DeviceOwnerDiscoveryState.Unknown);
         }
     }
 
     private static DeviceLabOwnerReservationResult ReservationResult(
         DeviceOwnerDiscoveryState state,
-        DeviceLabOwnerReservation? reservation = null,
-        string? detail = null)
+        DeviceLabOwnerReservation? reservation = null)
     {
         return new DeviceLabOwnerReservationResult
         {
             Inspection = new DeviceLabOwnerInspection
             {
-                State = state,
-                Detail = detail
+                State = state
             },
             Reservation = reservation
         };

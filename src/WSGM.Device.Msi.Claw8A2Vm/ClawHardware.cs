@@ -41,6 +41,7 @@ internal enum ClawControllerMode : byte
 
 internal sealed record ClawIdentityState
 {
+    // ReSharper disable once UnusedAutoPropertyAccessor.Global
     public required DeviceIdentitySnapshot Snapshot { get; init; }
 
     public required bool ExactMachineMatch { get; init; }

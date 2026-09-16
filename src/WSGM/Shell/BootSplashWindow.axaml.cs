@@ -130,6 +130,7 @@ public partial class BootSplashWindow : Window
     private Border? _sweepLine;
 
     /// <summary>XAML-designer/default constructor: classic look, boot behavior.</summary>
+    // ReSharper disable once UnusedMember.Global
     public BootSplashWindow()
         : this(new SplashConfig())
     {

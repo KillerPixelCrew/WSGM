@@ -195,7 +195,7 @@ public static class UpdateExitWatcher
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
-            if (!WindowFinder.FindProcessIds("WSGM").Any(pid => pid != self))
+            if (WindowFinder.FindProcessIds("WSGM").All(pid => pid == self))
             {
                 return;
             }

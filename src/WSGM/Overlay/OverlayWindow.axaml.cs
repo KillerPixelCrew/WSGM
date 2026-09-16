@@ -117,7 +117,7 @@ public partial class OverlayWindow : Window
         double uiScale = 1.0,
         PixelPoint? preferredScreenPoint = null)
         : this(viewModel, switcher, status, SharedSession,
-            static window => window.DockToTopEdge(), static window => window.MaybeAutoSyncTabs(), uiScale,
+            static window => window.DockToTopEdge(), static _ => MaybeAutoSyncTabs(), uiScale,
             preferredScreenPoint)
     {
     }
@@ -175,6 +175,7 @@ public partial class OverlayWindow : Window
         // re-summon of a still-open panel. Any nested page is torn down with it.
         Activated += OnActivated;
 
+        // ReSharper disable once UseDeconstruction
         foreach (var view in SubViews)
         {
             if (view.Host is not OverlaySubView host)
@@ -234,7 +235,7 @@ public partial class OverlayWindow : Window
     ///     backend off-screen and then closes: <see cref="OnOpened" /> skips docking, focus and the
     ///     CEF tab sync so nothing user-visible or Steam-touching happens during the warm pass.
     /// </summary>
-    internal bool WarmingUp { get; set; }
+    internal bool WarmingUp { get; init; }
 
     /// <summary>Raised when a nested page is torn down so auxiliary peer windows close too.</summary>
     public event Action? SubViewClosed;

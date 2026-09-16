@@ -133,6 +133,7 @@ public sealed class NativeQamBrightnessServiceTests
         active = false;
         Assert.False((await service.SetBrightnessAsync(31, CancellationToken.None)).Succeeded);
         active = true;
+        // ReSharper disable once DisposeOnUsingVariable
         service.Dispose();
         Assert.False((await service.SetBrightnessAsync(31, CancellationToken.None)).Succeeded);
         Assert.Null(await service.ReadAsync());

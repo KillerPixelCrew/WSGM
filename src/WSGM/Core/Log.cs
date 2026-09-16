@@ -64,7 +64,7 @@ public static class Log
     // diagnostic must never be the thing that grows without bound.
     private const int MaxChangeKeys = 512;
     private static readonly Lock Gate = new();
-    private static string? _path;
+    private static volatile string? _path;
     private static string _name = "wsgm";
 
     // Below this level a line is not written and does not touch the file. Diagnosis depends on
@@ -336,6 +336,7 @@ public static class Log
 
     private static void Write(LogLevel level, string message)
     {
+        // ReSharper disable once InconsistentlySynchronizedField
         var path = _path;
         if (path is null || level < _minimum)
         {

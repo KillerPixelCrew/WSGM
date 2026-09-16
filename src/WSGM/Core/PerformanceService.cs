@@ -1277,7 +1277,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         HashSet<string> identities = new(StringComparer.Ordinal);
         foreach (var application in policy.Applications)
         {
-            var applicationId = application.ApplicationId?.Trim() ?? string.Empty;
+            var applicationId = application.ApplicationId.Trim();
             if (applicationId.Length == 0)
             {
                 Log.Warn("RTSS policy entry dropped: the application identity was empty.");

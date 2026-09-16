@@ -2161,6 +2161,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 value,
                 timeout,
                 expectedCycle, expectedDescriptors, applyPowerPair, cancellationToken).ConfigureAwait(false);
+            // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
             switch (origin)
             {
                 case CapabilityCommandOrigin.User:

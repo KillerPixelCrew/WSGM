@@ -112,6 +112,7 @@ public sealed class HybridCoreView : UserControl
         {
             for (var index = 0; index < _items.Count; index++)
             {
+                // ReSharper disable once InvertIf
                 if (_items[index].Mode == active)
                 {
                     _modes.SelectedIndex = index;

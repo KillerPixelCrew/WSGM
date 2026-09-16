@@ -41,6 +41,7 @@ internal static class TouchKeyboard
         }
     }
 
+#pragma warning disable SYSLIB1096
     [ComImport]
     [Guid("37C994E7-432B-4834-A2F7-DCE1F13B834B")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -48,4 +49,5 @@ internal static class TouchKeyboard
     {
         void Toggle(nint window);
     }
+#pragma warning restore SYSLIB1096
 }

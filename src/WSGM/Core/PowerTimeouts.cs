@@ -129,12 +129,9 @@ public static class PowerTimeouts
 
         // Not a preset: 0 is Never (nothing is longer), otherwise the next longer
         // preset, falling through to Never for values beyond the largest preset.
-        if (currentSeconds == 0)
-        {
-            return PresetsSeconds[0];
-        }
-
-        return PresetsSeconds.FirstOrDefault(preset => preset > currentSeconds);
+        return currentSeconds == 0
+            ? PresetsSeconds[0]
+            : PresetsSeconds.FirstOrDefault(preset => preset > currentSeconds);
     }
 
     /// <summary>Human label for a timeout value ("5 min", "1 h", "Never").</summary>

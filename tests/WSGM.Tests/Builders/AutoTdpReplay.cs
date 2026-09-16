@@ -20,7 +20,7 @@ internal static class AutoTdpReplay
         ArgumentNullException.ThrowIfNull(controller);
         ArgumentNullException.ThrowIfNull(limits);
         ArgumentNullException.ThrowIfNull(trace);
-        return trace.Select(sample => controller.Evaluate(sample, limits)).ToList();
+        return [.. trace.Select(sample => controller.Evaluate(sample, limits))];
     }
 
     /// <summary>Builds a run of identical windows.</summary>

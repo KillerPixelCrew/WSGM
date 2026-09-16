@@ -164,6 +164,7 @@ internal static unsafe class SdlGamepads
         SDL_Event e;
         while (SDL_PollEvent(&e))
         {
+            // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
             switch (e.Type)
             {
                 case SDL_EventType.SDL_EVENT_GAMEPAD_ADDED:
@@ -230,6 +231,7 @@ internal static unsafe class SdlGamepads
         }
 
         var held = false;
+        // ReSharper disable once ForeachCanBeConvertedToQueryUsingAnotherGetEnumerator
         foreach (var pad in Snapshot)
         {
             held |= pad.Buttons != 0;

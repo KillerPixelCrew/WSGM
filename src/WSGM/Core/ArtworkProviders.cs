@@ -37,19 +37,13 @@ public readonly record struct ArtworkProviderStatus(ArtworkProviderReadiness Rea
     public static ArtworkProviderStatus Ready { get; } = new(ArtworkProviderReadiness.Ready);
 }
 
-/// <summary>One artwork candidate, tagged with the source that supplied it.</summary>
-/// <param name="ProviderId">Stable id of the provider, for attribution and de-duplication.</param>
-/// <param name="ProviderName">The provider's display name, shown as the source.</param>
-/// <param name="Id">The provider's own asset id, or zero when it has none.</param>
+/// <summary>One artwork candidate; the merge de-duplicates by <see cref="Url" />.</summary>
 /// <param name="Url">Full-resolution image URL.</param>
 /// <param name="Thumb">Thumbnail URL for the picker grid.</param>
 /// <param name="Width">Pixel width, or zero when the provider does not report one.</param>
 /// <param name="Height">Pixel height, or zero when the provider does not report one.</param>
 /// <param name="Extension">Verified static image format, <c>png</c> or <c>jpg</c>.</param>
 public sealed record ArtworkCandidate(
-    string ProviderId,
-    string ProviderName,
-    int Id,
     string Url,
     string Thumb,
     int Width,
@@ -111,17 +105,13 @@ public interface IArtworkProvider
 }
 
 /// <summary>What one provider contributed to a search, including the reason it contributed nothing.</summary>
-/// <param name="ProviderId">The provider's stable id.</param>
 /// <param name="ProviderName">The provider's display name.</param>
 /// <param name="Status">Whether it was searched at all.</param>
 /// <param name="Failure">The user-facing failure, or null when the provider answered.</param>
-/// <param name="Count">How many candidates it contributed after de-duplication.</param>
 public sealed record ArtworkProviderOutcome(
-    string ProviderId,
     string ProviderName,
     ArtworkProviderStatus Status,
-    string? Failure,
-    int Count);
+    string? Failure);
 
 /// <summary>The merged result of asking every provider.</summary>
 /// <param name="Candidates">Every candidate, ranked.</param>
@@ -288,25 +278,14 @@ public static class ArtworkSearch
         // and the picker showing it twice is the noise this issue asks to avoid. The earlier
         // provider wins, which is what makes the declaration order a preference rather than decoration.
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var candidates = new List<ArtworkCandidate>();
-        var counts = new int[providers.Count];
-        for (var index = 0; index < providers.Count; index++)
-        {
-            foreach (var candidate in answers[index].Candidates)
-            {
-                if (!seen.Add(candidate.Url))
-                {
-                    continue;
-                }
-
-                candidates.Add(candidate);
-                counts[index]++;
-            }
-        }
+        var candidates = answers
+            .SelectMany(answer => answer.Candidates)
+            .Where(candidate => seen.Add(candidate.Url))
+            .ToList();
 
         var outcomes = providers
             .Select((provider, index) => new ArtworkProviderOutcome(
-                provider.Id, provider.DisplayName, statuses[index], answers[index].Failure, counts[index]))
+                provider.DisplayName, statuses[index], answers[index].Failure))
             .ToArray();
         return new ArtworkSearchResult(candidates, outcomes);
     }

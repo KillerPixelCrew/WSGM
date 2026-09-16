@@ -16,6 +16,8 @@ namespace WSGM.Overlay;
 internal sealed class PinnedPluginWidgets : StackPanel
 {
     private bool _closed;
+    private PluginWidgetPin[] _previous = [];
+    private bool _reading;
 
     internal PinnedPluginWidgets(ICommonPluginOverlaySource source, Action<PluginWidgetPin, string> navigate,
         PluginWidgetPreferences? preferences = null)
@@ -25,9 +27,7 @@ internal sealed class PinnedPluginWidgets : StackPanel
         Width = 600;
         HorizontalAlignment = HorizontalAlignment.Left;
         Focusable = true;
-        PluginWidgetPin[] previous = [];
         (PluginWidgetPin? Pin, string Label, int Index)? pendingFocus = null;
-        var reading = false;
         TextBlock error = new() { IsVisible = false, Classes = { "caption" } };
         DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(1) };
         // A hidden page keeps its controls in the tree for the sheet's life; skip the tick there.
@@ -54,21 +54,21 @@ internal sealed class PinnedPluginWidgets : StackPanel
 
         async Task RefreshAsync()
         {
-            if (reading || _closed)
+            if (_reading || _closed)
             {
                 return;
             }
 
-            reading = true;
+            _reading = true;
             try
             {
                 var pins = await preferences.Read();
-                if (_closed || previous.SequenceEqual(pins))
+                if (_closed || _previous.SequenceEqual(pins))
                 {
                     return;
                 }
 
-                previous = pins;
+                _previous = pins;
                 var expanded = Children.OfType<StackPanel>()
                     .Where(card => card.Children.OfType<Expander>().Any(e => e.IsExpanded))
                     .Select(card => card.Tag).ToHashSet();
@@ -113,7 +113,7 @@ internal sealed class PinnedPluginWidgets : StackPanel
                             button.IsEnabled = false;
                             try
                             {
-                                var index = Array.IndexOf(previous, pin);
+                                var index = Array.IndexOf(_previous, pin);
                                 await action();
                                 button.IsEnabled = true;
                                 pendingFocus = (pin, label, index);
@@ -168,7 +168,7 @@ internal sealed class PinnedPluginWidgets : StackPanel
             }
             finally
             {
-                reading = false;
+                _reading = false;
                 if (!_closed && pendingFocus is { } target)
                 {
                     pendingFocus = null;
@@ -178,9 +178,9 @@ internal sealed class PinnedPluginWidgets : StackPanel
                         : buttons.FirstOrDefault(item =>
                             Equals(item.Tag, (target.Pin, target.Label)) && item.IsEnabled);
                     button ??= buttons.FirstOrDefault(item => Equals(item.Tag, (target.Pin, "Unpin")));
-                    if (button is null && previous.Length > 0)
+                    if (button is null && _previous.Length > 0)
                     {
-                        var neighbor = previous[Math.Clamp(target.Index, 0, previous.Length - 1)];
+                        var neighbor = _previous[Math.Clamp(target.Index, 0, _previous.Length - 1)];
                         button = buttons.FirstOrDefault(item => Equals(item.Tag, (neighbor, "Unpin")));
                     }
 

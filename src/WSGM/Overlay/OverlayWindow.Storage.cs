@@ -172,7 +172,7 @@ public partial class OverlayWindow
     ///     it runs at most once per <see cref="AutoTabSyncInterval" />. Best-effort — a
     ///     closed Steam simply leaves the tabs for the next open.
     /// </summary>
-    private void MaybeAutoSyncTabs()
+    private static void MaybeAutoSyncTabs()
     {
         if (DateTime.UtcNow.Ticks - Interlocked.Read(ref _lastAutoTabSyncTicks)
             < AutoTabSyncInterval.Ticks)

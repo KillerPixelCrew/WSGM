@@ -30,6 +30,7 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
     /// <summary>How often the safety-net poll runs.</summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
 
+    // ReSharper disable once PrivateFieldCanBeConvertedToLocalVariable
     private readonly WinEventProc _callback;
 
     private readonly Lock _gate = new();

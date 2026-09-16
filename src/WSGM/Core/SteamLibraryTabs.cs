@@ -174,12 +174,7 @@ public static class SteamLibraryTabs
 
         var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
             .ConfigureAwait(false);
-        if (!result.Reachable)
-        {
-            return new TabSyncResult(false, []);
-        }
-
-        if (result.Value is null)
+        if (!result.Reachable || result.Value is null)
         {
             return new TabSyncResult(false, []);
         }

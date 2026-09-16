@@ -26,15 +26,18 @@ internal sealed record IrEndpointIdentity(
     bool SequenceRunning = false);
 
 /// <summary>One button of a built-in remote.</summary>
+// ReSharper disable once NotAccessedPositionalProperty.Global
 internal sealed record IrRemoteButton(string Id, string Label);
 
 /// <summary>What a built-in remote's air conditioner accepts, as the firmware declares it.</summary>
 internal sealed record IrRemoteClimate(
+    // ReSharper disable once NotAccessedPositionalProperty.Global
     string Protocol,
     string[] Modes,
     string[] Fans,
     double MinDegrees,
     double MaxDegrees,
+    // ReSharper disable once NotAccessedPositionalProperty.Global
     bool Celsius = true,
     string Swing = "none");
 

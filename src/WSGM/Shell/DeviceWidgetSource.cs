@@ -60,6 +60,7 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
             var value = Value(view.Projection.State.ObservedValue);
             var kind = PluginUiKind.Status;
             PluginSetting? argument = null;
+            // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
             switch (descriptor.ValueKind)
             {
                 case CapabilityValueKind.Integer when row.Writable && value.Number is not null

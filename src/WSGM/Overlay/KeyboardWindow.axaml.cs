@@ -26,6 +26,7 @@ public partial class KeyboardWindow : Window
     private bool _committed;
 
     /// <summary>Design-time constructor for the XAML loader.</summary>
+    // ReSharper disable once UnusedMember.Global
     public KeyboardWindow()
         : this("Enter text", "", 256)
     {

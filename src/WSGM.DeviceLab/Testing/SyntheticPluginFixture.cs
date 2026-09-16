@@ -166,6 +166,7 @@ internal static class SyntheticPluginFixture
         };
     }
 
+    // ReSharper disable once ParameterOnlyUsedForPreconditionCheck.Local
     private static void Check(bool condition, string name, List<string> checks)
     {
         if (!condition)

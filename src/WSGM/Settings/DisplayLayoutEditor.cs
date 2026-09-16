@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Globalization;
 using System.Linq;
 using WindowsDeviceControl;
 using WSGM.Core;
@@ -804,16 +803,6 @@ public sealed class DisplayLayoutEditor : ObservableObject
 
         var built = Build();
         ValidationText = built is null ? "" : DisplayLayouts.Describe(built) ?? "";
-    }
-
-    /// <summary>Renders a mode the way a user reads it.</summary>
-    /// <param name="mode">The mode.</param>
-    /// <returns>Resolution and refresh rate.</returns>
-    public static string Describe(DisplayMode mode)
-    {
-        ArgumentNullException.ThrowIfNull(mode);
-        return string.Create(CultureInfo.InvariantCulture,
-            $"{mode.Width}x{mode.Height} @ {mode.RefreshHz} Hz");
     }
 
     private sealed record RowState(

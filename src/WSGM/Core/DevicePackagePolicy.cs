@@ -116,7 +116,7 @@ internal static class DevicePackagePolicy
             .Where(entry => ((readAttributes(entry)
                               ?? throw new IOException("A package-slot entry disappeared during inspection.")) &
                              FileAttributes.Directory) != 0)
-            .Select(entry => NormalizeDirectoryPath(entry))
+            .Select(NormalizeDirectoryPath)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         return new DevicePackageInventory { PackageRoots = sortedPackages };

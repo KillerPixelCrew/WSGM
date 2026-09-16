@@ -238,7 +238,7 @@ public sealed class SdFormatManager : ObservableObject
 
             var size = NativeStorage.GetDiskCapacityForQuery(probe);
             NativeStorage.TryGetDeviceDescriptor(probe, out var busType, out var product);
-            var linux = NativeStorage.TryGetPartitionTypes(probe, out _, out var partitions)
+            var linux = NativeStorage.TryGetPartitionTypes(probe, out var partitions)
                         && partitions.Any(p => p.IsLinux);
             var id = NativeStorage.TryGetDevNode(path, out var devInst)
                 ? NativeStorage.GetDeviceInstanceId(devInst)
@@ -800,6 +800,7 @@ public sealed class SdFormatManager : ObservableObject
     private static void LogReverification(
         FormatTargetEntry entry, TargetIdentitySnapshot snapshot, string stage)
     {
+        // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
         switch (snapshot.Identity)
         {
             case TargetIdentity.Changed:

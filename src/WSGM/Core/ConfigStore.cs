@@ -441,7 +441,7 @@ public static class ConfigStore
     {
         config.StartMode = Definite(config.StartMode, Defaults.StartMode);
         config.StartupApps ??= [];
-        config.PluginInstances ??= [];
+        config.PluginInstances = [.. (config.PluginInstances ?? []).Where(static instance => instance is not null)];
         config.DeviceIntegration ??= new DeviceIntegrationConfig();
         NormalizeDeviceIntegration(config.DeviceIntegration);
         config.Performance ??= new PerformanceConfig();
@@ -474,6 +474,10 @@ public static class ConfigStore
         config.HiddenNativeTabs ??= [];
         config.KnownNativeTabs ??= [];
         config.SteamGridDbApiKey ??= "";
+        config.ScreenscraperUser ??= "";
+        config.ScreenscraperUserPassword ??= "";
+        config.PluginConfigurations ??= [];
+        config.PluginConfigurations.RemoveAll(static entry => entry is null);
         config.SgdbLinks ??= [];
         config.LaunchWrappers ??= [];
         // A null ELEMENT ("StartupApps": [null]) survives the list-level ??= above and

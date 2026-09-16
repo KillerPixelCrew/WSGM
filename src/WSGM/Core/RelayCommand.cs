@@ -69,6 +69,7 @@ public sealed class AsyncRelayCommand : ICommand
     }
 
     /// <inheritdoc />
+    // ReSharper disable once AsyncVoidMethod
     public async void Execute(object? parameter)
     {
         if (Interlocked.CompareExchange(ref _running, 1, 0) != 0)

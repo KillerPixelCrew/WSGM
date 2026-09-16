@@ -35,6 +35,7 @@ internal sealed record CapturePrivacyPreview
         ArgumentNullException.ThrowIfNull(bundle);
         var remainingSamples = MaximumSamples;
         List<CaptureLanePreview> streams = [];
+        // ReSharper disable once LoopCanBeConvertedToQuery
         foreach (var stream in bundle.Streams)
         {
             var descriptor = bundle.Manifest.Streams.Single(candidate =>
@@ -49,6 +50,7 @@ internal sealed record CapturePrivacyPreview
         }
 
         List<CaptureLanePreview> analysis = [];
+        // ReSharper disable once LoopCanBeConvertedToQuery
         foreach (var file in bundle.Analysis)
         {
             var descriptor = bundle.Manifest.Analysis.Single(candidate =>

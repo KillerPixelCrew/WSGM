@@ -263,6 +263,7 @@ internal static class DeviceLabCli
         void handler(object? _, ConsoleCancelEventArgs eventArgs)
         {
             eventArgs.Cancel = true;
+            // ReSharper disable once AccessToDisposedClosure
             cancellation.Cancel();
         }
     }
@@ -462,6 +463,7 @@ internal static class DeviceLabCli
         void handler(object? _, ConsoleCancelEventArgs eventArgs)
         {
             eventArgs.Cancel = true;
+            // ReSharper disable once AccessToDisposedClosure
             cancellation.Cancel();
         }
 

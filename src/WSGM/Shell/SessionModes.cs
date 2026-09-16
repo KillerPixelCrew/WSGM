@@ -428,6 +428,7 @@ public sealed class SessionModes
         _monitor?.Paused = true;
         var cancellation = new CancellationTokenSource();
         _entryCancellation = cancellation;
+        // ReSharper disable once MethodSupportsCancellation
         _ = Task.Run(async () =>
         {
             SessionModesEntryBackend backend = new(this, desktopHost);

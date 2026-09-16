@@ -393,7 +393,7 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
         var endpoints = new List<UsbEndpointObservation>();
         using ManagementObjectSearcher searcher = new(
             @"root\CIMV2",
-            "SELECT DeviceID, HardwareID FROM Win32_PnPEntity WHERE DeviceID LIKE 'USB\\\\VID_0DB0&PID_19%' ");
+            @"SELECT DeviceID, HardwareID FROM Win32_PnPEntity WHERE DeviceID LIKE 'USB\\VID_0DB0&PID_19%' ");
         using var candidates = searcher.Get();
         foreach (var item in candidates.Cast<ManagementObject>())
         {

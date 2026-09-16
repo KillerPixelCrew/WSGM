@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using Avalonia.Media;
 using WSGM.Core;
@@ -42,6 +43,7 @@ public sealed class DeviceProfileRowViewModel : ObservableObject
     private string CapabilityId { get; }
 
     /// <summary>Gets or sets what the user calls it.</summary>
+    [AllowNull]
     public string Name
     {
         get => _name;
@@ -64,6 +66,7 @@ public sealed class DeviceProfileRowViewModel : ObservableObject
     }
 
     /// <summary>Gets or sets the curve, as the editor control works with it.</summary>
+    [AllowNull]
     public IReadOnlyList<CurvePoint> Curve
     {
         get => _curve;

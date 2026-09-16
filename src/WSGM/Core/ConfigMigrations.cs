@@ -259,7 +259,7 @@ internal static class ConfigMigrations
     {
         try
         {
-            return node is null ? null : node.Deserialize(type);
+            return node?.Deserialize(type);
         }
         catch (JsonException)
         {

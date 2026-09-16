@@ -27,3 +27,144 @@ indent_size = 2
 
 [*.{json,yml,yaml}]
 indent_size = 2
+
+# Reviewed Qodana findings kept on purpose (see _plan/qodana-review-2.0.md). Scoped so the same
+# rule still reports elsewhere. Rider, jb inspectcode and Qodana read these severities.
+
+# Public MIT contract for external device packages: members and null guards on plugin input stay even when no in-repo consumer uses them.
+[src/WSGM.Device.Sdk/**.cs]
+resharper_unused_member_global_highlighting = none
+resharper_unused_auto_property_accessor_global_highlighting = none
+resharper_member_can_be_private_global_highlighting = none
+resharper_not_accessed_positional_property_global_highlighting = none
+resharper_property_can_be_made_init_only_global_highlighting = none
+resharper_unused_method_return_value_global_highlighting = none
+resharper_unused_type_global_highlighting = none
+resharper_auto_property_can_be_made_get_only_global_highlighting = none
+resharper_event_never_subscribed_to_global_highlighting = none
+resharper_unused_parameter_global_highlighting = none
+resharper_parameter_only_used_for_precondition_check_global_highlighting = none
+resharper_out_parameter_value_is_always_discarded_global_highlighting = none
+resharper_condition_is_always_true_or_false_according_to_nullable_api_contract_highlighting = none
+resharper_null_coalescing_condition_is_always_not_null_according_to_api_contract_highlighting = none
+resharper_conditional_access_qualifier_is_non_nullable_according_to_api_contract_highlighting = none
+
+# Same for the common plugin contract.
+[src/WSGM.Plugin.Sdk/**.cs]
+resharper_unused_member_global_highlighting = none
+resharper_unused_auto_property_accessor_global_highlighting = none
+resharper_member_can_be_private_global_highlighting = none
+resharper_not_accessed_positional_property_global_highlighting = none
+resharper_property_can_be_made_init_only_global_highlighting = none
+resharper_unused_method_return_value_global_highlighting = none
+resharper_unused_type_global_highlighting = none
+resharper_auto_property_can_be_made_get_only_global_highlighting = none
+resharper_event_never_subscribed_to_global_highlighting = none
+resharper_unused_parameter_global_highlighting = none
+resharper_parameter_only_used_for_precondition_check_global_highlighting = none
+resharper_out_parameter_value_is_always_discarded_global_highlighting = none
+resharper_condition_is_always_true_or_false_according_to_nullable_api_contract_highlighting = none
+resharper_null_coalescing_condition_is_always_not_null_according_to_api_contract_highlighting = none
+resharper_conditional_access_qualifier_is_non_nullable_according_to_api_contract_highlighting = none
+
+# Passive scaffold; building blocks stay unwired until hardware bring-up.
+[src/WSGM.Device.Asus.RogAllyX/**.cs]
+resharper_unused_member_global_highlighting = none
+resharper_unused_auto_property_accessor_global_highlighting = none
+resharper_member_can_be_private_global_highlighting = none
+resharper_not_accessed_positional_property_global_highlighting = none
+resharper_property_can_be_made_init_only_global_highlighting = none
+resharper_unused_method_return_value_global_highlighting = none
+resharper_unused_type_global_highlighting = none
+resharper_auto_property_can_be_made_get_only_global_highlighting = none
+resharper_event_never_subscribed_to_global_highlighting = none
+resharper_unused_parameter_global_highlighting = none
+resharper_parameter_only_used_for_precondition_check_global_highlighting = none
+resharper_out_parameter_value_is_always_discarded_global_highlighting = none
+resharper_condition_is_always_true_or_false_according_to_nullable_api_contract_highlighting = none
+resharper_null_coalescing_condition_is_always_not_null_according_to_api_contract_highlighting = none
+resharper_conditional_access_qualifier_is_non_nullable_according_to_api_contract_highlighting = none
+
+# Design scaffold.
+[src/WSGM.Device.HandheldCompanion/**.cs]
+resharper_unused_member_global_highlighting = none
+resharper_unused_auto_property_accessor_global_highlighting = none
+resharper_member_can_be_private_global_highlighting = none
+resharper_not_accessed_positional_property_global_highlighting = none
+resharper_property_can_be_made_init_only_global_highlighting = none
+resharper_unused_method_return_value_global_highlighting = none
+resharper_unused_type_global_highlighting = none
+resharper_auto_property_can_be_made_get_only_global_highlighting = none
+resharper_event_never_subscribed_to_global_highlighting = none
+resharper_unused_parameter_global_highlighting = none
+resharper_parameter_only_used_for_precondition_check_global_highlighting = none
+resharper_out_parameter_value_is_always_discarded_global_highlighting = none
+resharper_condition_is_always_true_or_false_according_to_nullable_api_contract_highlighting = none
+resharper_null_coalescing_condition_is_always_not_null_according_to_api_contract_highlighting = none
+resharper_conditional_access_qualifier_is_non_nullable_according_to_api_contract_highlighting = none
+
+# ComImport vtable: every slot is layout, and the coclass cast is COM activation.
+[src/WSGM.Device.Msi.Claw8A2Vm/LegacyPhysicalMotionSensors.cs]
+resharper_unused_member_global_highlighting = none
+resharper_suspicious_type_conversion_global_highlighting = none
+
+# Event handlers wired by name in OverlayWindow.axaml.
+[src/WSGM/Overlay/**.cs]
+resharper_unused_parameter_local_highlighting = none
+resharper_unused_member_local_highlighting = none
+
+# Capture, inventory, probe and fixture models are the JSON file schema (DeviceLabJsonContext) and the CLI/GUI reflection output.
+[src/WSGM.DeviceLab/**.cs]
+resharper_unused_auto_property_accessor_global_highlighting = none
+resharper_unused_member_global_highlighting = none
+resharper_not_accessed_positional_property_global_highlighting = none
+resharper_unused_method_return_value_global_highlighting = none
+
+# Normalize repairs explicit JSON nulls over the initializers; the guards are its purpose (ConfigurationTests pins it).
+[src/WSGM/Core/ConfigStore.cs]
+resharper_null_coalescing_condition_is_always_not_null_according_to_api_contract_highlighting = none
+resharper_condition_is_always_true_or_false_according_to_nullable_api_contract_highlighting = none
+resharper_conditional_access_qualifier_is_non_nullable_according_to_api_contract_highlighting = none
+
+# Token-replacement templates that ScaffoldFromCaptureWorkflow fills in; they are not source.
+[src/WSGM.DeviceLab/Templates/**]
+resharper_reassigned_to_plain_text_highlighting = none
+
+# Closures run inside awaited work before the using scope ends, callbacks assert their arguments, xUnit 2 has no test token, shared fakes are linked into several projects, and binary literals stay readable.
+[tests/**.cs]
+resharper_access_to_disposed_closure_highlighting = none
+resharper_access_to_modified_closure_highlighting = none
+resharper_parameter_only_used_for_precondition_check_local_highlighting = none
+resharper_method_supports_cancellation_highlighting = none
+resharper_unused_member_global_highlighting = none
+resharper_member_can_be_private_global_highlighting = none
+resharper_unused_auto_property_accessor_global_highlighting = none
+resharper_not_accessed_positional_property_global_highlighting = none
+resharper_use_utf8_string_literal_highlighting = none
+resharper_use_raw_string_highlighting = none
+resharper_not_accessed_positional_property_local_highlighting = none
+resharper_unused_member_local_highlighting = none
+
+# P/Invoke declarations keep the native signature: BOOL returns and constants nothing reads yet.
+[{src/WSGM/Interop/**.cs,src/WSGM.LogonService/Interop/**.cs}]
+resharper_unused_method_return_value_global_highlighting = none
+resharper_unused_member_global_highlighting = none
+
+# Shared with the logon service by file link; the members the service uses look unused here.
+[{src/WSGM/Core/AtomicFile.cs,src/WSGM/Core/BootManifest.cs}]
+resharper_unused_member_global_highlighting = none
+resharper_member_can_be_private_global_highlighting = none
+resharper_unused_method_return_value_global_highlighting = none
+
+# ComImport vtable dispatch; the generated COM interface would need a ComWrappers rewrite.
+[src/WSGM.Device.Msi.Claw8A2Vm/LegacyPhysicalMotionSensors.cs]
+dotnet_diagnostic.SYSLIB1096.severity = none
+
+# The remaining DllImports take a delegate or a non-blittable struct that LibraryImport cannot marshal.
+[{src/WSGM.Device.Msi.Claw8A2Vm/ClawInput.cs,src/WSGM.Device.Msi.Claw8A2Vm/WindowsHidTransports.cs}]
+dotnet_diagnostic.SYSLIB1054.severity = none
+
+# Collection expressions for HashSet and Dictionary with a comparer need C# 15 `with(...)`; the SDK
+# is C# 14. Re-enable when the language version moves.
+[*.cs]
+resharper_use_collection_expression_highlighting = none

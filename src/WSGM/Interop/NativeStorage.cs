@@ -93,7 +93,7 @@ internal static unsafe partial class NativeStorage
     internal const int BusTypeUsb = 7;
 
     /// <summary>The fixed header size of STORAGE_DEVICE_DESCRIPTOR.</summary>
-    internal const int DeviceDescriptorHeaderSize = 36;
+    private const int DeviceDescriptorHeaderSize = 36;
 
     /// <summary>
     ///     DRIVE_LAYOUT_INFORMATION_EX geometry: entries start after the
@@ -649,23 +649,20 @@ internal static unsafe partial class NativeStorage
     ///     treats that as "no recognizable partitions").
     /// </summary>
     /// <param name="disk">An open disk handle.</param>
-    /// <param name="partitionStyle">0 MBR, 1 GPT, 2 RAW.</param>
     /// <param name="partitions">The partition types found.</param>
     internal static bool TryGetPartitionTypes(
-        SafeFileHandle disk, out int partitionStyle,
-        out List<PartitionType> partitions)
+        SafeFileHandle disk, out List<PartitionType> partitions)
     {
         const int BufferSize = 8192;
         var buffer = stackalloc byte[BufferSize];
         if (!DeviceIoControl(disk, IoctlDiskGetDriveLayoutEx, 0, 0, (nint)buffer, BufferSize,
                 out var written, 0))
         {
-            partitionStyle = 2;
             partitions = [];
             return false;
         }
 
-        (partitionStyle, partitions) =
+        (_, partitions) =
             ReadDriveLayout(new ReadOnlySpan<byte>(buffer, (int)written));
         return true;
     }

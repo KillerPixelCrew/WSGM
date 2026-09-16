@@ -232,7 +232,7 @@ public static class LibraryTabManager
             .OrderBy(t => t.Position)
             .Where(tab =>
             {
-                var valid = tab.FilterTree is not null && LibraryFilter.IsValid(tab.FilterTree);
+                var valid = LibraryFilter.IsValid(tab.FilterTree);
                 if (!valid)
                 {
                     Log.Warn($"Library tabs: skipped invalid custom tab '{tab.Name}'.");

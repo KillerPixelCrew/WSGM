@@ -110,6 +110,7 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
             await authorizationPipe.WriteAsync(authorizationSecret, cancellationToken)
                 .ConfigureAwait(false);
             await authorizationPipe.FlushAsync(cancellationToken).ConfigureAwait(false);
+            // ReSharper disable once DisposeOnUsingVariable
             await authorizationPipe.DisposeAsync().ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is Win32Exception
@@ -493,6 +494,7 @@ internal static class ReadProbeOutcomeClassifier
     {
         ArgumentNullException.ThrowIfNull(metadata);
         ArgumentNullException.ThrowIfNull(response);
+        // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
         switch (response.Status)
         {
             case ReadProbeWorkerStatus.AccessDenied:

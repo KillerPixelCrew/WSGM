@@ -220,6 +220,7 @@ public sealed class GamepadService : IUiButtonSource, IDisposable
         foreach (var (id, _) in _perPad)
         {
             var present = false;
+            // ReSharper disable once LoopCanBeConvertedToQuery
             foreach (var pad in pads)
             {
                 if (pad.Id != id)

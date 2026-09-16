@@ -131,6 +131,7 @@ internal static class UnelevatedLauncher
             cancellationToken);
     }
 
+#pragma warning disable CA2219
     /// <summary>
     ///     Runs the scheduled-task sequence through an injected clock so deadline closure can
     ///     be verified deterministically without invoking Task Scheduler.
@@ -229,6 +230,7 @@ internal static class UnelevatedLauncher
             }
         }
     }
+#pragma warning restore CA2219
 
     internal static string BuildTaskXml(string exePath, string arguments = "", string? workingDirectory = null)
     {

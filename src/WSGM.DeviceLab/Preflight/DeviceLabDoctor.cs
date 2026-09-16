@@ -86,27 +86,25 @@ internal static class DeviceLabDoctor
                 snapshot.RuntimeMajorVersion >= 10
                     ? ".NET 10 or newer is active."
                     : ".NET 10 or newer is required.",
-                $"{snapshot.RuntimeDescription}; {snapshot.RuntimeIdentifier}")
+                $"{snapshot.RuntimeDescription}; {snapshot.RuntimeIdentifier}"),
+            .. snapshot.RequiredApis
+                .OrderBy(api => api.Name, StringComparer.Ordinal)
+                .Select(api => Check(
+                    $"api.{api.Name}",
+                    "api",
+                    api.Available ? DeviceLabDoctorStatus.Pass : DeviceLabDoctorStatus.Blocked,
+                    api.Available
+                        ? $"{api.Name} API is available."
+                        : $"{api.Name} API is unavailable.",
+                    $"{api.Library}!{api.Export}")),
+            Check(
+                "permissions.elevation",
+                "permission",
+                snapshot.IsElevated ? DeviceLabDoctorStatus.Pass : DeviceLabDoctorStatus.Warning,
+                snapshot.IsElevated
+                    ? "The current token is elevated."
+                    : "The current token is not elevated; protected observations will report access denied.")
         ];
-
-        checks.AddRange(snapshot.RequiredApis
-            .OrderBy(api => api.Name, StringComparer.Ordinal)
-            .Select(api => Check(
-                $"api.{api.Name}",
-                "api",
-                api.Available ? DeviceLabDoctorStatus.Pass : DeviceLabDoctorStatus.Blocked,
-                api.Available
-                    ? $"{api.Name} API is available."
-                    : $"{api.Name} API is unavailable.",
-                $"{api.Library}!{api.Export}")));
-
-        checks.Add(Check(
-            "permissions.elevation",
-            "permission",
-            snapshot.IsElevated ? DeviceLabDoctorStatus.Pass : DeviceLabDoctorStatus.Warning,
-            snapshot.IsElevated
-                ? "The current token is elevated."
-                : "The current token is not elevated; protected observations will report access denied."));
 
         var outputStatus = !outputDecision.IsAllowed || !snapshot.OutputPathWritable
             ? DeviceLabDoctorStatus.Blocked

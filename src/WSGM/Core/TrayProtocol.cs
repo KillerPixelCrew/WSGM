@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace WSGM.Core;
@@ -225,19 +226,12 @@ public sealed class TrayIconTable
 
     /// <summary>Finds the icon a request refers to, or null.</summary>
     /// <param name="n">The parsed request.</param>
-    public TrayIcon? Find(TrayProtocol.TrayNotification n)
+    private TrayIcon? Find(TrayProtocol.TrayNotification n)
     {
         var byGuid = (n.Flags & TrayProtocol.NifGuid) != 0 && n.Guid != Guid.Empty;
-        foreach (var icon in _icons)
-        {
-            if ((byGuid && icon.Guid != Guid.Empty && icon.Guid == n.Guid)
-                || (icon.Hwnd == n.Hwnd && icon.Uid == n.Uid))
-            {
-                return icon;
-            }
-        }
-
-        return null;
+        return _icons.FirstOrDefault(icon =>
+            (byGuid && icon.Guid != Guid.Empty && icon.Guid == n.Guid)
+            || (icon.Hwnd == n.Hwnd && icon.Uid == n.Uid));
     }
 
     /// <summary>

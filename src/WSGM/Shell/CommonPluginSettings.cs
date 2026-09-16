@@ -110,6 +110,7 @@ internal sealed class CommonPluginSettings
             "Configuration delivery pending");
         cancellationToken.ThrowIfCancellationRequested();
         var result = await _plugin.ConfigureAsync(desired, context, cancellationToken).ConfigureAwait(false);
+        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (result is null || result.Revision != saved.Revision || !Enum.IsDefined(result.Outcome))
         {
             return Result = new PluginConfigurationResult(saved.Revision, PluginConfigurationOutcome.Unconfirmed,

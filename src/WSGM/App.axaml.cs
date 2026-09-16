@@ -87,6 +87,7 @@ public class App : Application
         }
     }
 
+    // ReSharper disable once AsyncVoidEventHandlerMethod
     private async void OnShutdownRequested(
         object? sender,
         ShutdownRequestedEventArgs eventArgs)

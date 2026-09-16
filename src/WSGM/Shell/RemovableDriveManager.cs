@@ -310,7 +310,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         // Candidate volumes: mounted local disks. USB HDDs report Fixed, so the
         // type never filters — only network/optical/absent drives are skipped.
         var volumes = NativeStorage.MountedVolumes()
-            .Where(volume => volume.DeviceType == NativeStorage.FileDeviceDisk && volume.Disk >= 0)
+            .Where(volume => volume is { DeviceType: NativeStorage.FileDeviceDisk, Disk: >= 0 })
             .Select(volume => (volume.Letter, volume.Disk, Size: volume.SizeBytes))
             .ToList();
         // Physical interfaces exist even when Windows cannot mount any partition.

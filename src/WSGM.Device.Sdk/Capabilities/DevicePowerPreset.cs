@@ -115,20 +115,22 @@ public sealed record DevicePowerPreset(
         }
 
         var scenarios = descriptors.Where(d => d.Role == CapabilityRole.ScenarioMode).ToArray();
-        return scenarios.Length == 1
-               && scenarios[0] is
-               {
-                   InstanceId: null,
-                   SupportsRead: true,
-                   SupportsWrite: true,
-                   AvailableOnAc: true,
-                   AvailableOnDc: true,
-                   ValueKind: CapabilityValueKind.Choice,
-                   Choices: not null
-               }
+        return scenarios is
+               [
+                   {
+                       InstanceId: null,
+                       SupportsRead: true,
+                       SupportsWrite: true,
+                       AvailableOnAc: true,
+                       AvailableOnDc: true,
+                       ValueKind: CapabilityValueKind.Choice,
+                       // ReSharper disable once RedundantAlwaysMatchSubpattern
+                       Choices: not null
+                   } scenario
+               ]
                && !string.IsNullOrEmpty(preset.ScenarioOnAc) && !string.IsNullOrEmpty(preset.ScenarioOnDc)
-               && scenarios[0].Choices.Any(choice => choice.Value == preset.ScenarioOnAc)
-               && scenarios[0].Choices.Any(choice => choice.Value == preset.ScenarioOnDc);
+               && scenario.Choices.Any(choice => choice.Value == preset.ScenarioOnAc)
+               && scenario.Choices.Any(choice => choice.Value == preset.ScenarioOnDc);
     }
 
     private static bool Fits(int watts, CapabilityDescriptor descriptor)

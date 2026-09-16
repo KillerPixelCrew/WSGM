@@ -362,7 +362,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     if (request.ActionId == "set-carrier")
                     {
                         var value = request.Arguments["carrier-hz"].Number ?? double.NaN;
-                        if (!double.IsFinite(value) || value != Math.Truncate(value) || value is < 20000 or > 60000)
+                        if (!double.IsInteger(value) || value is < 20000 or > 60000)
                         {
                             return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
                                 "Carrier must be an integer from 20000 to 60000 Hz.");
@@ -687,20 +687,20 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
 
     private IrEndpointTarget Target()
     {
-        if (_transport == WifiTransport)
+        if (_transport != WifiTransport)
         {
-            if (_pairing is null)
-            {
-                throw new InvalidOperationException("Pair the endpoint over USB first, or choose the USB connection.");
-            }
-
-            var address = _hostName.Length != 0 ? _hostName : _pairing.Hostname;
-            return new IrEndpointTarget(true, address, _pairing.Token);
+            return string.IsNullOrEmpty(_port)
+                ? throw new InvalidOperationException("Select a USB serial port in plugin preferences first.")
+                : new IrEndpointTarget(false, _port, null);
         }
 
-        return string.IsNullOrEmpty(_port)
-            ? throw new InvalidOperationException("Select a USB serial port in plugin preferences first.")
-            : new IrEndpointTarget(false, _port, null);
+        if (_pairing is null)
+        {
+            throw new InvalidOperationException("Pair the endpoint over USB first, or choose the USB connection.");
+        }
+
+        var address = _hostName.Length != 0 ? _hostName : _pairing.Hostname;
+        return new IrEndpointTarget(true, address, _pairing.Token);
     }
 
     private async Task<IrPayload> LearnAsync(Guid operation, CancellationToken token)
@@ -792,7 +792,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     private static int IntegerArgument(PluginActionRequest request, string key, int minimum, int maximum)
     {
         var value = request.Arguments[key].Number ?? double.NaN;
-        if (!double.IsFinite(value) || value != Math.Truncate(value) || value < minimum || value > maximum)
+        if (!double.IsInteger(value) || value < minimum || value > maximum)
         {
             throw new ArgumentException($"{key} must be an integer from {minimum} to {maximum}.");
         }

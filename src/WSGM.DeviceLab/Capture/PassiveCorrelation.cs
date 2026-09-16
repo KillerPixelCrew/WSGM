@@ -8,9 +8,6 @@ namespace WSGM.DeviceLab.Capture;
 /// <summary>Request for baseline/action/release correlation around one guided button action.</summary>
 internal sealed record PassiveCorrelationRequest
 {
-    /// <summary>Stable analysis identifier.</summary>
-    public required string AnalysisId { get; init; }
-
     /// <summary>Guided marker action ID.</summary>
     public required string ActionId { get; init; }
 
@@ -36,8 +33,10 @@ internal sealed record PassiveCorrelationFinding
     /// <summary>Score from zero to one after stability and loss penalties.</summary>
     public required double Score { get; init; }
 
+#pragma warning disable CA1822
     /// <summary>Explicit result kind; never causality.</summary>
     public string CorrelationKind => "correlation-only";
+#pragma warning restore CA1822
 
     /// <summary>Stable baseline byte.</summary>
     public required byte BaselineValue { get; init; }

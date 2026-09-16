@@ -41,6 +41,7 @@ public enum ArtworkAsset
 /// <param name="Width">Pixel width.</param>
 /// <param name="Height">Pixel height.</param>
 /// <param name="Extension">Verified static image format, <c>png</c> or <c>jpg</c>.</param>
+// ReSharper disable once NotAccessedPositionalProperty.Global
 public sealed record SgdbAsset(int Id, string Url, string Thumb, int Width, int Height, string Extension);
 
 /// <summary>A SteamGridDB request failed for a reason the UI should surface.</summary>
@@ -92,7 +93,7 @@ public static class SteamGridDb
     /// <param name="config">The loaded configuration.</param>
     public static string ResolveKey(AppConfig config)
     {
-        return (config.SteamGridDbApiKey ?? "").Trim();
+        return config.SteamGridDbApiKey.Trim();
     }
 
     /// <summary>Searches SteamGridDB for games by title (autocomplete).</summary>

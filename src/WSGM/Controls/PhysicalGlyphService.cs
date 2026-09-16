@@ -371,12 +371,14 @@ internal sealed class PhysicalGlyphService : IDisposable
         _cacheBytes = 0;
     }
 
+    // ReSharper disable NotAccessedPositionalProperty.Local
     private readonly record struct RenderCacheKey(
         string ProfileId,
         int Revision,
         GlyphControlId Control,
         PhysicalGlyphTheme Theme,
         int ScaleBucket);
+    // ReSharper restore NotAccessedPositionalProperty.Local
 
     private sealed record CacheEntry(
         PhysicalGlyphRenderPlan Plan,

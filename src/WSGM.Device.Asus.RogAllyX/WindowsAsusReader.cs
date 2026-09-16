@@ -68,7 +68,7 @@ internal sealed partial class WindowsAsusReader : IAsusReader
                 throw new IOException("ASUS returned a truncated or oversized status response.");
             }
 
-            return response.AsSpan(0, (int)returned).ToArray();
+            return [.. response.AsSpan(0, (int)returned)];
         }
     }
 
@@ -117,9 +117,9 @@ internal sealed partial class WindowsAsusReader : IAsusReader
     private static partial bool DeviceIoControl(
         SafeFileHandle file,
         uint ioctl,
-        byte[] input,
+        [In] byte[] input,
         uint inputLength,
-        byte[] output,
+        [Out] byte[] output,
         uint outputLength,
         out uint returned,
         IntPtr overlapped);

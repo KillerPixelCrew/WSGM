@@ -73,7 +73,7 @@ public sealed class FormatTargetEntry : ObservableObject
     /// </summary>
     public string Detail
     {
-        get => field;
+        get;
         internal set
         {
             if (field == value)

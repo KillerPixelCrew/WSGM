@@ -101,13 +101,9 @@ public sealed unsafe class DisplayChangeWindow : IDisposable
     private static nint WndProc(nint hWnd, uint msg, nint wParam, nint lParam)
     {
         var instance = _instance;
-        if (instance is null)
-        {
-            return NativeMethods.DefWindowProcW(hWnd, msg, wParam, lParam);
-        }
-
-        if (msg != NativeMethods.WmDisplayChange
-            && (msg != NativeMethods.WmDeviceChange || wParam != NativeMethods.DbtDevnodesChanged))
+        if (instance is null
+            || (msg != NativeMethods.WmDisplayChange
+                && (msg != NativeMethods.WmDeviceChange || wParam != NativeMethods.DbtDevnodesChanged)))
         {
             return NativeMethods.DefWindowProcW(hWnd, msg, wParam, lParam);
         }

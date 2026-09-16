@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.IO.MemoryMappedFiles;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -681,6 +682,7 @@ internal static class RtssLhmSensors
             var inSensor = false;
             while (reader.Read())
             {
+                // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
                 switch (reader.NodeType)
                 {
                     case XmlNodeType.Element:
@@ -1148,6 +1150,7 @@ internal static class RtssOsdContent
             rows.Add(autoTdpRow);
         }
 
+        // ReSharper disable once LoopCanBeConvertedToQuery
         foreach (var name in custom.Order)
         {
             // HC's CustomStrategy shows the widget's literal name, FPS included.
@@ -1330,16 +1333,7 @@ internal static class RtssOsdContent
 
     private static string Row(params string?[] entries)
     {
-        List<string> populated = [];
-        foreach (var entry in entries)
-        {
-            if (!string.IsNullOrEmpty(entry))
-            {
-                populated.Add(entry);
-            }
-        }
-
-        return string.Join("<C1> | <C>", populated);
+        return string.Join("<C1> | <C>", entries.Where(static entry => !string.IsNullOrEmpty(entry)));
     }
 
     private static string? Entry(string name, string color, bool indent, List<string> elements)

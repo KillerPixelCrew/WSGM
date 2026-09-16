@@ -466,6 +466,7 @@ internal static class CaptureSchemaValidator
             ValidateText(limitation, result.ResultId, errors);
         }
 
+        // ReSharper disable once LoopCanBeConvertedToQuery
         foreach (var eventId in result.SupportingEventIds.Concat(result.CounterexampleEventIds))
         {
             if (!eventIds.Contains(eventId))
@@ -586,6 +587,7 @@ internal static class CaptureSchemaValidator
         List<CaptureValidationError> errors)
     {
         HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+        // ReSharper disable once LoopCanBeConvertedToQuery
         foreach (var path in paths)
         {
             if (!seen.Add(path))
@@ -601,6 +603,7 @@ internal static class CaptureSchemaValidator
         List<CaptureValidationError> errors)
     {
         HashSet<string> seen = new(StringComparer.Ordinal);
+        // ReSharper disable once LoopCanBeConvertedToQuery
         foreach (var id in ids)
         {
             if (!seen.Add(id))

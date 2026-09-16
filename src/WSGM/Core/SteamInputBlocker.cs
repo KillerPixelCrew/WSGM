@@ -21,7 +21,7 @@ public static class SteamInputBlocker
     private const string DynamicRecoveryWarning =
         "Steam Input could not dynamically locate Steam's controller-release code. Please report this on GitHub — the Steam Input hook may need updating.";
 
-    private static readonly object Sync = new();
+    private static readonly Lock Sync = new();
     private static readonly Lock OwnersSync = new();
 
     // The lease itself is process-wide, but several WSGM surfaces can need it at

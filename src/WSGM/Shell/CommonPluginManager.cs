@@ -65,7 +65,7 @@ internal sealed class CommonPluginManager
 
         PluginInstanceIdentity[] desired =
         [
-            .. configured.Where(instance => instance is not null && instance.Enabled)
+            .. configured.Where(instance => instance.Enabled)
                 .Select(instance => new PluginInstanceIdentity(instance.PluginId, instance.InstanceId))
         ];
         if (desired.Any(identity => !PluginConfigurationRules.ValidKey(identity.PluginId) ||
@@ -158,10 +158,14 @@ internal sealed class CommonPluginManager
             var enabledPackages = _catalog.Packages
                 .Where(package => desired.Any(identity => identity.PluginId == package.Manifest.Id)).ToArray();
             var plan = CommonPluginDependencyPlan.Create([.. enabledPackages.Select(package => package.Manifest)]);
-            List<string> errors = [.. _catalog.Errors, .. plan.Rejected.Select(pair => pair.Key + ": " + pair.Value)];
-            errors.AddRange(desired
-                .Where(identity => _catalog.Packages.All(package => package.Manifest.Id != identity.PluginId))
-                .Select(identity => identity.PluginId + ": installed package is unavailable."));
+            List<string> errors =
+            [
+                .. _catalog.Errors,
+                .. plan.Rejected.Select(pair => pair.Key + ": " + pair.Value),
+                .. desired
+                    .Where(identity => _catalog.Packages.All(package => package.Manifest.Id != identity.PluginId))
+                    .Select(identity => identity.PluginId + ": installed package is unavailable.")
+            ];
             foreach (var manifest in plan.Ordered)
             {
                 cancellationToken.ThrowIfCancellationRequested();

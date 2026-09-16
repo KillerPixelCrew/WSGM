@@ -405,6 +405,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     {
         if (state.Command.Control == control)
         {
+            // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
             switch (state.Command.Phase)
             {
                 case PerformanceCommandPhase.Idle:

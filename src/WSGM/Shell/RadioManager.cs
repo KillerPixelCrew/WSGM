@@ -1411,13 +1411,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
                  + $"kind {request.Kind}, pin '{request.Pin}') for {request.DeviceName}.");
         Dispatcher.UIThread.Post(() =>
         {
-            if (_disposed)
-            {
-                RespondToPairing(request.Token, false, null);
-                return;
-            }
-
-            if (_pairingCancelled)
+            if (_disposed || _pairingCancelled)
             {
                 RespondToPairing(request.Token, false, null);
                 return;

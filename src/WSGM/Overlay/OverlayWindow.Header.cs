@@ -191,10 +191,10 @@ public partial class OverlayWindow
     private void DockToTopEdge()
     {
         var screen = _preferredScreenPoint is { } point
-            ? Screens?.ScreenFromPoint(point)
+            ? Screens.ScreenFromPoint(point)
             : null;
-        screen ??= Screens?.ScreenFromWindow(this) ?? Screens?.Primary;
-        if (screen is null && Screens is { ScreenCount: > 0 })
+        screen ??= Screens.ScreenFromWindow(this) ?? Screens.Primary;
+        if (screen is null && Screens.ScreenCount > 0)
         {
             screen = Screens.All[0];
         }

@@ -255,6 +255,7 @@ public static class ExplorerControl
                     absentSince = surfaces ? null : absentSince ?? DateTime.UtcNow;
                     var absent = absentSince is { } since ? DateTime.UtcNow - since : TimeSpan.Zero;
                     var action = ExplorerExitPolicy.Decide(surfaces, original.HasExited, absent);
+                    // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
                     switch (action)
                     {
                         case ExplorerExitAction.Complete:

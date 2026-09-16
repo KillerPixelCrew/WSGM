@@ -15,23 +15,14 @@ internal enum ReadProbeFamily
     /// <summary>A WMI getter whose exact method and response shape are compiled into Device Lab.</summary>
     WmiStatus,
 
-    /// <summary>A known HID feature report read whose report ID and size are profile-scoped.</summary>
-    HidFeature,
-
     /// <summary>A single allowlisted EC address read whose access path and address are profile-scoped.</summary>
     EmbeddedController,
-
-    /// <summary>A controller mode or hardware profile read.</summary>
-    ControllerMode,
 
     /// <summary>A current fan tachometer read.</summary>
     FanRpm,
 
     /// <summary>A current charge state or threshold read.</summary>
-    ChargeState,
-
-    /// <summary>Offline native-library version, architecture, hash, signer, or export inspection.</summary>
-    NativeLibraryMetadata
+    ChargeState
 }
 
 /// <summary>The scalar or byte representation expected from each probe repetition.</summary>
@@ -40,9 +31,6 @@ internal enum ReadProbeValueKind
 {
     /// <summary>A signed integral number.</summary>
     Integer,
-
-    /// <summary>A true or false status.</summary>
-    Boolean,
 
     /// <summary>A bounded UTF-8 string.</summary>
     Text,

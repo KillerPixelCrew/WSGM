@@ -398,6 +398,7 @@ public sealed class GamepadNavigation : IDisposable
             return;
         }
 
+        // ReSharper disable once ConvertIfStatementToSwitchStatement
         if (e.Key == Key.Escape)
         {
             if (Environment.TickCount64 < _suppressBackKeyboardUntil)

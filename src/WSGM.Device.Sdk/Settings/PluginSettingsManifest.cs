@@ -119,6 +119,7 @@ public sealed record PluginSettingDescriptor
             return false;
         }
 
+        // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
         switch (ValueKind)
         {
             // A setting is something the user changes, so a value shape that cannot be changed or has
@@ -133,6 +134,7 @@ public sealed record PluginSettingDescriptor
                 return false;
         }
 
+        // ReSharper disable once ConvertIfStatementToSwitchStatement
         if (ValueKind is CapabilityValueKind.Integer
             && (Minimum is null || Maximum is null || Minimum > Maximum || Step is <= 0))
         {

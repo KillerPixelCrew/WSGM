@@ -113,6 +113,7 @@ internal static class AllyXProtocol
 
         report[7] = mode == AllyRgbMode.Solid ? (byte)0 : SpeedCode(speed);
         report[8] = mode == AllyRgbMode.Spiral && reverse ? (byte)1 : (byte)0;
+        // ReSharper disable once InvertIf
         if (mode == AllyRgbMode.Breathing)
         {
             report[10] = secondary.Red;
@@ -212,6 +213,7 @@ internal static class AllyXProtocol
                 version = version * 10 + digit - '0';
             }
 
+            // ReSharper disable once InvertIf
             if (i + 4 < response.Length && response[i + 4] is >= (byte)'0' and <= (byte)'9')
             {
                 version = 0;

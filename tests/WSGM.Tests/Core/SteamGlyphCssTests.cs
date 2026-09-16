@@ -272,7 +272,7 @@ public sealed class SteamGlyphCssTests
                 JsonSerializer.SerializeToUtf8Bytes(
                     manifest,
                     DeviceJsonContext.Default.GlyphProfileManifest),
-            [manifest.NoticePath] = "Example glyph notice\n"u8.ToArray(),
+            [manifest.NoticePath] = [.. "Example glyph notice\n"u8],
             [GlyphPackageLayout.Asset(controlHash, GlyphAssetFormat.Svg)] = controlSvg,
             [GlyphPackageLayout.Asset(guideHash, GlyphAssetFormat.Svg)] = guideSvg,
             [GlyphPackageLayout.Asset(controllerHash, GlyphAssetFormat.Svg)] = controllerSvg

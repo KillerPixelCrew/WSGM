@@ -535,7 +535,7 @@ public partial class SettingsWindow : Window
     {
         var editor = new TextBox
         {
-            Text = initialValue ?? string.Empty,
+            Text = initialValue,
             MaxLength = Math.Max(0, maximumLength),
             Margin = new Thickness(12, 12, 12, 0),
             MinHeight = 44
@@ -764,6 +764,7 @@ public partial class SettingsWindow : Window
             }
 
             _splashPreview = null;
+            // ReSharper disable once AccessToDisposedClosure
             _navigation?.Dispose();
             _navigation = _closed ? null : CreateWindowNavigation();
             // The preview no longer needs the pad; re-evaluate in case focus did

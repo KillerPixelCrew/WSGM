@@ -127,6 +127,7 @@ internal sealed class SteamControllerOwnershipAdapter : IDisposable
         var restored = _usesPhysical
             ? await _restorePhysical(cancellationToken).ConfigureAwait(false)
             : SteamPhysicalRestoreResult.Restored;
+        // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
         switch (restored)
         {
             case SteamPhysicalRestoreResult.OwnerChanged:

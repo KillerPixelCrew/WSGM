@@ -43,7 +43,7 @@ public sealed class SteamGridDbProvider : IArtworkProvider
         ArgumentNullException.ThrowIfNull(config);
         var matches = await SteamGridDb.SearchGamesAsync(
             term, SteamGridDb.ResolveKey(config), cancellationToken).ConfigureAwait(false);
-        var trimmed = (term ?? "").Trim();
+        var trimmed = term.Trim();
         return
         [
             .. matches
@@ -80,12 +80,11 @@ public sealed class SteamGridDbProvider : IArtworkProvider
         return Convert(assets);
     }
 
-    private ArtworkCandidate[] Convert(IReadOnlyList<SgdbAsset> assets)
+    private static ArtworkCandidate[] Convert(IReadOnlyList<SgdbAsset> assets)
     {
         return
         [
-            .. assets.Select(a => new ArtworkCandidate(
-                Id, DisplayName, a.Id, a.Url, a.Thumb, a.Width, a.Height, a.Extension))
+            .. assets.Select(a => new ArtworkCandidate(a.Url, a.Thumb, a.Width, a.Height, a.Extension))
         ];
     }
 }
@@ -172,7 +171,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         string term, AppConfig config, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
-        var trimmed = (term ?? "").Trim();
+        var trimmed = term.Trim();
         if (trimmed.Length == 0)
         {
             return [];
@@ -258,7 +257,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
             candidates.Add((
                 typeRank,
                 regionRank < 0 ? RegionPreference.Length : regionRank,
-                new ArtworkCandidate(Id, DisplayName, 0, url, url, 0, 0, extension)));
+                new ArtworkCandidate(url, url, 0, 0, extension)));
         }
 
         return
@@ -292,8 +291,8 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         };
 
         // The user account is optional and only raises the quota, so its absence is not a refusal.
-        var user = (config.ScreenscraperUser ?? "").Trim();
-        var password = (config.ScreenscraperUserPassword ?? "").Trim();
+        var user = config.ScreenscraperUser.Trim();
+        var password = config.ScreenscraperUserPassword.Trim();
         if (user.Length > 0 && password.Length > 0)
         {
             parts.Add($"ssid={Uri.EscapeDataString(user)}");

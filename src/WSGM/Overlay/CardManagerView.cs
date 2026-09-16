@@ -231,7 +231,7 @@ public sealed class CardManagerView : OverlaySubView
 
     // A card change (rename/enable/hide/forget) alters what Steam should show, so
     // re-materialize the tabs in the background; failures wait for the next sync.
-    private async Task SyncQuietly()
+    private static async Task SyncQuietly()
     {
         try
         {

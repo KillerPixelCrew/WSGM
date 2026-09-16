@@ -80,7 +80,6 @@ internal static class PluginTestWorker
                 token),
             request => request is null
                        || request.SchemaVersion != 1
-                       || request.Identity is null
                        || string.IsNullOrWhiteSpace(request.PackageDirectory)
                        || request.Mode is not (PluginTestMode.DetectionOnly or PluginTestMode.AttendedHardware)
                        || (request.Mode is PluginTestMode.AttendedHardware

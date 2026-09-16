@@ -287,7 +287,7 @@ internal sealed class DeterministicFakeHapticSink : IPhysicalHapticSink
 
     public long SourceGeneration { get; }
 
-    public bool IsOwned { get; } = true;
+    public bool IsOwned => true;
 
     public HapticCapabilities Capabilities { get; }
 
@@ -353,9 +353,9 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
 
     internal HidBackendHealth Health { get; set; }
 
-    private bool AutoEnumerate { get; } = true;
+    private static bool AutoEnumerate => true;
 
-    private bool AutoRemove { get; } = true;
+    private static bool AutoRemove => true;
 
     internal bool DelayOutput { get; init; }
 

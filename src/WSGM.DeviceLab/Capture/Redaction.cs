@@ -208,7 +208,7 @@ internal sealed partial class CaptureRedactor
     private static partial Regex DeviceInstancePath();
 
     [GeneratedRegex(
-        @"(?<prefix>\b(?:PCI|ACPI|ROOT|BTHENUM|SWD|USBSTOR|USB|HID)\\[^\\""#\s]+)\\(?!\[DEV-)[^\\""#\s]+",
+        """(?<prefix>\b(?:PCI|ACPI|ROOT|BTHENUM|SWD|USBSTOR|USB|HID)\\[^\\"#\s]+)\\(?!\[DEV-)[^\\"#\s]+""",
         RegexOptions.IgnoreCase)]
     private static partial Regex GenericPnpInstancePath();
 }
