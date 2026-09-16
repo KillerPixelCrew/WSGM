@@ -178,5 +178,7 @@ Setup installer:
     .\build.ps1
 
 The Version property in src/WSGM/WSGM.csproj is the release version source. build.ps1 passes it to
-Inno Setup; keep the installer's direct-ISCC fallback aligned without copying a version into
-contributor guidance. The installer is written under publish with the version in its filename.
+Inno Setup; keep the installer's direct-ISCC fallback and the app manifest identity aligned without
+copying a version into contributor guidance. eng/check-version-sync.ps1, run by build.ps1 and
+eng/verify.ps1, fails when they drift. The installer is written under publish with the version in
+its filename.

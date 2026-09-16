@@ -8,7 +8,8 @@
 
 #define AppName "WSGM - Windows Steam Game Mode"
 ; Version comes from the csproj <Version> via build.ps1 (/DAppVersion=...); the
-; fallback below only applies when ISCC is invoked directly.
+; fallback below only applies when ISCC is invoked directly. eng\check-version-sync.ps1
+; fails the build when it drifts from the csproj.
 #ifndef AppVersion
   #define AppVersion "2.0.0"
 #endif

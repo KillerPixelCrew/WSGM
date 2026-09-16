@@ -66,6 +66,9 @@ jobs:
           while ($parts.Count -lt 4) { $parts += '0' }
           $mver = $parts -join '.'
           (Get-Content src/WSGM/app.manifest) -replace 'assemblyIdentity version="[^"]*"', "assemblyIdentity version=`"$mver`"" | Set-Content src/WSGM/app.manifest
+          # The direct-ISCC fallback too, which eng/check-version-sync.ps1 in the verify step
+          # below requires to match the csproj.
+          (Get-Content installer/WSGM.iss) -replace '#define\s+AppVersion\s+"[^"]*"', "#define AppVersion `"$ver`"" | Set-Content installer/WSGM.iss
 
       # A tag is not allowed to bypass the same source, generated-asset, Rust clippy, build, and
       # test gate used for ordinary pushes. build.ps1 repeats its release-specific staging checks.

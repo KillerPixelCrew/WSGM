@@ -9,6 +9,9 @@ $root = $PSScriptRoot
 $csproj = Get-Content "$root\src\WSGM\WSGM.csproj" -Raw
 if ($csproj -notmatch '<Version>([^<]+)</Version>') { throw "No <Version> found in WSGM.csproj" }
 $version = $Matches[1]
+# The manifest identity and the direct-ISCC fallback must name the same version, or a hand-built
+# installer ships metadata that disagrees with itself.
+& "$root\eng\check-version-sync.ps1"
 
 # This check rebuilds the asset from its TypeScript source and compares, so stale generated Steam
 # UI code fails immediately. Install exactly the dependency graph in package-lock.json first: a
