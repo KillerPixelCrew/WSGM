@@ -10,3 +10,4 @@
 [submodule "external/viiper"]
 	path = external/viiper
 	url = https://github.com/KillerPixelCrew/VIIPER
+	branch = wsgm

@@ -35,8 +35,9 @@ codes, and safe to rerun.
   coverage from the `verify` and `viiper` jobs instead. It is a CI step, not a local gate.
 - eng/build-viiper.ps1 builds the external/viiper submodule as checked out. build.ps1 passes
   `-RequirePinned`, which refuses a dirty submodule or one that is not at the gitlink HEAD records,
-  so a release library always matches a pinned commit. Move the VIIPER pin by pushing to the fork
-  and advancing the gitlink, as for any other submodule.
+  so a release library always matches a pinned commit. Move the VIIPER pin by pushing to the fork's
+  `wsgm` branch and advancing the gitlink, as for any other submodule. The fork's default branch is
+  `viiper-controller`, so `.gitmodules` records `branch = wsgm` for `git submodule update --remote`.
 - external/ holds submodules, vendored upstream source, and dependency pins. Do not format or
   rewrite it from a main-repository gate.
 - Device packers share `device-package-output.ps1` for archive publication. Keep staging on the
