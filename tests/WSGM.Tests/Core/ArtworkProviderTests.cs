@@ -83,9 +83,12 @@ public sealed class ArtworkProviderTests
     public async Task NoConfiguredProviderIsReportedAsSuchRatherThanAsAnEmptyResult()
     {
         // The distinction this whole layer exists for: nothing was asked, so "this game has no
-        // artwork" would be a lie.
+        // artwork" would be a lie. Screenscraper is ready by default, so it has to be switched off.
         ArtworkSearchResult result = await ArtworkSearch.GetAssetsForSteamAppAsync(
-            ArtworkAsset.Grid, 440, new AppConfig(), CancellationToken.None);
+            ArtworkAsset.Grid,
+            440,
+            new AppConfig { ScreenscraperEnabled = false },
+            CancellationToken.None);
 
         Assert.Empty(result.Candidates);
         Assert.True(result.NoProviderAnswered);
