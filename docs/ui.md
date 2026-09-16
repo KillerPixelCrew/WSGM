@@ -60,7 +60,7 @@ are synthetic. The existing xUnit v2 suite still covers pure policy and native s
 Run it from the repository root:
 
 ```powershell
-dotnet run --project tests/WSGM.UiTests/WSGM.UiTests.csproj
+dotnet test tests/WSGM.UiTests/WSGM.UiTests.csproj
 ```
 
 Interaction checks cover keyboard/pointer navigation, focus and scrolling, pins, nested Back,
@@ -83,7 +83,7 @@ the named cases:
 
 ```powershell
 ./eng/update-ui-baselines.ps1 -Case settings-system-1024,settings-system-1280
-dotnet run --project tests/WSGM.UiTests/WSGM.UiTests.csproj
+dotnet test tests/WSGM.UiTests/WSGM.UiTests.csproj
 ```
 
 Tests and verification never update baselines, including with `-Fix`. A font, theme or renderer

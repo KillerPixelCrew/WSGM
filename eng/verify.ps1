@@ -139,12 +139,6 @@ try {
         --logger "console;verbosity=normal" -m:1
     if ($LASTEXITCODE -ne 0) { throw "dotnet test failed" }
 
-    # WSGM.UiTests runs on Microsoft.Testing.Platform (xunit.v3 4.0), which the .NET 10 SDK does
-    # not drive through the VSTest mode above; the solution run skips it and it runs here as the
-    # executable it is.
-    dotnet run --project tests\WSGM.UiTests\WSGM.UiTests.csproj --configuration Release --no-build
-    if ($LASTEXITCODE -ne 0) { throw "WSGM.UiTests failed" }
-
     # Only WSGM.Tests carries the coverage collector. The other project suites run above without a
     # collector request, avoiding false "collector not found" diagnostics while still keeping the
     # application's existing coverage artifact.

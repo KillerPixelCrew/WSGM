@@ -1,8 +1,0 @@
-<Project>
-  <!-- xunit.v3 4.0 runs only on Microsoft.Testing.Platform, and the .NET 10 SDK refuses to drive
-       that through the VSTest mode of dotnet test that the xunit 2 projects use. Imported after the
-       package targets, this file turns the VSTest entry points into no-ops for this project only, so
-       the solution-wide dotnet test skips it and eng/verify.ps1 runs it as the executable it is. -->
-  <Target Name="_MTPBeforeVSTest" />
-  <Target Name="VSTest" />
-</Project>
