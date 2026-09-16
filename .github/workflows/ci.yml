@@ -77,3 +77,44 @@ jobs:
           name: test-results-and-coverage
           path: TestResults
           if-no-files-found: warn
+
+  # verify.ps1 deliberately does not build or validate VIIPER (see eng/CLAUDE.md), so without
+  # this job a broken pin stayed green here and failed only inside the tag-triggered release
+  # job, after a public tag already existed.
+  viiper:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+
+      - name: Set up Go toolchain
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: external/viiper/go.mod
+
+      # The library exposes a C ABI, so cgo needs a C compiler; build-viiper.ps1 only looks on
+      # PATH and under a winget install location, neither of which this runner has by default.
+      - name: Install a C compiler for cgo
+        shell: pwsh
+        run: |
+          choco install mingw --no-progress -y
+          $gcc = Get-ChildItem -Path 'C:\ProgramData\mingw64', 'C:\tools\mingw64' `
+              -Recurse -Filter gcc.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $gcc) { throw "gcc.exe not found after installing mingw" }
+          Add-Content -Path $env:GITHUB_PATH -Value $gcc.DirectoryName
+
+      - name: Cache Go build output
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~\go\pkg\mod
+            ~\AppData\Local\go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('external/viiper/go.sum') }}
+          restore-keys: ${{ runner.os }}-go-
+
+      - name: Build and test VIIPER
+        shell: pwsh
+        run: ./eng/build-viiper.ps1 -Validate

@@ -16,7 +16,9 @@ codes, and safe to rerun.
   afterward.
 - Parse potentially invasive scripts for syntax instead of executing them as part of verification.
 - eng/verify.ps1 validates Steam Input but does not build or validate VIIPER. A VIIPER change
-  requires `eng/build-viiper.ps1 -Validate`.
+  requires `eng/build-viiper.ps1 -Validate`. CI runs that separately from the main `verify` job (see
+  `.github/workflows/ci.yml`), so a broken VIIPER pin is caught before a release tag rather than
+  inside the tag-triggered release job.
 
 ## Build and staging rules
 
