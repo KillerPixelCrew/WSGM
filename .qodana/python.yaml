@@ -1,0 +1,14 @@
+# Qodana Community for Python: the PlatformIO pre-build script of the IR firmware.
+version: "1.0"
+linter: qodana-python-community
+profile:
+  name: qodana.recommended
+
+exclude:
+  - name: All
+    paths:
+      - _ref
+      - external
+      - node_modules
+      - publish
+      - src/WSGM.Plugin.Ir/Firmware/.pio

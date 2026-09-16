@@ -1,0 +1,19 @@
+# Qodana Community for C/C++ (clang-tidy) on the IR firmware. The linter reads a compilation
+# database, which PlatformIO writes after it installs the ESP32-C3 toolchain and the pinned
+# libraries. The linter runs only in a container; the workflow uses the privileged image so this
+# bootstrap can install Python. The Windows-only UWP bridge spike under tools/ is not analysed.
+version: "1.0"
+linter: qodana-clang
+
+bootstrap: >-
+  apt-get update && apt-get install -y --no-install-recommends python3-venv && python3 -m venv
+  /tmp/platformio && /tmp/platformio/bin/pip install platformio==6.2.0 && /tmp/platformio/bin/pio
+  run -d src/WSGM.Plugin.Ir/Firmware -t compiledb && mkdir -p build && cp
+  src/WSGM.Plugin.Ir/Firmware/compile_commands.json build/
+
+exclude:
+  - name: All
+    paths:
+      - _ref
+      - external
+      - src/WSGM.Plugin.Ir/Firmware/.pio

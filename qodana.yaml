@@ -1,22 +1,27 @@
-# Qodana configuration. The workflow runs the .NET Community linter in its Linux container, so the
-# workflow passes EnableWindowsTargeting=true for the net10.0-windows projects. Native Steam Input
-# Lease and VIIPER payloads are staged by separate scripts and are not needed for analysis.
+# Qodana for .NET. The workflow runs this natively on a Windows runner, because WSGM targets
+# net10.0-windows and its build stages the Steam Input Lease (Rust, with MinHook C sources) and
+# VIIPER (Go with cgo) libraries from the submodules, as build.ps1 does. The bootstrap runs in cmd.
+# The JavaScript, Python and C++ analyses use the configurations in .qodana/.
 version: "1.0"
-linter: jetbrains/qodana-cdnet:2026.1
+linter: qodana-dotnet
+profile:
+  name: qodana.recommended
 
 dotnet:
   solution: WSGM.slnx
   configuration: Release
 
 bootstrap: >-
-  dotnet restore WSGM.slnx -p:EnableWindowsTargeting=true && dotnet build WSGM.slnx --configuration
-  Release --no-restore -p:EnableWindowsTargeting=true -p:SkipNativeArtifacts=true
+  pwsh -NoLogo -NoProfile -File eng\build-steam-input-lease.ps1 && pwsh -NoLogo -NoProfile -File
+  eng\build-viiper.ps1 && dotnet restore WSGM.slnx && dotnet build WSGM.slnx --configuration Release
+  --no-restore
 
 exclude:
   - name: All
     paths:
       - _ref
       - external
+      - node_modules
       - publish
-      - "**/bin"
-      - "**/obj"
+      - src/WSGM/Native
+      - src/WSGM.Plugin.Ir/Firmware/.pio
