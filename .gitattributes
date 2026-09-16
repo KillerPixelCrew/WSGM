@@ -7,3 +7,9 @@
 # LF so the hash is identical on autocrlf and non-autocrlf checkouts.
 src/WSGM/Core/SteamUiAssets/*.js text eol=lf
 src/WSGM/Core/SteamUiAssets/Source/**/*.ts text eol=lf
+
+# .editorconfig requires CRLF and the Roslyn formatter enforces it inside comments. Check the C#
+# family out with CRLF everywhere so Linux and macOS builds pass the same style gate as Windows.
+*.cs text eol=crlf
+*.csproj text eol=crlf
+*.props text eol=crlf
