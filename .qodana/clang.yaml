@@ -1,6 +1,6 @@
 # Qodana Community for C/C++ (clang-tidy) on the IR firmware. The linter reads a compilation
 # database, which PlatformIO writes after it installs the ESP32-C3 toolchain and the pinned
-# libraries. The linter runs only in a container; the workflow uses the privileged image so this
+# libraries. The linter runs only in a container; the workflow uses the privileged Clang 18 image so this
 # bootstrap can install Python. The Windows-only UWP bridge spike under tools/ is not analysed.
 version: "1.0"
 linter: qodana-clang
