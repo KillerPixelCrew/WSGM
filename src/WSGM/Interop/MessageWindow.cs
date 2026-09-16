@@ -41,6 +41,10 @@ public sealed unsafe class MessageWindow : IDisposable
     private nint _consoleDisplayNotify;
     private nint _legacyDisplayNotify;
     private nint _volumeNotify;
+    // The window is a process-wide singleton, so volume notifications are shared: each
+    // successful RegisterVolumeNotifications is matched by one Deregister, and only the last
+    // one removes the registration another subscriber may still rely on.
+    private int _volumeNotifyUsers;
     private bool _sessionNotify;
 
     /// <summary>Create() is the only entry point: a directly constructed instance
@@ -246,8 +250,8 @@ public sealed unsafe class MessageWindow : IDisposable
         _sessionNotify = false;
     }
 
-    /// <summary>Subscribes this window to volume arrival and removal. Idempotent.
-    /// </summary>
+    /// <summary>Subscribes this window to volume arrival and removal. Reference-counted: pair each
+    /// successful call with one <see cref="DeregisterVolumeNotifications"/>.</summary>
     /// <remarks>
     /// This replaces guessing at a card reader's identity. The Playnite-era approach
     /// watched WMI for a <c>Win32_DiskDrive</c> whose model matched a hard-coded
@@ -260,6 +264,7 @@ public sealed unsafe class MessageWindow : IDisposable
     {
         if (_volumeNotify != 0)
         {
+            _volumeNotifyUsers++;
             return true;
         }
         var filter = new NativeMethods.DevBroadcastDeviceInterface
@@ -276,14 +281,25 @@ public sealed unsafe class MessageWindow : IDisposable
                 + $"(error {Marshal.GetLastWin32Error()}) — card changes fall back to polling.");
             return false;
         }
+        _volumeNotifyUsers = 1;
         Log.Info("Volume arrival/removal notifications registered.");
         return true;
     }
 
-    /// <summary>Stops this window receiving volume arrival and removal notifications.
-    /// </summary>
+    /// <summary>Ends one <see cref="RegisterVolumeNotifications"/> claim; the window stops receiving
+    /// volume arrival and removal notifications when the last claim ends.</summary>
     public void DeregisterVolumeNotifications()
     {
+        if (_volumeNotify == 0 || --_volumeNotifyUsers > 0)
+        {
+            return;
+        }
+        UnregisterVolumeNotifications();
+    }
+
+    private void UnregisterVolumeNotifications()
+    {
+        _volumeNotifyUsers = 0;
         if (_volumeNotify == 0)
         {
             return;
@@ -454,7 +470,7 @@ public sealed unsafe class MessageWindow : IDisposable
         DeregisterShellHook();
         DeregisterDisplayStateNotifications();
         UnregisterSessionNotifications();
-        DeregisterVolumeNotifications();
+        UnregisterVolumeNotifications();
         if (_hwnd != 0)
         {
             if (!NativeMethods.DestroyWindow(_hwnd))
