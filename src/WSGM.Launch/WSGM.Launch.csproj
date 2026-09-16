@@ -26,7 +26,9 @@
   <!-- The wrapper and WSGM compile the same canonical binding sources from the submodule.
        The native DLLs already ship beside both executables in the app directory. -->
   <ItemGroup>
+    <!-- PlatformSupport.cs is the binding project's own assembly attribute, not binding code. -->
     <Compile Include="..\..\external\steam-input-lease\bindings\SteamInterop.Net\*.cs"
+             Exclude="..\..\external\steam-input-lease\bindings\SteamInterop.Net\PlatformSupport.cs"
              LinkBase="SteamInterop" />
   </ItemGroup>
 </Project>

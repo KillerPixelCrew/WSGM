@@ -44,9 +44,12 @@
         Include="..\..\external\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\LoadingIndicatorMode.cs"
         Link="ThirdParty\LoadingIndicators\LoadingIndicatorMode.cs" />
     <!-- The Steam Input Lease submodule's binding is the single managed ABI source. Both
-         WSGM and WSGM.Launch compile it directly; there is no application mirror. -->
+         WSGM and WSGM.Launch compile it directly; there is no application mirror.
+         PlatformSupport.cs is the binding project's own assembly attribute: compiled here it
+         would declare WSGM a Windows 10 1809 assembly instead of the 19041 it targets. -->
     <Compile
         Include="..\..\external\steam-input-lease\bindings\SteamInterop.Net\*.cs"
+        Exclude="..\..\external\steam-input-lease\bindings\SteamInterop.Net\PlatformSupport.cs"
         LinkBase="SteamInterop" />
   </ItemGroup>
   <ItemGroup>
