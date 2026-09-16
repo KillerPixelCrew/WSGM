@@ -10,7 +10,11 @@ namespace WSGM.Core;
 internal sealed class DevicePackageSlotGate : IAsyncDisposable
 {
     internal const string ProductionName = @"Global\WSGM.DevicePackageSlot";
-    private readonly ManualResetEventSlim _releaseRequested = new(initialState: false);
+    // A task signal rather than a ManualResetEventSlim: the owner thread blocks on it, and it
+    // needs no disposal that could race the Set from DisposeAsync.
+    private static readonly TimeSpan ReleaseWait = TimeSpan.FromSeconds(10);
+    private readonly TaskCompletionSource _releaseRequested = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _releaseCompleted = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource<DevicePackageSlotGate?> _acquisition = new(
@@ -116,12 +120,21 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref _disposeState, 1) == 0)
         {
-            _releaseRequested.Set();
+            _releaseRequested.TrySetResult();
         }
 
         // Mutex ownership is thread-affine. The dedicated owner releases it and signals this
         // completion, which keeps disposal thread-independent without weakening crash recovery.
-        await _releaseCompleted.Task.ConfigureAwait(false);
+        // The owner always signals today; the bound keeps a future path that cannot from hanging
+        // disposal, and process exit still abandons the mutex, which the next waiter recovers.
+        try
+        {
+            await _releaseCompleted.Task.WaitAsync(ReleaseWait).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            Log.Warn($"Device package slot release did not complete within {ReleaseWait.TotalSeconds:0} s.");
+        }
     }
 
     private void OwnMutex()
@@ -147,7 +160,7 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
 
             ownsMutex = true;
             _acquisition.TrySetResult(this);
-            _releaseRequested.Wait();
+            _releaseRequested.Task.Wait();
         }
         catch (Exception ex)
         {
