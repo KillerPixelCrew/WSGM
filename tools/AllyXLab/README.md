@@ -16,6 +16,13 @@ export it rather than bypassing the refusal. The production Ally X plugin remain
 The binary is committed beside this source at the maintainer's request. `Downloads/SHA256.txt`
 records its hash. It is an unsigned experimental build; no hardware pass is claimed.
 
+`Downloads/BUILD.json` records the SDK, the exe hash and a hash of every source file taken with CRLF
+normalized to LF, so it reads the same on any checkout. `eng/allyxlab-download.ps1` checks that the
+three download files agree and warns when the source has moved on since the exe was built;
+`eng/verify.ps1` runs that check. `eng/allyxlab-download.ps1 -Build` rebuilds the exe and both
+records from committed source. Each rebuild adds about 55 MB to the repository history, so rebuild
+only when a tester needs the new binary.
+
 ## Tester instructions
 
 1. Open the EXE and press **Start**. Close games, disconnect other controllers and keep the battery

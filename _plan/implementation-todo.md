@@ -26,6 +26,14 @@ answers, and explicit boundary summaries. The ZIP save step is part of the finis
 after cancellation. The new binary replaces the same download. Hardware and Windows UI acceptance
 are still pending; automated suites remain deferred.
 
+0.3.2 applies the release review of the lab. The HidHide allowance now removes only its own entry at
+the end instead of writing back the earlier list, records that entry on disk before writing it so a
+killed session is cleaned up on the next start, compares paths with their volume, and leaves an
+inverse-mode list alone. Manager matching is exact, gamepad motor routes carry the pad's device id,
+and blocking discovery and close requests run off the UI thread. The version comes from the project
+file, and `eng/allyxlab-download.ps1` rebuilds and checks the download and its manifest. Hardware
+and Windows UI acceptance are still pending; automated suites remain deferred.
+
 0.3.1 adds the device-access check the first run needed: other managers (Armoury Crate and its
 helpers, Handheld Companion, G-Helper, MSI Center, Winhanced, DS4Windows, HidHide Client, WSGM) are
 listed with what they do to the evidence and can be closed through their window at the tester's

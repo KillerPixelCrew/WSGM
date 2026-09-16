@@ -8,8 +8,9 @@ codes, and safe to rerun.
 
 - eng/verify.ps1 is the canonical gate. Preserve its checks for optional Prettier formatting, Steam
   asset drift and ownership claims, AGENTS/CLAUDE link integrity, tracked PowerShell syntax,
-  live-data path exclusions, version-copy agreement, controller pins, Steam Input validation,
-  restore, warning-clean Release builds, all solution tests, and main-test coverage.
+  live-data path exclusions, version-copy agreement, the Ally X Lab download manifest, controller
+  pins, Steam Input validation, restore, warning-clean Release builds, all solution tests, and
+  main-test coverage.
 - -SkipPrettier skips only formatting. It must not skip the generated asset build, claims check,
   compilation, or tests.
 - -Fix may rewrite formatted files. Never hide unrelated changes in that pass; inspect the diff
