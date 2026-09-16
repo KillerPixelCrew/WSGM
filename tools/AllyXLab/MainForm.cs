@@ -24,7 +24,7 @@ internal sealed partial class MainForm : Form
 
     internal MainForm()
     {
-        Text = "ROG Ally X Lab · guided test · 0.3.1";
+        Text = "ROG Ally X Lab · guided test · " + LabVersion.Text;
         Size = new Size(920, 720); MinimumSize = new Size(850, 620);
         AutoScaleMode = AutoScaleMode.Dpi;
         StartPosition = FormStartPosition.CenterScreen;

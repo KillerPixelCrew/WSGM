@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -12,6 +13,14 @@ internal sealed record Request(ActionKind Action, string Label, int Value = 0, i
     string Endpoint = "", int Seconds = 8, int? ExpectedAc = null, bool Motion = false);
 
 internal sealed record LabEvent(double Milliseconds, string Kind, object Data);
+
+/// <summary>The tool version, taken from the project's Version property.</summary>
+internal static class LabVersion
+{
+    internal static readonly string Text = (typeof(LabVersion).Assembly
+        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown")
+        .Split('+')[0];
+}
 
 internal sealed class SessionLog(int maxEvents = 24000)
 {
