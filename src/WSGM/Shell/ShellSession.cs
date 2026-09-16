@@ -1571,6 +1571,16 @@ public sealed class ShellSession : IAsyncDisposable
         {
             await new LibraryTabManager().SyncOnBootAsync(owner.Token).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (owner.IsCancellationRequested)
+        {
+            Log.Info("Library tab boot sync superseded or cancelled.");
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // Fire-and-forget: without this a failed boot sync left the tabs missing with
+            // nothing in the log.
+            Log.Warn($"Library tab boot sync failed: {ex.Message}");
+        }
         finally
         {
             if (!ReferenceEquals(_tabBootSyncCancellation, owner))
@@ -3454,8 +3464,11 @@ public sealed class ShellSession : IAsyncDisposable
 
         cancellationToken.ThrowIfCancellationRequested();
         // Inject the WSGM library tabs once Steam's UI has loaded, so they appear at
-        // boot without the user opening the overlay. Fire-and-forget; self-limiting.
-        _ = RunTabBootSyncAsync(_tabBootSyncCancellation);
+        // boot without the user opening the overlay. This runs on the boot worker, and the
+        // cancellation source belongs to the UI thread, where GameModeEntered and SteamStarted
+        // replace it; reading it here could start a sync on a source those handlers had just
+        // cancelled, and the tabs never appeared.
+        Dispatcher.UIThread.Post(KickTabBootSync);
 
     }
 
