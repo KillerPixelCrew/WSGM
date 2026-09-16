@@ -320,19 +320,28 @@ public static class Log
                 _bytesSinceRotationCheck = 0;
                 RotateIfLarge();
             }
-            // Shell and settings are separate processes sharing this file; a
-            // concurrent append raises a sharing-violation IOException — retry
-            // briefly instead of silently dropping the line.
+            // Shell and settings are separate processes sharing this file. File.AppendAllText
+            // shares it for reading only, so their concurrent appends collided with sharing
+            // violations and this retried with 15 ms sleeps under the process-wide lock, which
+            // stalled UI-thread callers. Opening for append with read, write and delete sharing
+            // lets both processes append at once and rotation rename the file; a violation from
+            // some other exclusive opener is retried only briefly.
+            var bytes = System.Text.Encoding.UTF8.GetBytes(line);
             for (var attempt = 0; ; attempt++)
             {
                 try
                 {
-                    File.AppendAllText(_path, line);
+                    using var stream = new FileStream(
+                        _path,
+                        FileMode.Append,
+                        FileAccess.Write,
+                        FileShare.ReadWrite | FileShare.Delete);
+                    stream.Write(bytes);
                     return;
                 }
                 catch (IOException) when (attempt < 3)
                 {
-                    Thread.Sleep(15);
+                    Thread.Sleep(1);
                 }
                 catch
                 {
