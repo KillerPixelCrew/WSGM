@@ -43,7 +43,15 @@ function Publish-DeviceLab {
     if (-not [string]::IsNullOrWhiteSpace($Version)) {
         $arguments += "/p:Version=$Version"
     }
-    $arguments += @("/p:PublishSingleFile=false", "/p:TreatWarningsAsErrors=true", "-m:1")
+    # No symbols: the installer copies this tree recursively, and a .pdb carries build-machine
+    # paths to users.
+    $arguments += @(
+        "/p:PublishSingleFile=false",
+        "/p:TreatWarningsAsErrors=true",
+        "/p:DebugType=none",
+        "/p:CopyOutputSymbolsToPublishDirectory=false",
+        "-m:1"
+    )
     if ($NoRestore) {
         $arguments += "--no-restore"
     }
@@ -52,6 +60,11 @@ function Publish-DeviceLab {
     if ($LASTEXITCODE -ne 0) {
         throw "Publishing Device Lab failed."
     }
+
+    # DebugType only covers the managed build. SkiaSharp and HarfBuzzSharp ship native symbols as
+    # NuGet runtime assets (about 105 MB), which the publish copies regardless, so symbols are
+    # removed afterwards, as pack-device.ps1 does for plugin packages.
+    Get-ChildItem -LiteralPath $Destination -Filter "*.pdb" -File -Recurse | Remove-Item -Force
 
     # The runtime notices, taken from the pack this publish actually restored.
     $assetsPath = Join-Path $deviceLabRoot "obj\project.assets.json"
