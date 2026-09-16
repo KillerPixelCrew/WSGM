@@ -2556,6 +2556,13 @@ public sealed class ShellSession : IAsyncDisposable
             }
         }
 
+        // From here on every step is independently guarded: a throw from any one of them,
+        // Steam UI, AutoTDP-adjacent handoff, performance, display restore, or a manager
+        // disposal, must not skip the ones after it. A single shared try around this whole
+        // stretch previously let one failure stop everything below it, contradicting the
+        // invariant above and, on an Update reason, leaving the audio, radio and drive
+        // managers holding endpoints and device notifications while the installer replaces
+        // files underneath them.
         try
         {
             // Shutdown rejects every new transition before reaching this point. Let the one
@@ -2567,160 +2574,294 @@ public sealed class ShellSession : IAsyncDisposable
             {
                 await _modes.WaitForTransitionAsync().ConfigureAwait(false);
             }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Waiting for the in-flight mode transition during application shutdown failed", ex);
+        }
+        try
+        {
             if (_bootWork is not null)
             {
                 await _bootWork.ConfigureAwait(false);
-                _bootWork = null;
-            }
-            if (_transportGateWork is not null)
-            {
-                // Ends on the cancelled session token; awaited so it can never re-decide the
-                // transport after the disposal below has begun.
-                await _transportGateWork.ConfigureAwait(false);
-                _transportGateWork = null;
-            }
-
-            bool trayRetired = false;
-            try
-            {
-                await Dispatcher.UIThread.InvokeAsync(RetireTrayHostForShutdown);
-                trayRetired = true;
-            }
-            catch (Exception ex)
-            {
-                RecordShutdownFailure(failures, "Retiring the WSGM taskbar during application shutdown failed", ex);
-            }
-            try
-            {
-                await Dispatcher.UIThread.InvokeAsync(DisposeUiOwnedSessionResources);
-            }
-            catch (Exception ex)
-            {
-                RecordShutdownFailure(failures, "UI-owned shell cleanup failed during application shutdown", ex);
-            }
-
-            bool desktopVerified = trayRetired
-                && await RestoreDesktopBeforeShutdownAsync(reason, deadline).ConfigureAwait(false);
-            if (desktopVerified && _desktopHost is not null)
-            {
-                await _desktopHost.DisposeAsync().ConfigureAwait(false);
-                _desktopHost = null;
-            }
-
-            // AutoTDP is already gone: it is disposed before the device coordinator, above,
-            // because its restoration needs that coordinator's write path.
-            if (_runningApplicationTargets is not null)
-            {
-                await _runningApplicationTargets.DisposeAsync().ConfigureAwait(false);
-                _runningApplicationTargets = null;
-            }
-            if (_foregroundWindows is not null)
-            {
-                _foregroundWindows.ApplicationChanged -= OnForegroundApplicationChanged;
-                _foregroundWindows.Dispose();
-                _foregroundWindows = null;
-            }
-            if (_runningApplications is not null)
-            {
-                await _runningApplications.DisposeAsync().ConfigureAwait(false);
-                _runningApplications = null;
-            }
-            // After the monitor, which is the only thing that reads it.
-            _pairingFrametimes?.Dispose();
-            _pairingFrametimes = null;
-            await _cefMasterGate.WaitAsync().ConfigureAwait(false);
-            try
-            {
-                if (_steamUi is not null)
-                {
-                    await _steamUi.DisposeAsync().ConfigureAwait(false);
-                    _steamUi = null;
-                }
-            }
-            finally
-            {
-                _cefMasterGate.Release();
-            }
-            if (_steamUiTransport is not null)
-            {
-                SteamUiTransportSession.Detach(_steamUiTransport);
-                await _steamUiTransport.DisposeAsync().ConfigureAwait(false);
-                _steamUiTransport = null;
-            }
-            if (_performance is not null)
-            {
-                _performance.StateChanged -= OnPerformanceStateForPairing;
-                await _performance.DisposeAsync().ConfigureAwait(false);
-                _performance = null;
-            }
-
-            // Before the session ends, not after: the applied rate is transient and would
-            // heal on its own eventually, but leaving the desktop at 48 Hz until something
-            // else resets it is a change the user never made and would have to hunt for.
-            if (_refreshPairing is not null)
-            {
-                if (!_refreshPairing.Restore())
-                {
-                    failures.Add(new InvalidOperationException(
-                        "The pre-game display refresh rate could not be restored."));
-                }
-                _refreshPairing = null;
-            }
-
-            // Same reasoning, and separately owned: a resolution the user picked from the menu
-            // is transient too, and leaving the desktop at a game's resolution is the more
-            // visible of the two changes to be left with.
-            if (_resolutions is not null)
-            {
-                if (!_resolutions.Restore())
-                {
-                    failures.Add(new InvalidOperationException(
-                        "The pre-game display resolution could not be restored."));
-                }
-                _resolutions = null;
-            }
-
-            // After the Steam host and the overlay, both of which hold them.
-            if (_audio is not null)
-            {
-                _audio.Dispose();
-                _audio = null;
-            }
-
-            if (_radios is not null)
-            {
-                _radios.Dispose();
-                _radios = null;
-            }
-
-            // Before the drive manager, whose collection the bridge is subscribed to. The format
-            // manager holds no timer or handle to release; its work is a task already cancelled
-            // with the session, so only the drive manager is disposed after it.
-            if (_steamStorage is not null)
-            {
-                _steamStorage.Dispose();
-                _steamStorage = null;
-            }
-
-            if (_drives is not null)
-            {
-                _drives.Dispose();
-                _drives = null;
-            }
-            _formats = null;
-            _tabBootSyncCancellation.Dispose();
-            _shutdownCancellation.Dispose();
-
-            if (!desktopVerified)
-            {
-                throw new InvalidOperationException(
-                    "Application shutdown could not verify a usable Explorer desktop; "
-                    + "the retained shell anchor will recover after process exit.");
             }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            failures.Add(ex);
+            RecordShutdownFailure(failures, "Waiting for the boot worker during application shutdown failed", ex);
+        }
+        finally
+        {
+            _bootWork = null;
+        }
+        try
+        {
+            // Ends on the cancelled session token; awaited so it can never re-decide the
+            // transport after the disposal below has begun.
+            if (_transportGateWork is not null)
+            {
+                await _transportGateWork.ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Waiting for the transport gate during application shutdown failed", ex);
+        }
+        finally
+        {
+            _transportGateWork = null;
+        }
+
+        bool trayRetired = false;
+        try
+        {
+            await Dispatcher.UIThread.InvokeAsync(RetireTrayHostForShutdown);
+            trayRetired = true;
+        }
+        catch (Exception ex)
+        {
+            RecordShutdownFailure(failures, "Retiring the WSGM taskbar during application shutdown failed", ex);
+        }
+        try
+        {
+            await Dispatcher.UIThread.InvokeAsync(DisposeUiOwnedSessionResources);
+        }
+        catch (Exception ex)
+        {
+            RecordShutdownFailure(failures, "UI-owned shell cleanup failed during application shutdown", ex);
+        }
+
+        bool desktopVerified = false;
+        try
+        {
+            desktopVerified = trayRetired
+                && await RestoreDesktopBeforeShutdownAsync(reason, deadline).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Restoring the desktop during application shutdown failed", ex);
+        }
+        try
+        {
+            if (desktopVerified && _desktopHost is not null)
+            {
+                await _desktopHost.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing the desktop host during application shutdown failed", ex);
+        }
+        finally
+        {
+            _desktopHost = null;
+        }
+
+        // AutoTDP is already gone: it is disposed before the device coordinator, above,
+        // because its restoration needs that coordinator's write path.
+        try
+        {
+            if (_runningApplicationTargets is not null)
+            {
+                await _runningApplicationTargets.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing running-application targets during application shutdown failed", ex);
+        }
+        finally
+        {
+            _runningApplicationTargets = null;
+        }
+        try
+        {
+            if (_foregroundWindows is not null)
+            {
+                _foregroundWindows.ApplicationChanged -= OnForegroundApplicationChanged;
+                _foregroundWindows.Dispose();
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing the foreground window watcher during application shutdown failed", ex);
+        }
+        finally
+        {
+            _foregroundWindows = null;
+        }
+        try
+        {
+            if (_runningApplications is not null)
+            {
+                await _runningApplications.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing running applications during application shutdown failed", ex);
+        }
+        finally
+        {
+            _runningApplications = null;
+        }
+        // After the monitor, which is the only thing that reads it.
+        _pairingFrametimes?.Dispose();
+        _pairingFrametimes = null;
+        await _cefMasterGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_steamUi is not null)
+            {
+                await _steamUi.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing the Steam UI session during application shutdown failed", ex);
+        }
+        finally
+        {
+            _steamUi = null;
+            _cefMasterGate.Release();
+        }
+        try
+        {
+            if (_steamUiTransport is not null)
+            {
+                SteamUiTransportSession.Detach(_steamUiTransport);
+                await _steamUiTransport.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing the Steam UI transport during application shutdown failed", ex);
+        }
+        finally
+        {
+            _steamUiTransport = null;
+        }
+        try
+        {
+            if (_performance is not null)
+            {
+                _performance.StateChanged -= OnPerformanceStateForPairing;
+                await _performance.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing performance monitoring during application shutdown failed", ex);
+        }
+        finally
+        {
+            _performance = null;
+        }
+
+        // Before the session ends, not after: the applied rate is transient and would
+        // heal on its own eventually, but leaving the desktop at 48 Hz until something
+        // else resets it is a change the user never made and would have to hunt for.
+        try
+        {
+            if (_refreshPairing is not null && !_refreshPairing.Restore())
+            {
+                failures.Add(new InvalidOperationException(
+                    "The pre-game display refresh rate could not be restored."));
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Restoring the pre-game display refresh rate during application shutdown failed", ex);
+        }
+        finally
+        {
+            _refreshPairing = null;
+        }
+
+        // Same reasoning, and separately owned: a resolution the user picked from the menu
+        // is transient too, and leaving the desktop at a game's resolution is the more
+        // visible of the two changes to be left with.
+        try
+        {
+            if (_resolutions is not null && !_resolutions.Restore())
+            {
+                failures.Add(new InvalidOperationException(
+                    "The pre-game display resolution could not be restored."));
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Restoring the pre-game display resolution during application shutdown failed", ex);
+        }
+        finally
+        {
+            _resolutions = null;
+        }
+
+        // After the Steam host and the overlay, both of which hold them.
+        try
+        {
+            _audio?.Dispose();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing the audio manager during application shutdown failed", ex);
+        }
+        finally
+        {
+            _audio = null;
+        }
+
+        try
+        {
+            _radios?.Dispose();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing the radio manager during application shutdown failed", ex);
+        }
+        finally
+        {
+            _radios = null;
+        }
+
+        // Before the drive manager, whose collection the bridge is subscribed to. The format
+        // manager holds no timer or handle to release; its work is a task already cancelled
+        // with the session, so only the drive manager is disposed after it.
+        try
+        {
+            _steamStorage?.Dispose();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing the Steam storage bridge during application shutdown failed", ex);
+        }
+        finally
+        {
+            _steamStorage = null;
+        }
+
+        try
+        {
+            _drives?.Dispose();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing the drive manager during application shutdown failed", ex);
+        }
+        finally
+        {
+            _drives = null;
+        }
+        _formats = null;
+        _tabBootSyncCancellation.Dispose();
+        _shutdownCancellation.Dispose();
+
+        if (!desktopVerified)
+        {
+            failures.Add(new InvalidOperationException(
+                "Application shutdown could not verify a usable Explorer desktop; "
+                + "the retained shell anchor will recover after process exit."));
         }
 
         if (ShutdownFailure(failures) is { } unverified)
