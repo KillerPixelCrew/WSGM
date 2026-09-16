@@ -1,0 +1,22 @@
+# Qodana configuration. The workflow runs the .NET Community linter in its Linux container, so the
+# workflow passes EnableWindowsTargeting=true for the net10.0-windows projects. Native Steam Input
+# Lease and VIIPER payloads are staged by separate scripts and are not needed for analysis.
+version: "1.0"
+linter: jetbrains/qodana-cdnet:2026.1
+
+dotnet:
+  solution: WSGM.slnx
+  configuration: Release
+
+bootstrap: >-
+  dotnet restore WSGM.slnx -p:EnableWindowsTargeting=true && dotnet build WSGM.slnx --configuration
+  Release --no-restore -p:EnableWindowsTargeting=true -p:SkipNativeArtifacts=true
+
+exclude:
+  - name: All
+    paths:
+      - _ref
+      - external
+      - publish
+      - "**/bin"
+      - "**/obj"
