@@ -150,3 +150,10 @@ try {
 finally {
     Pop-Location
 }
+
+
+    # WSGM.UiTests runs on Microsoft.Testing.Platform (xunit.v3 4.0), which the .NET 10 SDK does
+    # not drive through the VSTest mode above; the solution run skips it and it runs here as the
+    # executable it is.
+    dotnet run --project tests\WSGM.UiTests\WSGM.UiTests.csproj --configuration Release --no-build
+    if ($LASTEXITCODE -ne 0) { throw "WSGM.UiTests failed" }
