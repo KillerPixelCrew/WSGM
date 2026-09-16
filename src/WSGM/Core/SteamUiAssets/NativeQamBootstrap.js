@@ -1260,7 +1260,6 @@
     };
     return requirePresent;
   }
-
   // @steam-ui-module-resolver-end
   // Audio is supplied as the namespace Steam's own store looks for, rather than drawn as a row.
   // The store's availability flag is literally `null != SteamClient.System.Audio`, so defining this
@@ -1615,7 +1614,6 @@
     });
     return { install, remove, status };
   }
-
   registerGate("audio", createAudioNamespace());
   // Bluetooth is a WebUI transport service whose backend does not exist on Windows. The service,
   // its message shapes and every operation are present — GetState round-trips and answers
@@ -1783,7 +1781,6 @@
     });
     return { install, remove, status };
   }
-
   registerGate("bluetooth", createBluetoothService());
   // Not availability-only, despite the founding comment that said Steam's own backend works on
   // Windows. It does not — device-disproved 2026-08-30: SetBrightness is a native stub and
@@ -1985,7 +1982,6 @@
     };
     return { install, remove, status };
   }
-
   registerGate("brightness", createBrightnessGate());
   // The JSX-runtime claim (interceptElements in ownership.ts), for scripts outside this bundle.
   //
@@ -2029,7 +2025,6 @@
     };
     return { register, unregister, registered };
   }
-
   registerGate("elements", createElementsGate());
   // Big Picture Home's carousel, fed from the libraries attached right now.
   //
@@ -2554,7 +2549,6 @@
     });
     return { install, remove, status };
   }
-
   registerGate("homeCarousel", createHomeCarousel());
   // A library badge on every library tile: the name of the Steam library that holds the game, drawn
   // beside Valve's own Steam Input badge in the tile's icon row.
@@ -2634,7 +2628,6 @@
     if (!library && !installed) return null;
     return { name: library ? library.name : reading.internalLabel, installed };
   };
-
   function createLibraryBadge() {
     const patchId = "steam-ui.library-badge";
     const claimKeys = {
@@ -2911,7 +2904,6 @@
     });
     return { install, remove, status };
   }
-
   registerGate("libraryBadge", createLibraryBadge());
   // The library as a stat on a game's own page, after Last Played and Play Time.
   //
@@ -3098,7 +3090,6 @@
     });
     return { install, remove, status };
   }
-
   registerGate("libraryDetails", createLibraryDetails());
   // Steam's left slideout navigation panel, as an extension surface.
   //
@@ -3392,7 +3383,6 @@
     });
     return { install, remove, status };
   }
-
   registerGate("navigationPanel", createNavigationPanel());
   // Wi-Fi is hidden by one getter, not by an absent backend. Steam's Windows client genuinely
   // tracks the wireless device — hasWirelessDevice and isWifiEnabled are true here without any
@@ -3586,7 +3576,6 @@
     };
     return { install, remove, status };
   }
-
   registerGate("network", createNetworkGate());
   // Custom pages inside Steam's Game Mode UI.
   //
@@ -3856,7 +3845,6 @@
     });
     return { install, remove, status };
   }
-
   registerGate("pages", createPageHost());
   // The performance surface is the largest absent backend: SystemPerfStore's constructor
   // optional-chains through a SteamClient.System.Perf that does not exist on Windows, so its state
@@ -4003,7 +3991,6 @@
     };
     return { install, remove, status };
   }
-
   registerGate("perf", createPerfNamespace());
   // Big Picture's Screensaver settings, with the host's timeout rows beside Steam's own screensaver
   // timeout.
@@ -4164,7 +4151,6 @@
           notify();
         });
     };
-
     function SteamUiScreensaverTimeouts() {
       react.useSyncExternalStore(subscribeLocal, readRevision);
       const reading = useObserver
@@ -4200,7 +4186,6 @@
         ),
       );
     }
-
     const childrenOf = (element) => {
       const children = element.props?.children;
       return Array.isArray(children) ? children : children === undefined ? [] : [children];
@@ -4391,7 +4376,6 @@
     });
     return { install, remove, status };
   }
-
   registerGate("screensaver", createScreensaverSettings());
   // Steam's own storage device manager, revived on Windows.
   //
@@ -4726,9 +4710,7 @@
     });
     return { install, remove, status };
   }
-
   registerGate("storage", createStorageService());
-
   function createNativeComponentHost() {
     const registrations = new Map();
     const listeners = new Set();
@@ -6696,7 +6678,6 @@
         lastPatchError = "native component runtime resolution failed";
         return false;
       }
-
       function SteamUiPerformanceRoot(props) {
         const [, setRevision] = controlRuntime.react.useState(0);
         controlRuntime.react.useEffect(
@@ -6705,7 +6686,6 @@
         );
         return appendControls(controlRuntime, performanceRoot(props));
       }
-
       // One wrapper per wrapped tab, matched by root identity in the same memoized tab array.
       // Each root must match exactly once or it is left alone — the discipline that kept the
       // performance wrap honest, applied per root rather than to the array as a whole.
@@ -6833,7 +6813,6 @@
     };
     return { install, remove, status, dispose: disposeHostResources };
   }
-
   registerGate("nativeComponents", createNativeComponentHost());
   // The last fragment in the bundle, and the only thing in it.
   //
