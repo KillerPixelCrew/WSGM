@@ -90,8 +90,12 @@ Only shell mode holds the single-instance mutex `Local\WSGM.Shell`; the installe
 decision off it. A crash-loop breaker counts shell starts: three inside two minutes disarms the
 sign-in start (`GameModeBoot=false` and `DesktopResident=false` in boot.json, `StartAtSignIn` off,
 shell snapshot restored, Explorer started if none runs). `--restore-shell` disarms it the same way.
-Both leave `StartMode` alone, so re-enabling in Settings restores the chosen mode. A clean exit
-resets the counter, otherwise two update restarts plus a sign-in inside two minutes read as a loop.
+It first signals `Local\WSGM.ExitForRestoreShell` and waits up to 45 seconds for a resident shell to
+exit, because that shell still owns a Shell_TrayWnd that must never coexist with Explorer's; the
+resident's normal shutdown restores Explorer, and the recovery process starts Explorer only when its
+desktop shell is still missing. Both leave `StartMode` alone, so re-enabling in Settings restores
+the chosen mode. A clean exit resets the counter, otherwise two update restarts plus a sign-in
+inside two minutes read as a loop.
 
 `Panic()` is the in-process, best-effort recovery: restore the shell snapshot, destroy the tray
 host, hand recovery to the verified shell anchor when one exists, otherwise start Explorer if none

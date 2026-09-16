@@ -34,6 +34,11 @@ public static class UpdateExitWatcher
     /// <summary>Gets the per-session event used by the uninstaller for its longer cleanup budget.</summary>
     public const string UninstallEventName = @"Local\WSGM.ExitForUninstall";
 
+    /// <summary>Gets the per-session event a <c>--restore-shell</c> run signals so a resident shell
+    /// runs its normal shutdown, which restores Explorer and retires its own taskbar, before the
+    /// recovery process touches the desktop.</summary>
+    public const string RestoreShellEventName = @"Local\WSGM.ExitForRestoreShell";
+
     // The setup is ALWAYS elevated (PrivilegesRequired=admin): the user-SID ACE
     // covers every same-user WSGM instance (elevated or filtered token — the user
     // SID is never deny-only) and a setup elevated as this user; the BA ACE covers
@@ -98,7 +103,12 @@ public static class UpdateExitWatcher
     /// <summary>Starts watching for the updater's graceful-exit request.</summary>
     /// <param name="onExitRequested">The callback that runs the normal application shutdown path.</param>
     /// <param name="onUninstallRequested">The callback that runs the uninstall shutdown path.</param>
-    public static void Start(Action onExitRequested, Action? onUninstallRequested = null)
+    /// <param name="onRestoreShellRequested">The callback that runs the normal shutdown path when a
+    /// <c>--restore-shell</c> run asks this resident shell to hand the desktop back.</param>
+    public static void Start(
+        Action onExitRequested,
+        Action? onUninstallRequested = null,
+        Action? onRestoreShellRequested = null)
     {
         try
         {
@@ -124,11 +134,63 @@ public static class UpdateExitWatcher
                     userSid,
                     onUninstallRequested);
             }
+            if (onRestoreShellRequested is not null)
+            {
+                StartWatcher(RestoreShellEventName, "restore-shell", userSid, onRestoreShellRequested);
+            }
         }
         catch (Exception ex)
         {
             Log.Warn($"Update-exit watcher not available: {ex.Message}");
         }
+    }
+
+    /// <summary>Asks a resident WSGM shell in this session to shut down normally and waits for it.</summary>
+    /// <param name="timeout">How long to wait for the resident process to exit.</param>
+    /// <returns>Whether a resident shell was asked and exited in time; false when none was
+    /// listening or it did not exit.</returns>
+    /// <remarks>Runs on the <c>--restore-shell</c> path before logging and configuration, so it
+    /// uses only the named event and the process table. A resident shell that ignores the request
+    /// is left running; the caller then falls back to its own recovery.</remarks>
+    internal static bool RequestResidentShellExit(TimeSpan timeout)
+    {
+        nint request = NativeMethods.OpenEventW(NativeMethods.EventModifyState, false, RestoreShellEventName);
+        if (request == 0)
+        {
+            return false;
+        }
+        try
+        {
+            if (!NativeMethods.SetEvent(request))
+            {
+                return false;
+            }
+        }
+        finally
+        {
+            Win32Common.CloseHandle(request);
+        }
+
+        int self = Environment.ProcessId;
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            bool residentAlive = false;
+            foreach (uint pid in WindowFinder.FindProcessIds("WSGM"))
+            {
+                if (pid != self)
+                {
+                    residentAlive = true;
+                    break;
+                }
+            }
+            if (!residentAlive)
+            {
+                return true;
+            }
+            Thread.Sleep(200);
+        }
+        return false;
     }
 
     private static nint StartHandoffEvent(

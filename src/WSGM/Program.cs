@@ -88,6 +88,10 @@ public static class Program
             // defaults.
             try { BootManifestWriter.WriteSignInDisabled(ConfigStore.Load()); } catch { }
             try { ConfigStore.Mutate(static c => c.StartAtSignIn = false); } catch { }
+            // A resident WSGM shell still owns its Shell_TrayWnd and would keep running with its
+            // registration and sign-in start changed underneath it. Ask it to shut down normally,
+            // which restores Explorer itself; the start below then finds the desktop running.
+            UpdateExitWatcher.RequestResidentShellExit(TimeSpan.FromSeconds(45));
             // Verify-and-wait: this path returns out of Main straight afterwards, so a
             // queued de-elevation check would be torn down before it ran and the user
             // would be left with an elevated Explorer (breaks UWP); see docs\elevation.md.
@@ -375,7 +379,8 @@ public static class Program
 
         UpdateExitWatcher.Start(
             () => RequestInstallerExit(ApplicationShutdownReason.Update),
-            () => RequestInstallerExit(ApplicationShutdownReason.Uninstall));
+            () => RequestInstallerExit(ApplicationShutdownReason.Uninstall),
+            Mode == RunMode.Shell ? RequestRestoreShellExit : null);
 
         try
         {
@@ -403,6 +408,15 @@ public static class Program
             return 1;
         }
     }
+
+    // A --restore-shell run from another process: the normal shutdown path restores Explorer and
+    // retires this shell's taskbar before that process touches the desktop.
+    private static void RequestRestoreShellExit() =>
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            ApplicationShutdownRequest.Request(ApplicationShutdownReason.Normal);
+            ApplicationShutdownRequest.ShutdownLifetime();
+        });
 
     private static void RequestInstallerExit(ApplicationShutdownReason reason) =>
         // Posted jobs only run once StartWithClassicDesktopLifetime pumps the dispatcher.
