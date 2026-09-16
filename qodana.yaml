@@ -31,3 +31,7 @@ exclude:
       - src/WSGM/app.manifest
       - src/WSGM.Launch/app.manifest
       - src/WSGM.LogonService/app.manifest
+  # Token-replacement templates that ScaffoldFromCaptureWorkflow fills in; they are not source.
+  - name: ReassignedToPlainText
+    paths:
+      - src/WSGM.DeviceLab/Templates
