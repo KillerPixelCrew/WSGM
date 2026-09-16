@@ -1,4 +1,3 @@
-using Avalonia.VisualTree;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -6,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;

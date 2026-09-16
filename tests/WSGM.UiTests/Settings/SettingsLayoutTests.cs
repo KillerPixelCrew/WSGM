@@ -1,12 +1,12 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using Avalonia;
+using WindowsDeviceControl;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Settings;
-using WindowsDeviceControl;
 
 namespace WSGM.UiTests;
 

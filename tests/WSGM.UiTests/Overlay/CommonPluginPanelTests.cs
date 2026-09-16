@@ -1,5 +1,5 @@
-using Avalonia.Controls.Primitives;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
 using Avalonia.LogicalTree;
 using Avalonia.VisualTree;

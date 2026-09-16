@@ -1,11 +1,11 @@
 using System.Reflection;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using Avalonia;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;

@@ -2,9 +2,9 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
+using WindowsDeviceControl;
 using WSGM.Overlay;
 using WSGM.Shell;
-using WindowsDeviceControl;
 
 namespace WSGM.UiTests;
 

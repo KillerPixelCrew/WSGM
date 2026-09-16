@@ -1,7 +1,7 @@
+using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
-using WindowsDeviceControl;
 using static WSGM.Tests.PluginBuilders;
 
 namespace WSGM.Tests;

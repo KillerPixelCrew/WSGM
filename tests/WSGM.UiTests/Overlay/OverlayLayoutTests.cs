@@ -3,12 +3,12 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using WindowsDeviceControl;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
 using WSGM.Shell;
-using WindowsDeviceControl;
 
 namespace WSGM.UiTests;
 

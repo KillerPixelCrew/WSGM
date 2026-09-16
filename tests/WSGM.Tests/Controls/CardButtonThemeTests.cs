@@ -1,6 +1,6 @@
 using System.Xml.Linq;
-using WSGM.Device.Tests;
 using WSGM.Controls;
+using WSGM.Device.Tests;
 
 namespace WSGM.Tests;
 

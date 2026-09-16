@@ -2,8 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
-using static WSGM.Interop.NativeDisplay;
 using static WSGM.Interop.Kernel32;
+using static WSGM.Interop.NativeDisplay;
 
 namespace WSGM.Core;
 
