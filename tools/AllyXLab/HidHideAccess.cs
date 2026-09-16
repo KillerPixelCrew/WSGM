@@ -57,13 +57,16 @@ internal static class HidHideAccess
 
     /// <summary>Adds this executable to HidHide's allowed applications.</summary>
     /// <param name="log">The session log.</param>
+    /// <param name="beforeWrite">Receives the entry before it is written, to record it durably; an
+    /// exception from it prevents the write.</param>
     /// <returns>The entry that was added, so it can be removed again, or null when nothing was
     /// written.</returns>
     /// <remarks>The list is read here, not taken from the read before the consent prompt, so the
     /// write carries whatever changed while the tester decided.</remarks>
-    internal static string? TryAllow(SessionLog log)
+    internal static string? TryAllow(SessionLog log, Action<string> beforeWrite)
     {
         ArgumentNullException.ThrowIfNull(log);
+        ArgumentNullException.ThrowIfNull(beforeWrite);
         string self = Environment.ProcessPath ?? throw new InvalidOperationException("This tool has no image path.");
         HidHideState state = Read(log);
         if (!state.Available || !string.IsNullOrEmpty(state.Detail) || state.Inverse || Contains(state.Applications, self))
@@ -78,6 +81,7 @@ internal static class HidHideAccess
         }
 
         List<string> updated = [.. state.Applications, self];
+        beforeWrite(self);
         Write(updated, log);
         log.Add("hidhide-allow", new { Added = self, Previous = state.Applications.Count, Now = updated.Count });
         return self;

@@ -48,6 +48,25 @@ internal sealed partial class MainForm
             }
         }
 
+        if (_session.PendingHidHideEntry() is { } earlier)
+        {
+            string answer = await Ask("HidHide still lists an earlier session",
+                "An earlier session added this entry to HidHide's allowed list and ended before removing it:\n" + earlier
+                + "\n\nRemove it now? Other entries are left alone.",
+                ("remove", "Remove it"), ("keep", "Keep it"));
+            CheckStop();
+            if (answer == "remove")
+            {
+                _hidHideAdded = earlier;
+                RestoreHidHide();
+            }
+            else
+            {
+                _session.Observation("Earlier HidHide entry", new { Kept = earlier });
+                _session.ClearHidHideEntry();
+            }
+        }
+
         HidHideState hidHide = HidHideAccess.Read(log);
         bool listed = HidHideAccess.Contains(hidHide.Applications, Environment.ProcessPath ?? "");
         if (hidHide is { Available: true, Active: true, Inverse: true })
@@ -83,12 +102,15 @@ internal sealed partial class MainForm
             {
                 try
                 {
-                    _hidHideAdded = HidHideAccess.TryAllow(log);
+                    _hidHideAdded = HidHideAccess.TryAllow(log, _session.SaveHidHideEntry);
                     _session.Observation("HidHide allowance", new { Added = _hidHideAdded is not null });
                 }
                 catch (Exception e) when (e is not OutOfMemoryException)
                 {
                     log.Add("hidhide-allow-failed", e.Message);
+                    // The record may exist although the write failed; the end of the session then
+                    // confirms the entry is absent and clears it.
+                    _hidHideAdded = _session.PendingHidHideEntry();
                     await Ask("HidHide could not be changed", e.Message + "\n\nNothing was changed. The capture continues; a hidden controller stays hidden.", ("continue", "Continue"));
                 }
             }
@@ -107,11 +129,16 @@ internal sealed partial class MainForm
         SessionLog log = new();
         bool restored = HidHideAccess.Restore(added, log);
         _hidHideAdded = null;
+        if (restored)
+        {
+            _session.ClearHidHideEntry();
+        }
+
         _session.RecordLocal(new Result(new Request(ActionKind.Inventory, "HidHide restoration", Seconds: 1),
             restored ? "entry-removed-readback-matched" : "RESTORATION FAILED", restored ? "restored" : "unverified", log.Events, null));
         if (!restored)
         {
-            _session.Observation("HidHide restoration", "This tool's entry is still on the allowed-application list, or the list could not be read. Remove the entry in the HidHide Configuration Client.");
+            _session.Observation("HidHide restoration", "This tool's entry is still on the allowed-application list, or the list could not be read. Remove the entry in the HidHide Configuration Client; the next start of this tool offers to remove it too.");
         }
     }
 }

@@ -8,6 +8,7 @@ internal sealed class Session
 {
     internal string DirectoryPath { get; }
     internal string RecoveryPath { get; }
+    private readonly string _hidHideEntryPath;
     private int _sequence;
     internal Process? Process { get; private set; }
     internal List<Result> Results { get; } = [];
@@ -25,6 +26,7 @@ internal sealed class Session
 
         Directory.CreateDirectory(root);
         RecoveryPath = Path.Combine(root, "recovery-required.json");
+        _hidHideEntryPath = Path.Combine(root, "hidhide-entry.json");
         DirectoryPath = Path.Combine(root, DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(DirectoryPath);
         WriteNew("session.json", new
@@ -60,6 +62,29 @@ internal sealed class Session
             File.Delete(RecoveryPath);
         }
     }
+    /// <summary>Durably records the HidHide entry about to be added, before the write.</summary>
+    /// <remarks>Kept apart from the hardware recovery record: the tool can remove this entry itself
+    /// on the next start, while hardware recovery needs the tester's OEM restoration.</remarks>
+    internal void SaveHidHideEntry(string entry)
+    {
+        using var output = new FileStream(_hidHideEntryPath, FileMode.Create, FileAccess.Write, FileShare.Read);
+        JsonSerializer.Serialize(output, new { Entry = entry, Session = DirectoryPath, Utc = DateTime.UtcNow }, SessionLog.Json);
+        output.Flush(true);
+    }
+    /// <summary>The HidHide entry a session added and has not yet removed, if any.</summary>
+    internal string? PendingHidHideEntry()
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllBytes(_hidHideEntryPath));
+            return document.RootElement.GetProperty("Entry").GetString() is { Length: > 0 } entry ? entry : null;
+        }
+        catch (Exception e) when (e is FileNotFoundException or JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+    internal void ClearHidHideEntry() => File.Delete(_hidHideEntryPath);
     internal async Task<Result> RunAsync(Request request, Action<string> status, Func<JsonElement, Task<string>>? interact = null)
     {
         if (Process is not null)
