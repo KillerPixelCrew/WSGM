@@ -7,7 +7,7 @@ Severity is about user impact, not effort. Findings marked **[verified]** were c
 the code directly during this review. Unmarked findings come from focused sub-reviews with file and
 line evidence but were not independently re-read.
 
-Progress: 28 of 70 findings marked done. Each finding carries its status and fixing commit in
+Progress: 70 of 70 findings marked done. Each finding carries its status and fixing commit in
 brackets; submodule commits are in that submodule.
 
 ## Scope and state notes
@@ -52,44 +52,45 @@ in the method's own comment at 2443. Scenario: RTSS dies during exit and the use
 desktop stuck at the game's 48 Hz and resolution, and on an `Update` shutdown the audio, radio and
 drive managers still hold endpoints and device notifications while the installer replaces files.
 
-**O3. `src/WSGM/Program.cs:94` - medium - `--restore-shell` starts Explorer unconditionally.**
-[verified] `StartExplorerCore` (`Core/ExplorerControl.cs:29-62`) has no `IsRunningInSession()` guard
-even though `StartExplorer`'s own summary at `ExplorerControl.cs:14` says "when it is not already
-running", and the sibling crash-loop path does guard it (`Program.cs:352`). Explorer is a
-per-session singleton, so a second start opens a folder window instead of becoming the shell.
-Scenario: a user runs `--restore-shell` from a normal desktop to disarm the sign-in start and gets a
-stray File Explorer window plus the blocking elevation verification at `ExplorerControl.cs:50`.
+**[DONE 2dd9178] O3. `src/WSGM/Program.cs:94` - medium - `--restore-shell` starts Explorer
+unconditionally.** [verified] `StartExplorerCore` (`Core/ExplorerControl.cs:29-62`) has no
+`IsRunningInSession()` guard even though `StartExplorer`'s own summary at `ExplorerControl.cs:14`
+says "when it is not already running", and the sibling crash-loop path does guard it
+(`Program.cs:352`). Explorer is a per-session singleton, so a second start opens a folder window
+instead of becoming the shell. Scenario: a user runs `--restore-shell` from a normal desktop to
+disarm the sign-in start and gets a stray File Explorer window plus the blocking elevation
+verification at `ExplorerControl.cs:50`.
 
-**O4. `src/WSGM/Program.cs:78` - medium - `--restore-shell` does not coordinate with a live WSGM
-shell.** It never takes or checks `Local\WSGM.Shell` (unlike shell mode at 317) and never signals
-the resident session. Scenario: a user escapes a wedged session by running
+**[DONE 201065e] O4. `src/WSGM/Program.cs:78` - medium - `--restore-shell` does not coordinate with
+a live WSGM shell.** It never takes or checks `Local\WSGM.Shell` (unlike shell mode at 317) and
+never signals the resident session. Scenario: a user escapes a wedged session by running
 `WSGM.exe --restore-shell` from a second process; Explorer's taskbar comes up while the resident
 shell still owns its `Shell_TrayWnd`, which `src/WSGM/Shell/AGENTS.md` forbids, and the resident
 session's shell registration and `StartAtSignIn` change underneath it with no notification.
 
-**O5. `src/WSGM/Shell/ShellSession.cs:3317` - medium - `_tabBootSyncCancellation` is read off the UI
-thread while the UI thread replaces it.** The boot worker (comment at 3296 confirms it is off the UI
-thread) can capture a source that `GameModeEntered` (1115) or `SteamStarted` (1125) cancels
-immediately after. `RunTabBootSyncAsync` (1568) is fire-and-forget with no `catch`. Scenario: Steam
-finishes starting just as game-mode entry settles, the boot-time injection is cancelled before it
-injects, and the WSGM library tabs are simply absent with nothing logged.
+**[DONE 19d40cf] O5. `src/WSGM/Shell/ShellSession.cs:3317` - medium - `_tabBootSyncCancellation` is
+read off the UI thread while the UI thread replaces it.** The boot worker (comment at 3296 confirms
+it is off the UI thread) can capture a source that `GameModeEntered` (1115) or `SteamStarted` (1125)
+cancels immediately after. `RunTabBootSyncAsync` (1568) is fire-and-forget with no `catch`.
+Scenario: Steam finishes starting just as game-mode entry settles, the boot-time injection is
+cancelled before it injects, and the WSGM library tabs are simply absent with nothing logged.
 
-**O6. `src/WSGM/Core/Log.cs:335` - medium - `Thread.Sleep(15)` retried up to three times inside the
-process-wide `lock (Gate)` (311).** Shell and Settings are separate processes appending to the same
-`wsgm.log`, so a sharing violation blocks the calling thread for up to 45 ms while holding the lock
-and queues every other thread's lines behind it. Scenario: UI-thread `Log.Info` calls on the
-dispatcher, for example `OverlayController.cs:932` during sheet open, stall the Avalonia dispatcher
-tens of milliseconds at a time, which is visible overlay stutter; verbose logging scales the
-exposure.
+**[DONE 416aa10] O6. `src/WSGM/Core/Log.cs:335` - medium - `Thread.Sleep(15)` retried up to three
+times inside the process-wide `lock (Gate)` (311).** Shell and Settings are separate processes
+appending to the same `wsgm.log`, so a sharing violation blocks the calling thread for up to 45 ms
+while holding the lock and queues every other thread's lines behind it. Scenario: UI-thread
+`Log.Info` calls on the dispatcher, for example `OverlayController.cs:932` during sheet open, stall
+the Avalonia dispatcher tens of milliseconds at a time, which is visible overlay stutter; verbose
+logging scales the exposure.
 
-**O7. `src/WSGM/Shell/CardVolumeMonitor.cs:547` - low - `Dispose` tears notifications off a
-process-wide singleton window it does not own.** `MessageWindow.Create()`
+**[DONE 3f4c595] O7. `src/WSGM/Shell/CardVolumeMonitor.cs:547` - low - `Dispose` tears notifications
+off a process-wide singleton window it does not own.** `MessageWindow.Create()`
 (`MessageWindow.cs:115-120`) returns a shared singleton, and `ApplyCardServices(false)` disposes the
 monitor on every desktop trip (2240), deregistering `GUID_DEVINTERFACE_VOLUME` from the shared
 window each time. Harmless today because the card monitor is the only consumer; any second
 subscriber to `MessageWindow.VolumeChanged` would silently stop receiving notifications.
 
-**O8. `src/WSGM/Core/DevicePackageSlotGate.cs:115` - low - `DisposeAsync` awaits
+**[DONE f1b1eb9] O8. `src/WSGM/Core/DevicePackageSlotGate.cs:115` - low - `DisposeAsync` awaits
 `_releaseCompleted.Task` with no timeout while the owner thread sits in an unbounded
 `_releaseRequested.Wait()` (150), and `_releaseRequested` is never disposed.** Not a live hang today
 because the owner's `finally` always signals, but the disposing thread holds
@@ -215,9 +216,10 @@ never returns, so `DiscoverAsync` hangs holding `_gate` with its token unusable,
 `DllNotFound`/`BadImageFormat` fail-closed handling is bypassed, and the device coordinator and
 shutdown deadlock instead of reporting "backend unavailable".
 
-**[PARTIAL viiper e7e220a] V2. `external/viiper/clib/main.go:612` - high - `viiper_device_attach`
-uses `context.Background()` for both the IOCTL and the `usbip.exe` fallback while holding the global
-`mu`.** `attachViaCommand` (`internal/server/api/autoattach_windows.go:204-214`) runs
+**[DONE viiper e7e220a 609b77f] V2. `external/viiper/clib/main.go:612` - high -
+`viiper_device_attach` uses `context.Background()` for both the IOCTL and the `usbip.exe` fallback
+while holding the global `mu`.** `attachViaCommand`
+(`internal/server/api/autoattach_windows.go:204-214`) runs
 `exec.CommandContext(ctx, "usbip", ...).CombinedOutput()` with a non-cancellable context. Scenario:
 the usbip-win2 driver is wedged or a `usbip.exe` on PATH hangs, so `viiper_device_attach` never
 returns and `mu` is held forever, blocking `viiper_device_remove`, `viiper_device_set_input` and
@@ -225,45 +227,45 @@ returns and `mu` is held forever, blocking `viiper_device_remove`, `viiper_devic
 (`ViiperControllerBackend.cs:160`) and a blocked P/Invoke ignores cancellation, so `DisposeAsync`
 (312) waits on `_gate` forever and WSGM has to be killed.
 
-**V3. `external/viiper/clib/main.go:373` - medium - `viiper_shutdown` does not drain in-flight
-feedback callbacks, unlike `viiper_device_remove` which waits `feedback.inflight.Wait()`
-(649-655).** A callback past the `inflight.Add(1)` point (1051) is still executing when shutdown
-returns. `ViiperControllerBackend.cs:339-341` then frees the `GCHandle` the callback's `userData`
-points at, relying on a comment that claims shutdown joins the native server lifetime, which the
-library does not guarantee. Scenario: the legal sequence init, device_add, set_feedback_callback,
-shutdown leaves `OnFeedback` calling `GCHandle.FromIntPtr` on a freed handle, an access violation
-rather than a catchable exception. Related in the same file: `setError` is called after
-`mu.Unlock()` at 633 and 643, racing the locked read in `viiper_last_error`.
+**[DONE viiper 8eda18b] V3. `external/viiper/clib/main.go:373` - medium - `viiper_shutdown` does not
+drain in-flight feedback callbacks, unlike `viiper_device_remove` which waits
+`feedback.inflight.Wait()` (649-655).** A callback past the `inflight.Add(1)` point (1051) is still
+executing when shutdown returns. `ViiperControllerBackend.cs:339-341` then frees the `GCHandle` the
+callback's `userData` points at, relying on a comment that claims shutdown joins the native server
+lifetime, which the library does not guarantee. Scenario: the legal sequence init, device_add,
+set_feedback_callback, shutdown leaves `OnFeedback` calling `GCHandle.FromIntPtr` on a freed handle,
+an access violation rather than a catchable exception. Related in the same file: `setError` is
+called after `mu.Unlock()` at 633 and 643, racing the locked read in `viiper_last_error`.
 
-**V4. `external/viiper/clib/main.go:613` - medium - every IOCTL attach error is treated as "nothing
-happened".** `attachViaIOCTL` can fail after the driver already plugged the device in
-(`autoattach_windows.go:189-191` rejects a successful `DeviceIoControl` whose `PortOutput` is <= 0).
-Line 615 then re-attaches via `usbip.exe`. Scenario: two usbip attachments of one device, so two
-identical controllers appear in Steam, and only one port is recorded (620-622) so
+**[DONE viiper 22f4dbf] V4. `external/viiper/clib/main.go:613` - medium - every IOCTL attach error
+is treated as "nothing happened".** `attachViaIOCTL` can fail after the driver already plugged the
+device in (`autoattach_windows.go:189-191` rejects a successful `DeviceIoControl` whose `PortOutput`
+is <= 0). Line 615 then re-attaches via `usbip.exe`. Scenario: two usbip attachments of one device,
+so two identical controllers appear in Steam, and only one port is recorded (620-622) so
 `viiper_device_remove` detaches one and the other stays enumerated after WSGM exits until a manual
 `usbip detach` or reboot. This is the duplicate the fork's own comment at 491-504 removed from
 `device_add`.
 
-**V5. `external/viiper/clib/fastpath.go:69` - medium - the fast-path handle slice is only ever
-appended to.** Nothing removes an entry on `viiper_device_remove`; only `viiper_shutdown` clears it
-(39-43), and a retained `*deviceInfo` pins the whole device object (`clib/main.go:82`). Scenario:
-WSGM opens a handle per target creation (`ViiperControllerBackend.cs:150`), so every controller
-handoff permanently leaks a device object for the process lifetime. Second half of the same defect:
-a stale handle still validates, so `viiper_device_set_input_fast` returns success for a removed
-device and input silently goes nowhere; WSGM escapes this only because it zeroes `_fastHandle` in
-`RemoveDeviceUnderGate` (667).
+**[DONE viiper 0a7c7f0] V5. `external/viiper/clib/fastpath.go:69` - medium - the fast-path handle
+slice is only ever appended to.** Nothing removes an entry on `viiper_device_remove`; only
+`viiper_shutdown` clears it (39-43), and a retained `*deviceInfo` pins the whole device object
+(`clib/main.go:82`). Scenario: WSGM opens a handle per target creation
+(`ViiperControllerBackend.cs:150`), so every controller handoff permanently leaks a device object
+for the process lifetime. Second half of the same defect: a stale handle still validates, so
+`viiper_device_set_input_fast` returns success for a removed device and input silently goes nowhere;
+WSGM escapes this only because it zeroes `_fastHandle` in `RemoveDeviceUnderGate` (667).
 
-**V6. `external/viiper/internal/server/usb/server.go:334` - medium - the accept loop `continue`s on
-any non-`ErrClosed` error with no backoff and no failure counter.** Scenario: handle or socket
-exhaustion inside WSGM.exe makes `Accept` fail persistently, producing a tight infinite loop that
-pins a CPU core and emits one `slog.Error` per iteration into `viiper_go_debug.log`, which
-`clib/main.go:317-318` opens next to the executable with an ignored error, growing without bound
-inside the install directory until the volume fills.
+**[DONE viiper 0ef4083] V6. `external/viiper/internal/server/usb/server.go:334` - medium - the
+accept loop `continue`s on any non-`ErrClosed` error with no backoff and no failure counter.**
+Scenario: handle or socket exhaustion inside WSGM.exe makes `Accept` fail persistently, producing a
+tight infinite loop that pins a CPU core and emits one `slog.Error` per iteration into
+`viiper_go_debug.log`, which `clib/main.go:317-318` opens next to the executable with an ignored
+error, growing without bound inside the install directory until the volume fills.
 
-**V7. No `recover()` anywhere in the repository - medium - any Go panic aborts WSGM.exe with no
-managed exception**, including all four server goroutines and every exported entry point;
-`SafeNative` (`ViiperControllerBackend.cs:708-719`) cannot catch it. The reachable decode paths were
-checked and are bounds-clean (`xbox360`, `dualshock4`, `steamdeck` `UnmarshalBinary` all
+**[DONE viiper 35f8eec] V7. No `recover()` anywhere in the repository - medium - any Go panic aborts
+WSGM.exe with no managed exception**, including all four server goroutines and every exported entry
+point; `SafeNative` (`ViiperControllerBackend.cs:708-719`) cannot catch it. The reachable decode
+paths were checked and are bounds-clean (`xbox360`, `dualshock4`, `steamdeck` `UnmarshalBinary` all
 length-check up front). The only unguarded panic primitives are the `unsafe.Slice` calls at
 `clib/fastpath.go:89` and `clib/main.go:733`, which WSGM does not currently trigger.
 
@@ -293,7 +295,8 @@ connect (398). Scenario: on a Steam build whose `CHIDIOThread` is not resolvable
 `SteamInputClient.GetStatus()` blocks for multiple seconds per call on the calling thread while
 `SteamInputBlocker` holds its `Sync` lock across acquire.
 
-**L3. `external/steam-input-lease/crates/steam-input-lease-ffi/src/lib.rs:446` - medium -
+**[DONE lease cb81fe4] L3.
+`external/steam-input-lease/crates/steam-input-lease-ffi/src/lib.rs:446` - medium -
 `sil_lease_release` returns `SIL_ERROR` on a null `outcome` before `Box::from_raw`, so the lease is
 not consumed.** Both `include/steam_input_lease.h:184-187` ("The lease is consumed even if this
 function returns an error") and the function's own doc at 434-437 promise the opposite. Scenario: a
@@ -301,7 +304,7 @@ consumer of the public header passes `NULL` to ignore the handshake result; the 
 its pipe handle leak, and because the pipe never closes the block lease is held until the host
 process exits, so Steam's controllers stay revoked with no way to release them.
 
-**L4. `external/steam-input-lease/crates/steam-input-lease/src/lib.rs:621` - medium -
+**[DONE 9546d05] L4. `external/steam-input-lease/crates/steam-input-lease/src/lib.rs:621` - medium -
 `Lease::release` runs a 5-10 s rescan inline when the payload lacks
 `CAPABILITY_INTERNAL_RECOVERY`.** Two full resolves (an up-to-512 MB module snapshot at 945 and a
 whole-process candidate scan at 1002), each followed by `thread::sleep(2200 ms)` (1289). The gate
@@ -310,26 +313,28 @@ so this is the normal path on an unrecognised Steam build. Scenario: closing a W
 `Release()` from `SteamInputBlocker.ReleaseCore`, which holds `Sync` for the whole duration, so the
 next surface open blocks behind a ~10 s native scan.
 
-**L5. `external/steam-input-lease/crates/steam-input-gate/src/lib.rs:1675` - medium - bytes in a
-short read are never examined.** The scan correctly matches only `&buffer[..transferred]`, but then
-advances `chunk_start` from the requested `chunk_end`, skipping `[transferred, chunk_end)`. The host
-repeats the pattern at `crates/steam-input-lease/src/lib.rs:1051`. Scenario: a partially readable
-region (a page decommitted mid-sweep) holds the live `CHIDIOThread`; it is skipped, candidates is
-empty, and recovery fails closed, so blocking is lifted but Steam is never told to rediscover and
-the pad stays missing.
+**[DONE lease 2efaec8] L5. `external/steam-input-lease/crates/steam-input-gate/src/lib.rs:1675` -
+medium - bytes in a short read are never examined.** The scan correctly matches only
+`&buffer[..transferred]`, but then advances `chunk_start` from the requested `chunk_end`, skipping
+`[transferred, chunk_end)`. The host repeats the pattern at
+`crates/steam-input-lease/src/lib.rs:1051`. Scenario: a partially readable region (a page
+decommitted mid-sweep) holds the live `CHIDIOThread`; it is skipped, candidates is empty, and
+recovery fails closed, so blocking is lifted but Steam is never told to rediscover and the pad stays
+missing.
 
-**L6. `external/steam-input-lease/bindings/SteamInterop.Net/PlatformSupport.cs:3` - medium - a
-vendored assembly-level attribute is applied to WSGM's own assembly.** [verified] The file contains
-nothing but `[assembly: SupportedOSPlatform("windows10.0.17763")]`, and `src/WSGM/WSGM.csproj:49`
-globs `bindings/SteamInterop.Net/*.cs` directly into WSGM (as does `WSGM.Launch.csproj:29`). WSGM
-targets `net10.0-windows10.0.19041.0` while the binding project targets
-`net8.0-windows10.0.17763.0`, so the whole WSGM assembly declares a 17763 floor and CA1416 will flag
-its 19041-only calls, including the WinRT radio and Bluetooth paths that require 19041. Any new file
-added to the binding is also silently compiled into the app. The rest of the glob was checked and is
-clean: no other assembly attributes, no `Main`, no `InternalsVisibleTo`, no colliding type names,
-and the glob is non-recursive so generated `obj/` sources are not pulled in.
+**[DONE 85b8048] L6. `external/steam-input-lease/bindings/SteamInterop.Net/PlatformSupport.cs:3` -
+medium - a vendored assembly-level attribute is applied to WSGM's own assembly.** [verified] The
+file contains nothing but `[assembly: SupportedOSPlatform("windows10.0.17763")]`, and
+`src/WSGM/WSGM.csproj:49` globs `bindings/SteamInterop.Net/*.cs` directly into WSGM (as does
+`WSGM.Launch.csproj:29`). WSGM targets `net10.0-windows10.0.19041.0` while the binding project
+targets `net8.0-windows10.0.17763.0`, so the whole WSGM assembly declares a 17763 floor and CA1416
+will flag its 19041-only calls, including the WinRT radio and Bluetooth paths that require 19041.
+Any new file added to the binding is also silently compiled into the app. The rest of the glob was
+checked and is clean: no other assembly attributes, no `Main`, no `InternalsVisibleTo`, no colliding
+type names, and the glob is non-recursive so generated `obj/` sources are not pulled in.
 
-**L7. `external/steam-input-lease/bindings/SteamInterop.Net/SteamInputClient.cs:40` - low -
+**[DONE lease 47fcb4c] L7.
+`external/steam-input-lease/bindings/SteamInterop.Net/SteamInputClient.cs:40` - low -
 `ConnectTimeout` of zero silently becomes the native 10 s default.**
 `ConnectTimeoutMilliseconds = checked((uint)options.ConnectTimeout.TotalMilliseconds)` passes 0
 through, and native treats 0 as "use the default" (`include/steam_input_lease.h:55`), which the
@@ -384,8 +389,9 @@ a null `pData`; `PtrToStructure` then throws `ArgumentNullException`, which the 
 waits the full 25 s `ConnectTimeout` and reports failure for a join that actually succeeded, so the
 user sees "connection did not complete" on a network they are on.
 
-**W5. `external/windows-device-control/src/WindowsDeviceControl/DisplayModes.cs:125` - low - the
-same Win32 surfaces are implemented twice in one process.** `DisplayModes` declares
+**[DONE wdc 1e117a1 1d514dd] W5.
+`external/windows-device-control/src/WindowsDeviceControl/DisplayModes.cs:125` - low - the same
+Win32 surfaces are implemented twice in one process.** `DisplayModes` declares
 `EnumDisplaySettingsExW`/`ChangeDisplaySettingsExW` with its own explicit-layout `NativeMode`
 (114-133) while `src/WSGM/Interop/NativeDisplay.cs:134-139` declares the identical pair with its own
 `DevMode`, used by `src/WSGM/Core/DisplayProfiles.cs:98,226,349`: two independent mode-change paths,
@@ -488,9 +494,9 @@ from `build.ps1:45`. VIIPER is also invisible to the solution: `WSGM.slnx` has n
 directory is absent. Scenario: a viiper pin that cannot compile leaves CI fully green and fails
 inside the tag-triggered release job at `.github/workflows/release.yml:80`.
 
-**R2. `.gitmodules` / `external/viiper` gitlink - medium - the pinned VIIPER commit is not on the
-remote's default branch and `git submodule update --init --recursive` fails on a fresh clone.**
-[verified] The pin 4d2bd52 lives on `refs/heads/wsgm`; the remote default HEAD is
+**[DONE ce6e5b8] R2. `.gitmodules` / `external/viiper` gitlink - medium - the pinned VIIPER commit
+is not on the remote's default branch and `git submodule update --init --recursive` fails on a fresh
+clone.** [verified] The pin 4d2bd52 lives on `refs/heads/wsgm`; the remote default HEAD is
 `viiper-controller` (024aef3a). `.gitmodules` records no `branch=` key for any submodule. Observed
 directly in this review: `git submodule update --init --recursive` aborts with
 `fatal: Unable to find current revision in submodule path 'external/viiper'`, and only an explicit
@@ -498,136 +504,142 @@ directly in this review: `git submodule update --init --recursive` aborts with
 submodules with populated indexes and empty worktrees. Either record the branch in `.gitmodules` or
 merge the pin into the default branch.
 
-**R3. `src/WSGM/app.manifest:8` - medium - the SxS assembly identity says `1.0.0.0` while
-`src/WSGM/WSGM.csproj:13` is `2.0.0`.** `build.ps1` stamps neither: it passes `/p:Version` only to
-Launch and LogonService (69, 75) and `/DAppVersion` to Inno (105). Only
+**[DONE 57f0dcd] R3. `src/WSGM/app.manifest:8` - medium - the SxS assembly identity says `1.0.0.0`
+while `src/WSGM/WSGM.csproj:13` is `2.0.0`.** `build.ps1` stamps neither: it passes `/p:Version`
+only to Launch and LogonService (69, 75) and `/DAppVersion` to Inno (105). Only
 `.github/workflows/release.yml:68` rewrites the manifest. Scenario: a locally produced
 `publish/WSGM-Setup-2.0.0.exe` ships a `WSGM.exe` whose manifest identity claims 1.0.0.0, so
 installer name, file metadata and manifest identity disagree in exactly the artifact a maintainer
 hand-builds.
 
-**R4. `installer/WSGM.iss:13` - medium - `#define AppVersion "2.0.0"` is a second hardcoded version
-with nothing enforcing it.** `eng/verify.ps1` has no check comparing it to the csproj, and
-`release.yml:58` stamps only `WSGM.csproj` and `app.manifest`. Scenario: after a `v2.1.0` tag the
-fallback still says 2.0.0, so a direct ISCC run emits `WSGM-Setup-2.0.0.exe` (39) containing 2.1.0
-binaries and registers `AppVersion` 2.0.0 (27) in Add/Remove Programs.
+**[DONE f0a512b] R4. `installer/WSGM.iss:13` - medium - `#define AppVersion "2.0.0"` is a second
+hardcoded version with nothing enforcing it.** `eng/verify.ps1` has no check comparing it to the
+csproj, and `release.yml:58` stamps only `WSGM.csproj` and `app.manifest`. Scenario: after a
+`v2.1.0` tag the fallback still says 2.0.0, so a direct ISCC run emits `WSGM-Setup-2.0.0.exe` (39)
+containing 2.1.0 binaries and registers `AppVersion` 2.0.0 (27) in Add/Remove Programs.
 
-**R5. `eng/assert-component-staging.ps1:58` - medium - the developer-path leak check cannot match
-this repository's own path shape, and covers only part of the payload.** `$localPathPattern`
-alternates `(?:Users|Coding|Repos?|Source|Worktrees?)[\\/]`, which requires `Source\`, but the real
-root is `E:\SourceCode\`, so it never matches. The leak, secret and forbidden-extension scan also
-runs only inside `Packages` (loop at 61, walk at 78); `App` and `Tools` get only `Assert-NoLinks`
-(40-42) even though `installer/WSGM.iss:143` ships the whole `Tools` tree with `recursesubdirs`.
-Scenario: an absolute developer path or a stray `.pdb` under `App`/`Tools` ships to users unflagged.
+**[DONE 97c8069] R5. `eng/assert-component-staging.ps1:58` - medium - the developer-path leak check
+cannot match this repository's own path shape, and covers only part of the payload.**
+`$localPathPattern` alternates `(?:Users|Coding|Repos?|Source|Worktrees?)[\\/]`, which requires
+`Source\`, but the real root is `E:\SourceCode\`, so it never matches. The leak, secret and
+forbidden-extension scan also runs only inside `Packages` (loop at 61, walk at 78); `App` and
+`Tools` get only `Assert-NoLinks` (40-42) even though `installer/WSGM.iss:143` ships the whole
+`Tools` tree with `recursesubdirs`. Scenario: an absolute developer path or a stray `.pdb` under
+`App`/`Tools` ships to users unflagged.
 
-**R6. `src/WSGM/WSGM.csproj:81` - medium - `Native\Viiper\*` carries no `SkipNativeArtifacts`
-condition**, unlike the SteamInputLease items at 57, 66 and 71, and the staging directory is cleaned
-only by `eng/build-viiper.ps1:74`, which neither `eng/verify.ps1` nor `eng/dev-deploy.ps1` calls.
-Scenario: a `libviiper.dll` left over from an earlier build is copied into every later publish, so a
-dev deploy can run a native library older than the pinned submodule with no warning; `build.ps1:80`
-only proves the file exists, never that it matches the pin.
+**[DONE 02b8953] R6. `src/WSGM/WSGM.csproj:81` - medium - `Native\Viiper\*` carries no
+`SkipNativeArtifacts` condition**, unlike the SteamInputLease items at 57, 66 and 71, and the
+staging directory is cleaned only by `eng/build-viiper.ps1:74`, which neither `eng/verify.ps1` nor
+`eng/dev-deploy.ps1` calls. Scenario: a `libviiper.dll` left over from an earlier build is copied
+into every later publish, so a dev deploy can run a native library older than the pinned submodule
+with no warning; `build.ps1:80` only proves the file exists, never that it matches the pin.
 
-**R7. `eng/check-no-live-data-paths.ps1:37` - medium - the live-data guard scans only `tests`.**
-`$scanned = @("tests")` while the synopsis at 3 and 22-23 claims it covers "test, fixture, probe, or
-tooling sources". `tools/AllyXLab/Session.cs:16` resolves `SpecialFolder.LocalApplicationData` and
-writes `%LOCALAPPDATA%\WSGM.AllyXLab`, and `tools/UwpLaunchSpike/Options.cs:313` does the same for a
-transcript; neither is scanned, yet `eng/verify.ps1:78` reports the guarantee as met.
+**[DONE 80f6dbf] R7. `eng/check-no-live-data-paths.ps1:37` - medium - the live-data guard scans only
+`tests`.** `$scanned = @("tests")` while the synopsis at 3 and 22-23 claims it covers "test,
+fixture, probe, or tooling sources". `tools/AllyXLab/Session.cs:16` resolves
+`SpecialFolder.LocalApplicationData` and writes `%LOCALAPPDATA%\WSGM.AllyXLab`, and
+`tools/UwpLaunchSpike/Options.cs:313` does the same for a transcript; neither is scanned, yet
+`eng/verify.ps1:78` reports the guarantee as met.
 
-**R8. `eng/build-viiper.ps1:13` - medium - nothing asserts the submodule is at its recorded gitlink
-or clean before a release build.** The script builds "the submodule as it is checked out" and only
-checks presence (37); `build.ps1` never verifies submodule cleanliness before publishing. Scenario:
-a release installer is compiled from uncommitted local submodule edits and nothing in the artifact
-or logs records that the shipped `libviiper.dll` corresponds to no pushed commit.
+**[DONE f44e99e] R8. `eng/build-viiper.ps1:13` - medium - nothing asserts the submodule is at its
+recorded gitlink or clean before a release build.** The script builds "the submodule as it is
+checked out" and only checks presence (37); `build.ps1` never verifies submodule cleanliness before
+publishing. Scenario: a release installer is compiled from uncommitted local submodule edits and
+nothing in the artifact or logs records that the shipped `libviiper.dll` corresponds to no pushed
+commit.
 
-**R9. `eng/build-viiper.ps1:80` - medium - the staged VIIPER artifact cannot be traced back to its
-commit.** `go build -buildmode=c-shared` runs with no `-trimpath`, no `-ldflags` and no version or
-commit stamping, so the DLL carries no commit, no version resource and absolute build-machine paths,
-while the repo's own `Makefile:42-43` stamps `VERSION`/`COMMIT` for the other library. The toolchain
-is unpinned (`go.mod:3` has `go 1.26.2` and no `toolchain` directive; line 41 only checks that some
-`go` exists, and 48-63 link with the first `gcc.exe` found under the winget tree). Lines 86-87 also
-delete the header `go build` just generated and replace it with the tracked `libviiper.h`, which was
-last modified 2026-07-31 while `clib/` changed through 2026-09-11. They agree at this commit, but
-nothing enforces that, so a future export change would stage a header that lies about the ABI.
+**[DONE 8129b41 viiper ad36150] R9. `eng/build-viiper.ps1:80` - medium - the staged VIIPER artifact
+cannot be traced back to its commit.** `go build -buildmode=c-shared` runs with no `-trimpath`, no
+`-ldflags` and no version or commit stamping, so the DLL carries no commit, no version resource and
+absolute build-machine paths, while the repo's own `Makefile:42-43` stamps `VERSION`/`COMMIT` for
+the other library. The toolchain is unpinned (`go.mod:3` has `go 1.26.2` and no `toolchain`
+directive; line 41 only checks that some `go` exists, and 48-63 link with the first `gcc.exe` found
+under the winget tree). Lines 86-87 also delete the header `go build` just generated and replace it
+with the tracked `libviiper.h`, which was last modified 2026-07-31 while `clib/` changed through
+2026-09-11. They agree at this commit, but nothing enforces that, so a future export change would
+stage a header that lies about the ABI.
 
-**R10. `installer/WSGM.iss:169` - low - the HidHide install step's exit code is never inspected.**
-It uses `skipifdoesntexist` and Inno's `[Run]` ignores exit codes by default, unlike the USB/IP step
-at 168 which reports through `PrepareUsbipInstallOutcome`/`ReportUsbipInstallOutcome` and a status
-INI. Scenario: setup completes successfully with physical-controller isolation missing, surfacing
-later as unexplained duplicate controllers rather than an install-time diagnostic.
+**[DONE c38b530] R10. `installer/WSGM.iss:169` - low - the HidHide install step's exit code is never
+inspected.** It uses `skipifdoesntexist` and Inno's `[Run]` ignores exit codes by default, unlike
+the USB/IP step at 168 which reports through
+`PrepareUsbipInstallOutcome`/`ReportUsbipInstallOutcome` and a status INI. Scenario: setup completes
+successfully with physical-controller isolation missing, surfacing later as unexplained duplicate
+controllers rather than an install-time diagnostic.
 
-**R11. `eng/stage-device-components.ps1:103` - low - the `$LASTEXITCODE` guard is inert.** It is
-evaluated after `& $pluginPack @packArguments`, a PowerShell script invocation that does not set
-`$LASTEXITCODE`, so the value read is stale from the preceding native `dotnet publish` inside
-`Publish-DeviceLab` (`eng/device-lab-publish.ps1:52`). `eng/dev-deploy.ps1:192` repeats the pattern.
-The guard works today only because `pack-device.ps1` happens to `throw`; any non-throwing failure
-would let staging continue and let `assert-component-staging.ps1` judge a partially built package.
+**[DONE e8e6cbd] R11. `eng/stage-device-components.ps1:103` - low - the `$LASTEXITCODE` guard is
+inert.** It is evaluated after `& $pluginPack @packArguments`, a PowerShell script invocation that
+does not set `$LASTEXITCODE`, so the value read is stale from the preceding native `dotnet publish`
+inside `Publish-DeviceLab` (`eng/device-lab-publish.ps1:52`). `eng/dev-deploy.ps1:192` repeats the
+pattern. The guard works today only because `pack-device.ps1` happens to `throw`; any non-throwing
+failure would let staging continue and let `assert-component-staging.ps1` judge a partially built
+package.
 
 ## 7. Ally X Lab tool (tools/AllyXLab)
 
 This is the newest code in the tree (the last three commits) and is an attended developer tool, not
 shipped product. It does write to live system state, which is why the items below matter.
 
-**T1. `tools/AllyXLab/MainForm.Access.cs:32` - medium-high - the conflict step freezes the UI for up
-to 8 seconds per manager, and the status text it sets provably never paints.** [verified]
-`DeviceCheckAsync` runs on the UI thread (a Button.Click handler, resumed on the WinForms
+**[DONE b81914d] T1. `tools/AllyXLab/MainForm.Access.cs:32` - medium-high - the conflict step
+freezes the UI for up to 8 seconds per manager, and the status text it sets provably never paints.**
+[verified] `DeviceCheckAsync` runs on the UI thread (a Button.Click handler, resumed on the WinForms
 `SynchronizationContext`). Line 32 sets `_status.Text = "Asking ... to close..."` and line 33 then
 calls `Conflicts.Close`, which blocks in `process.WaitForExit(8000)` (`Conflicts.cs:101`). The paint
 message cannot be pumped while the UI thread blocks. Scenario: with four closable Armoury Crate
 processes the tester gets roughly 32 seconds of an apparently hung, blank window, the exact opposite
 of the intended reassurance. `Conflicts.Running()` also enumerates every process on the UI thread.
 
-**T2. `tools/AllyXLab/MainForm.Access.cs:47` - medium - the HidHide allowed-application list is a
-read-modify-write across an unbounded user prompt, so a concurrent edit is silently dropped.**
-[verified] `Read` happens at 47, the tester is then asked for consent (51-54) with no time bound,
-and `TryAllow` (65) writes `state.Applications` captured before the prompt. The tool's own conflict
-table lists `HidHideClient` as software that "edits the device hiding list while this tool reads it"
-(`Conflicts.cs:37`). Scenario: the tester opens the HidHide Configuration Client during the prompt
-and adds an application; the tool then writes its stale list plus itself, removing that entry, and
-`Restore` later writes the even older list back.
+**[DONE 847c5e4] T2. `tools/AllyXLab/MainForm.Access.cs:47` - medium - the HidHide
+allowed-application list is a read-modify-write across an unbounded user prompt, so a concurrent
+edit is silently dropped.** [verified] `Read` happens at 47, the tester is then asked for consent
+(51-54) with no time bound, and `TryAllow` (65) writes `state.Applications` captured before the
+prompt. The tool's own conflict table lists `HidHideClient` as software that "edits the device
+hiding list while this tool reads it" (`Conflicts.cs:37`). Scenario: the tester opens the HidHide
+Configuration Client during the prompt and adds an application; the tool then writes its stale list
+plus itself, removing that entry, and `Restore` later writes the even older list back.
 
-**T3. `tools/AllyXLab/MainForm.Access.cs:50` - medium - under HidHide inverse mode the offered
-remedy is semantically wrong, yet it is applied and reported as applied.** [verified] The code
-detects `Inverse` and warns the tester that the list "means the opposite of usual", then performs
-the same "add self to the list" write. In inverse mode that write does not grant this tool
+**[DONE fa1d772] T3. `tools/AllyXLab/MainForm.Access.cs:50` - medium - under HidHide inverse mode
+the offered remedy is semantically wrong, yet it is applied and reported as applied.** [verified]
+The code detects `Inverse` and warns the tester that the list "means the opposite of usual", then
+performs the same "add self to the list" write. In inverse mode that write does not grant this tool
 visibility. Scenario: the tester consents, the controller stays hidden or more devices become
 hidden, and the session log records the allowance as made.
 
-**T4. `tools/AllyXLab/MainForm.Access.cs:65` - medium - the HidHide mutation is the only live-system
-write in the tool with no durable recovery record.** [verified] Every other mutation goes through
-`Checkpoint?.Invoke(...)` and requires a durable parent acknowledgement before the write
-(`Worker.cs:135`, `Program.cs:92-99`). `TryAllow` writes immediately and records only a session
-Observation. `RestoreHidHide` is reachable on normal and exception paths via `StartAsync`'s
+**[DONE 87b4764] T4. `tools/AllyXLab/MainForm.Access.cs:65` - medium - the HidHide mutation is the
+only live-system write in the tool with no durable recovery record.** [verified] Every other
+mutation goes through `Checkpoint?.Invoke(...)` and requires a durable parent acknowledgement before
+the write (`Worker.cs:135`, `Program.cs:92-99`). `TryAllow` writes immediately and records only a
+session Observation. `RestoreHidHide` is reachable on normal and exception paths via `StartAsync`'s
 `finally` -> `Finish()` (`MainForm.cs:279-283`, 399), but not if the process is killed or crashes.
 Scenario: the tool adds itself, the tester force-closes it, and their HidHide allowed list
 permanently contains a path to a portable exe they then delete, with nothing telling them.
 
-**T5. `tools/AllyXLab/Motors.cs:83` - medium - motor routes are identified by live collection index,
-so a disconnect between discovery and open drives the wrong controller.** [verified] `Discover`
-numbers `wgi:` routes by position in `Gamepad.Gamepads` (49-51) and `xinput:` by slot; `Open`
-re-reads the collection and only checks `index < Count` (83). Scenario: two pads are discovered, the
-first is unplugged, the tester selects `wgi:1`, and the vibration write goes to a different device
-than the one described in the prompt. `int.TryParse` also accepts a negative index, which would
-throw rather than be refused.
+**[DONE af42ba2] T5. `tools/AllyXLab/Motors.cs:83` - medium - motor routes are identified by live
+collection index, so a disconnect between discovery and open drives the wrong controller.**
+[verified] `Discover` numbers `wgi:` routes by position in `Gamepad.Gamepads` (49-51) and `xinput:`
+by slot; `Open` re-reads the collection and only checks `index < Count` (83). Scenario: two pads are
+discovered, the first is unplugged, the tester selects `wgi:1`, and the vibration write goes to a
+different device than the one described in the prompt. `int.TryParse` also accepts a negative index,
+which would throw rather than be refused.
 
-**T6. `tools/AllyXLab/Worker.cs:52` - low - the tool version is hardcoded in five places.**
-[verified] `0.3.1` appears in `Worker.cs:52` (the provenance record), `Session.cs:34`,
-`MainForm.cs:27`, `WSGM.AllyXLab.csproj:19` and `Downloads/BUILD.json:44`, even though
-`SourceSnapshot` assembly metadata is already plumbed through `Session.cs:31`. Scenario: bumping the
-csproj alone silently mislabels the evidence ZIP and the provenance log that the whole tool exists
-to produce.
+**[DONE 7b2a60c (BUILD.json toolVersion is generated by the T7 script)] T6.
+`tools/AllyXLab/Worker.cs:52` - low - the tool version is hardcoded in five places.** [verified]
+`0.3.1` appears in `Worker.cs:52` (the provenance record), `Session.cs:34`, `MainForm.cs:27`,
+`WSGM.AllyXLab.csproj:19` and `Downloads/BUILD.json:44`, even though `SourceSnapshot` assembly
+metadata is already plumbed through `Session.cs:31`. Scenario: bumping the csproj alone silently
+mislabels the evidence ZIP and the provenance log that the whole tool exists to produce.
 
-**T7. `tools/AllyXLab/Downloads/BUILD.json` - low - the provenance manifest is unverifiable on a
-Windows checkout and nothing validates it.** [verified] The committed exe's hash matches
-`SHA256.txt` and `BUILD.json` exactly (confirmed). The 33 `sourceFiles` hashes, however, are
-computed over LF-normalized content, so on this CRLF checkout every single one appears to drift;
-they reproduce exactly once newlines are normalized. Unlike the Steam UI assets, which
+**[DONE b192587 4fd7b7e] T7. `tools/AllyXLab/Downloads/BUILD.json` - low - the provenance manifest
+is unverifiable on a Windows checkout and nothing validates it.** [verified] The committed exe's
+hash matches `SHA256.txt` and `BUILD.json` exactly (confirmed). The 33 `sourceFiles` hashes,
+however, are computed over LF-normalized content, so on this CRLF checkout every single one appears
+to drift; they reproduce exactly once newlines are normalized. Unlike the Steam UI assets, which
 `.gitattributes` pins to `eol=lf` precisely "so the hash is identical on autocrlf and non-autocrlf
 checkouts", these paths have no such pin and no documented normalization rule, and no gate anywhere
 validates `BUILD.json`. Scenario: a reviewer or tester tries to verify the manifest, finds total
 drift, and cannot tell a real stale binary from a line-ending artifact.
 
-**T8. `tools/AllyXLab/HidHideAccess.cs:116` - low - `NormalizePath` discards the volume, so paths on
-different volumes compare equal.** [verified] `C:\Tools\AllyXLab.exe` and
+**[DONE e202973] T8. `tools/AllyXLab/HidHideAccess.cs:116` - low - `NormalizePath` discards the
+volume, so paths on different volumes compare equal.** [verified] `C:\Tools\AllyXLab.exe` and
 `\Device\HarddiskVolume3\Tools\AllyXLab.exe` both reduce to `\Tools\AllyXLab.exe`. This is
 deliberate and test-locked (`tests/WSGM.AllyXLab.Tests/SafetyTests.cs:122-126`) to match one file
 written in two notations, but it is unsound across volumes. Scenario: HidHide already lists
@@ -635,44 +647,45 @@ written in two notations, but it is unsound across volumes. Scenario: HidHide al
 `D:\Tools\AllyXLab.exe`; `Contains` reports it as already allowed, the consent prompt is skipped
 entirely, and the whole capture silently records a hidden controller.
 
-**T9. `tools/AllyXLab/RumbleCalibration.cs:142` - low - `finally { output.Zero(); }` can throw and
-replace the original exception.** `XInputMotors.Set` throws `IOException` when XInput refuses
-(`Motors.cs:122`), and `Zero()` routes through `Set(0, 0)`. Scenario: the tester presses Stop during
-the 400 ms probe pulse and the pad disconnects at the same moment, so the clean
+**[DONE 238ff58] T9. `tools/AllyXLab/RumbleCalibration.cs:142` - low - `finally { output.Zero(); }`
+can throw and replace the original exception.** `XInputMotors.Set` throws `IOException` when XInput
+refuses (`Motors.cs:122`), and `Zero()` routes through `Set(0, 0)`. Scenario: the tester presses
+Stop during the 400 ms probe pulse and the pad disconnects at the same moment, so the clean
 `OperationCanceledException` is replaced by an IO error and the session reports a confusing failure
 instead of a cancellation. `Worker.cs:253` guards its own `Zero()` call this way; `Probe` does not.
 
-**T10. `tools/AllyXLab/Motors.cs:68` - low - `SingleOrDefault` throws instead of producing the
-intended message.** Both `Motors.Open` (68) and `Worker.cs:260` pair `SingleOrDefault` with a `??`
-that can never run for the duplicate case, because `SingleOrDefault` throws on more than one match
-rather than returning null. The prepared messages ("not in this inventory", "Select exactly one
-inventoried endpoint") are unreachable for duplicated ids.
+**[DONE e6b67bd] T10. `tools/AllyXLab/Motors.cs:68` - low - `SingleOrDefault` throws instead of
+producing the intended message.** Both `Motors.Open` (68) and `Worker.cs:260` pair `SingleOrDefault`
+with a `??` that can never run for the duplicate case, because `SingleOrDefault` throws on more than
+one match rather than returning null. The prepared messages ("not in this inventory", "Select
+exactly one inventoried endpoint") are unreachable for duplicated ids.
 
-**T11. `tools/AllyXLab/Program.cs:57` - low - fire-and-forget worker tasks outlive the disposables
-they capture.** The parent-exit watcher (57) and the stdin reader (58-74) both call
+**[DONE ab1d071] T11. `tools/AllyXLab/Program.cs:57` - low - fire-and-forget worker tasks outlive
+the disposables they capture.** The parent-exit watcher (57) and the stdin reader (58-74) both call
 `cancel.Cancel()`, and the reader also calls `answers.TryAdd`, after `RunWorker` may have disposed
 the `CancellationTokenSource`, `AutoResetEvent` and `BlockingCollection`. The resulting
 `ObjectDisposedException` lands on a thread-pool thread with no observer. Low impact because the
 worker process is exiting anyway.
 
-**T12. `tools/AllyXLab/MainForm.Rumble.cs:9` - low - `Motors.Discover(Hid.Enumerate())` runs on the
-UI thread.** It opens every HID collection on the machine, probes four XInput slots and touches
-`Gamepad.Gamepads` before the section's first frame, so the window hitches on entry to the rumble
-section.
+**[DONE aebb592] T12. `tools/AllyXLab/MainForm.Rumble.cs:9` - low -
+`Motors.Discover(Hid.Enumerate())` runs on the UI thread.** It opens every HID collection on the
+machine, probes four XInput slots and touches `Gamepad.Gamepads` before the section's first frame,
+so the window hitches on entry to the rumble section.
 
-**T13. `tools/AllyXLab/Conflicts.cs:57` - low - manager matching is a loose two-way substring test
-with first-match-wins.** `name.Replace(" ","").Contains(match.Replace(" ",""))` means
+**[DONE b26349e] T13. `tools/AllyXLab/Conflicts.cs:57` - low - manager matching is a loose two-way
+substring test with first-match-wins.** `name.Replace(" ","").Contains(match.Replace(" ",""))` means
 `ArmouryCrateControlInterface` matches the earlier `ArmouryCrate` entry and is labelled and treated
 as that product, and the `break` at 64 makes the outcome depend on table order. Scenario: the tester
 is shown the wrong product name, and a process could inherit the wrong `Closable` flag.
 
-**T14. `tools/AllyXLab/Downloads/AllyXLab.exe` - information, not a defect - the tracked binary has
-cost the repository about 139 MB of history.** [verified] `README.md:16` states the binary is
-committed beside its source "at the maintainer's request", so this is a recorded decision, not an
-oversight. For planning only: five revisions of a ~55 MB self-contained single-file exe are the five
-largest blobs in the repository and `.git` is now 139 MB, and every rebuild adds another ~55 MB
-permanently. A release asset or Git LFS would remove that growth without changing how testers
-download it.
+**[DONE b192587 (kept by the recorded maintainer decision; rebuilds are one explicit -Build step
+whose 55 MB cost is documented, so history grows only when testers need a new exe)] T14.
+`tools/AllyXLab/Downloads/AllyXLab.exe` - information, not a defect - the tracked binary has cost
+the repository about 139 MB of history.** [verified] `README.md:16` states the binary is committed
+beside its source "at the maintainer's request", so this is a recorded decision, not an oversight.
+For planning only: five revisions of a ~55 MB self-contained single-file exe are the five largest
+blobs in the repository and `.git` is now 139 MB, and every rebuild adds another ~55 MB permanently.
+A release asset or Git LFS would remove that growth without changing how testers download it.
 
 ## Themes worth acting on before release
 
