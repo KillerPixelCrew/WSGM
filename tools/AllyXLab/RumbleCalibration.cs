@@ -79,15 +79,7 @@ internal static class RumbleCalibration
                             token.ThrowIfCancellationRequested();
                             Worker.Progress?.Invoke(new { Message = $"Motor {motor + 1} · {name} · {percent}% · {duration} ms — feel this pulse", Seconds = 0 });
                             Stopwatch time = Stopwatch.StartNew();
-                            try
-                            {
-                                output.Set(motor == 0 ? percent : 0, motor == 1 ? percent : 0);
-                                if (token.WaitHandle.WaitOne(duration))
-                                {
-                                    token.ThrowIfCancellationRequested();
-                                }
-                            }
-                            finally { output.Zero(); }
+                            Pulse(output, motor == 0 ? percent : 0, motor == 1 ? percent : 0, duration, token, log);
                             log.Add("calibration-pulse", new { Motor = motor, Phase = name, Percent = percent, RequestedMilliseconds = duration, SoftwareWriteToZeroMilliseconds = time.Elapsed.TotalMilliseconds, Repeat = repeats });
                             string answer = ask(new { Title = $"Motor {motor + 1} · {name}", Text = $"Did you feel that pulse? ({percent}%, {duration} ms)\nAnswer after the motors are silent. A = felt, B = not felt. You can also use the buttons below.", Mode = "feedback", CanRepeat = repeats < 2 }, token);
                             if (answer == "repeat" && repeats++ < 2)
@@ -131,14 +123,28 @@ internal static class RumbleCalibration
     internal static void Probe(IMotorOutput output, SessionLog log, CancellationToken cancel)
     {
         log.Add("motor-probe", new { output.Route, Percent = 60, Milliseconds = 400 });
+        Pulse(output, 60, 60, 400, cancel, log);
+    }
+
+    // A zero write that fails while a pulse is already ending on an exception must not replace that
+    // exception; the worker's own final zero still runs and reports the cleanup state.
+    private static void Pulse(IMotorOutput output, int left, int right, int milliseconds, CancellationToken cancel, SessionLog log)
+    {
         try
         {
-            output.Set(60, 60);
-            if (cancel.WaitHandle.WaitOne(400))
+            output.Set(left, right);
+            if (cancel.WaitHandle.WaitOne(milliseconds))
             {
                 cancel.ThrowIfCancellationRequested();
             }
         }
-        finally { output.Zero(); }
+        catch (Exception)
+        {
+            try { output.Zero(); }
+            catch (Exception e) { log.Add("zero-output-error", e.Message); }
+            throw;
+        }
+
+        output.Zero();
     }
 }
