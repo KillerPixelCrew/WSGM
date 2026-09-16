@@ -8,9 +8,12 @@ internal sealed partial class MainForm
 
     private async Task DeviceCheckAsync()
     {
+        // Process enumeration and each close request block (up to 8 s per manager), so they run off
+        // the UI thread; the status text is then painted while the tester waits.
         SessionLog log = new();
-        log.Add("drivers", Conflicts.Drivers());
-        IReadOnlyList<RunningManager> managers = Conflicts.Running();
+        _status.Text = "Looking for other device managers…";
+        log.Add("drivers", await Task.Run(Conflicts.Drivers));
+        IReadOnlyList<RunningManager> managers = await Task.Run(Conflicts.Running);
         log.Add("managers", managers);
         if (managers.Count > 0)
         {
@@ -30,10 +33,11 @@ internal sealed partial class MainForm
                 foreach (RunningManager manager in managers.Where(m => m.Closable))
                 {
                     _status.Text = "Asking " + manager.Label + " to close…";
-                    Conflicts.Close(manager, log);
+                    await Task.Run(() => Conflicts.Close(manager, log));
                 }
 
-                IReadOnlyList<RunningManager> left = Conflicts.Running();
+                _status.Text = "";
+                IReadOnlyList<RunningManager> left = await Task.Run(Conflicts.Running);
                 log.Add("managers-after-close", left);
                 if (left.Count > 0)
                 {
