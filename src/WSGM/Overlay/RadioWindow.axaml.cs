@@ -97,7 +97,7 @@ public partial class RadioWindow : Window
             if (_prompt is PromptMode.PairingPin or PromptMode.PairingConfirm)
             {
                 Log.Info("Radio panel closed with a pairing question open — declining it.");
-                _radios.RespondToPairing(_promptToken, accept: false, null);
+                RadioManager.RespondToPairing(_promptToken, accept: false, null);
                 _prompt = PromptMode.None;
             }
             _radios.StopScanning();
@@ -403,10 +403,10 @@ public partial class RadioWindow : Window
                     $"Wi-Fi connect to {ssid}");
                 break;
             case PromptMode.PairingPin:
-                _radios.RespondToPairing(token, accept: true, text);
+                RadioManager.RespondToPairing(token, accept: true, text);
                 break;
             case PromptMode.PairingConfirm:
-                _radios.RespondToPairing(token, accept: true, null);
+                RadioManager.RespondToPairing(token, accept: true, null);
                 break;
             case PromptMode.None:
             default:
@@ -423,7 +423,7 @@ public partial class RadioWindow : Window
         // it out, so a cancel has to be reported rather than just dismissed.
         if (mode is PromptMode.PairingPin or PromptMode.PairingConfirm)
         {
-            _radios.RespondToPairing(token, accept: false, null);
+            RadioManager.RespondToPairing(token, accept: false, null);
         }
     }
 

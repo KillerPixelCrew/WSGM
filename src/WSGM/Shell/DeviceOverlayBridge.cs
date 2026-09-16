@@ -808,7 +808,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             // Every row here is something a person just pressed, so a power-limit change from this
             // path pauses AutoTDP instead of being overwritten by its next tick.
             CapabilityCommandOrigin.User,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     public Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection, CancellationToken cancellationToken = default) =>

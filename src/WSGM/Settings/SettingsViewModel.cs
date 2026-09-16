@@ -779,7 +779,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         get;
         private set => SetField(ref field, value, nameof(SteamAutostartStatusText));
-    } = "";
+    }
 
     /// <summary>Reads startup sources on a worker. The synchronous Windows adapter waits for an
     /// asynchronous console command and must never run under the UI synchronization context.</summary>
@@ -916,7 +916,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     /// <summary>Gets or sets whether the logon service starts WSGM at sign-in.
     /// Persisted via Save; the boot manifest is rewritten there.</summary>
-    public bool StartAtSignIn { get; set { field = value; Raise(nameof(StartAtSignIn)); Raise(nameof(ServiceStateText)); Raise(nameof(ShellStatusText)); } } = true;
+    public bool StartAtSignIn { get; set { field = value; Raise(nameof(StartAtSignIn)); Raise(nameof(ServiceStateText)); Raise(nameof(ShellStatusText)); } }
 
     /// <summary>Gets or sets whether WSGM may own how Steam starts, turning Windows' own Steam
     /// startup entries off. Persisted via Save; the takeover itself runs after the save, outside
@@ -929,11 +929,11 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     /// <summary>Gets or sets the session mode a start produces, as the selector's index:
     /// 0 = Desktop, 1 = Game. Independent of <see cref="StartAtSignIn"/>.</summary>
-    public int StartModeIndex { get; set { field = value; Raise(nameof(StartModeIndex)); Raise(nameof(ServiceStateText)); Raise(nameof(ShellStatusText)); } } = (int)SessionStartMode.Game;
+    public int StartModeIndex { get; set { field = value; Raise(nameof(StartModeIndex)); Raise(nameof(ServiceStateText)); Raise(nameof(ShellStatusText)); } }
 
     /// <summary>Gets or sets whether WSGM leases the controller away from Steam
     /// Input while its focused surfaces are open. Off = Steam is never touched.</summary>
-    public bool SteamInputLeaseEnabled { get; set => SetField(ref field, value, nameof(SteamInputLeaseEnabled)); } = true;
+    public bool SteamInputLeaseEnabled { get; set => SetField(ref field, value, nameof(SteamInputLeaseEnabled)); }
 
     /// <summary>Gets or sets whether WSGM deploys its Steam Input shim into Steam's
     /// own install directory, so Steam loads it and WSGM never injects.</summary>
@@ -941,7 +941,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         get;
         set => SetField(ref field, value, nameof(SteamInputManagementEnabled));
-    } = true;
+    }
 
     // Set by the property setters, cleared once after the constructor's own seeding, so they mean
     // "the user changed this here" rather than "this window has a value for it".
@@ -999,7 +999,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             _deviceControllerTargetEdited = true;
             Raise(nameof(DeviceControllerTargetIndex));
         }
-    } = (int)ManagedControllerTarget.SteamDeckComposite;
+    }
 
     /// <summary>Selected physical glyph-policy index.</summary>
     public int DeviceGlyphSelectionIndex
@@ -1011,7 +1011,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             _deviceGlyphSelectionEdited = true;
             Raise(nameof(DeviceGlyphSelectionIndex));
         }
-    } = (int)DeviceGlyphSelection.Automatic;
+    }
 
     /// <summary>Which runtime-owned device settings this window actually edited.</summary>
     /// <remarks>
@@ -1099,35 +1099,35 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         get;
         set => SetField(ref field, value, nameof(OsdCustomOrder));
-    } = "Time,GPU,CPU,VRAM,RAM,BATT,FPS";
+    }
 
     /// <summary>Clock detail for the Custom overlay.</summary>
     public int OsdCustomTimeIndex
     {
         get;
         set => SetField(ref field, value, nameof(OsdCustomTimeIndex));
-    } = 2;
+    }
 
     /// <summary>Framerate detail for the Custom overlay.</summary>
     public int OsdCustomFpsIndex
     {
         get;
         set => SetField(ref field, value, nameof(OsdCustomFpsIndex));
-    } = 2;
+    }
 
     /// <summary>CPU detail for the Custom overlay.</summary>
     public int OsdCustomCpuIndex
     {
         get;
         set => SetField(ref field, value, nameof(OsdCustomCpuIndex));
-    } = 2;
+    }
 
     /// <summary>Memory detail for the Custom overlay.</summary>
     public int OsdCustomRamIndex
     {
         get;
         set => SetField(ref field, value, nameof(OsdCustomRamIndex));
-    } = 2;
+    }
 
     /// <summary>GPU detail for the Custom overlay.</summary>
     public int OsdCustomGpuIndex
@@ -1310,7 +1310,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     /// <summary>Gets or sets the user's SteamGridDB API key (for the Change Artwork
     /// feature). Empty disables it; get a free key at <see cref="Core.SteamGridDb.KeyPageUrl"/>.</summary>
-    public string SteamGridDbApiKey { get; set => SetField(ref field, value, nameof(SteamGridDbApiKey)); } = "";
+    public string SteamGridDbApiKey { get; set => SetField(ref field, value, nameof(SteamGridDbApiKey)); }
 
     /// <summary>Gets or sets whether Screenscraper.fr is searched alongside SteamGridDB.</summary>
     /// <remarks>
@@ -1321,10 +1321,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool ScreenscraperEnabled { get; set => SetField(ref field, value, nameof(ScreenscraperEnabled)); }
 
     /// <summary>Gets or sets the optional Screenscraper account name, which raises the quota.</summary>
-    public string ScreenscraperUser { get; set => SetField(ref field, value, nameof(ScreenscraperUser)); } = "";
+    public string ScreenscraperUser { get; set => SetField(ref field, value, nameof(ScreenscraperUser)); }
 
     /// <summary>Gets or sets the password for <see cref="ScreenscraperUser"/>.</summary>
-    public string ScreenscraperUserPassword { get; set => SetField(ref field, value, nameof(ScreenscraperUserPassword)); } = "";
+    public string ScreenscraperUserPassword { get; set => SetField(ref field, value, nameof(ScreenscraperUserPassword)); }
 
     // --- Startup apps ---
     /// <summary>Gets the ordered startup programs shown in the settings editor.</summary>

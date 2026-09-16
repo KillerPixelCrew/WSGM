@@ -95,6 +95,8 @@ public sealed class LibraryBadgesTests
             LibraryBadges.Changed -= OnChanged;
         }
 
+        return;
+
         void OnChanged() => raised++;
     }
 

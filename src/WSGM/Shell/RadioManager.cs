@@ -1237,7 +1237,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
     /// <param name="token">The token from the prompt.</param>
     /// <param name="accept">Whether the user accepted.</param>
     /// <param name="pin">The PIN typed by the user, for the provide-pin ceremony.</param>
-    public void RespondToPairing(uint token, bool accept, string? pin)
+    public static void RespondToPairing(uint token, bool accept, string? pin)
     {
         Log.Info($"Bluetooth pairing: answering token {token} with "
             + $"{(accept ? "accept" : "decline")}{(pin is { Length: > 0 } ? " and a PIN" : "")}.");

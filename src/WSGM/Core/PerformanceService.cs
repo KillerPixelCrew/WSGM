@@ -415,7 +415,6 @@ internal sealed class PerformanceService : IAsyncDisposable
     internal Task<PerformanceCommandState> SetAsync(
         PerformanceControl control,
         int value,
-        PerformancePersistenceTarget persistence,
         string origin,
         string correlationId,
         CancellationToken cancellationToken = default) => SetCoreAsync(

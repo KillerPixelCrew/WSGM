@@ -223,7 +223,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     {
         var result = await ExecuteCapabilityCoreAsync(id, null, value, TimeSpan.FromSeconds(5),
             persist && value.Kind == CapabilityValueKind.Integer ? CapabilityCommandOrigin.User : CapabilityCommandOrigin.AutomaticControl,
-            token, cycle, generation).ConfigureAwait(false);
+            cycle, generation, applyPowerPair: false, token).ConfigureAwait(false);
         if (!persist && value.IntegerValue is { } watts && result.Outcome == CommandOutcome.AppliedVerified
             && FindDescriptor(id, null)?.Role == CapabilityRole.PowerSustainedLimit)
         { _assignedPowerOverride?.Invoke(watts); }
@@ -1858,10 +1858,10 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <param name="value">The requested value, or null for an action.</param>
     /// <param name="timeout">How long the command may take.</param>
     /// <param name="origin">Who asked for it, which decides whether AutoTDP steps aside.</param>
-    /// <param name="cancellationToken">Cancels the command.</param>
     /// <param name="expectedCycle">Optional cycle captured by a restore operation.</param>
     /// <param name="expectedDescriptors">Optional descriptor generation captured by a restore.</param>
     /// <param name="applyPowerPair">Whether the plugin should apply its declared sustained/boost pair.</param>
+    /// <param name="cancellationToken">Cancels the command.</param>
     /// <returns>The command result reported by the plugin.</returns>
     internal async Task<CapabilityCommandResult> ExecuteCapabilityAsync(
         string capabilityId,
@@ -1869,10 +1869,10 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         CapabilityValue? value,
         TimeSpan timeout,
         CapabilityCommandOrigin origin = CapabilityCommandOrigin.User,
-        CancellationToken cancellationToken = default,
         long? expectedCycle = null,
         long? expectedDescriptors = null,
-        bool applyPowerPair = false)
+        bool applyPowerPair = false,
+        CancellationToken cancellationToken = default)
     {
         var power = FindDescriptor(capabilityId, instanceId)?.Role is
             CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit or CapabilityRole.ScenarioMode;
@@ -1886,8 +1886,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         if (power) { await PowerPresets.MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false); }
         try
         {
-            return await ExecuteCapabilityCoreAsync(capabilityId, instanceId, value, timeout, origin, cancellationToken,
-                expectedCycle, expectedDescriptors, applyPowerPair)
+            return await ExecuteCapabilityCoreAsync(capabilityId, instanceId, value, timeout, origin,
+                expectedCycle, expectedDescriptors, applyPowerPair, cancellationToken)
                 .ConfigureAwait(false);
         }
         finally { if (power) { PowerPresets.MutationGate.Release(); } }
@@ -1909,14 +1909,14 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             // preference is restored. No host-authored sustained/boost relationship is assumed.
             var pair = await ExecuteCapabilityCoreAsync(primary.Descriptor.CapabilityId, primary.Descriptor.InstanceId,
                 new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = sustained },
-                TimeSpan.FromSeconds(5), CapabilityCommandOrigin.ProfileRestore, cancellationToken,
-                state.CycleGeneration, state.DescriptorGeneration, applyPowerPair: true).ConfigureAwait(false);
+                TimeSpan.FromSeconds(5), CapabilityCommandOrigin.ProfileRestore,
+                state.CycleGeneration, state.DescriptorGeneration, applyPowerPair: true, cancellationToken).ConfigureAwait(false);
             if (pair.Outcome != CommandOutcome.AppliedVerified || pair.ReadbackValue?.IntegerValue != sustained) { return false; }
             _assignedPowerOverride?.Invoke(sustained);
             var result = await ExecuteCapabilityCoreAsync(peerId, null,
                 new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = boost },
-                TimeSpan.FromSeconds(5), CapabilityCommandOrigin.ProfileRestore, cancellationToken,
-                state.CycleGeneration, state.DescriptorGeneration).ConfigureAwait(false);
+                TimeSpan.FromSeconds(5), CapabilityCommandOrigin.ProfileRestore,
+                state.CycleGeneration, state.DescriptorGeneration, applyPowerPair: false, cancellationToken).ConfigureAwait(false);
             return result.Outcome == CommandOutcome.AppliedVerified && result.ReadbackValue?.IntegerValue == boost;
         }
         finally { PowerPresets.MutationGate.Release(); }
@@ -1924,8 +1924,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
     private async Task<CapabilityCommandResult> ExecuteCapabilityCoreAsync(
         string capabilityId, string? instanceId, CapabilityValue? value, TimeSpan timeout,
-        CapabilityCommandOrigin origin, CancellationToken cancellationToken,
-        long? expectedCycle = null, long? expectedDescriptors = null, bool applyPowerPair = false)
+        CapabilityCommandOrigin origin, long? expectedCycle, long? expectedDescriptors, bool applyPowerPair,
+        CancellationToken cancellationToken)
     {
         var user = origin is CapabilityCommandOrigin.User;
         if (user) { Interlocked.Increment(ref _userCapabilityCommands); }
@@ -1936,7 +1936,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 instanceId,
                 value,
                 timeout,
-                cancellationToken, expectedCycle, expectedDescriptors, applyPowerPair).ConfigureAwait(false);
+                expectedCycle, expectedDescriptors, applyPowerPair, cancellationToken).ConfigureAwait(false);
             switch (origin)
             {
                 case CapabilityCommandOrigin.User:
@@ -2408,7 +2408,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                         value,
                         TimeSpan.FromSeconds(5),
                         CapabilityCommandOrigin.AutomaticControl,
-                        token),
+                        cancellationToken: token),
                     cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -2528,9 +2528,9 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                     desired,
                     TimeSpan.FromSeconds(5),
                     CapabilityCommandOrigin.DesiredStateRestore,
-                    cancellationToken,
                     view.Projection.State.CycleGeneration,
-                    view.Projection.State.DescriptorGeneration).ConfigureAwait(false);
+                    view.Projection.State.DescriptorGeneration,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
                 if (result.Outcome.IsApplied())
                 {
                     applied++;

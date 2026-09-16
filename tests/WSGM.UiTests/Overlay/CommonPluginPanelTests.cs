@@ -81,6 +81,8 @@ public sealed class CommonPluginPanelTests
         }
         finally { window.Close(); }
 
+        return;
+
         Button Find(PluginWidgetPin pin, string label) => panel.GetLogicalDescendants().OfType<Button>()
             .Single(button => Equals(button.Tag, (pin, label)));
     }

@@ -28,8 +28,7 @@ internal static class UnelevatedLauncher
         var disposition = TryStartViaScheduledTaskAsync(
             exePath,
             arguments,
-            DateTimeOffset.UtcNow.AddSeconds(30),
-            CancellationToken.None).GetAwaiter().GetResult();
+            DateTimeOffset.UtcNow.AddSeconds(30)).GetAwaiter().GetResult();
         return disposition is ScheduledTaskLaunchDisposition.Dispatched;
     }
 
@@ -39,8 +38,8 @@ internal static class UnelevatedLauncher
         string exePath,
         string arguments,
         DateTimeOffset deadline,
-        CancellationToken cancellationToken,
-        string? workingDirectory = null)
+        string? workingDirectory = null,
+        CancellationToken cancellationToken = default)
     {
         var suffix = $"{Environment.ProcessId}-{Random.Shared.Next():x8}";
         var taskName = $"WSGM_StartUnelevated_{suffix}";
@@ -69,8 +68,8 @@ internal static class UnelevatedLauncher
                 taskName,
                 xmlPath,
                 deadline,
-                cancellationToken,
-                RunSchtasksUntilAsync).ConfigureAwait(false);
+                RunSchtasksUntilAsync,
+                cancellationToken).ConfigureAwait(false);
             if (disposition is ScheduledTaskLaunchDisposition.Dispatched)
             {
                 Log.Info($"Started via de-elevating scheduled task: {exePath}"
@@ -114,15 +113,15 @@ internal static class UnelevatedLauncher
         string taskName,
         string xmlPath,
         DateTimeOffset deadline,
-        CancellationToken cancellationToken,
-        Func<string, DateTimeOffset, CancellationToken, Task<ConsoleToolRunOutcome>> runCommand) =>
+        Func<string, DateTimeOffset, CancellationToken, Task<ConsoleToolRunOutcome>> runCommand,
+        CancellationToken cancellationToken) =>
         RunScheduledTaskSequenceAsync(
             taskName,
             xmlPath,
             deadline,
-            cancellationToken,
             runCommand,
-            static () => DateTimeOffset.UtcNow);
+            static () => DateTimeOffset.UtcNow,
+            cancellationToken);
 
     /// <summary>Runs the scheduled-task sequence through an injected clock so deadline closure can
     /// be verified deterministically without invoking Task Scheduler.</summary>
@@ -130,9 +129,9 @@ internal static class UnelevatedLauncher
         string taskName,
         string xmlPath,
         DateTimeOffset deadline,
-        CancellationToken cancellationToken,
         Func<string, DateTimeOffset, CancellationToken, Task<ConsoleToolRunOutcome>> runCommand,
-        Func<DateTimeOffset> utcNow)
+        Func<DateTimeOffset> utcNow,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(runCommand);
         ArgumentNullException.ThrowIfNull(utcNow);

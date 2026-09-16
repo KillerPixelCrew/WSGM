@@ -101,12 +101,12 @@ internal static class ConsoleTool
             exe,
             arguments,
             deadline,
-            cancellationToken,
             static startInfo =>
             {
                 var process = Process.Start(startInfo);
                 return process is null ? null : new SystemConsoleToolProcess(process);
-            });
+            },
+            cancellationToken);
 
     /// <summary>Runs through an injected process owner so process-start, wait-fault, and cleanup
     /// boundaries can be verified without invoking a live console tool.</summary>
@@ -114,8 +114,8 @@ internal static class ConsoleTool
         string exe,
         string arguments,
         DateTimeOffset deadline,
-        CancellationToken cancellationToken,
-        Func<ProcessStartInfo, IConsoleToolProcess?> startProcess)
+        Func<ProcessStartInfo, IConsoleToolProcess?> startProcess,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(startProcess);
         var what = $"{exe} {FirstToken(arguments)}";

@@ -344,8 +344,8 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
             capturePath,
             outputDirectory,
             Boundaries(),
-            cancellationToken,
-            usbInstanceId);
+            usbInstanceId,
+            cancellationToken);
 
     /// <summary>Runs the built-in hardware-free synthetic plugin fixture.</summary>
     /// <param name="cancellationToken">Cancels the fixture.</param>

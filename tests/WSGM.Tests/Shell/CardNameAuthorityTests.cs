@@ -13,7 +13,7 @@ public class CardNameAuthorityTests
 {
     private static LibraryTabManager.Discovered Card(
         string contentId, string markerLabel, string fallbackName = "Library (E:)")
-        => new(contentId, fallbackName, [], 'E', markerLabel);
+        => new(contentId, fallbackName, [], markerLabel);
 
     private static AppConfig ConfigWith(params (string ContentId, string Name)[] cards)
     {
@@ -140,7 +140,7 @@ public class CardNameAuthorityTests
 
         LibraryTabManager.MergeDiscovery(
             config,
-            [new LibraryTabManager.Discovered("777", "Library (E:)", [3L], 'E', "Indies")]);
+            [new LibraryTabManager.Discovered("777", "Library (E:)", [3L], "Indies")]);
 
         Assert.Equal([3L], config.CardLibraries[0].AppIds);
     }

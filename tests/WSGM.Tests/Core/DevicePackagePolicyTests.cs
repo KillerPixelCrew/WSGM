@@ -248,8 +248,8 @@ public sealed class DevicePackagePolicyTests : IDisposable
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => DevicePackageStager.StageAsync(
             source,
             installed,
-            cancellation.Token,
-            cancellation.Cancel));
+            cancellation.Cancel,
+            cancellationToken: cancellation.Token));
 
         Assert.True(Directory.Exists(oldRoot));
         Assert.False(Directory.Exists(DevicePackageStager.ReplacementRecoveryRoot(installed)));
@@ -827,8 +827,8 @@ public sealed class DevicePackagePolicyTests : IDisposable
             var waiting = DevicePackageSlotGate.TryAcquireAsync(
                 name,
                 TimeSpan.FromSeconds(10),
-                cancellation.Token,
-                () => waitStarted.TrySetResult());
+                () => waitStarted.TrySetResult(),
+                cancellation.Token);
             await waitStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
             await cancellation.CancelAsync();

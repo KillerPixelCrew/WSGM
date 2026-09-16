@@ -513,7 +513,7 @@ internal static class CaptureSchemaValidator
     private static void ValidateId(
         string? value,
         string path,
-        ICollection<CaptureValidationError> errors)
+        List<CaptureValidationError> errors)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > CaptureSchema.MaximumIdentifierLength)
         {
@@ -525,7 +525,7 @@ internal static class CaptureSchemaValidator
     private static void ValidateText(
         string? value,
         string path,
-        ICollection<CaptureValidationError> errors)
+        List<CaptureValidationError> errors)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > CaptureSchema.MaximumTextLength)
         {
@@ -538,7 +538,7 @@ internal static class CaptureSchemaValidator
         string path,
         string expected,
         string property,
-        ICollection<CaptureValidationError> errors)
+        List<CaptureValidationError> errors)
     {
         if (!string.Equals(path, expected, StringComparison.Ordinal))
         {
@@ -550,7 +550,7 @@ internal static class CaptureSchemaValidator
         string path,
         string prefix,
         string? suffix,
-        ICollection<CaptureValidationError> errors)
+        List<CaptureValidationError> errors)
     {
         if (!CaptureBundleLayout.IsSafeRelativePath(path)
             || !path.StartsWith(prefix, StringComparison.Ordinal)
@@ -562,7 +562,7 @@ internal static class CaptureSchemaValidator
 
     private static void ValidateUniquePaths(
         IEnumerable<string> paths,
-        ICollection<CaptureValidationError> errors)
+        List<CaptureValidationError> errors)
     {
         HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
         foreach (var path in paths)
@@ -577,7 +577,7 @@ internal static class CaptureSchemaValidator
     private static void ValidateUniqueIds(
         IEnumerable<string> ids,
         string path,
-        ICollection<CaptureValidationError> errors)
+        List<CaptureValidationError> errors)
     {
         HashSet<string> seen = new(StringComparer.Ordinal);
         foreach (var id in ids)
@@ -592,7 +592,7 @@ internal static class CaptureSchemaValidator
     private static void ValidateSha256(
         string? hash,
         string path,
-        ICollection<CaptureValidationError> errors)
+        List<CaptureValidationError> errors)
     {
         if (hash is null || hash.Length != 64 || hash.Any(c => c is not (>= '0' and <= '9') and not (>= 'a' and <= 'f')))
         {

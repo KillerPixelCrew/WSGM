@@ -17,7 +17,7 @@ public sealed class CommonPluginManagerTests
         var installed = await Catalog(temporary, "test.plugin");
         PluginHost host = new(action => action());
         List<FakePlugin> created = [];
-        CommonPluginManager manager = new(host, installed, temporary.GetPath("state"), action => action(),
+        CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
             (package, _) => { FakePlugin plugin = new(package.Manifest.Id); created.Add(plugin); return Task.FromResult<IPlugin>(plugin); });
         var first = new CommonPluginInstanceConfig { PluginId = "test.plugin", InstanceId = "one", Enabled = false };
         await manager.ReconcileAsync([first], CancellationToken.None);
@@ -43,7 +43,7 @@ public sealed class CommonPluginManagerTests
         using TemporaryDirectory temporary = new();
         var installed = await Catalog(temporary, "a.bad", "b.good");
         var loads = 0;
-        CommonPluginManager manager = new(new PluginHost(action => action()), installed, temporary.GetPath("state"), action => action(),
+        CommonPluginManager manager = new(new PluginHost(action => action()), installed, temporary.GetPath("state"),
             (package, _) =>
             {
                 loads++;
@@ -68,7 +68,7 @@ public sealed class CommonPluginManagerTests
         var installed = await Catalog(temporary, "test.plugin");
         var loads = 0;
         FakePlugin plugin = new("test.plugin") { Released = false };
-        CommonPluginManager manager = new(new PluginHost(action => action()), installed, temporary.GetPath("state"), action => action(),
+        CommonPluginManager manager = new(new PluginHost(action => action()), installed, temporary.GetPath("state"),
             (_, _) => { loads++; return Task.FromResult<IPlugin>(plugin); });
         var configuration = new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true };
         await manager.ReconcileAsync([configuration], CancellationToken.None);
@@ -91,7 +91,7 @@ public sealed class CommonPluginManagerTests
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         FakePlugin plugin = new("test.plugin");
-        CommonPluginManager manager = new(new PluginHost(action => action()), installed, temporary.GetPath("state"), action => action(),
+        CommonPluginManager manager = new(new PluginHost(action => action()), installed, temporary.GetPath("state"),
             async (_, _) => { entered.SetResult(); await release.Task; return plugin; });
         using CancellationTokenSource cancellation = new();
         var start = manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }], cancellation.Token);
@@ -134,7 +134,7 @@ public sealed class CommonPluginManagerTests
         TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         List<FakePlugin> created = [];
         PluginHost host = new(action => action());
-        CommonPluginManager manager = new(host, installed, temporary.GetPath("state"), action => action(), async (_, _) =>
+        CommonPluginManager manager = new(host, installed, temporary.GetPath("state"), async (_, _) =>
         {
             FakePlugin plugin = new("test.plugin");
             created.Add(plugin);
@@ -163,7 +163,7 @@ public sealed class CommonPluginManagerTests
         using TemporaryDirectory temporary = new();
         var installed = await Catalog(temporary, "test.plugin");
         FakePlugin plugin = new("test.plugin");
-        CommonPluginManager manager = new(new PluginHost(action => action()), installed, temporary.GetPath("state"), action => action(),
+        CommonPluginManager manager = new(new PluginHost(action => action()), installed, temporary.GetPath("state"),
             (_, _) => Task.FromResult<IPlugin>(plugin));
         await manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }], CancellationToken.None);
         await manager.PowerTransitionAsync(true, CancellationToken.None);

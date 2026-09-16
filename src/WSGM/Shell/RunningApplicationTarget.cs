@@ -30,10 +30,9 @@ internal sealed record RunningApplicationTargetSnapshot(
     uint? SteamAppId,
     string? ExecutablePath,
     string? RtssProfileName,
-    DateTimeOffset ObservedAt,
     string? Diagnostic)
 {
-    internal static RunningApplicationTargetSnapshot Initial(DateTimeOffset observedAt) => new(
+    internal static RunningApplicationTargetSnapshot Initial() => new(
         0,
         0,
         RunningApplicationTargetState.Unavailable,
@@ -41,7 +40,6 @@ internal sealed record RunningApplicationTargetSnapshot(
         null,
         null,
         null,
-        observedAt,
         "Running-application observation has not started.");
 }
 
@@ -117,7 +115,6 @@ internal static class RunningApplicationTargetProjection
     /// <param name="current">The snapshot in force.</param>
     /// <param name="observation">What Steam reports.</param>
     /// <param name="profile">Steam's executable/install-folder resolution for the named AppID.</param>
-    /// <param name="observedAt">Observation time.</param>
     /// <param name="foreground">What the user has in front of them.</param>
     /// <param name="rendering">
     /// The applications RTSS has hooked and is currently drawing frames for. The second, independent
@@ -127,15 +124,14 @@ internal static class RunningApplicationTargetProjection
         RunningApplicationTargetSnapshot current,
         SteamRunningAppObservation observation,
         SteamRunningAppProfile? profile,
-        DateTimeOffset observedAt,
         ForegroundApplicationObservation? foreground = null,
         IReadOnlyList<RtssFrametimeSample>? rendering = null)
     {
-        var candidate = Project(observation, profile, observedAt);
+        var candidate = Project(observation, profile);
         candidate = ApplyForeground(current, candidate, profile, foreground, rendering);
         if (Equivalent(current, candidate))
         {
-            return current with { ObservedAt = observedAt };
+            return current;
         }
 
         return candidate with { Generation = current.Generation + 1 };
@@ -348,8 +344,7 @@ internal static class RunningApplicationTargetProjection
 
     private static RunningApplicationTargetSnapshot Project(
         SteamRunningAppObservation observation,
-        SteamRunningAppProfile? profile,
-        DateTimeOffset observedAt)
+        SteamRunningAppProfile? profile)
     {
         if (!observation.Reachable)
         {
@@ -361,7 +356,6 @@ internal static class RunningApplicationTargetProjection
                 null,
                 null,
                 null,
-                observedAt,
                 Bound(observation.Diagnostic ?? "Steam running-app state is unavailable."));
         }
 
@@ -376,7 +370,6 @@ internal static class RunningApplicationTargetProjection
                 null,
                 null,
                 null,
-                observedAt,
                 null);
         }
 
@@ -390,7 +383,6 @@ internal static class RunningApplicationTargetProjection
                 null,
                 null,
                 null,
-                observedAt,
                 "Steam reports more than one running AppID; global policy remains active.");
         }
 
@@ -406,7 +398,6 @@ internal static class RunningApplicationTargetProjection
             appId,
             profile?.ExecutablePath,
             profile?.RtssProfileName,
-            observedAt,
             Bound(profile?.Diagnostic));
     }
 
@@ -779,7 +770,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         _probe = probe ?? throw new ArgumentNullException(nameof(probe));
         _steamEnabled = steamEnabled;
         _rendering = rendering ?? (static () => []);
-        _current = RunningApplicationTargetSnapshot.Initial(DateTimeOffset.UtcNow);
+        _current = RunningApplicationTargetSnapshot.Initial();
         _loop = Task.Run(ObserveLoopAsync);
     }
 
@@ -1073,7 +1064,6 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
                 _current,
                 observation,
                 profile,
-                DateTimeOffset.UtcNow,
                 _foreground,
                 rendering);
             changed = next.Generation != _current.Generation;

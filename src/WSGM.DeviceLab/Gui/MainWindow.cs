@@ -623,7 +623,7 @@ internal sealed class MainWindow : Window
             current.Token.ThrowIfCancellationRequested();
             var serialized = JsonSerializer.Serialize(display?.Invoke(result) ?? result, DisplayJson);
             accepted?.Invoke(result);
-            ApplyDisplayState(_displayState.Succeeded(serialized));
+            ApplyDisplayState(DeviceLabGuiOperationState.Succeeded(serialized));
         }
         catch (OperationCanceledException)
         {

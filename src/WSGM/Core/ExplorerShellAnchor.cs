@@ -318,7 +318,7 @@ internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
         }
         if (!graceful && !_process.HasExited)
         {
-            _ = _process.TryTerminate(out _);
+            _ = _process.TryTerminate();
             _ = await _process.WaitForExitAsync(StopTimeout).ConfigureAwait(false);
         }
 
@@ -701,7 +701,7 @@ internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
     {
         if (!process.HasExited)
         {
-            _ = process.TryTerminate(out _);
+            _ = process.TryTerminate();
             _ = await process.WaitForExitAsync(StopTimeout).ConfigureAwait(false);
         }
         if (writer is not null)

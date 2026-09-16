@@ -145,7 +145,7 @@ internal static class FixtureSchemaValidator
     private static void ValidateIdentifier(
         string? value,
         string path,
-        ICollection<CaptureValidationError> errors)
+        List<CaptureValidationError> errors)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > CaptureSchema.MaximumIdentifierLength)
         {
@@ -157,7 +157,7 @@ internal static class FixtureSchemaValidator
     private static void ValidateSha256(
         string hash,
         string path,
-        ICollection<CaptureValidationError> errors)
+        List<CaptureValidationError> errors)
     {
         if (hash.Length != 64 || hash.Any(c => c is not (>= '0' and <= '9') and not (>= 'a' and <= 'f')))
         {

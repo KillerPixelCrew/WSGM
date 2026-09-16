@@ -176,7 +176,6 @@ internal sealed class CardAcfWatcher : IDisposable
     {
         try
         {
-            var manager = new LibraryTabManager();
             if (!SteamUiReadiness.IsReady)
             {
                 // SyncOnBootAsync retries for up to ~2.5 minutes. A card finishing
@@ -196,7 +195,7 @@ internal sealed class CardAcfWatcher : IDisposable
                 {
                     Log.Info(
                         "Card watcher: Steam UI is still starting; deferring automatic tab sync.");
-                    await manager.SyncOnBootAsync(_token).ConfigureAwait(false);
+                    await LibraryTabManager.SyncOnBootAsync(_token).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -204,7 +203,7 @@ internal sealed class CardAcfWatcher : IDisposable
                 }
                 return;
             }
-            var summary = await manager.SyncAllAsync(_token).ConfigureAwait(false);
+            var summary = await LibraryTabManager.SyncAllAsync(_token).ConfigureAwait(false);
             Log.Info($"Card watcher: {summary}");
         }
         catch (OperationCanceledException)

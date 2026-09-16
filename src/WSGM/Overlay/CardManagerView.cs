@@ -17,8 +17,6 @@ namespace WSGM.Overlay;
 /// reader's (shared) drive letter.</summary>
 public sealed class CardManagerView : OverlaySubView
 {
-    private LibraryTabManager _manager = new();
-
     /// <summary>Raised when the user picks Format SD Card from the card list. The
     /// overlay owns the format flow (it is an inline panel, not a level of this
     /// view), so it swaps this sub-view for that one.</summary>
@@ -33,10 +31,8 @@ public sealed class CardManagerView : OverlaySubView
 
     /// <summary>Resets navigation and renders the card list. Called by the overlay
     /// when the sub-view opens.</summary>
-    /// <param name="manager">The shared library-tab manager.</param>
-    public void Open(LibraryTabManager manager)
+    public void Open()
     {
-        _manager = manager;
         _stack.Clear();
         _current = null;
         Navigate(RenderCardList);
@@ -54,7 +50,7 @@ public sealed class CardManagerView : OverlaySubView
         var failed = false;
         try
         {
-            cards = await _manager.ListCardsAsync();
+            cards = await LibraryTabManager.ListCardsAsync();
             if (generation != _navigationGeneration)
             {
                 return;
@@ -119,7 +115,7 @@ public sealed class CardManagerView : OverlaySubView
                         // label and the Windows volume. A refusal (an unmounted library,
                         // or one the write could not reach) and a partial failure both
                         // come back as a note to show.
-                        var note = await _manager.RenameCardAsync(card.ContentId, v);
+                        var note = await LibraryTabManager.RenameCardAsync(card.ContentId, v);
                         if (note is not null)
                         {
                             Toast(note);
@@ -134,7 +130,7 @@ public sealed class CardManagerView : OverlaySubView
                 }))));
             stack.Children.Add(CycleRow("Steam tab", card.Enabled ? "On" : "Off", () =>
                 _ = RunCardMutationAsync(
-                    () => _manager.SetCardEnabledAsync(card.ContentId, !card.Enabled), () =>
+                    () => LibraryTabManager.SetCardEnabledAsync(card.ContentId, !card.Enabled), () =>
             {
                 PopIfAny();
                 Replace(RenderCardList);
@@ -142,7 +138,7 @@ public sealed class CardManagerView : OverlaySubView
             })));
             stack.Children.Add(CycleRow("Hidden", card.Hidden ? "Yes" : "No", () =>
                 _ = RunCardMutationAsync(
-                    () => _manager.SetCardHiddenAsync(card.ContentId, !card.Hidden), () =>
+                    () => LibraryTabManager.SetCardHiddenAsync(card.ContentId, !card.Hidden), () =>
             {
                 PopIfAny();
                 Replace(RenderCardList);
@@ -153,7 +149,7 @@ public sealed class CardManagerView : OverlaySubView
             stack.Children.Add(SectionLabel(""));
             stack.Children.Add(DangerRow("Forget card", "Remove its tab and tracking", Icons.Close,
                 () => _ = RunCardMutationAsync(
-                    () => _manager.ForgetCardAsync(card.ContentId), () =>
+                    () => LibraryTabManager.ForgetCardAsync(card.ContentId), () =>
                 {
                     PopIfAny();
                     Replace(RenderCardList);
@@ -217,7 +213,7 @@ public sealed class CardManagerView : OverlaySubView
     {
         try
         {
-            var summary = await _manager.SyncAllAsync();
+            var summary = await LibraryTabManager.SyncAllAsync();
             Log.Info($"Card manager: {summary}");
         }
         catch (Exception ex)

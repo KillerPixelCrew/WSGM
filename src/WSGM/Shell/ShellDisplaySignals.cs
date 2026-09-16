@@ -41,6 +41,8 @@ internal sealed class ShellDisplayChangeSignal(DisplayChangeWindow? window) : ID
             window.DisplaysChanged -= OnChanged;
         }
 
+        return;
+
         void OnChanged() => signalled.TrySetResult();
     }
 }

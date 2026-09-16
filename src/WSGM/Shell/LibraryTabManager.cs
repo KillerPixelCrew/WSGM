@@ -22,10 +22,10 @@ public readonly record struct LibraryTabSyncResult(string Summary, bool Success)
 /// </list>
 /// Steam renders fake in-memory collections through its own grid; no real collection
 /// is created or modified except one-time cleanup of IDs from older WSGM builds.</summary>
-public sealed class LibraryTabManager
+public static class LibraryTabManager
 {
-    // Static so every trigger (boot, overlay open, each builder change) serializes even
-    // across separate manager instances — concurrent syncs would race the config.
+    // Shared so every trigger (boot, overlay open, each builder change) serializes;
+    // concurrent syncs would race the config.
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
     /// <summary>Recomputes every WSGM library tab and injects them into Steam's tab
@@ -34,11 +34,11 @@ public sealed class LibraryTabManager
     /// overlay open. Returns a short user-facing summary; concurrent calls are
     /// serialized, not coalesced — every queued caller runs a full sync.</summary>
     /// <param name="cancellationToken">Cancels the run.</param>
-    public async Task<string> SyncAllAsync(CancellationToken cancellationToken = default)
+    public static async Task<string> SyncAllAsync(CancellationToken cancellationToken = default)
         => (await SyncAllDetailedAsync(cancellationToken).ConfigureAwait(false)).Summary;
 
     /// <summary>Synchronizes tabs and returns machine-readable retry state.</summary>
-    public async Task<LibraryTabSyncResult> SyncAllDetailedAsync(
+    public static async Task<LibraryTabSyncResult> SyncAllDetailedAsync(
         CancellationToken cancellationToken = default)
     {
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -162,7 +162,7 @@ public sealed class LibraryTabManager
     /// Best-effort and self-limiting; falls back to the on-open sync if Steam never
     /// becomes reachable.</summary>
     /// <param name="cancellationToken">Cancels the wait.</param>
-    public async Task SyncOnBootAsync(CancellationToken cancellationToken = default)
+    public static async Task SyncOnBootAsync(CancellationToken cancellationToken = default)
     {
         _ = await SteamUiReadiness.RunWhenReadyAsync(
             "Library tabs (boot)",
@@ -298,7 +298,7 @@ public sealed class LibraryTabManager
     /// <summary>Scans drives, refreshes the card DB, and returns the current cards with
     /// live inserted state — the card manager's data source.</summary>
     /// <param name="cancellationToken">Cancels the scan.</param>
-    public async Task<IReadOnlyList<CardView>> ListCardsAsync(
+    public static async Task<IReadOnlyList<CardView>> ListCardsAsync(
         CancellationToken cancellationToken = default)
     {
         var discovered = await Task.Run(ScanLibraries, cancellationToken).ConfigureAwait(false);
@@ -346,7 +346,7 @@ public sealed class LibraryTabManager
     /// <param name="cancellationToken">Cancels the writes.</param>
     /// <returns>Null when every side applied; otherwise a short user-facing note
     /// describing what did not.</returns>
-    public async Task<string?> RenameCardAsync(string contentId, string name,
+    public static async Task<string?> RenameCardAsync(string contentId, string name,
         CancellationToken cancellationToken = default)
     {
         var trimmed = name.Trim();
@@ -632,7 +632,7 @@ public sealed class LibraryTabManager
     /// <param name="contentId">The card's content id.</param>
     /// <param name="enabled">Whether to maintain a tab.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    public Task SetCardEnabledAsync(string contentId, bool enabled,
+    public static Task SetCardEnabledAsync(string contentId, bool enabled,
         CancellationToken cancellationToken = default)
         => UpdateCardAsync(contentId, c => c.Enabled = enabled, cancellationToken);
 
@@ -640,7 +640,7 @@ public sealed class LibraryTabManager
     /// <param name="contentId">The card's content id.</param>
     /// <param name="hidden">Whether to hide it.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    public Task SetCardHiddenAsync(string contentId, bool hidden,
+    public static Task SetCardHiddenAsync(string contentId, bool hidden,
         CancellationToken cancellationToken = default)
         => UpdateCardAsync(contentId, c => c.Hidden = hidden, cancellationToken);
 
@@ -648,7 +648,7 @@ public sealed class LibraryTabManager
     /// is reinserted later it is rediscovered fresh.</summary>
     /// <param name="contentId">The card's content id.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
-    public async Task ForgetCardAsync(string contentId,
+    public static async Task ForgetCardAsync(string contentId,
         CancellationToken cancellationToken = default)
     {
         await MutateConfigAsync<object?>(config =>
@@ -830,12 +830,11 @@ public sealed class LibraryTabManager
     /// <param name="Name">The display name to use when the card has never been
     /// tracked and its marker carries no label.</param>
     /// <param name="AppIds">The app ids currently installed on the card.</param>
-    /// <param name="Letter">The drive letter the card is mounted on right now.</param>
     /// <param name="MarkerLabel">The label in the card's own
     /// <c>libraryfolder.vdf</c>, empty when it has none. Authoritative: it is the
     /// only name that travels with the media.</param>
     internal sealed record Discovered(
-        string ContentId, string Name, List<long> AppIds, char Letter, string MarkerLabel);
+        string ContentId, string Name, List<long> AppIds, string MarkerLabel);
 
     /// <summary>Scans every ready drive for a <c>&lt;X&gt;:\SteamLibrary</c> marker and
     /// reads its identity, label and installed app ids. The primary Steam install
@@ -863,7 +862,7 @@ public sealed class LibraryTabManager
                 var letter = char.ToUpperInvariant(drive.Name[0]);
                 var name = ResolveName(label, drive, letter);
                 var appIds = ReadAcfAppIds(Path.Combine(root, "steamapps"));
-                found.Add(new Discovered(contentId, name, appIds, letter, label));
+                found.Add(new Discovered(contentId, name, appIds, label));
             }
             catch (Exception ex)
             {

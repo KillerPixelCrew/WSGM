@@ -78,15 +78,15 @@ internal static partial class ScaffoldFromCaptureWorkflow
     /// <param name="capturePath">Sanitized source capture.</param>
     /// <param name="outputDirectory">New explicit output directory.</param>
     /// <param name="boundaries">Filesystem safety boundaries.</param>
-    /// <param name="cancellationToken">Cancels validation or publication.</param>
     /// <param name="usbInstanceId">Exact endpoint selection when the capture contains more than one candidate.</param>
+    /// <param name="cancellationToken">Cancels validation or publication.</param>
     /// <returns>The copied template files and exact identity.</returns>
     public static PluginScaffoldResult Run(
         string capturePath,
         string outputDirectory,
         DeviceLabPathBoundaries boundaries,
-        CancellationToken cancellationToken = default,
-        string? usbInstanceId = null)
+        string? usbInstanceId = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(capturePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);

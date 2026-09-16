@@ -23,7 +23,6 @@ internal static class ControllerBuilders
         70,
         executable,
         "game",
-        DateTimeOffset.UtcNow,
         null);
 
     internal static ControllerManagerStatus Status(

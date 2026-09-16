@@ -488,8 +488,7 @@ public sealed class ShellSession : IAsyncDisposable
             // Overlay test deliberately never discovers packages or loads plugin code.
             if (!_overlayTestOnly)
             {
-                _commonPlugins = new CommonPluginManager(_pluginHost, CommonPluginCatalog.InstalledRoot, Path.Combine(Log.Directory, "PluginState"),
-                    UiThread.Post);
+                _commonPlugins = new CommonPluginManager(_pluginHost, CommonPluginCatalog.InstalledRoot, Path.Combine(Log.Directory, "PluginState"));
                 _commonPluginStartup = ApplyCommonPluginConfigAsync(_config);
             }
             coordinator = _overlayTestOnly
@@ -673,8 +672,8 @@ public sealed class ShellSession : IAsyncDisposable
                         value,
                         TimeSpan.FromSeconds(5),
                         CapabilityCommandOrigin.AutomaticControl,
-                        token, power.Projection.State.CycleGeneration,
-                        power.Projection.State.DescriptorGeneration, applyPowerPair: pair),
+                        power.Projection.State.CycleGeneration,
+                        power.Projection.State.DescriptorGeneration, applyPowerPair: pair, token),
                 TargetFrametimeMs);
             var autoTdp = _autoTdp;
             deviceCoordinator.AttachAutoTdpAvailability(() => autoTdp.Availability);
@@ -1430,7 +1429,7 @@ public sealed class ShellSession : IAsyncDisposable
         // Every failed exit returns through verified desktop recovery.
         cancellationToken.ThrowIfCancellationRequested();
         var preparation = _desktopHost is null
-            ? new ExplorerPreparationResult(false, ExplorerShellRejection.ProcessUnavailable, "host-unavailable")
+            ? new ExplorerPreparationResult(false, "host-unavailable")
             : await _desktopHost.PrepareForExplorerExitAsync(cancellationToken).ConfigureAwait(false);
         if (!preparation.Prepared)
         {
@@ -1574,7 +1573,7 @@ public sealed class ShellSession : IAsyncDisposable
     {
         try
         {
-            await new LibraryTabManager().SyncOnBootAsync(owner.Token).ConfigureAwait(false);
+            await LibraryTabManager.SyncOnBootAsync(owner.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (owner.IsCancellationRequested)
         {
@@ -3008,9 +3007,9 @@ public sealed class ShellSession : IAsyncDisposable
             // Reproduce the non-Explorer half of the ordinary desktop transition before the shell
             // appears. Update already asked Steam to exit so its mapped payload can be replaced;
             // never race that exit with a protocol URL that could start the client again.
-            if (reason is not ApplicationShutdownReason.Update)
+            if (reason is not ApplicationShutdownReason.Update && _modes is not null)
             {
-                _modes?.ExitBigPicture();
+                SessionModes.ExitBigPicture();
             }
             DisplayScale.ApplyDesktopMode(_config);
         }

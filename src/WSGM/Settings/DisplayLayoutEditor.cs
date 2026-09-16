@@ -454,7 +454,7 @@ public sealed class DisplayLayoutEditor : ObservableObject
     private void OnPrimaryRequested(DisplayLayoutEditorRow row) => _requestedPrimary = row;
 
     /// <summary>Moves the primary display to the origin and everything else with it.</summary>
-    private static IReadOnlyList<DisplayLayoutOutput> Normalize(List<DisplayLayoutOutput> outputs)
+    private static List<DisplayLayoutOutput> Normalize(List<DisplayLayoutOutput> outputs)
     {
         var primary = outputs.FirstOrDefault(output => output.IsPrimary);
         if (primary is not null || outputs.Count == 0) { return outputs; }

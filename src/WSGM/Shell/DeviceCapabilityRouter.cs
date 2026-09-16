@@ -125,8 +125,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         string? instanceId,
         CapabilityValue? value,
         TimeSpan timeout,
-        CancellationToken cancellationToken = default,
-        long? expectedCycle = null, long? expectedDescriptors = null, bool applyPowerPair = false)
+        long? expectedCycle = null, long? expectedDescriptors = null, bool applyPowerPair = false,
+        CancellationToken cancellationToken = default)
     {
         DeviceCapabilityKey key = new(capabilityId, instanceId);
         SemaphoreSlim commandGate;

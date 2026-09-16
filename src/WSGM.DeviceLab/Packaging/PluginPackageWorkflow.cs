@@ -149,15 +149,15 @@ internal static class PluginPackageWorkflow
             sourceDirectory,
             outputPath,
             boundaries,
-            cancellationToken,
-            sourceValidated: null);
+            sourceValidated: null,
+            cancellationToken);
 
     internal static PluginPackageValidationReport Pack(
         string sourceDirectory,
         string outputPath,
         DeviceLabPathBoundaries boundaries,
-        CancellationToken cancellationToken,
-        Action? sourceValidated)
+        Action? sourceValidated,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(boundaries);
         var openingFailure = CaptureSource(

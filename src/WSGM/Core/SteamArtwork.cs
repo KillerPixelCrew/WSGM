@@ -8,10 +8,9 @@ using System.Threading.Tasks;
 namespace WSGM.Core;
 
 /// <summary>Outcome of an artwork change.</summary>
-/// <param name="Ok">Whether the change was applied.</param>
 /// <param name="Detail">A user-facing note (why it failed, or a follow-up such as
 /// "restart Steam").</param>
-public readonly record struct ArtworkResult(bool Ok, string Detail);
+public readonly record struct ArtworkResult(string Detail);
 
 /// <summary>Applies and clears custom game artwork. Grid/Hero/Logo/Wide go through
 /// Steam's own robust JS API over the CEF leg (<see cref="SteamCef"/>) —
@@ -44,12 +43,11 @@ public static class SteamArtwork
     {
         if (imageBytes.Length == 0)
         {
-            return new ArtworkResult(false, "The image was empty.");
+            return new ArtworkResult("The image was empty.");
         }
         if (asset == ArtworkAsset.Icon)
         {
-            return new ArtworkResult(false,
-                "Steam icons use a versioned per-app cache and cannot be changed safely here yet.");
+            return new ArtworkResult("Steam icons use a versioned per-app cache and cannot be changed safely here yet.");
         }
 
         var b64 = await Task.Run(() => Convert.ToBase64String(imageBytes), cancellationToken)
@@ -79,7 +77,7 @@ public static class SteamArtwork
     {
         if (asset == ArtworkAsset.Icon)
         {
-            return new ArtworkResult(false, "Icons can't be reset from here yet.");
+            return new ArtworkResult("Icons can't be reset from here yet.");
         }
         var app = ToUnsigned(appId);
         var type = ((int)asset).ToString(CultureInfo.InvariantCulture);
@@ -169,11 +167,11 @@ public static class SteamArtwork
     {
         if (!result.Reachable)
         {
-            return new ArtworkResult(false, "Steam isn't reachable — is it running?");
+            return new ArtworkResult("Steam isn't reachable — is it running?");
         }
         if (result.Value is null)
         {
-            return new ArtworkResult(false, "No response from Steam.");
+            return new ArtworkResult("No response from Steam.");
         }
         try
         {
@@ -181,15 +179,15 @@ public static class SteamArtwork
             var root = document.RootElement;
             if (root.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True)
             {
-                return new ArtworkResult(true, okMessage);
+                return new ArtworkResult(okMessage);
             }
             var err = root.TryGetProperty("err", out var e) ? e.GetString() : "unknown error";
             Log.Warn($"Artwork change failed: {err}.");
-            return new ArtworkResult(false, err ?? "Steam rejected the change.");
+            return new ArtworkResult(err ?? "Steam rejected the change.");
         }
         catch (Exception ex)
         {
-            return new ArtworkResult(false, ex.Message);
+            return new ArtworkResult(ex.Message);
         }
     }
 }

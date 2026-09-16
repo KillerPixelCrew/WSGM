@@ -27,7 +27,7 @@ internal sealed record FactoryFanCurve(IReadOnlyList<byte> Temperatures, IReadOn
 internal static class AsusReadProtocol
 {
     internal const uint Ioctl = 0x0022240C;
-    internal const uint DeviceStatusMethod = 0x53545344;
+    private const uint DeviceStatusMethod = 0x53545344;
     internal const int QueryLength = 16;
     internal const int ResponseLength = 32;
 

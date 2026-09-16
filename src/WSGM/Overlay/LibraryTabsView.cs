@@ -25,7 +25,6 @@ namespace WSGM.Overlay;
 /// <see cref="CardManagerView"/>.</summary>
 public sealed class LibraryTabsView : OverlaySubView
 {
-    private LibraryTabManager _manager = new();
     private AppConfig _config = new();
 
     // Lazily-loaded, cached Steam data for the pickers.
@@ -39,10 +38,8 @@ public sealed class LibraryTabsView : OverlaySubView
 
     /// <summary>Loads config and renders the root tab list. Called by the overlay when
     /// the sub-view opens.</summary>
-    /// <param name="manager">The shared library-tab manager.</param>
-    public void Open(LibraryTabManager manager)
+    public void Open()
     {
-        _manager = manager;
         _stack.Clear();
         _current = null;
         _games = null;
@@ -417,7 +414,7 @@ public sealed class LibraryTabsView : OverlaySubView
     {
         try
         {
-            var summary = await _manager.SyncAllAsync();
+            var summary = await LibraryTabManager.SyncAllAsync();
             Log.Info($"Library tabs (builder): {summary}");
         }
         catch (Exception ex)

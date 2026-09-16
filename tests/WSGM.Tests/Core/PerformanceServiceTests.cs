@@ -54,7 +54,6 @@ public sealed class PerformanceServiceTests
         var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             60,
-            PerformancePersistenceTarget.Automatic,
             "overlay",
             "command-1");
 
@@ -74,7 +73,6 @@ public sealed class PerformanceServiceTests
         var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             999,
-            PerformancePersistenceTarget.Automatic,
             "qam",
             "command-2");
 
@@ -93,7 +91,6 @@ public sealed class PerformanceServiceTests
         var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             60,
-            PerformancePersistenceTarget.Automatic,
             "overlay",
             "persistence-failure");
 
@@ -118,7 +115,6 @@ public sealed class PerformanceServiceTests
         var command = await service.SetAsync(
             PerformanceControl.OverlayLevel,
             2,
-            PerformancePersistenceTarget.Automatic,
             "qam",
             "command-3");
 
@@ -142,7 +138,6 @@ public sealed class PerformanceServiceTests
         var command = await service.SetAsync(
             PerformanceControl.OverlayLevel,
             3,
-            PerformancePersistenceTarget.Automatic,
             "overlay",
             "command-4");
 
@@ -165,7 +160,6 @@ public sealed class PerformanceServiceTests
         var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             50,
-            PerformancePersistenceTarget.Automatic,
             "overlay",
             "command-5");
 
@@ -189,7 +183,6 @@ public sealed class PerformanceServiceTests
         var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             45,
-            PerformancePersistenceTarget.Automatic,
             "qam",
             "command-6");
 
@@ -335,14 +328,12 @@ public sealed class PerformanceServiceTests
         await service.SetAsync(
             PerformanceControl.FrameLimit,
             60,
-            PerformancePersistenceTarget.Automatic,
             "overlay",
             "persistent");
         await service.SetTargetAsync(new PerformanceApplicationTarget("steam:7", 7, "game.exe", 123));
         await service.SetAsync(
             PerformanceControl.FrameLimit,
             45,
-            PerformancePersistenceTarget.Automatic,
             "overlay",
             "application");
 
@@ -376,13 +367,11 @@ public sealed class PerformanceServiceTests
         var overlay = service.SetAsync(
             PerformanceControl.FrameLimit,
             50,
-            PerformancePersistenceTarget.Automatic,
             "overlay",
             "overlay-command");
         var qam = service.SetAsync(
             PerformanceControl.FrameLimit,
             55,
-            PerformancePersistenceTarget.Automatic,
             "qam",
             "qam-command");
         await Task.WhenAll(overlay, qam);
@@ -409,7 +398,6 @@ public sealed class PerformanceServiceTests
         var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             60,
-            PerformancePersistenceTarget.Automatic,
             "qam",
             "no-optin");
 
@@ -435,7 +423,6 @@ public sealed class PerformanceServiceTests
         var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             60,
-            PerformancePersistenceTarget.Automatic,
             "qam",
             "existing-profile");
 
@@ -473,7 +460,6 @@ public sealed class PerformanceServiceTests
         var deferred = await service.SetAsync(
             PerformanceControl.FrameLimit,
             45,
-            PerformancePersistenceTarget.Automatic,
             "test",
             "identity-only");
         Assert.Equal(PerformanceCommandPhase.Deferred, deferred.Phase);

@@ -581,16 +581,10 @@ internal sealed class NativeShellChildProcess : IDisposable
 
     /// <summary>Terminates only the exact owned child. Used solely when anchor setup or its
     /// authenticated stop handshake failed before the child could be released normally.</summary>
-    internal bool TryTerminate(out int error)
+    internal bool TryTerminate()
     {
         var handle = _processHandle;
-        if (handle == 0 || HasExited || NativeShellProcess.TerminateProcess(handle, 1))
-        {
-            error = 0;
-            return true;
-        }
-        error = Marshal.GetLastPInvokeError();
-        return false;
+        return handle == 0 || HasExited || NativeShellProcess.TerminateProcess(handle, 1);
     }
 
     /// <inheritdoc />

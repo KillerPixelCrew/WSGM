@@ -23,7 +23,7 @@ internal sealed record DeviceLabGuiOperationState
     };
 
     /// <summary>Publishes a successful immutable result.</summary>
-    public DeviceLabGuiOperationState Succeeded(string result) => new()
+    public static DeviceLabGuiOperationState Succeeded(string result) => new()
     {
         LastSuccessfulResult = result,
         StatusText = "Completed successfully.",

@@ -34,6 +34,8 @@ public sealed class OverlayLayoutTests
         Dispatcher.UIThread.RunJobs();
         Assert.True(Action().IsFocused);
 
+        return;
+
         CardButton Action() => panel.GetVisualDescendants().OfType<CardButton>().Single();
     }
 
@@ -58,6 +60,8 @@ public sealed class OverlayLayoutTests
         Assert.True(Header().IsFocused);
         UiFixture.Click(window, Header());
         Assert.Equal(["section.device.overview"], pins);
+
+        return;
 
         Button Header() => window.GetVisualDescendants().OfType<SectionPinHeader>()
             .Single(header => header.IsEffectivelyVisible).GetVisualDescendants().OfType<Button>().Single();

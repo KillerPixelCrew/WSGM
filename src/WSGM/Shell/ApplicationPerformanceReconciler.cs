@@ -356,10 +356,10 @@ internal sealed class ApplicationPerformanceReconciler(
             // Not a user action: the value is already the saved preference, so it must not re-enter
             // the manual funnel and be persisted again or re-resolved into the wrong layer.
             CapabilityCommandOrigin.ProfileRestore,
-            cancellationToken,
             expectedCycle: power.Projection.State.CycleGeneration,
             expectedDescriptors: power.Projection.State.DescriptorGeneration,
-            applyPowerPair: paired).ConfigureAwait(false);
+            applyPowerPair: paired,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         var applied = paired
             ? result.Outcome == CommandOutcome.AppliedVerified && result.ReadbackValue?.IntegerValue == watts
             : result.Outcome.IsApplied();
@@ -412,7 +412,7 @@ internal sealed class ApplicationPerformanceReconciler(
             new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = enabled },
             TimeSpan.FromSeconds(5),
             origin,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         // Verified counts, unverified counts. A timeout does not: whether the panel changed is
         // unknown, and reporting success would leave Steam's toggle disagreeing with the display.

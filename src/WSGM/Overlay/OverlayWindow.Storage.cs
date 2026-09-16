@@ -86,8 +86,6 @@ public partial class OverlayWindow
 
     private void OnFormatCancel(object? sender, RoutedEventArgs e) => LeaveFormatSubViewToOrigin();
 
-    private LibraryTabManager LibraryTabs => field ??= new LibraryTabManager();
-
     // Debounce for the on-open auto-sync, shared across overlay instances (the
     // window is recreated per open). Auto-sync keeps card and category tabs current
     // without the user pressing the button; the button forces an immediate sync.
@@ -98,7 +96,7 @@ public partial class OverlayWindow
     /// custom-tab UI). Its own "Sync now" materializes the tabs.</summary>
     private void OnLibraryTabs(object? sender, RoutedEventArgs e)
     {
-        LibraryTabsHost.Open(LibraryTabs);
+        LibraryTabsHost.Open();
         EnterSubView(OverlayPage.SteamLibraryTabs);
     }
 
@@ -107,7 +105,7 @@ public partial class OverlayWindow
     {
         CardManagerHost.ShowFormat = _format is not null
             && DataContext is OverlayViewModel { ShowSdCard: true };
-        CardManagerHost.Open(LibraryTabs);
+        CardManagerHost.Open();
         EnterSubView(OverlayPage.SteamCardManager);
     }
 
@@ -161,7 +159,7 @@ public partial class OverlayWindow
         {
             try
             {
-                var result = await LibraryTabs.SyncAllDetailedAsync();
+                var result = await LibraryTabManager.SyncAllDetailedAsync();
                 Log.Info($"Library tabs auto-sync: {result.Summary}");
                 if (result.Success)
                 {

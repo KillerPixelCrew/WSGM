@@ -619,7 +619,7 @@ public sealed class ArtworkView : OverlaySubView
                 var bytes = await SteamGridDb.DownloadImageAsync(art.Url);
                 if (bytes is null || bytes.Length == 0)
                 {
-                    result = new ArtworkResult(false, "Could not download the image.");
+                    result = new ArtworkResult("Could not download the image.");
                 }
                 else
                 {
@@ -630,7 +630,7 @@ public sealed class ArtworkView : OverlaySubView
         catch (Exception ex)
         {
             Log.Error("Artwork apply failed.", ex);
-            result = new ArtworkResult(false, "Something went wrong — see the log.");
+            result = new ArtworkResult("Something went wrong — see the log.");
         }
 
         if (generation != _navigationGeneration || targetAppId != _appId)

@@ -197,7 +197,6 @@ public sealed class RunningApplicationCoordinatorTests
             42,
             profileName is null ? null : $@"C:\Games\{profileName}",
             profileName,
-            DateTimeOffset.UnixEpoch,
             null);
 
     private static TaskCompletionSource NewSignal() =>

@@ -24,9 +24,9 @@ internal sealed class FakeEndpoint : IIrEndpoint
     }
     public Task<IrPayload> LearnAsync(TimeSpan timeout, CancellationToken token) => Task.FromResult(new IrPayload(36000, [9000, 4500], "measured"));
     public Task TransmitAsync(IrPayload payload, int repeats, int gapMs, CancellationToken token) { Sent = payload; return Task.CompletedTask; }
-    public Task<IrEndpointIdentity> ConfigureNetworkAsync(string ssid, string password, string pairingToken, CancellationToken token)
+    public Task<IrEndpointIdentity> ConfigureNetworkAsync(string ssid, string password, string networkToken, CancellationToken token)
     {
-        Network = (ssid, password, pairingToken);
+        Network = (ssid, password, networkToken);
         return Task.FromResult(Describe());
     }
     public Task<IrRemoteCatalog> ListRemotesAsync(CancellationToken token)

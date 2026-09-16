@@ -258,7 +258,7 @@ public sealed class DeviceLabScaffoldingTests
                 LiveDataDirectory = temporary.GetPath("never-live-wsgm"),
                 BroadHomeDirectories = []
             },
-            cancellation.Token));
+            cancellationToken: cancellation.Token));
 
         Assert.False(Directory.Exists(output));
         Assert.Empty(Directory.EnumerateDirectories(temporary.Root, ".cancelled-scaffold.*.tmp"));

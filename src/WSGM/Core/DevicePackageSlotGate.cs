@@ -41,15 +41,15 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
     internal static Task<DevicePackageSlotGate?> TryAcquireAsync(
         TimeSpan timeout,
         CancellationToken cancellationToken = default) =>
-        TryAcquireAsync(ProductionName, timeout, cancellationToken);
+        TryAcquireAsync(ProductionName, timeout, cancellationToken: cancellationToken);
 
     /// <summary>Acquires a named package-slot gate. The name seam keeps cross-process exclusion
     /// testable without touching the production object.</summary>
     internal static async Task<DevicePackageSlotGate?> TryAcquireAsync(
         string name,
         TimeSpan timeout,
-        CancellationToken cancellationToken = default,
-        Action? waitStarted = null)
+        Action? waitStarted = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentOutOfRangeException.ThrowIfLessThan(timeout, TimeSpan.Zero);

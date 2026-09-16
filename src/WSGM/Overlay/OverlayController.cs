@@ -1080,7 +1080,7 @@ public sealed class OverlayController : IDisposable
         {
             _suppressFocusRestore = true;
             CloseOverlay();
-            _modes.ExitBigPicture();
+            SessionModes.ExitBigPicture();
         };
         overlay.CloseLauncherRequested += () => { _modes.CloseSteam(); vm.HomeAppAlive = false; };
         overlay.KeepAwakeToggleRequested += () =>

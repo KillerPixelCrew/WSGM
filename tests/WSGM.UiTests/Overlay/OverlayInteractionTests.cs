@@ -51,6 +51,8 @@ public sealed class OverlayInteractionTests
         }
         Assert.Equal(2, choices.Length);
 
+        return;
+
         DeviceCapabilityView Power(CapabilityRole role, int watts) => new(new CapabilityDescriptor
         {
             CapabilityId = role.ToString(),
@@ -147,6 +149,8 @@ public sealed class OverlayInteractionTests
         await Task.WhenAll(refresh, finished.Task.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.Equal(1, saves);
         Assert.Equal("balanced", config.BatteryPowerPreset?.PresetId);
+
+        return;
 
         DeviceCapabilityView Power(CapabilityRole role, int watts) => new(new CapabilityDescriptor
         {

@@ -7,9 +7,7 @@ public sealed class DeviceLabGuiOperationStateTests
     [Fact]
     public void LaterFailurePreservesLastSuccessfulResult()
     {
-        var state = DeviceLabGuiOperationState.Initial
-            .Started()
-            .Succeeded("first result")
+        var state = DeviceLabGuiOperationState.Succeeded("first result")
             .Started()
             .Failed("malformed plugin");
 
@@ -21,8 +19,7 @@ public sealed class DeviceLabGuiOperationStateTests
     [Fact]
     public void CancellationPreservesLastSuccessfulResult()
     {
-        var state = DeviceLabGuiOperationState.Initial
-            .Succeeded("last good result")
+        var state = DeviceLabGuiOperationState.Succeeded("last good result")
             .Started()
             .Cancelled();
 
@@ -34,8 +31,7 @@ public sealed class DeviceLabGuiOperationStateTests
     [Fact]
     public void StartingAnotherOperationDoesNotReplaceVisibleSuccess()
     {
-        var state = DeviceLabGuiOperationState.Initial
-            .Succeeded("durable result")
+        var state = DeviceLabGuiOperationState.Succeeded("durable result")
             .Started();
 
         Assert.Equal("durable result", state.LastSuccessfulResult);

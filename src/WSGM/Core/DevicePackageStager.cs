@@ -18,13 +18,13 @@ internal static class DevicePackageStager
     internal static async Task<InstalledDevicePackage> StageAsync(
         string sourceDirectory,
         string installedRoot,
-        CancellationToken cancellationToken = default,
         Action? previousSlotMoved = null,
         Func<string, bool>? sourcePathTraversesLink = null,
         Func<string, NativePathIdentity?>? pathIdentityReader = null,
         Action? sourceRootSecured = null,
         Func<string, NativePathIdentity?>? securedSourceIdentityReader = null,
-        Func<string, FileAttributes?>? protectedPathAttributeReader = null)
+        Func<string, FileAttributes?>? protectedPathAttributeReader = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(installedRoot);

@@ -13,7 +13,7 @@ public sealed class SettingsStartupTests
 {
     private static readonly SteamAutostartSource SteamEntry = new(
         SteamAutostartKind.ScheduledTask, SteamAutostartScope.Machine,
-        "Fixture Steam", "Steam", "fixture-steam.exe", true);
+        "Fixture Steam", "Steam", true);
 
     [AvaloniaFact]
     public async Task FirstLaunchShowsSetupAndCanCloseWhileStartupScanIsPending()

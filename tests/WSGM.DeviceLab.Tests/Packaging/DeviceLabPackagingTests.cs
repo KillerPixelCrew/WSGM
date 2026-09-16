@@ -108,6 +108,8 @@ public sealed class DeviceLabPackagingTests
         Assert.Equal(4, accepted.Count);
         Assert.Equal(5, observed);
 
+        return;
+
         IEnumerable<string> Entries()
         {
             // Unbounded in practice: the capture must stop on its own after one overflow entry.
@@ -132,12 +134,12 @@ public sealed class DeviceLabPackagingTests
             source,
             output,
             DeviceLabPackages.Boundaries(temporary),
-            CancellationToken.None,
             sourceValidated: () =>
             {
                 _ = Assert.Throws<IOException>(() => File.WriteAllBytes(entryAssembly, [1, 2, 3]));
                 replacementBlocked = true;
-            });
+            },
+            CancellationToken.None);
 
         Assert.True(report.Valid, Describe(report));
         Assert.True(replacementBlocked);
@@ -156,8 +158,8 @@ public sealed class DeviceLabPackagingTests
             source,
             output,
             DeviceLabPackages.Boundaries(temporary),
-            cancellation.Token,
-            cancellation.Cancel));
+            cancellation.Cancel,
+            cancellation.Token));
 
         Assert.False(File.Exists(output));
         Assert.Empty(Directory.EnumerateFiles(temporary.Root, "cancelled.wsgmpkg.*.tmp"));

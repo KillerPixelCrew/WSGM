@@ -322,7 +322,7 @@ internal sealed class CommonPluginPanel : StackPanel
         };
     }
 
-    private static Geometry? WidgetIcon(string? key) => key switch
+    private static StreamGeometry? WidgetIcon(string? key) => key switch
     {
         "power" => Icons.Power,
         "fan" => Icons.Snowflake,

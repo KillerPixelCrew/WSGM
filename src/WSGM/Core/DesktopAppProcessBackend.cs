@@ -141,8 +141,8 @@ internal sealed class DesktopAppProcessBackend : IDesktopAppBackend
         else
         {
             result = await UnelevatedLauncher.TryStartViaScheduledTaskAsync(
-                instance.ExecutablePath, instance.Rule.RestartArguments, deadline, CancellationToken.None,
-                Path.GetDirectoryName(instance.ExecutablePath))
+                instance.ExecutablePath, instance.Rule.RestartArguments, deadline,
+                Path.GetDirectoryName(instance.ExecutablePath), CancellationToken.None)
                 .ConfigureAwait(false);
         }
         // Let a supervisor see its hook already running, and let a later same-path record observe

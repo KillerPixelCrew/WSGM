@@ -42,8 +42,8 @@ public sealed class UnelevatedLauncherTests
                 "WSGM_Test",
                 @"C:\safe-test-task.xml",
                 deadline,
-                cancellation.Token,
-                RunCommand);
+                RunCommand,
+                cancellation.Token);
 
         Assert.Equal(ScheduledTaskLaunchDisposition.NotDispatched, disposition);
         Assert.Collection(
@@ -53,6 +53,8 @@ public sealed class UnelevatedLauncherTests
             call => Assert.StartsWith("/Delete", call.Arguments, StringComparison.Ordinal));
         Assert.All(calls, call => Assert.Equal(deadline, call.Deadline));
         Assert.All(calls, call => Assert.Equal(cancellation.Token, call.Token));
+
+        return;
 
         Task<ConsoleToolRunOutcome> RunCommand(
             string arguments,
@@ -77,8 +79,8 @@ public sealed class UnelevatedLauncherTests
                 "WSGM_Test",
                 @"C:\safe-test-task.xml",
                 deadline,
-                CancellationToken.None,
-                RunCommand);
+                RunCommand,
+                CancellationToken.None);
 
         Assert.Equal(ScheduledTaskLaunchDisposition.Unknown, disposition);
         Assert.Collection(
@@ -86,6 +88,8 @@ public sealed class UnelevatedLauncherTests
             call => Assert.StartsWith("/Create", call, StringComparison.Ordinal),
             call => Assert.StartsWith("/Run", call, StringComparison.Ordinal),
             call => Assert.StartsWith("/Delete", call, StringComparison.Ordinal));
+
+        return;
 
         Task<ConsoleToolRunOutcome> RunCommand(
             string arguments,
@@ -112,14 +116,16 @@ public sealed class UnelevatedLauncherTests
                 "WSGM_Test",
                 @"C:\safe-test-task.xml",
                 deadline,
-                CancellationToken.None,
-                RunCommand);
+                RunCommand,
+                CancellationToken.None);
 
         Assert.Equal(ScheduledTaskLaunchDisposition.NotDispatched, disposition);
         Assert.Collection(
             calls,
             call => Assert.StartsWith("/Create", call, StringComparison.Ordinal),
             call => Assert.StartsWith("/Delete", call, StringComparison.Ordinal));
+
+        return;
 
         Task<ConsoleToolRunOutcome> RunCommand(
             string arguments,
@@ -147,13 +153,15 @@ public sealed class UnelevatedLauncherTests
                 "WSGM_Test",
                 @"C:\safe-test-task.xml",
                 deadline,
-                CancellationToken.None,
                 RunCommand,
-                () => now);
+                () => now,
+                CancellationToken.None);
 
         Assert.Equal(ScheduledTaskLaunchDisposition.NotDispatched, disposition);
         var call = Assert.Single(calls);
         Assert.StartsWith("/Create", call, StringComparison.Ordinal);
+
+        return;
 
         Task<ConsoleToolRunOutcome> RunCommand(
             string arguments,
@@ -181,12 +189,14 @@ public sealed class UnelevatedLauncherTests
                 "WSGM_Test",
                 @"C:\safe-test-task.xml",
                 deadline,
-                cancellation.Token,
                 RunCommand,
-                () => now));
+                () => now,
+                cancellation.Token));
 
         var call = Assert.Single(calls);
         Assert.StartsWith("/Create", call, StringComparison.Ordinal);
+
+        return;
 
         Task<ConsoleToolRunOutcome> RunCommand(
             string arguments,

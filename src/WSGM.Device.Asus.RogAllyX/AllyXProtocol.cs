@@ -37,8 +37,8 @@ internal static class AllyXProtocol
     internal const ushort ProductId = 0x1B4C;
     internal const ushort VendorUsagePage = 0xFF31;
     internal const ushort VendorUsage = 0x0080;
-    internal const int VendorReportLength = 64;
-    internal const int RumbleReportLength = 9;
+    private const int VendorReportLength = 64;
+    private const int RumbleReportLength = 9;
 
     internal static bool TryReadVendorEvent(ReadOnlySpan<byte> report, out AllyVendorEvent value)
     {

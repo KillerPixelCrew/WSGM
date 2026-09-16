@@ -163,7 +163,6 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         await _service.SetAsync(
             control,
             value,
-            PerformancePersistenceTarget.Automatic,
             "overlay",
             Guid.NewGuid().ToString("N"),
             cancellationToken).ConfigureAwait(false);
@@ -241,7 +240,6 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         return await _service.SetAsync(
             control,
             next,
-            PerformancePersistenceTarget.Automatic,
             origin,
             Guid.NewGuid().ToString("N"),
             cancellationToken).ConfigureAwait(false);

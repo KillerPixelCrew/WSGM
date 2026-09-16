@@ -224,7 +224,7 @@ public static class GlyphPackageImporter
 
         if (profileErrors.Count > 0)
         {
-            AddRange(errors, profileErrors);
+            errors.AddRange(profileErrors);
             return;
         }
 
@@ -303,7 +303,7 @@ public static class GlyphPackageImporter
         }
         else
         {
-            AddRange(errors, profileErrors);
+            errors.AddRange(profileErrors);
         }
     }
 
@@ -503,6 +503,8 @@ public static class GlyphPackageImporter
             }
         }
 
+        return;
+
         void Invalid(string path, string message) => errors.Add(new GlyphPackageImportError(
             profileId,
             profilePath,
@@ -659,14 +661,6 @@ public static class GlyphPackageImporter
         catch (DecoderFallbackException)
         {
             return false;
-        }
-    }
-
-    private static void AddRange<T>(ICollection<T> target, IEnumerable<T> values)
-    {
-        foreach (var value in values)
-        {
-            target.Add(value);
         }
     }
 }

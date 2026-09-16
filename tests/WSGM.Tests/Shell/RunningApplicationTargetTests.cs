@@ -14,14 +14,12 @@ public sealed class RunningApplicationTargetTests : IDisposable
     [Fact]
     public void KnownSteamAppWithoutExecutableUsesIdentityButLeavesRtssGlobal()
     {
-        var now = DateTimeOffset.Parse("2026-08-28T12:00:00Z");
-        var initial = RunningApplicationTargetSnapshot.Initial(now);
+        var initial = RunningApplicationTargetSnapshot.Initial();
 
         var target = RunningApplicationTargetProjection.Apply(
             initial,
             new SteamRunningAppObservation(true, [3280350], 7, null),
-            new SteamRunningAppProfile(null, null, "Executable unavailable."),
-            now);
+            new SteamRunningAppProfile(null, null, "Executable unavailable."));
 
         Assert.Equal(RunningApplicationTargetState.IdentityOnly, target.State);
         Assert.Equal("steam:3280350", target.ApplicationId);
@@ -33,18 +31,15 @@ public sealed class RunningApplicationTargetTests : IDisposable
     [Fact]
     public void ExitReturnsToGlobalWithoutInheritingPreviousApplication()
     {
-        var started = DateTimeOffset.Parse("2026-08-28T12:00:00Z");
         var active = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(started),
+            RunningApplicationTargetSnapshot.Initial(),
             new SteamRunningAppObservation(true, [42], 2, null),
-            new SteamRunningAppProfile(@"D:\Games\game.exe", "game.exe", null),
-            started);
+            new SteamRunningAppProfile(@"D:\Games\game.exe", "game.exe", null));
 
         var exited = RunningApplicationTargetProjection.Apply(
             active,
             new SteamRunningAppObservation(true, [], 3, null),
-            null,
-            started.AddMinutes(1));
+            null);
 
         Assert.Equal(RunningApplicationTargetState.Global, exited.State);
         Assert.Null(exited.ApplicationId);
@@ -57,23 +52,19 @@ public sealed class RunningApplicationTargetTests : IDisposable
     [Fact]
     public void UnreachableAndAmbiguousObservationsClearThePreviousTarget()
     {
-        var now = DateTimeOffset.Parse("2026-08-28T12:00:00Z");
         var active = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(now),
+            RunningApplicationTargetSnapshot.Initial(),
             new SteamRunningAppObservation(true, [42], 2, null),
-            new SteamRunningAppProfile(@"D:\Games\game.exe", "game.exe", null),
-            now);
+            new SteamRunningAppProfile(@"D:\Games\game.exe", "game.exe", null));
 
         var unavailable = RunningApplicationTargetProjection.Apply(
             active,
             new SteamRunningAppObservation(false, [], 0, "CEF unavailable."),
-            null,
-            now.AddSeconds(1));
+            null);
         var ambiguous = RunningApplicationTargetProjection.Apply(
             active,
             new SteamRunningAppObservation(true, [42, 99], 3, null),
-            null,
-            now.AddSeconds(1));
+            null);
 
         Assert.Equal(RunningApplicationTargetState.Unavailable, unavailable.State);
         Assert.Null(unavailable.ApplicationId);
@@ -86,19 +77,16 @@ public sealed class RunningApplicationTargetTests : IDisposable
     [Fact]
     public void SourceGenerationReportsAStopStartEvenWhenTheAppIdIsTheSame()
     {
-        var now = DateTimeOffset.Parse("2026-08-28T12:00:00Z");
         SteamRunningAppProfile profile = new(@"D:\Games\game.exe", "game.exe", null);
         var first = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(now),
+            RunningApplicationTargetSnapshot.Initial(),
             new SteamRunningAppObservation(true, [42], 4, null),
-            profile,
-            now);
+            profile);
 
         var restarted = RunningApplicationTargetProjection.Apply(
             first,
             new SteamRunningAppObservation(true, [42], 6, null),
-            profile,
-            now.AddSeconds(1));
+            profile);
 
         Assert.Equal(first.Generation + 1, restarted.Generation);
         Assert.Equal(6, restarted.SourceGeneration);
@@ -181,13 +169,10 @@ public sealed class RunningApplicationTargetTests : IDisposable
     {
         // The whole point of the second source: on the desktop, or for a title Steam never
         // launched, per-application policy still has something to key on.
-        var now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
-
         var target = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(now),
+            RunningApplicationTargetSnapshot.Initial(),
             new SteamRunningAppObservation(true, [], 3, null),
             null,
-            now,
             new ForegroundApplicationObservation("Cyberpunk2077.exe"));
 
         Assert.Equal(RunningApplicationTargetState.Active, target.State);
@@ -201,13 +186,10 @@ public sealed class RunningApplicationTargetTests : IDisposable
     {
         // Alt-tabbing out of a running Steam game must not retarget its profile: Steam's identity
         // is the one the launch went through and the one the RTSS profile was resolved from.
-        var now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
-
         var target = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(now),
+            RunningApplicationTargetSnapshot.Initial(),
             new SteamRunningAppObservation(true, [42], 2, null),
             new SteamRunningAppProfile(@"D:\Games\game.exe", "game.exe", null),
-            now,
             new ForegroundApplicationObservation("chrome.exe"));
 
         Assert.Equal("steam:42", target.ApplicationId);
@@ -217,17 +199,14 @@ public sealed class RunningApplicationTargetTests : IDisposable
     [Fact]
     public void ForegroundSuppliesOrdinarySteamGamesMissingRtssProfile()
     {
-        var now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
-
         var target = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(now),
+            RunningApplicationTargetSnapshot.Initial(),
             new SteamRunningAppObservation(true, [42], 2, null),
             new SteamRunningAppProfile(
                 null,
                 null,
                 "Steam exposes no executable.",
                 @"D:\SteamLibrary\steamapps\common\Game"),
-            now,
             new ForegroundApplicationObservation(
                 "game.exe",
                 @"D:\SteamLibrary\steamapps\common\Game\bin\game.exe"));
@@ -247,17 +226,14 @@ public sealed class RunningApplicationTargetTests : IDisposable
         // The bug this rule exists for: a terminal focused while a store title was resolving became
         // HITMAN 3's sticky RTSS target, and the frame limit landed on WindowsTerminal.exe
         // (device-observed 2026-09-02).
-        var now = DateTimeOffset.Parse("2026-09-02T12:00:00Z");
-
         var target = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(now),
+            RunningApplicationTargetSnapshot.Initial(),
             new SteamRunningAppObservation(true, [42], 2, null),
             new SteamRunningAppProfile(
                 null,
                 null,
                 "Steam exposes no executable.",
                 @"D:\SteamLibrary\steamapps\common\Game"),
-            now,
             new ForegroundApplicationObservation(
                 "WindowsTerminal.exe",
                 @"C:\Program Files\WindowsApps\Terminal\WindowsTerminal.exe"));
@@ -271,13 +247,10 @@ public sealed class RunningApplicationTargetTests : IDisposable
     {
         // No folder means no proof; a bare foreground name pairing here is how the wrong
         // application captured a game's profile for its whole run.
-        var now = DateTimeOffset.Parse("2026-09-02T12:00:00Z");
-
         var target = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(now),
+            RunningApplicationTargetSnapshot.Initial(),
             new SteamRunningAppObservation(true, [42], 2, null),
             new SteamRunningAppProfile(null, null, "Install folder still resolving."),
-            now,
             new ForegroundApplicationObservation("game.exe", @"D:\Games\game.exe"));
 
         Assert.Equal(RunningApplicationTargetState.IdentityOnly, target.State);
@@ -292,13 +265,10 @@ public sealed class RunningApplicationTargetTests : IDisposable
         // folder proof can never be satisfied and its per-application profile was never written
         // (Claw, 2026-09-04). RTSS hooking and drawing the process is the proof that remains, and
         // it is the one that matters: a profile for something RTSS does not render does nothing.
-        var now = DateTimeOffset.Parse("2026-09-04T12:00:00Z");
-
         var target = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(now),
+            RunningApplicationTargetSnapshot.Initial(),
             new SteamRunningAppObservation(true, [489830], 2, null),
             new SteamRunningAppProfile(null, null, "Steam did not report the install folder."),
-            now,
             new ForegroundApplicationObservation(
                 "SkyrimSE.exe",
                 @"D:\Modding\Skyrim\SkyrimSE.exe",
@@ -317,13 +287,10 @@ public sealed class RunningApplicationTargetTests : IDisposable
         // The other half of the same run: Waterfox, Mod Organizer, GameBar and RustDesk all held
         // focus while Skyrim was up. None is hooked, so none may take the pairing — the rendering
         // set is proof, not a second bare name.
-        var now = DateTimeOffset.Parse("2026-09-04T12:00:00Z");
-
         var target = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(now),
+            RunningApplicationTargetSnapshot.Initial(),
             new SteamRunningAppObservation(true, [489830], 2, null),
             new SteamRunningAppProfile(null, null, "Steam did not report the install folder."),
-            now,
             new ForegroundApplicationObservation(
                 "waterfox.exe",
                 @"C:\Program Files\Waterfox\waterfox.exe",
@@ -339,13 +306,10 @@ public sealed class RunningApplicationTargetTests : IDisposable
     {
         // Zero is "could not be read", not a process. Matching it against an entry would pair the
         // game with whatever RTSS happened to list first.
-        var now = DateTimeOffset.Parse("2026-09-04T12:00:00Z");
-
         var target = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(now),
+            RunningApplicationTargetSnapshot.Initial(),
             new SteamRunningAppObservation(true, [489830], 2, null),
             new SteamRunningAppProfile(null, null, "Steam did not report the install folder."),
-            now,
             new ForegroundApplicationObservation("game.exe", @"D:\Games\game.exe"),
             [new RtssFrametimeSample(0, @"D:\Games\other.exe", 8.3, 120, 40)]);
 
@@ -358,13 +322,10 @@ public sealed class RunningApplicationTargetTests : IDisposable
     {
         // A shortcut has no install folder to check, and its target resolution normally names the
         // executable outright; the rare unresolved one keeps the name-based fill.
-        var now = DateTimeOffset.Parse("2026-09-02T12:00:00Z");
-
         var target = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(now),
+            RunningApplicationTargetSnapshot.Initial(),
             new SteamRunningAppObservation(true, [0x8000002A], 2, null),
             new SteamRunningAppProfile(null, null, "The shortcut target is a script."),
-            now,
             new ForegroundApplicationObservation("game.exe"));
 
         Assert.Equal(RunningApplicationTargetState.Active, target.State);
@@ -374,7 +335,6 @@ public sealed class RunningApplicationTargetTests : IDisposable
     [Fact]
     public void ForegroundResolvedSteamProfileSurvivesAltTab()
     {
-        var now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
         SteamRunningAppObservation observation = new(true, [42], 2, null);
         SteamRunningAppProfile unresolved = new(
             null,
@@ -382,10 +342,9 @@ public sealed class RunningApplicationTargetTests : IDisposable
             "Steam exposes no executable.",
             @"D:\SteamLibrary\steamapps\common\Game");
         var game = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(now),
+            RunningApplicationTargetSnapshot.Initial(),
             observation,
             unresolved,
-            now,
             new ForegroundApplicationObservation(
                 "game.exe",
                 @"D:\SteamLibrary\steamapps\common\Game\game.exe"));
@@ -394,7 +353,6 @@ public sealed class RunningApplicationTargetTests : IDisposable
             game,
             observation,
             unresolved,
-            now.AddSeconds(1),
             new ForegroundApplicationObservation(
                 "chrome.exe",
                 @"C:\Program Files\Google\Chrome\chrome.exe"));
@@ -410,7 +368,6 @@ public sealed class RunningApplicationTargetTests : IDisposable
         // A launcher takes focus first and validly pairs; when the game process from the same
         // install folder comes to the front, the profile follows it rather than staying on the
         // launcher for the whole run.
-        var now = DateTimeOffset.Parse("2026-09-02T12:00:00Z");
         SteamRunningAppObservation observation = new(true, [42], 2, null);
         SteamRunningAppProfile unresolved = new(
             null,
@@ -418,10 +375,9 @@ public sealed class RunningApplicationTargetTests : IDisposable
             "Steam exposes no executable.",
             @"D:\SteamLibrary\steamapps\common\Game");
         var launcher = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(now),
+            RunningApplicationTargetSnapshot.Initial(),
             observation,
             unresolved,
-            now,
             new ForegroundApplicationObservation(
                 "launcher.exe",
                 @"D:\SteamLibrary\steamapps\common\Game\launcher.exe"));
@@ -430,7 +386,6 @@ public sealed class RunningApplicationTargetTests : IDisposable
             launcher,
             observation,
             unresolved,
-            now.AddSeconds(5),
             new ForegroundApplicationObservation(
                 "game.exe",
                 @"D:\SteamLibrary\steamapps\common\Game\bin\game.exe"));
@@ -445,13 +400,10 @@ public sealed class RunningApplicationTargetTests : IDisposable
     {
         // The foreground says which window has focus, not which of two running games the user
         // means; choosing one here would write a power limit against the other.
-        var now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
-
         var target = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(now),
+            RunningApplicationTargetSnapshot.Initial(),
             new SteamRunningAppObservation(true, [42, 43], 2, null),
             null,
-            now,
             new ForegroundApplicationObservation("game.exe"));
 
         Assert.Equal(RunningApplicationTargetState.Ambiguous, target.State);
@@ -463,13 +415,10 @@ public sealed class RunningApplicationTargetTests : IDisposable
     {
         // Unavailable means the observation failed. Publishing an identity from focus would claim
         // knowledge WSGM does not have about whether a game is running.
-        var now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
-
         var target = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(now),
+            RunningApplicationTargetSnapshot.Initial(),
             new SteamRunningAppObservation(false, [], 0, "Steam is unreachable."),
             null,
-            now,
             new ForegroundApplicationObservation("game.exe"));
 
         Assert.Equal(RunningApplicationTargetState.Unavailable, target.State);
@@ -483,13 +432,10 @@ public sealed class RunningApplicationTargetTests : IDisposable
     [InlineData("")]
     public void ForegroundWindowsThatAreNotApplicationsLeavePolicyGlobal(string executable)
     {
-        var now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
-
         var target = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(now),
+            RunningApplicationTargetSnapshot.Initial(),
             new SteamRunningAppObservation(true, [], 3, null),
             null,
-            now,
             new ForegroundApplicationObservation(executable));
 
         Assert.Equal(RunningApplicationTargetState.Global, target.State);
@@ -499,21 +445,18 @@ public sealed class RunningApplicationTargetTests : IDisposable
     [Fact]
     public void ReturningToTheSameForegroundApplicationDoesNotChurnTheGeneration()
     {
-        var now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
         SteamRunningAppObservation idle = new(true, [], 3, null);
         ForegroundApplicationObservation foreground = new("game.exe");
 
         var first = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(now),
+            RunningApplicationTargetSnapshot.Initial(),
             idle,
             null,
-            now,
             foreground);
         var second = RunningApplicationTargetProjection.Apply(
             first,
             idle,
             null,
-            now.AddSeconds(2),
             foreground);
 
         Assert.Equal(first.Generation, second.Generation);
@@ -527,10 +470,9 @@ public sealed class RunningApplicationTargetTests : IDisposable
         var observation = await probe.ObserveAsync(CancellationToken.None);
 
         var target = RunningApplicationTargetProjection.Apply(
-            RunningApplicationTargetSnapshot.Initial(DateTimeOffset.UtcNow),
+            RunningApplicationTargetSnapshot.Initial(),
             observation,
             null,
-            DateTimeOffset.UtcNow,
             new ForegroundApplicationObservation("game.exe"));
 
         Assert.True(observation.Reachable);

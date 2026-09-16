@@ -151,21 +151,21 @@ public abstract class OverlaySubView : UserControl
         return button;
     }
 
-    private protected CardButton PrimaryRow(string title, string desc, Geometry? icon, Action onClick)
+    private protected static CardButton PrimaryRow(string title, string desc, Geometry? icon, Action onClick)
     {
         var button = Row(title, desc, icon, onClick);
         button.Classes.Add("primary");
         return button;
     }
 
-    private protected CardButton DangerRow(string title, string desc, Geometry? icon, Action onClick)
+    private protected static CardButton DangerRow(string title, string desc, Geometry? icon, Action onClick)
     {
         var button = Row(title, desc, icon, onClick);
         button.Classes.Add("danger");
         return button;
     }
 
-    private protected CardButton CycleRow(string label, string value, Action onClick)
+    private protected static CardButton CycleRow(string label, string value, Action onClick)
         => Row(label, value, Icons.Restart, onClick).Also(b => b.TrailingText = "↔");
 
     private protected static TextBlock Caption(string text) => new()

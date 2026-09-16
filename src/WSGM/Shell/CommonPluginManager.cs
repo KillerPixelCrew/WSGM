@@ -20,7 +20,6 @@ internal sealed class CommonPluginManager
     private readonly PluginHost _host;
     private readonly string _installedRoot;
     private readonly string _stateRoot;
-    private readonly Action<Action> _postToUi;
     private readonly Func<CommonInstalledPlugin, CancellationToken, Task<IPlugin>> _load;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Lock _stateGate = new();
@@ -29,17 +28,15 @@ internal sealed class CommonPluginManager
     private long _requestedRevision;
     private volatile CommonPluginCatalog _catalog = new([], []);
 
-    internal CommonPluginManager(PluginHost host, string installedRoot, string stateRoot, Action<Action> postToUi,
+    internal CommonPluginManager(PluginHost host, string installedRoot, string stateRoot,
         Func<CommonInstalledPlugin, CancellationToken, Task<IPlugin>>? load = null)
     {
         _host = host;
         _installedRoot = Path.GetFullPath(installedRoot);
         _stateRoot = Path.GetFullPath(stateRoot);
-        _postToUi = postToUi;
         _load = load ?? (async (package, token) => await CommonPluginPackage.LoadAsync(package.PackageRoot, package.Manifest, token).ConfigureAwait(false));
     }
 
-    internal event Action? Changed;
     internal CommonPluginInstanceView[] Snapshot()
     {
         lock (_stateGate)
@@ -131,7 +128,7 @@ internal sealed class CommonPluginManager
             }
             _catalog = _catalog with { Errors = errors.AsReadOnly() };
         }
-        finally { _gate.Release(); Notify(); }
+        finally { _gate.Release(); }
     }
 
     private async Task StartEntryAsync(Entry entry)
@@ -153,7 +150,6 @@ internal sealed class CommonPluginManager
             entry.Error = ex.Message;
             entry.LoadCleanupUnconfirmed = entry.Loaded is null && ex is AggregateException;
         }
-        finally { Notify(); }
     }
 
     internal async Task StopAsync(DateTimeOffset deadline)
@@ -175,7 +171,7 @@ internal sealed class CommonPluginManager
             }
             if (failures.Count != 0) { throw new AggregateException("Common plugin cleanup was not confirmed.", failures); }
         }
-        finally { _gate.Release(); Notify(); }
+        finally { _gate.Release(); }
     }
 
     internal async Task PowerTransitionAsync(bool suspend, CancellationToken cancellationToken)
@@ -203,7 +199,7 @@ internal sealed class CommonPluginManager
                 catch (Exception ex) when (ex is not OutOfMemoryException) { entry.Error = "Power transition failed: " + ex.Message; }
             })).ConfigureAwait(false);
         }
-        finally { _gate.Release(); Notify(); }
+        finally { _gate.Release(); }
     }
 
     private async Task StopEntryAsync(Entry entry, DateTimeOffset deadline)
@@ -232,7 +228,6 @@ internal sealed class CommonPluginManager
         { entry.Error = "Cleanup unconfirmed: " + ex.Message; throw; }
     }
 
-    private void Notify() => _postToUi(() => Changed?.Invoke());
     private static TimeSpan Remaining(DateTimeOffset deadline)
     {
         var remaining = deadline - DateTimeOffset.UtcNow;

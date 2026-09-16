@@ -186,7 +186,7 @@ internal sealed class PluginRegistration(
     public void PublishState(PluginStatePublication publication) => host.PublishState(this, publication);
 
     internal Task<PluginHealth> StartAsync(DateTimeOffset deadline, CancellationToken cancellationToken) =>
-        RunAsync(deadline, cancellationToken, async token =>
+        RunAsync(deadline, async token =>
         {
             if (_started || IsStopping) { throw new InvalidOperationException("Plugin startup was already attempted."); }
             _started = true;
@@ -197,32 +197,32 @@ internal sealed class PluginRegistration(
             if (Settings is not null) { await Settings.RestoreAsync(Context, token).ConfigureAwait(false); }
             PublishHealth(new PluginHealthPublication(Identity, Context.Generation, health, null));
             return health;
-        });
+        }, cancellationToken: cancellationToken);
 
     internal CommonPluginSettings? Settings { get; private set; }
 
     internal CommonPluginActions? Actions { get; private set; }
 
     internal Task<PluginConfigurationResult> RefreshConfigurationAsync(DateTimeOffset deadline, CancellationToken cancellationToken) =>
-        RunAsync(deadline, cancellationToken, async token =>
+        RunAsync(deadline, async token =>
         {
             RequireRunning();
             if (Settings is null) { throw new InvalidOperationException("The plugin does not declare settings."); }
             return await Settings.RefreshAsync(Context, token).ConfigureAwait(false);
-        }, quarantineFailure: false);
+        }, quarantineFailure: false, cancellationToken: cancellationToken);
 
     internal Task<PluginActionResult> InvokeActionAsync(long expectedGeneration, string actionId,
         IReadOnlyDictionary<string, PluginValue> arguments, PluginActionOrigin origin,
         DateTimeOffset deadline, CancellationToken cancellationToken)
     {
         var captured = new Dictionary<string, PluginValue>(arguments, StringComparer.Ordinal);
-        return RunAsync(deadline, cancellationToken, async token =>
+        return RunAsync(deadline, async token =>
         {
             RequireRunning();
             if (expectedGeneration != Context.Generation || Actions is null)
             { throw new InvalidOperationException("Action generation is stale or the plugin has not started."); }
             return await Actions.ExecuteAsync(actionId, origin, captured, Context, token).ConfigureAwait(false);
-        }, quarantineFailure: false);
+        }, quarantineFailure: false, cancellationToken: cancellationToken);
     }
 
     internal Task<PluginConfigurationResult> ConfigureAsync(long expectedRevision, IReadOnlyDictionary<string, PluginValue> changes,
@@ -230,12 +230,12 @@ internal sealed class PluginRegistration(
     {
         // Capture caller-owned mutable UI data before queueing work.
         var captured = new Dictionary<string, PluginValue>(changes, StringComparer.Ordinal);
-        return RunAsync(deadline, cancellationToken, async token =>
+        return RunAsync(deadline, async token =>
         {
             RequireRunning();
             if (Settings is null) { throw new InvalidOperationException("The plugin does not declare settings."); }
             return await Settings.ChangeAsync(expectedRevision, captured, Context, token).ConfigureAwait(false);
-        }, quarantineFailure: false);
+        }, quarantineFailure: false, cancellationToken: cancellationToken);
     }
 
     internal async Task SessionChangedAsync(PluginSessionMode mode, long revision, DateTimeOffset deadline, CancellationToken cancellationToken)
@@ -253,12 +253,12 @@ internal sealed class PluginRegistration(
         }
         try
         {
-            await RunAsync(deadline, request.Token, async token =>
+            await RunAsync(deadline, async token =>
             {
                 Context = Context with { Mode = mode };
                 if (_started && !IsStopping && !Quarantined) { await plugin.SessionChangedAsync(Context, token).ConfigureAwait(false); }
                 return true;
-            }, quarantineCancellation: false).ConfigureAwait(false);
+            }, quarantineCancellation: false, cancellationToken: request.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (request.IsCancellationRequested && !cancellationToken.IsCancellationRequested) { }
         finally
@@ -272,15 +272,15 @@ internal sealed class PluginRegistration(
     }
 
     internal Task SuspendAsync(DateTimeOffset deadline, CancellationToken cancellationToken) =>
-        RunAsync(deadline, cancellationToken, async token =>
+        RunAsync(deadline, async token =>
         {
             RequireRunning();
             await plugin.SuspendAsync(Context, token).ConfigureAwait(false);
             return true;
-        });
+        }, cancellationToken: cancellationToken);
 
     internal Task ResumeAsync(long generation, DateTimeOffset deadline, CancellationToken cancellationToken) =>
-        RunAsync(deadline, cancellationToken, async token =>
+        RunAsync(deadline, async token =>
         {
             RequireRunning();
             if (generation <= Context.Generation) { throw new InvalidOperationException("Resume requires a fresh generation."); }
@@ -288,13 +288,13 @@ internal sealed class PluginRegistration(
             PublishHealth(new PluginHealthPublication(Identity, generation, PluginHealth.Unavailable, "Resuming"));
             await plugin.ResumeAsync(Context, token).ConfigureAwait(false);
             return true;
-        });
+        }, cancellationToken: cancellationToken);
 
     internal Task<bool> StopAsync(DateTimeOffset deadline, CancellationToken cancellationToken)
     {
         var active = Volatile.Read(ref _activeCancellation);
         if (Interlocked.Exchange(ref _stopRequested, 1) == 0 && active is not null) { CancelQuietly(active); }
-        return RunAsync(deadline, cancellationToken, async token =>
+        return RunAsync(deadline, async token =>
         {
             _stopAttempted = true;
             Health = new PluginHealthPublication(Identity, Context.Generation, PluginHealth.Unavailable, "Stopping");
@@ -302,12 +302,12 @@ internal sealed class PluginRegistration(
             if (_released is { } released) { return released; }
             try { return (_released = await plugin.StopAsync(Context, token).ConfigureAwait(false)).Value; }
             catch (Exception ex) { _stopFailure = ex; throw; }
-        });
+        }, cancellationToken: cancellationToken);
     }
 
     internal async ValueTask DisposeAsync()
     {
-        await RunAsync(DateTimeOffset.UtcNow.AddSeconds(5), CancellationToken.None, async _ =>
+        await RunAsync(DateTimeOffset.UtcNow.AddSeconds(5), async _ =>
         {
             if (_disposed) { return true; }
             if (!_stopAttempted) { throw new InvalidOperationException("Stop the plugin before disposing its registration."); }
@@ -335,8 +335,9 @@ internal sealed class PluginRegistration(
         if (!_started || IsStopping || Quarantined) { throw new InvalidOperationException("The plugin is not running."); }
     }
 
-    private async Task<T> RunAsync<T>(DateTimeOffset deadline, CancellationToken cancellationToken,
-        Func<CancellationToken, Task<T>> operation, bool allowDisposed = false, bool quarantineCancellation = true, bool quarantineFailure = true)
+    private async Task<T> RunAsync<T>(DateTimeOffset deadline, Func<CancellationToken, Task<T>> operation,
+        bool allowDisposed = false, bool quarantineCancellation = true, bool quarantineFailure = true,
+        CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var remaining = deadline - DateTimeOffset.UtcNow;

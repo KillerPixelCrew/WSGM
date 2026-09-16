@@ -178,12 +178,6 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         SetAsync(
             PerformanceControl.FrameLimit,
             fps,
-            persistence switch
-            {
-                SteamSettingPersistence.Global => PerformancePersistenceTarget.Global,
-                SteamSettingPersistence.Application => PerformancePersistenceTarget.Application,
-                _ => PerformancePersistenceTarget.Automatic
-            },
             correlationId,
             cancellationToken);
 
@@ -388,7 +382,6 @@ internal sealed class PerformanceServiceNativeQamAdapter :
             SteamPerformanceSetting.FrameLimit => SetAsync(
                 PerformanceControl.FrameLimit,
                 change.Value,
-                PerformancePersistenceTarget.Automatic,
                 correlationId,
                 cancellationToken),
 
@@ -399,20 +392,17 @@ internal sealed class PerformanceServiceNativeQamAdapter :
             SteamPerformanceSetting.FrameLimitEnabled when !change.AsFlag => SetAsync(
                 PerformanceControl.FrameLimit,
                 0,
-                PerformancePersistenceTarget.Automatic,
                 correlationId,
                 cancellationToken),
             SteamPerformanceSetting.FrameLimitEnabled => SetAsync(
                 PerformanceControl.FrameLimit,
                 EnableFrameLimitWatts(),
-                PerformancePersistenceTarget.Automatic,
                 correlationId,
                 cancellationToken),
 
             SteamPerformanceSetting.OverlayLevel => SetAsync(
                 PerformanceControl.OverlayLevel,
                 change.Value,
-                PerformancePersistenceTarget.Automatic,
                 correlationId,
                 cancellationToken),
 
@@ -443,14 +433,12 @@ internal sealed class PerformanceServiceNativeQamAdapter :
     private async Task<SteamUiCommandResult> SetAsync(
         PerformanceControl control,
         int value,
-        PerformancePersistenceTarget persistence,
         string correlationId,
         CancellationToken cancellationToken)
     {
         var result = await _service.SetAsync(
             control,
             value,
-            persistence,
             "native-qam",
             correlationId,
             cancellationToken).ConfigureAwait(false);
@@ -767,7 +755,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
             CommandTimeout,
             // A person moved the TDP control in the Steam menu, so AutoTDP steps aside for it.
             CapabilityCommandOrigin.User,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         return NativeQamUi.CommandResult(result, OutcomeText(result.Outcome));
     }
 
@@ -1006,7 +994,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
             value,
             CommandTimeout,
             CapabilityCommandOrigin.User,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         return NativeQamUi.CommandResult(result, $"The device command ended as {result.Outcome}.");
     }
 

@@ -13,8 +13,8 @@ public sealed class ConsoleToolTests
             "inert-test-tool.exe",
             "/Run",
             DateTimeOffset.UtcNow + TimeSpan.FromMinutes(1),
-            CancellationToken.None,
-            _ => process);
+            _ => process,
+            CancellationToken.None);
 
         await process.KillRequested.Task.WaitAsync(TimeSpan.FromSeconds(1));
         Assert.False(run.IsCompleted);
@@ -37,8 +37,8 @@ public sealed class ConsoleToolTests
             "inert-test-tool.exe",
             "/Create",
             DateTimeOffset.UtcNow + TimeSpan.FromMinutes(1),
-            cancellation.Token,
-            _ => process);
+            _ => process,
+            cancellation.Token);
 
         await process.KillRequested.Task.WaitAsync(TimeSpan.FromSeconds(1));
         await cancellation.CancelAsync();

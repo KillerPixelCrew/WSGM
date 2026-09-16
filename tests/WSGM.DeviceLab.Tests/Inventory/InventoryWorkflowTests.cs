@@ -25,7 +25,7 @@ public sealed class InventoryWorkflowTests
         try
         {
             await started.Task.WaitAsync(TimeSpan.FromSeconds(2), CancellationToken.None);
-            cancellation.Cancel();
+            await cancellation.CancelAsync();
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
                 await call.WaitAsync(TimeSpan.FromSeconds(2), CancellationToken.None));

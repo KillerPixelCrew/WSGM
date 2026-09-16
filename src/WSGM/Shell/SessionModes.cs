@@ -266,7 +266,7 @@ public sealed class SessionModes
     {
         public Task ExitBigPictureAsync()
         {
-            modes.ExitBigPicture();
+            ExitBigPicture();
             return Task.CompletedTask;
         }
         public async Task<bool> RestoreLayoutAsync()
@@ -447,7 +447,7 @@ public sealed class SessionModes
 
     /// <summary>Asks Steam to leave Big Picture (Steam keeps running). No-op if
     /// Steam isn't running.</summary>
-    public void ExitBigPicture()
+    public static void ExitBigPicture()
     {
         // Live check, not the up-to-5 s-stale monitor poll: entering desktop mode
         // right after Steam started must still send the close URL.

@@ -173,10 +173,10 @@ public sealed class SteamAutostartTakeoverTests
     private const string SteamExe = @"C:\Steam\steam.exe";
 
     private static SteamAutostartSource RunSource(bool enabled = true) =>
-        new(SteamAutostartKind.RunValue, SteamAutostartScope.User, @"HKCU\...\Run", "Steam", SteamExe, enabled);
+        new(SteamAutostartKind.RunValue, SteamAutostartScope.User, @"HKCU\...\Run", "Steam", enabled);
 
     private static SteamAutostartSource TaskSource() =>
-        new(SteamAutostartKind.ScheduledTask, SteamAutostartScope.Machine, @"\Steam", @"\Steam", SteamExe, true);
+        new(SteamAutostartKind.ScheduledTask, SteamAutostartScope.Machine, @"\Steam", @"\Steam", true);
 
     /// <summary>Collects records the way the configuration does: one per entry, updated in place.
     /// The takeover records the same entry twice, pending and then confirmed.</summary>

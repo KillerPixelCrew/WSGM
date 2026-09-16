@@ -121,7 +121,7 @@ internal static class GlyphPackageImportWorkflow
 
     private static GlyphPackageImportReport Report(
         IReadOnlyList<ImportedGlyphProfileSummary> profiles,
-        IReadOnlyList<PluginPackageValidationIssue> issues) => new()
+        List<PluginPackageValidationIssue> issues) => new()
         {
             Valid = issues.Count == 0,
             Issues = issues,

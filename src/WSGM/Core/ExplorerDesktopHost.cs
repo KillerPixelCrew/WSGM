@@ -70,7 +70,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             var detail = $"current-shell-{shell.Acceptance.Rejection}";
             Log.Warn($"Explorer takeover refused before orderly exit: {shell.Acceptance.Rejection}. "
                 + "The current desktop was preserved.");
-            return new ExplorerPreparationResult(false, shell.Acceptance.Rejection, detail);
+            return new ExplorerPreparationResult(false, detail);
         }
 
         if (!NativeShellProcess.TryOpenLaunchParent(
@@ -81,7 +81,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             var detail = $"parent-open-error-{openError}";
             Log.Warn($"Explorer takeover refused: taskbar owner pid {shell.Process.ProcessId} could not be retained "
                 + $"as a launch parent (error {openError}). Sign out or reboot once before retrying.");
-            return new ExplorerPreparationResult(false, ExplorerShellRejection.ProcessUnavailable, detail);
+            return new ExplorerPreparationResult(false, detail);
         }
 
         ExplorerShellAnchorStartResult started;
@@ -102,7 +102,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
                 await stale.DisposeAsync().ConfigureAwait(false);
             }
             Log.Warn($"Explorer takeover refused: normal shell anchor creation failed: {started.Error}");
-            return new ExplorerPreparationResult(false, ExplorerShellRejection.ProcessUnavailable, started.Error);
+            return new ExplorerPreparationResult(false, started.Error);
         }
 
         var replacement = started.Anchor;
@@ -130,7 +130,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             Log.Warn("Explorer takeover refused: launch anchor did not inherit normal process semantics "
                 + $"({anchorAcceptance.Rejection}).");
             await replacement.DisposeAsync().ConfigureAwait(false);
-            return new ExplorerPreparationResult(false, anchorAcceptance.Rejection, $"anchor-{anchorAcceptance.Rejection}");
+            return new ExplorerPreparationResult(false, $"anchor-{anchorAcceptance.Rejection}");
         }
 
         var previous = _anchor;
@@ -151,7 +151,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         }
         Log.Info($"Explorer launch anchor ready (pid {_anchor.ProcessId}, "
             + $"parent pid {shell.Process.ProcessId}).");
-        return new ExplorerPreparationResult(true, ExplorerShellRejection.None, "ready");
+        return new ExplorerPreparationResult(true, "ready");
     }
 
     // A job-bound shell may supply its verified medium token, but may not supply the new
@@ -326,7 +326,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
                 ExplorerPath,
                 "",
                 deadline,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken: cancellationToken).ConfigureAwait(false);
         var schedulerMayHaveDispatched =
             ExplorerShellPolicy.SchedulerMayHaveDispatched(schedulerDisposition);
         if (!schedulerMayHaveDispatched)
@@ -591,7 +591,6 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
 /// <summary>Result of capturing a canonical Explorer and creating its replacement anchor.</summary>
 internal readonly record struct ExplorerPreparationResult(
     bool Prepared,
-    ExplorerShellRejection Rejection,
     string Detail);
 
 /// <summary>One atomic observation of Explorer's shell and taskbar surfaces.</summary>
