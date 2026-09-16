@@ -32,7 +32,10 @@ internal static class Program
                 return;
             }
 
-            using Process parent = Process.GetProcessById(parentId);
+            // The parent watcher and stdin reader below are never joined and keep using the parent,
+            // the cancellation source, the acknowledgement event and the answer queue. Those live
+            // until this worker process exits instead of being disposed under the running tasks.
+            Process parent = Process.GetProcessById(parentId);
             if (!string.Equals(parent.MainModule?.FileName, Environment.ProcessPath, StringComparison.OrdinalIgnoreCase))
             {
                 return;
@@ -51,9 +54,9 @@ internal static class Program
             }
 
             Request request = document.RootElement.GetProperty("Request").Deserialize<Request>(SessionLog.Json)!;
-            using var cancel = new CancellationTokenSource();
-            using var ack = new AutoResetEvent(false);
-            using var answers = new BlockingCollection<string>(1);
+            var cancel = new CancellationTokenSource();
+            var ack = new AutoResetEvent(false);
+            var answers = new BlockingCollection<string>(1);
             _ = Task.Run(async () => { await parent.WaitForExitAsync(); cancel.Cancel(); });
             _ = Task.Run(() =>
             {
