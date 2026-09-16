@@ -146,6 +146,15 @@ public sealed class SafetyTests
         Assert.False(HidHideAccess.Contains([@"\Device\HarddiskVolume3\Tools\AllyXLab.exe"], @"E:\Tools\AllyXLab.exe", Volumes));
     }
 
+    [Theory]
+    [InlineData("ArmouryCrate", "Armoury Crate")]
+    [InlineData("armourycratecontrolinterface", "Armoury Crate control interface")]
+    [InlineData("MSI Center", "MSI Center")]
+    [InlineData("ArmouryCrateHelper", null)]
+    [InlineData("WSGM.AllyXLab", null)]
+    public void ManagersMatchOnlyTheirExactProcessName(string process, string? label) =>
+        Assert.Equal(label, Conflicts.Match(process)?.Label);
+
     [Fact]
     public void ServicesAreNeverStoppedByTheLab()
     {

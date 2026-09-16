@@ -52,22 +52,24 @@ internal static class Conflicts
                 string name;
                 try { name = process.ProcessName; }
                 catch (InvalidOperationException) { continue; }
-                foreach ((string match, string label, bool closable, string why) in Known)
+                if (Match(name) is { } known)
                 {
-                    if (!name.Equals(match, StringComparison.OrdinalIgnoreCase)
-                        && !name.Replace(" ", "").Contains(match.Replace(" ", ""), StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    found.Add(new(label, name, process.Id, closable, why));
-                    break;
+                    found.Add(new(known.Label, name, process.Id, known.Closable, known.Why));
                 }
             }
         }
 
         return [.. found.DistinctBy(manager => manager.ProcessId).OrderBy(manager => manager.Label, StringComparer.Ordinal)];
     }
+
+    /// <summary>Finds the known manager with exactly this process name.</summary>
+    /// <param name="processName">A process name without its extension.</param>
+    /// <returns>The table entry, or null. A substring test would label ArmouryCrateControlInterface
+    /// as Armoury Crate and make the result depend on table order.</returns>
+    internal static (string Process, string Label, bool Closable, string Why)? Match(string processName) =>
+        Array.FindIndex(Known, known => known.Process.Equals(processName, StringComparison.OrdinalIgnoreCase)) is var index and >= 0
+            ? Known[index]
+            : null;
 
     /// <summary>Asks one manager to close itself.</summary>
     /// <param name="manager">The manager the tester chose to close.</param>
