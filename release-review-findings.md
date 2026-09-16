@@ -7,7 +7,7 @@ Severity is about user impact, not effort. Findings marked **[verified]** were c
 the code directly during this review. Unmarked findings come from focused sub-reviews with file and
 line evidence but were not independently re-read.
 
-Progress: 21 of 70 findings marked done. Each finding carries its status and fixing commit in
+Progress: 28 of 70 findings marked done. Each finding carries its status and fixing commit in
 brackets; submodule commits are in that submodule.
 
 ## Scope and state notes
@@ -130,16 +130,17 @@ such as a `DeviceCoordinator` capability write or a `powrprof` call, freezes WSG
 tray; dragging Steam's TDP slider stutters or hangs the UI for the duration of the hardware write.
 `SteamUiModuleRuntime` gets this right with `Task.Run` at 60, so the bridge is the outlier.
 
-**S4. `external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiBridge.cs:557` - medium - a pure
-transport reconnect leaves `_ready == true` while the binding is dead.** `OnGenerationChanged`
-invalidates readiness only when `ExecutionContext` or `Document` moved, but a dropped socket bumps
-only `Session`/`Target`. `Runtime.addBinding` was registered on the dead session, so no
-`Runtime.bindingCalled` can arrive. Scenario: `IsReady` lies, `PublishStateAsync` keeps succeeding
-because it is evaluate-based, WSGM keeps the RTSS observation lease alive on that basis
-(`SteamUiSessionHost.cs:830`), and every user press in Steam's QAM is silently lost until the
+**[DONE toolkit b014233] S4. `external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiBridge.cs:557` -
+medium - a pure transport reconnect leaves `_ready == true` while the binding is dead.**
+`OnGenerationChanged` invalidates readiness only when `ExecutionContext` or `Document` moved, but a
+dropped socket bumps only `Session`/`Target`. `Runtime.addBinding` was registered on the dead
+session, so no `Runtime.bindingCalled` can arrive. Scenario: `IsReady` lies, `PublishStateAsync`
+keeps succeeding because it is evaluate-based, WSGM keeps the RTSS observation lease alive on that
+basis (`SteamUiSessionHost.cs:830`), and every user press in Steam's QAM is silently lost until the
 injected side self-times-out; if the bridge patch is disabled at that moment it never recovers.
 
-**S5. `external/steam-ui-toolkit/src/SteamUiToolkit/PersistentSteamUiTransport.cs:33` - medium - one
+**[DONE toolkit b68cdb8] S5.
+`external/steam-ui-toolkit/src/SteamUiToolkit/PersistentSteamUiTransport.cs:33` - medium - one
 `DropOldest` channel carries both idempotent snapshots and non-idempotent RPC frames.**
 `RaiseNotificationReceived` (692) discards `TryWrite`'s result. Dropping an old generation snapshot
 is harmless; dropping a `Runtime.bindingCalled` frame is a permanently lost user action. Combined
@@ -147,25 +148,28 @@ with S1, back-pressure from a busy dispatcher discards user actions instead of d
 Scenario: a TDP or frame-limit change in Steam's QAM does nothing and the control snaps back after 5
 s with no log line.
 
-**S6. `external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiModuleRuntime.cs:124` - medium -
-`_inflight` is keyed by `request.Sequence` alone, but sequences restart at 1 per bridge generation**
+**[DONE toolkit b1e4cad] S6.
+`external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiModuleRuntime.cs:124` - medium - `_inflight` is
+keyed by `request.Sequence` alone, but sequences restart at 1 per bridge generation**
 (`SteamUiBridgeAuthorizer.Reset` zeroes `_lastRequestSequence`). If a handler from the previous
 document has not yet observed cancellation, the new document's request #1 collides, `TryAdd` fails,
 and the method returns without answering and without logging. Scenario: navigate out of and back
 into Big Picture, press the first WSGM row, and nothing happens. Key by (ContextGeneration,
 DocumentGeneration, Sequence).
 
-**S7. `external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiCdpConnection.cs:416` - medium - one
-oversized or non-JSON frame tears down the whole CDP socket.** `Runtime.enable` is issued for
-generation tracking, so all of Steam's console chatter arrives here; a `params` payload over the 1
-MiB bound throws `InvalidDataException` out of `ProcessMessage`, which `ReadLoopAsync` (301, catch
-at 307) treats as terminal, even though `OnNotification` would have dropped that frame unread
-at 549. Scenario: a game or Steam component logs a large object to the console, the socket dies, the
+**[DONE toolkit 6160ef0] S7.
+`external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiCdpConnection.cs:416` - medium - one oversized
+or non-JSON frame tears down the whole CDP socket.** `Runtime.enable` is issued for generation
+tracking, so all of Steam's console chatter arrives here; a `params` payload over the 1 MiB bound
+throws `InvalidDataException` out of `ProcessMessage`, which `ReadLoopAsync` (301, catch at 307)
+treats as terminal, even though `OnNotification` would have dropped that frame unread at 549.
+Scenario: a game or Steam component logs a large object to the console, the socket dies, the
 1/4/16/30 s backoff starts, the Session generation bumps and every patch's `Verified` state is
 invalidated, so Quick Access rows, badges and the glyph stylesheet all vanish and slowly return. The
 unguarded `JsonDocument.Parse` at 366 gives any non-JSON frame the same power.
 
-**S8. `external/steam-ui-toolkit/src/SteamUiToolkit/PersistentSteamUiTransport.cs:344` - medium -
+**[DONE toolkit 457eacf] S8.
+`external/steam-ui-toolkit/src/SteamUiToolkit/PersistentSteamUiTransport.cs:344` - medium -
 `ReconnectLoopAsync` resets `attempt = 0` on any successful connect with no minimum-uptime
 requirement.** A 50 ms session resets the backoff like a ten-minute one. Scenario: a CEF that
 accepts the WebSocket and immediately drops it, normal during a Steam update or crash-restart loop,
@@ -174,18 +178,20 @@ two loopback HTTP probes and a handshake per role; on a handheld that is a conti
 battery cost plus a Session-generation bump per cycle that re-runs the full apply/verify pass over
 every patch.
 
-**S9. `external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiPatchManager.cs:232` - medium - the
-manager subscribes to transport events in its constructor, then mutates unsynchronized dictionaries
-in `Register`.** `_patches.Add` (254) and `_resourceGates.TryAdd` (257) run with no lock while
+**[DONE toolkit c90e389] S9.
+`external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiPatchManager.cs:232` - medium - the manager
+subscribes to transport events in its constructor, then mutates unsynchronized dictionaries in
+`Register`.** `_patches.Add` (254) and `_resourceGates.TryAdd` (257) run with no lock while
 `OnGenerationChanged` (826) and `SynchronizeAsync` (416) enumerate `_patches.Values` from the pump
 thread. Scenario: Steam raises `Page.frameNavigated` while the host is still registering patches at
 startup; the enumeration throws `InvalidOperationException`, `PumpAsync` swallows it (715-718), and
 that generation change is lost so patches keep a stale `Verified` snapshot and never reapply.
 
-**S10. `external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiTransportSession.cs:51` - medium - the
-static `_enabled` is written before the lock and can be left permanently inconsistent.**
-`SetEnabled` writes the field then takes `Gate` and calls `_transport?.SetEnabled(...)` (54), which
-throws `ObjectDisposedException` if the attached transport was disposed without `Detach`. Scenario:
+**[DONE toolkit 9d47829] S10.
+`external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiTransportSession.cs:51` - medium - the static
+`_enabled` is written before the lock and can be left permanently inconsistent.** `SetEnabled`
+writes the field then takes `Gate` and calls `_transport?.SetEnabled(...)` (54), which throws
+`ObjectDisposedException` if the attached transport was disposed without `Detach`. Scenario:
 shutdown disposes the transport, a settings toggle then calls `SetEnabled(false)`, the exception
 propagates while `_enabled` has already flipped, and every later `EvaluateAsync` reports "Steam CEF
 integration disabled in settings" for the rest of the process; `Attach` only copies `_enabled` (76)
