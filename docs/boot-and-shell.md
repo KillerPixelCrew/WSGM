@@ -387,8 +387,9 @@ the display wait and before the Steam request, including waiting for dispatcher 
 Big Picture's CEF UI stops rendering while fully occluded, as it does under a game. An intro video
 that initializes under an opaque fullscreen cover stays black even after the cover leaves. The boot
 splash therefore begins its fade immediately on Big Picture window detection, on a 250 ms poll whose
-window probe runs on the thread pool, one at a time; the first fade tick drops the layered alpha below 255, which lifts the occlusion. Never hold an opaque
-cover over a live Big Picture window. A no-activate splash was tried and did not change the symptom.
+window probe runs on the thread pool, one at a time; the first fade tick drops the layered alpha
+below 255, which lifts the occlusion. Never hold an opaque cover over a live Big Picture window. A
+no-activate splash was tried and did not change the symptom.
 
 A `steam://open/bigpicture` re-activation while the intro plays kills the video (the former
 splash-to-Big-Picture "focus handoff"). After the splash closes, do not touch Steam; it takes the

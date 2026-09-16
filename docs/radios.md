@@ -47,8 +47,8 @@ or automatic write retry is used. Steam transport replies preserve backend failu
   most often wants, and the log records the raw kind so a device that needs another ceremony is
   still diagnosable.
 
-These wording rules are covered by `tests\WSGM.Tests\Shell\RadioManagerTests.cs`; the library contracts
-they sit on are tested in the library's own repository.
+These wording rules are covered by `tests\WSGM.Tests\Shell\RadioManagerTests.cs`; the library
+contracts they sit on are tested in the library's own repository.
 
 `Shell\AudioManager.cs` owns the session's default render and capture endpoint state. The library's
 direction-aware `CoreAudio.GetVolume`/`SetVolume` calls are the only Windows edge; WSGM polls the

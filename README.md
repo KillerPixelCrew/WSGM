@@ -50,8 +50,8 @@ Power, RGB, Controller and Info pages combine Windows and device controls, inclu
 schemes.
 
 **Display and power from the sheet:** brightness, resolution and refresh rate, the Intel P-core and
-E-core preference, a manual keep-awake, muting while the screen is off
-during downloads, display-off timeouts, and a report of what woke the machine from standby.
+E-core preference, a manual keep-awake, muting while the screen is off during downloads, display-off
+timeouts, and a report of what woke the machine from standby.
 
 **Game Mode display layouts.** Default drops every display to 100% scaling so DPI-unaware games
 render 1:1. Custom applies a layout you edit in Settings, optionally after waiting for a TV to show

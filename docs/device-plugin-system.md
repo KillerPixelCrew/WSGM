@@ -914,11 +914,12 @@ labels, no aliases, notice `THIRD_PARTY_NOTICES.md`.
 Tests build the plugin with fake WMI, MCU, controller, motion, chord and event services and the
 SDK's `TestPluginHostAdapter`. Packaging:
 `eng\pack-device.ps1 -Source src\WSGM.Device.Msi.Claw8A2Vm -RequireGlyphs` publishes
-framework-dependent `win-x64`, strips symbols, copies `glyphs\` verbatim and requires a profile, runs
-`wsgm-device validate` and `wsgm-device pack`. WSGM's `eng\stage-device-components.ps1` publishes Device Lab, invokes that
-packer, checks the archive's path safety, extracts to `Packages\<id>`, requires the licence, notices
-and provenance files, compares the staged glyph count with the source tree, and validates again. The
-installer copies `Packages\*` into `.staging` and swaps the slot during post-install.
+framework-dependent `win-x64`, strips symbols, copies `glyphs\` verbatim and requires a profile,
+runs `wsgm-device validate` and `wsgm-device pack`. WSGM's `eng\stage-device-components.ps1`
+publishes Device Lab, invokes that packer, checks the archive's path safety, extracts to
+`Packages\<id>`, requires the licence, notices and provenance files, compares the staged glyph count
+with the source tree, and validates again. The installer copies `Packages\*` into `.staging` and
+swaps the slot during post-install.
 
 ## 19. Device Lab
 

@@ -39,8 +39,8 @@ list. The existing idle-timeout controls share its active-scheme reader.
 
 ### No automatic display hold for running applications
 
-WSGM does not hold a DISPLAY power request because an application is running. Applications keep
-the display awake themselves, at least through audio output. An automatic hold tied to the
+WSGM does not hold a DISPLAY power request because an application is running. Applications keep the
+display awake themselves, at least through audio output. An automatic hold tied to the
 running-application snapshot became permanent on the desktop, where any foreground application is
 Active so the frame limit can apply. The Power tab's manual Keep Awake is the only display hold WSGM
 takes.

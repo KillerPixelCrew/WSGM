@@ -386,9 +386,9 @@ back and confirmed to match what was applied), `Stale` (expired or its generatio
 `ChoiceValue`, `ColorValue` (packed 24-bit RGB), `CurveValue` (`IReadOnlyList<CurvePoint>`) or
 `TextValue`. The static factories `CapabilityValue.None()`, `Boolean`, `Integer`, `Choice`, `Color`,
 `Curve` and `Text` build a value of that kind with its one field set; `Curve` stores the list it is
-given. `CurvePoint(int Input, int Output)` is one table entry, for example temperature in
-Celsius to duty in percent. `CapabilityStateDelta(long Sequence, CapabilityState State)` is one
-update as it arrives, with a producer-assigned monotonic sequence.
+given. `CurvePoint(int Input, int Output)` is one table entry, for example temperature in Celsius to
+duty in percent. `CapabilityStateDelta(long Sequence, CapabilityState State)` is one update as it
+arrives, with a producer-assigned monotonic sequence.
 
 ### `CapabilityCommand` and `CapabilityCommandResult`
 

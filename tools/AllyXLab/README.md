@@ -30,10 +30,11 @@ records its hash. It is an unsigned experimental build; no hardware pass is clai
    the device and end when it is still.
 3. Rumble first tries each way of reaching the motors with one short buzz and asks whether you felt
    it; calibration then runs on the first one that worked. Hold the device and answer **Felt it** or
-   **Didn't feel it** after each pulse and after the motors are silent. The wizard selects both motors, all phases, levels and pulse
-   lengths. **Felt it** advances to a weaker/shorter pulse; **Didn't feel it** records the boundary.
-   **Replay** repeats a pulse at your request. A/B also answer when exactly one XInput controller is
-   connected; touch buttons always work. You never need to configure a sweep or select an interface.
+   **Didn't feel it** after each pulse and after the motors are silent. The wizard selects both
+   motors, all phases, levels and pulse lengths. **Felt it** advances to a weaker/shorter pulse;
+   **Didn't feel it** records the boundary. **Replay** repeats a pulse at your request. A/B also
+   answer when exactly one XInput controller is connected; touch buttons always work. You never need
+   to configure a sweep or select an interface.
 4. Follow the lighting, charger and power/fan instructions. The wizard chooses colors, zones,
    profiles and limits. Confirm what you see/hear. Power/fan tests read and restore original state.
    RGB starts from a tester-confirmed OFF baseline; restore the remembered color/mode in the OEM
@@ -106,10 +107,10 @@ requirement. The Xbox Ally RC73YA is not admitted, because its 20 W performance 
 Ordinary steps run in a separate copy of the same executable with a 60-second supervisor deadline.
 The guided rumble session uses one worker with the bounds described above. Hardware writes require
 an explicit wizard action and a durably saved, acknowledged recovery checkpoint. The one change made
-outside the device is HidHide's allowed-application list, only with your agreement: the previous list
-is recorded, this tool's entry is added, and the list is written back when the session ends. The
-hiding switch, the hidden-device list and every other HidHide setting stay untouched, and a manager
-is only ever asked to close through its window. The worker reserves
+outside the device is HidHide's allowed-application list, only with your agreement: the previous
+list is recorded, this tool's entry is added, and the list is written back when the session ends.
+The hiding switch, the hidden-device list and every other HidHide setting stay untouched, and a
+manager is only ever asked to close through its window. The worker reserves
 `Global\WSGM.DeviceOwner`. Parent death requests cancellation; a blocked driver call can still
 prevent cleanup. A timeout is reported as unknown restoration and blocks further writes until the
 tester confirms recovery. A driver call completing is not independent readback.
