@@ -50,6 +50,27 @@ const readSourceConstant = (path, pattern, what) => {
   return match[1];
 };
 
+// Every value spliced into a script string handed to session.evaluate() goes through this rather
+// than a bare JSON.stringify. Today's inputs are all trusted (constants parsed from this repository's
+// own source, or a JSON file the developer running the harness passes on the command line), but
+// JSON.stringify alone does not escape </script>-shaped sequences, and CodeQL's js/code-injection
+// check has no way to know the provenance is safe. Escaping here is cheap and keeps every call site
+// below from having to reason about it individually.
+// Built with fromCharCode rather than literal escapes so the two line-terminator characters this
+// exists to neutralize never appear as raw bytes in this file's own source.
+const lineSeparator = String.fromCharCode(0x2028);
+const paragraphSeparator = String.fromCharCode(0x2029);
+const scriptEscapes = {
+  "<": "\\u003C",
+  ">": "\\u003E",
+  "/": "\\u002F",
+  [lineSeparator]: "\\u2028",
+  [paragraphSeparator]: "\\u2029",
+};
+const scriptEscapePattern = new RegExp(`[<>/${lineSeparator}${paragraphSeparator}]`, "g");
+const stringifyForScript = (value) =>
+  JSON.stringify(value).replace(scriptEscapePattern, (char) => scriptEscapes[char]);
+
 // Every surface the toolkit ships declares its patch id and its exact command vocabulary as two
 // constants, which is the same pair its module puts on the bridge. WSGM's only addition is the
 // shell module, which has no toolkit surface behind it.
@@ -229,7 +250,7 @@ const respond = async (session, envelope) => {
     payload: null,
   };
   const accepted = await session.evaluate(
-    `window[${JSON.stringify(configuration.namespace)}].deliver(${JSON.stringify(response)})`,
+    `window[${stringifyForScript(configuration.namespace)}].deliver(${stringifyForScript(response)})`,
   );
   if (accepted !== true) throw new Error("bridge rejected the harness response envelope");
 };
@@ -257,14 +278,17 @@ const connect = async () => {
 };
 
 const install = async (session) => {
-  const source = asset.replace("__STEAM_UI_CONFIGURATION_JSON__", JSON.stringify(configuration));
+  const source = asset.replace(
+    "__STEAM_UI_CONFIGURATION_JSON__",
+    stringifyForScript(configuration),
+  );
   const result = await session.evaluate(source);
   console.log("bootstrap:", result);
 
-  const bridge = `window[${JSON.stringify(configuration.namespace)}]`;
+  const bridge = `window[${stringifyForScript(configuration.namespace)}]`;
   for (const gate of ["audio", "network", "bluetooth", "brightness", "perf", "steamOsManager"]) {
     const outcome = await session.evaluate(
-      `(()=>{const b=${bridge};const g=b&&b.gate?b.gate(${JSON.stringify(gate)}):null;` +
+      `(()=>{const b=${bridge};const g=b&&b.gate?b.gate(${stringifyForScript(gate)}):null;` +
         `if(!g)return 'absent';try{return JSON.stringify(g.install());}catch(e){return String(e);}})()`,
     );
     console.log(`  ${gate.padEnd(11)} ${outcome}`);
@@ -272,7 +296,7 @@ const install = async (session) => {
   for (const component of componentKinds) {
     const outcome = await session.evaluate(
       `(()=>{const b=${bridge};const g=b&&b.gate?b.gate('nativeComponents'):null;` +
-        `if(!g)return 'absent';try{return JSON.stringify(g.install(${JSON.stringify(component)}));}` +
+        `if(!g)return 'absent';try{return JSON.stringify(g.install(${stringifyForScript(component)}));}` +
         `catch(e){return String(e);}})()`,
     );
     console.log(`  ${component.padEnd(18)} ${outcome}`);
@@ -280,7 +304,7 @@ const install = async (session) => {
 };
 
 const status = async (session) => {
-  const bridge = `window[${JSON.stringify(configuration.namespace)}]`;
+  const bridge = `window[${stringifyForScript(configuration.namespace)}]`;
   const report = await session.evaluate(
     `(()=>{const b=${bridge};const s=window.SteamClient&&window.SteamClient.System;` +
       `const out={bridge:!!b,version:b&&b.version,` +
@@ -291,7 +315,7 @@ const status = async (session) => {
       // nativeComponents.status takes a KIND. Calling it bare reports registered:false for every
       // component, which reads as "nothing registered" and is purely an artefact of the call.
       `try{const c=b.gate?b.gate('nativeComponents'):null;if(!c)throw new Error('gate absent');` +
-      `out.components={};for(const k of ${JSON.stringify(componentKinds)}){` +
+      `out.components={};for(const k of ${stringifyForScript(componentKinds)}){` +
       `const s=c.status(k);out.components[k]=s.registered;}` +
       `const any=c.status('frameLimit');out.lastAppend=any.lastAppend;` +
       `out.renderOutcomes=any.renderOutcomes;out.rootWrapped=any.performanceRootWrapped;}` +
@@ -303,7 +327,7 @@ const status = async (session) => {
 
 const publish = async (session, file) => {
   const states = JSON.parse(readFileSync(file, "utf8"));
-  const bridge = `window[${JSON.stringify(configuration.namespace)}]`;
+  const bridge = `window[${stringifyForScript(configuration.namespace)}]`;
   for (const [patchId, state] of Object.entries(states)) {
     // deliver() takes an OBJECT, and rejects any envelope whose generations do not match the config
     // it was installed with. Passing a JSON string, or omitting either generation, returns a bare
@@ -316,16 +340,16 @@ const publish = async (session, file) => {
       patchId,
       payload: state,
     };
-    const outcome = await session.evaluate(`${bridge}.deliver(${JSON.stringify(envelope)})`);
+    const outcome = await session.evaluate(`${bridge}.deliver(${stringifyForScript(envelope)})`);
     console.log(`  published ${patchId}: ${outcome}`);
   }
 };
 
 const remove = async (session) => {
-  const bridge = `window[${JSON.stringify(configuration.namespace)}]`;
+  const bridge = `window[${stringifyForScript(configuration.namespace)}]`;
   for (const gate of ["steamOsManager", "perf", "brightness", "bluetooth", "network", "audio"]) {
     const outcome = await session.evaluate(
-      `(()=>{const b=${bridge};const g=b&&b.gate?b.gate(${JSON.stringify(gate)}):null;` +
+      `(()=>{const b=${bridge};const g=b&&b.gate?b.gate(${stringifyForScript(gate)}):null;` +
         `if(!g)return 'absent';try{return JSON.stringify(g.remove());}catch(e){return String(e);}})()`,
     );
     console.log(`  ${gate.padEnd(11)} ${outcome}`);
