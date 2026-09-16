@@ -959,7 +959,13 @@ public sealed class OverlayController : IDisposable
         }
         catch
         {
-            ReleaseUiSurface(QuickAccessSurface);
+            // Everything above this try (lease, navigation, gamepad start, keyboard
+            // handler) is already live, and a window that failed to show never raises
+            // Closed to release it, so the UI surface claim alone left Quick Access
+            // wedged and the lease held for the rest of the session. Run the same
+            // teardown the Closed handler would have, so the next ShowOverlay()
+            // rebuilds instead of reactivating a phantom window.
+            OnOverlayClosed();
             throw;
         }
         long showDone = System.Diagnostics.Stopwatch.GetTimestamp();
