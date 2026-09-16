@@ -3,9 +3,7 @@
   "profileId": "claw-8-a2vm",
   "displayName": "MSI Claw 8 AI+ A2VM",
   "revision": 1,
-  "exactDeviceIds": [
-    "ms-1t52"
-  ],
+  "exactDeviceIds": ["ms-1t52"],
   "sourceRevision": "handheld-controller-glyphs-46792aadf3b1",
   "noticePath": "THIRD_PARTY_NOTICES.md",
   "assets": [

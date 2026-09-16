@@ -1,8 +1,8 @@
 # ROG Ally X implementation references
 
-This is source inspection, not hardware validation. The maintainer has no Ally X available. HHD is primary, especially
-for buttons; Handheld Companion (HC) is a cross-reference for Windows transports and device controls. No reference code
-is imported into the MIT scaffold.
+This is source inspection, not hardware validation. The maintainer has no Ally X available. HHD is
+primary, especially for buttons; Handheld Companion (HC) is a cross-reference for Windows transports
+and device controls. No reference code is imported into the MIT scaffold.
 
 ## HHD baseline
 
@@ -12,7 +12,7 @@ Repository: https://github.com/hhd-dev/hhd Local checkout: `_ref/hhd` Inspected 
 Paths below are relative to that checkout.
 
 | Area                     | Source                                     | Findings                                                                                                                                                                                                        |
-|--------------------------|--------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ------------------------ | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Detection                | `src/hhd/device/rog_ally/__init__.py`      | Product-name substring `ROG Ally X RC72LA`; separate Xbox Ally variants. This is not WSGM's required exact identity predicate.                                                                                  |
 | Interfaces               | `src/hhd/device/rog_ally/base.py`          | ASUS VID `0x0B05`, Ally X PID `0x1B4C`; vendor usage page `0xFF31`, usage `0x0080`. Gamepad input comes from Linux evdev, not a raw input-report decoder.                                                       |
 | Vendor buttons           | `AllyHidraw.produce` in `base.py`          | Report `0x5A`: `0xA6` emits mode, `0x38`/`0x93` emits keyboard/QAM, `0xA7` toggles mouse mode, and `0xA8` is ignored. Mode/QAM releases are synthesized after 150 ms.                                           |
@@ -29,19 +29,19 @@ Paths below are relative to that checkout.
 
 ### Behavior that needs a different WSGM implementation
 
-- `AllyHidraw` reapplies configuration after five seconds. WSGM must not automatically retry an uncertain hardware
-  write.
+- `AllyHidraw` reapplies configuration after five seconds. WSGM must not automatically retry an
+  uncertain hardware write.
 - The readiness helper is disabled, and mode setup does not independently verify readback.
-- `AllyHidraw` inherits a close method that closes the HID handle without restoring the previous configuration. WSGM
-  needs original-state capture, restoration and topology verification.
+- `AllyHidraw` inherits a close method that closes the HID handle without restoring the previous
+  configuration. WSGM needs original-state capture, restoration and topology verification.
 - The evdev trigger-map comments disagree with the active mapping: the dictionary maps RT to `ABS_Z`
   and LT to `ABS_RZ`. Neither Linux event codes nor comments establish raw Windows offsets.
-- Vendor pulse events and synthetic releases must not be presented as physical held-state samples. Keep OEM actions
-  separate from canonical controller state and retain host-owned action policy.
+- Vendor pulse events and synthetic releases must not be presented as physical held-state samples.
+  Keep OEM actions separate from canonical controller state and retain host-owned action policy.
 - HHD's Linux device hiding and virtual outputs are not plugin responsibilities in WSGM.
 
-HHD's root license is LGPL-2.1. Inspect applicable file notices before any source reuse; the existing MIT scaffold
-contains no HHD implementation.
+HHD's root license is LGPL-2.1. Inspect applicable file notices before any source reuse; the
+existing MIT scaffold contains no HHD implementation.
 
 ## Handheld Companion cross-reference
 
@@ -51,7 +51,7 @@ Inspected revision: `1d85da30861f700868e48ae8f498a5c455896f7c` (2026-09-12).
 Paths below are relative to that checkout.
 
 | Area                      | Source                                                     | Comparison and implication                                                                                                                                                                                                                                        |
-|---------------------------|------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Model specialization      | `HandheldCompanion/Devices/ASUS/ROGAllyX.cs`               | Inherits `ROGAlly`; overrides profile triplets to 13/17/25 W. HHD distinguishes 30 W AC performance and 25 W DC, so these are different profile policies.                                                                                                         |
 | Vendor buttons            | `HandheldCompanion/Devices/ASUS/ROGAlly.cs`, `HandleEvent` | `0xA6` is Command Center, `0x38` Armoury Crate, `0x93` Library. HC treats `0xA7`/`0xA8` as hold/release; HHD toggles mouse mode on `0xA7`, ignores `0xA8`, and merges `0x93` with its QAM event. Preserve these as alternative interpretations, with HHD primary. |
 | Rear buttons              | `ROGAlly.cs`, `ConfigureController` and OEM chords         | Same command prefix and rear mapping bytes as HHD. HC labels M1 as F18 and M2 as F17 and comments that held inputs repeat. HHD maps F17 to left and F18 to right. Verify physical labels, repeat handling and release behavior before assigning WSGM controls.    |
@@ -63,19 +63,19 @@ Paths below are relative to that checkout.
 | Cleanup                   | `ROGAlly.cs`, `Close`                                      | Rewrites a hard-coded default controller configuration and releases logical OEM buttons. This does not restore the user's captured original mappings. HHD's close does not restore mappings either.                                                               |
 | Motion                    | `HandheldCompanion/Resources/Devices/ROGAllyX.json`        | Declares axis swaps and signs for HC's motion pipeline. Do not combine these with HHD's transform; their sensor and output coordinate conventions must first be reconciled.                                                                                       |
 
-HC's root license is CC BY-NC-SA 4.0. Its source is retained only in the ignored reference checkout; no HC code or
-assets are included in the MIT package.
+HC's root license is CC BY-NC-SA 4.0. Its source is retained only in the ignored reference checkout;
+no HC code or assets are included in the MIT package.
 
 ## Next implementation slices
 
-1. Define reference-derived, hardware-free vendor event and command codecs with explicit report API and length
-   requirements. Test short reports, duplicate events and held/repeating rear buttons.
-2. Establish Windows interface identity and exclusive ownership boundaries. HC supplies transport leads; HHD supplies
-   primary behavior. Neither supplies a validated WSGM hardware fixture.
-3. Implement read-only identity and control queries before any mutation. Keep unknown firmware and unsupported controls
-   passive.
-4. Add original-state capture and verified restoration before remapping rear buttons or changing controller mode. WSGM
-   retains action policy, virtual targets and HidHide ownership.
+1. Define reference-derived, hardware-free vendor event and command codecs with explicit report API
+   and length requirements. Test short reports, duplicate events and held/repeating rear buttons.
+2. Establish Windows interface identity and exclusive ownership boundaries. HC supplies transport
+   leads; HHD supplies primary behavior. Neither supplies a validated WSGM hardware fixture.
+3. Implement read-only identity and control queries before any mutation. Keep unknown firmware and
+   unsupported controls passive.
+4. Add original-state capture and verified restoration before remapping rear buttons or changing
+   controller mode. WSGM retains action policy, virtual targets and HidHide ownership.
 5. Enable hardware behavior only after an attended inventory and the relevant device scenarios.
 
 No imported daemon, installer, driver, probe or hardware command was executed during this review.
