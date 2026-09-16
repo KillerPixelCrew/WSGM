@@ -16,7 +16,7 @@
         Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="System.Management" Version="10.0.0" />
+    <PackageReference Include="System.Management" Version="10.0.12" />
   </ItemGroup>
   <ItemGroup>
     <None Update="plugin.wsgm.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

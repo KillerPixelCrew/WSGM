@@ -1,10 +1,14 @@
 using Avalonia;
 using Avalonia.Headless;
+using Avalonia.Media;
 using Avalonia.Styling;
 using WSGM.Themes;
+using WSGM.UiTests;
+using Xunit.Sdk;
+using Xunit.v3;
 
-[assembly: AvaloniaTestApplication(typeof(WSGM.UiTests.TestApplication))]
-[assembly: CollectionBehavior(DisableTestParallelization = true)]
+[assembly: AvaloniaTestApplication(typeof(TestApplication))]
+[assembly: Parallelization(Mode = ParallelMode.None)]
 
 namespace WSGM.UiTests;
 
@@ -12,10 +16,10 @@ public sealed class TestApplication : App
 {
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<TestApplication>()
         .WithInterFont()
-        .With(new Avalonia.Media.FontManagerOptions
+        .With(new FontManagerOptions
         {
-            FontFamilyMappings = new Dictionary<string, Avalonia.Media.FontFamily>
-            { ["Inter"] = new("avares://Avalonia.Fonts.Inter/Assets#Inter") },
+            FontFamilyMappings = new Dictionary<string, FontFamily>
+            { ["Inter"] = new("avares://Avalonia.Fonts.Inter/Assets#Inter") }
         })
         .UseSkia()
         .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });

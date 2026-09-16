@@ -1,7 +1,11 @@
 version: 2
 updates:
+  # The projects live below src/ and tests/ and are listed only in WSGM.slnx. Name the project
+  # directories explicitly; scanning "/" alone found no NuGet manifests to update.
   - package-ecosystem: "nuget"
-    directory: "/"
+    directories:
+      - "/src/*"
+      - "/tests/*"
     schedule:
       interval: "weekly"
     groups:
