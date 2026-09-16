@@ -993,6 +993,7 @@ internal sealed class MainWindow : Window
     }
 
     private static string RecentPathsFile() => Path.Combine(
+        // wsgm-allow-live-data-path: Device Lab's own root beside WSGM's data, never inside it.
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "WSGM Device Lab",
         "recent-paths.json");

@@ -13,6 +13,7 @@ internal sealed class Session
     internal List<Result> Results { get; } = [];
     internal Session()
     {
+        // wsgm-allow-live-data-path: the lab's own "WSGM.AllyXLab" root beside WSGM's data, never inside it.
         string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WSGM.AllyXLab");
         for (DirectoryInfo? p = new(root); p is not null; p = p.Parent)
         {

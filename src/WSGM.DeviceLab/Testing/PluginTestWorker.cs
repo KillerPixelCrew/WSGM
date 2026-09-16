@@ -368,6 +368,7 @@ internal static class PluginTestWorkerSupervisor
         };
 
         string workersRoot = Path.GetFullPath(Path.Combine(
+            // wsgm-allow-live-data-path: Device Lab's own root beside WSGM's data, never inside it.
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "WSGM Device Lab",
             "Workers"));

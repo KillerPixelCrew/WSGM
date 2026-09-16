@@ -30,12 +30,20 @@ $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
 
-# Scanned: anything that may run on a developer's machine outside the shipped application.
-# Deliberately excluded: the shipped WSGM processes, which own the real directory; and external\,
-# which holds vendored upstream source and submodules that enforce this in their own repositories.
+# Scanned: anything that may run on a developer's machine outside the shipped application: tests,
+# developer tools, Device Lab, and the device and plugin projects, as the synopsis promises.
+# Deliberately excluded: the shipped WSGM processes, which own the real directory; eng\, whose
+# attended deployment scripts target the live install on purpose; and external\, which holds
+# vendored upstream source and submodules that enforce this in their own repositories.
 # Runtime tests use explicit-root seams.
 $scanned = @(
     "tests"
+    "tools"
+    "src\WSGM.DeviceLab"
+) + @(
+    Get-ChildItem -LiteralPath (Join-Path $root "src") -Directory |
+        Where-Object { $_.Name -like "WSGM.Device.*" -or $_.Name -like "WSGM.Plugin.*" } |
+        ForEach-Object { "src\$($_.Name)" }
 )
 
 # A literal WSGM data path, or resolving the local-app-data root at all. The second pattern is the
@@ -57,7 +65,7 @@ foreach ($relative in $scanned) {
     if (-not (Test-Path -LiteralPath $directory)) { continue }
 
     $files = Get-ChildItem -LiteralPath $directory -Recurse -File -Include *.cs, *.ps1, *.json |
-        Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' }
+        Where-Object { $_.FullName -notmatch '\\(bin|obj|node_modules|\.pio)\\' }
 
     foreach ($pattern in $patterns) {
         foreach ($match in ($files | Select-String -Pattern $pattern.Regex -CaseSensitive:$false -Context 3, 0)) {

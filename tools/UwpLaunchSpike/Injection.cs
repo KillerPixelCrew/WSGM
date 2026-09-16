@@ -418,9 +418,9 @@ internal sealed class Injection(SpikeLog log)
         try
         {
             var directory = Path.Combine(
+                // wsgm-allow-live-data-path: the spike's own root beside WSGM's data, never inside it.
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "WSGM",
-                "uwp-spike",
+                "WSGM UwpLaunchSpike",
                 "inject");
             Directory.CreateDirectory(directory);
             var staged = Path.Combine(directory, Path.GetFileName(source));

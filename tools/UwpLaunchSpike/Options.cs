@@ -309,10 +309,13 @@ internal sealed class Options
     {
         var name = options.Mode.ToString().ToLowerInvariant();
         var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+        // A root of its own, like Device Lab: a developer tool never writes inside the live
+        // WSGM data directory.
         return Path.Combine(
+            // wsgm-allow-live-data-path: resolves the local app data root only to build the
+            // spike's own "WSGM UwpLaunchSpike" directory beside WSGM's, never inside it.
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "WSGM",
-            "uwp-spike",
+            "WSGM UwpLaunchSpike",
             $"{stamp}-{name}.log");
     }
 
@@ -355,7 +358,7 @@ internal sealed class Options
                                  game where the Steam overlay works, as the control case.
           --ipc-bridge          Broker Steam renderer IPC objects from the desktop. Requires
                                  WsgmUwpBridge.dll beside the wrapper and a fresh game launch.
-          --log <path>           Transcript path (default %LOCALAPPDATA%\WSGM\uwp-spike).
+          --log <path>           Transcript path (default %LOCALAPPDATA%\WSGM UwpLaunchSpike).
           --help                 Show this text.
         """;
 }

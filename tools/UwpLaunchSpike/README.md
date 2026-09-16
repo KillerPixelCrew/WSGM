@@ -28,9 +28,10 @@ stack is still a comparison option; a non-Steam overlay does not inherently need
 is a normal Win32 child supplied through `--target`. `--observe <pid|name>` reads an existing
 process without activating or injecting into it.
 
-Transcripts land in `%LOCALAPPDATA%/WSGM/uwp-spike`. With the bridge enabled, the renderer's own log
-is redirected through a brokered file handle to `<transcript>.renderer-<pid>.log`, because the
-normal Steam renderer log otherwise describes the wrapper and is misleading.
+Transcripts land in `%LOCALAPPDATA%/WSGM UwpLaunchSpike`, beside WSGM's own data directory rather
+than inside it. With the bridge enabled, the renderer's own log is redirected through a brokered
+file handle to `<transcript>.renderer-<pid>.log`, because the normal Steam renderer log otherwise
+describes the wrapper and is misleading.
 
 **Do not attach a debugger to Steam, and do not use CEF for this investigation at all.** A
 CEF-related Steam failure came up during this work. On September 14 CEF shortcut management was
