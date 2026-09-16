@@ -199,8 +199,9 @@ if (-not $SkipPlugin) {
     Write-Host '== Staging device plugin from WSGM source ==' -ForegroundColor Cyan
     $pluginStage = Join-Path $root 'publish\DevDeviceComponents'
     Remove-Item -LiteralPath $pluginStage -Recurse -Force -ErrorAction SilentlyContinue
+    # The staging script fails by throwing; $LASTEXITCODE after a script call only repeats its last
+    # native command. A staging run that returns without a package is caught by the count below.
     & "$root\eng\stage-device-components.ps1" -OutputRoot $pluginStage
-    if ($LASTEXITCODE -ne 0) { throw 'Device plugin staging failed.' }
 
     $packagesRoot = Join-Path $pluginStage 'Packages'
     $stagedPackage = @(Get-ChildItem -LiteralPath $packagesRoot -Directory)

@@ -99,10 +99,10 @@ try {
     if ($NoRestore) {
         $packArguments.NoRestore = $true
     }
+    # pack-device.ps1 reports failure by throwing, which stops this script too. $LASTEXITCODE is no
+    # status here: a script call does not set it, so it would only repeat the last native command
+    # run inside the packer. A packer that returns without its archive is caught just below.
     & $pluginPack @packArguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "Building the device package failed."
-    }
 
     $archive = Join-Path $packageBuildRoot "$packageId-$packageVersion.wsgmpkg"
     if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
