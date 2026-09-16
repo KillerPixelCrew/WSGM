@@ -65,9 +65,6 @@ internal sealed class HybridCores(IHybridCoreApi api)
 {
     internal static HybridCores Windows { get; } = new(new WindowsHybridCoreApi());
 
-    /// <summary>Windows applies processor policy on scheme activation, and activation is global.</summary>
-    private static object MutationGate { get; } = new();
-
     private static readonly HybridCoreOption[] Offered =
     [
         new(HybridCoreMode.Automatic, "Automatic",
@@ -193,18 +190,22 @@ internal sealed class HybridCores(IHybridCoreApi api)
     /// <remarks>
     /// The heterogeneous-policy value is carried through untouched, because Windows publishes no
     /// meaning for it. Activation is what makes processor policy take effect, and it is global, so
-    /// the write and the activation happen under <see cref="MutationGate"/> together.
+    /// the write and the activation happen under <see cref="PowerSchemes.MutationGate"/> together, the
+    /// gate scheme selection and timeout writes take as well.
     /// </remarks>
     /// <param name="mode">The mode to apply.</param>
     /// <param name="cancellationToken">Cancels before the write starts.</param>
     /// <exception cref="InvalidOperationException">Windows did not report the mode back.</exception>
     internal void Apply(HybridCoreMode mode, CancellationToken cancellationToken = default)
     {
-        var scheme = api.ReadActiveScheme();
         var policy = PolicyFor(mode);
-        lock (MutationGate)
+        lock (PowerSchemes.MutationGate)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            // Read the active scheme inside the shared gate: a scheme switch between the read and
+            // the write would land this policy in a scheme that is no longer active, and the
+            // readback below would confirm it against that same stale scheme.
+            var scheme = api.ReadActiveScheme();
             foreach (var onBattery in (bool[])[false, true])
             {
                 var previous = api.Read(scheme, onBattery);
