@@ -22,10 +22,16 @@ ownership and lifetime rules out of the managed device layer.
 Also vet the whole module and run the library's own tests for the device WSGM
 uses and for the C API before building. Used by build.ps1 before a release build
 and by the viiper CI job.
+
+.PARAMETER RequirePinned
+Refuse to build unless the submodule is clean and checked out at the commit the
+superproject's HEAD records. Used by build.ps1, so a release library always
+corresponds to a pushed, pinned commit rather than local edits.
 #>
 [CmdletBinding()]
 param(
-    [switch] $Validate
+    [switch] $Validate,
+    [switch] $RequirePinned
 )
 
 Set-StrictMode -Version Latest
@@ -64,6 +70,21 @@ if (-not (Get-Command gcc -ErrorAction SilentlyContinue)) {
 }
 
 $env:CGO_ENABLED = "1"
+
+if ($RequirePinned) {
+    $pinned = git -C $root rev-parse "HEAD:external/viiper"
+    if ($LASTEXITCODE -ne 0) { throw "Could not read the VIIPER gitlink recorded at HEAD." }
+    $actual = git -C $source rev-parse HEAD
+    if ($LASTEXITCODE -ne 0) { throw "Could not read the external\viiper checkout." }
+    if ($actual.Trim() -ne $pinned.Trim()) {
+        throw "external\viiper is at $($actual.Trim()) but HEAD pins $($pinned.Trim()). A release build must use the pinned commit."
+    }
+    $changes = git -C $source status --porcelain
+    if ($LASTEXITCODE -ne 0) { throw "Could not read the external\viiper status." }
+    if ($changes) {
+        throw "external\viiper has uncommitted changes. A release build must match its pinned commit."
+    }
+}
 
 Push-Location $source
 try {

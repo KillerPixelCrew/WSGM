@@ -42,7 +42,7 @@ Write-Host "== Building Steam Input Lease (Rust) ==" -ForegroundColor Cyan
 # is a shipped feature, so a release without the library is an incomplete release, not a valid
 # feature-local fallback artifact.
 Write-Host "== Building virtual controller library (Go) ==" -ForegroundColor Cyan
-& "$root\eng\build-viiper.ps1" -Validate
+& "$root\eng\build-viiper.ps1" -Validate -RequirePinned
 
 Write-Host "== Publishing WSGM $version (self-contained JIT) ==" -ForegroundColor Cyan
 # Clean first: dotnet publish overlays onto the previous output, so a DLL removed by

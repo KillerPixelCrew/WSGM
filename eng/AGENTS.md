@@ -33,8 +33,10 @@ codes, and safe to rerun.
   to .qodana/code-coverage. The `qodana-dotnet` job in `.github/workflows/ci.yml` sets
   `WSGM_QODANA_USE_STAGED_NATIVE` and `WSGM_QODANA_COVERAGE_FROM` so it reuses the libraries and
   coverage from the `verify` and `viiper` jobs instead. It is a CI step, not a local gate.
-- eng/build-viiper.ps1 builds the external/viiper submodule as checked out. Move the VIIPER pin by
-  pushing to the fork and advancing the gitlink, as for any other submodule.
+- eng/build-viiper.ps1 builds the external/viiper submodule as checked out. build.ps1 passes
+  `-RequirePinned`, which refuses a dirty submodule or one that is not at the gitlink HEAD records,
+  so a release library always matches a pinned commit. Move the VIIPER pin by pushing to the fork
+  and advancing the gitlink, as for any other submodule.
 - external/ holds submodules, vendored upstream source, and dependency pins. Do not format or
   rewrite it from a main-repository gate.
 - Device packers share `device-package-output.ps1` for archive publication. Keep staging on the
