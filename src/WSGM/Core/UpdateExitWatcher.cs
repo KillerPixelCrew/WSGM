@@ -7,21 +7,20 @@ using WSGM.Interop;
 
 namespace WSGM.Core;
 
-/// <summary>Lets the (elevated) installer ask a running — possibly elevated —
-/// WSGM to exit before an update. An event created with the elevated token's
-/// DEFAULT security is unreachable from a second WSGM instance, so the event is
-/// created with an explicit descriptor scoped to THIS user plus BUILTIN\
-/// Administrators (EVENT_MODIFY_STATE | SYNCHRONIZE) and a medium mandatory label:
-/// the elevated setup and every same-user WSGM instance can wait/signal/reset,
-/// while low-IL sandboxed processes cannot force an exit. A graceful self-shutdown
-/// runs the normal exit path, asks elevated Steam to exit so an updated injected
-/// payload can unload, then lets the Steam Input lease release and posture restore
-/// fire too.</summary>
+/// <summary>
+///     Lets the (elevated) installer ask a running — possibly elevated —
+///     WSGM to exit before an update. An event created with the elevated token's
+///     DEFAULT security is unreachable from a second WSGM instance, so the event is
+///     created with an explicit descriptor scoped to THIS user plus BUILTIN\
+///     Administrators (EVENT_MODIFY_STATE | SYNCHRONIZE) and a medium mandatory label:
+///     the elevated setup and every same-user WSGM instance can wait/signal/reset,
+///     while low-IL sandboxed processes cannot force an exit. A graceful self-shutdown
+///     runs the normal exit path, asks elevated Steam to exit so an updated injected
+///     payload can unload, then lets the Steam Input lease release and posture restore
+///     fire too.
+/// </summary>
 public static class UpdateExitWatcher
 {
-    private static nint _updateCompletionEvent;
-    private static nint _uninstallCompletionEvent;
-
     // CROSS-VERSION CONTRACT — do not rename this event and do not narrow the
     // 0x00100002 grant below. During an update the event object is created by the
     // OLD running build; the new installer only opens it BY NAME and signals it
@@ -37,10 +36,15 @@ public static class UpdateExitWatcher
     /// <summary>Gets the per-session event used by the uninstaller for its longer cleanup budget.</summary>
     public const string UninstallEventName = @"Local\WSGM.ExitForUninstall";
 
-    /// <summary>Gets the per-session event a <c>--restore-shell</c> run signals so a resident shell
-    /// runs its normal shutdown, which restores Explorer and retires its own taskbar, before the
-    /// recovery process touches the desktop.</summary>
+    /// <summary>
+    ///     Gets the per-session event a <c>--restore-shell</c> run signals so a resident shell
+    ///     runs its normal shutdown, which restores Explorer and retires its own taskbar, before the
+    ///     recovery process touches the desktop.
+    /// </summary>
     private const string RestoreShellEventName = @"Local\WSGM.ExitForRestoreShell";
+
+    private static nint _updateCompletionEvent;
+    private static nint _uninstallCompletionEvent;
 
     // The setup is ALWAYS elevated (PrivilegesRequired=admin): the user-SID ACE
     // covers every same-user WSGM instance (elevated or filtered token — the user
@@ -52,24 +56,32 @@ public static class UpdateExitWatcher
     // private, and taking the SID rather than reading the token, so the "WD"
     // fallback is covered by a test instead of being asserted away.
 
-    /// <summary>Builds the event's security descriptor: a DACL granting the given
-    /// user SID and BUILTIN\Administrators EVENT_MODIFY_STATE | SYNCHRONIZE
-    /// (0x00100002), plus a medium mandatory label with no-write-up.</summary>
-    /// <param name="userSid">The current token's user SID in SDDL form, or
-    /// <see langword="null"/> when it could not be read — practically impossible,
-    /// and then that ACE falls back to the old Everyone ("WD") grant so an update
-    /// can still stop this instance.</param>
+    /// <summary>
+    ///     Builds the event's security descriptor: a DACL granting the given
+    ///     user SID and BUILTIN\Administrators EVENT_MODIFY_STATE | SYNCHRONIZE
+    ///     (0x00100002), plus a medium mandatory label with no-write-up.
+    /// </summary>
+    /// <param name="userSid">
+    ///     The current token's user SID in SDDL form, or
+    ///     <see langword="null" /> when it could not be read — practically impossible,
+    ///     and then that ACE falls back to the old Everyone ("WD") grant so an update
+    ///     can still stop this instance.
+    /// </param>
     /// <returns>The SDDL string for <c>CreateEventW</c>'s security descriptor.</returns>
     internal static string BuildEventSddl(string? userSid)
-        => $"D:(A;;0x00100002;;;{userSid ?? "WD"})(A;;0x00100002;;;BA)S:(ML;;NW;;;ME)";
+    {
+        return $"D:(A;;0x00100002;;;{userSid ?? "WD"})(A;;0x00100002;;;BA)S:(ML;;NW;;;ME)";
+    }
 
-    internal static string? HandoffEventNameFor(ApplicationShutdownReason reason) =>
-        reason switch
+    internal static string? HandoffEventNameFor(ApplicationShutdownReason reason)
+    {
+        return reason switch
         {
             ApplicationShutdownReason.Update => $"{EventName}.Completed",
             ApplicationShutdownReason.Uninstall => $"{UninstallEventName}.Completed",
             _ => null
         };
+    }
 
     internal static void ReportHandoff(
         ApplicationShutdownReason reason,
@@ -106,8 +118,10 @@ public static class UpdateExitWatcher
     /// <summary>Starts watching for the updater's graceful-exit request.</summary>
     /// <param name="onExitRequested">The callback that runs the normal application shutdown path.</param>
     /// <param name="onUninstallRequested">The callback that runs the uninstall shutdown path.</param>
-    /// <param name="onRestoreShellRequested">The callback that runs the normal shutdown path when a
-    /// <c>--restore-shell</c> run asks this resident shell to hand the desktop back.</param>
+    /// <param name="onRestoreShellRequested">
+    ///     The callback that runs the normal shutdown path when a
+    ///     <c>--restore-shell</c> run asks this resident shell to hand the desktop back.
+    /// </param>
     public static void Start(
         Action onExitRequested,
         Action? onUninstallRequested = null,
@@ -120,6 +134,7 @@ public static class UpdateExitWatcher
             {
                 userSid = identity.User?.Value;
             }
+
             _updateCompletionEvent = StartHandoffEvent(
                 ApplicationShutdownReason.Update,
                 "update",
@@ -137,6 +152,7 @@ public static class UpdateExitWatcher
                     userSid,
                     onUninstallRequested);
             }
+
             if (onRestoreShellRequested is not null)
             {
                 StartWatcher(RestoreShellEventName, "restore-shell", userSid, onRestoreShellRequested);
@@ -150,9 +166,11 @@ public static class UpdateExitWatcher
 
     /// <summary>Asks a resident WSGM shell in this session to shut down normally and waits for it.</summary>
     /// <param name="timeout">How long to wait for the resident process to exit.</param>
-    /// <remarks>Runs on the <c>--restore-shell</c> path before logging and configuration, so it
-    /// uses only the named event and the process table. A resident shell that ignores the request
-    /// is left running; the caller then falls back to its own recovery.</remarks>
+    /// <remarks>
+    ///     Runs on the <c>--restore-shell</c> path before logging and configuration, so it
+    ///     uses only the named event and the process table. A resident shell that ignores the request
+    ///     is left running; the caller then falls back to its own recovery.
+    /// </remarks>
     internal static void RequestResidentShellExit(TimeSpan timeout)
     {
         var request = NativeMethods.OpenEventW(NativeMethods.EventModifyState, false, RestoreShellEventName);
@@ -160,6 +178,7 @@ public static class UpdateExitWatcher
         {
             return;
         }
+
         try
         {
             if (!NativeMethods.SetEvent(request))
@@ -180,6 +199,7 @@ public static class UpdateExitWatcher
             {
                 return;
             }
+
             Thread.Sleep(200);
         }
     }
@@ -195,7 +215,7 @@ public static class UpdateExitWatcher
             eventName,
             $"{operation} completion",
             userSid,
-            clearStaleSignal: false);
+            false);
     }
 
     private static void StartWatcher(
@@ -208,7 +228,7 @@ public static class UpdateExitWatcher
             eventName,
             $"{operation}-exit watcher",
             userSid,
-            clearStaleSignal: true);
+            true);
         if (exitEvent == 0)
         {
             return;
@@ -225,6 +245,7 @@ public static class UpdateExitWatcher
                     Log.Warn($"{operation}-exit watcher: wait ended without a request (result {wait}).");
                     return;
                 }
+
                 Log.Info($"Exit requested by installer ({operation}).");
                 callback();
             }
@@ -247,10 +268,10 @@ public static class UpdateExitWatcher
         bool clearStaleSignal)
     {
         if (!NativeMethods.ConvertStringSecurityDescriptorToSecurityDescriptor(
-            BuildEventSddl(userSid),
-            1,
-            out var securityDescriptor,
-            out _))
+                BuildEventSddl(userSid),
+                1,
+                out var securityDescriptor,
+                out _))
         {
             Log.Warn(
                 $"{operation}: SDDL conversion failed "
@@ -270,8 +291,8 @@ public static class UpdateExitWatcher
             };
             exitEvent = NativeMethods.CreateEventW(
                 ref attributes,
-                manualReset: true,
-                initialState: false,
+                true,
+                false,
                 eventName);
             createError = Marshal.GetLastWin32Error();
         }
@@ -294,6 +315,7 @@ public static class UpdateExitWatcher
                         + $"(error {Marshal.GetLastWin32Error()}).");
                     return 0;
                 }
+
                 break;
             case 0:
                 Log.Warn($"{operation}: CreateEvent failed (error {createError}).");

@@ -8,40 +8,28 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>Per-app auto-relaunch for startup tools, opt-in via
-/// StartupAppConfig.AutoRelaunch — a crashed Handheld Companion otherwise leaves
-/// the device without controller input. Process-name polling like SteamMonitor;
-/// an app is only relaunched after it has been seen alive once, with a delay
-/// before the restart and a cooldown so a crash-looping tool can't be spammed.</summary>
+/// <summary>
+///     Per-app auto-relaunch for startup tools, opt-in via
+///     StartupAppConfig.AutoRelaunch — a crashed Handheld Companion otherwise leaves
+///     the device without controller input. Process-name polling like SteamMonitor;
+///     an app is only relaunched after it has been seen alive once, with a delay
+///     before the restart and a cooldown so a crash-looping tool can't be spammed.
+/// </summary>
 public sealed class StartupAppWatcher : IDisposable
 {
     private static readonly TimeSpan RelaunchDelay = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan RelaunchCooldown = TimeSpan.FromSeconds(30);
 
-    private sealed class WatchState
-    {
-        // Only true after a poll saw the process alive, so "seen alive once" before a
-        // relaunch is implied rather than tracked separately.
-        public bool WasAlive;
-        public DateTime LastRelaunchUtc;
-        public bool RelaunchPending;
-        public int LaunchGeneration;
-    }
-
-    private readonly DispatcherTimer _timer;
     private readonly CancellationTokenSource _lifetime = new();
-    private List<StartupAppConfig> _apps;
+
     // Keyed by full path so two configured apps sharing an exe basename don't
     // collide on one state.
     private readonly Dictionary<string, WatchState> _states = new(StringComparer.OrdinalIgnoreCase);
-    private bool _pollInFlight;
+
+    private readonly DispatcherTimer _timer;
+    private List<StartupAppConfig> _apps;
     private bool _disposed;
-
-    /// <summary>Session policy preventing a deliberately suspended integration from relaunching.</summary>
-    internal Func<string, bool>? IsLaunchSuppressed { get; init; }
-
-    /// <summary>Invalidates delayed relaunches across even a very short desktop takeover.</summary>
-    internal Func<string, int>? LaunchGeneration { get; init; }
+    private bool _pollInFlight;
 
     /// <summary>Creates a watcher for the currently configured startup programs.</summary>
     /// <param name="apps">The startup-program configuration to monitor.</param>
@@ -55,9 +43,32 @@ public sealed class StartupAppWatcher : IDisposable
         _timer.Start();
     }
 
+    /// <summary>Session policy preventing a deliberately suspended integration from relaunching.</summary>
+    internal Func<string, bool>? IsLaunchSuppressed { get; init; }
+
+    /// <summary>Invalidates delayed relaunches across even a very short desktop takeover.</summary>
+    internal Func<string, int>? LaunchGeneration { get; init; }
+
+    /// <summary>Stops periodic process monitoring.</summary>
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _timer.Stop();
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+    }
+
     /// <summary>Replaces the monitored startup-program configuration.</summary>
     /// <param name="apps">The newly saved startup-program configuration.</param>
-    public void Apply(List<StartupAppConfig> apps) => _apps = apps;
+    public void Apply(List<StartupAppConfig> apps)
+    {
+        _apps = apps;
+    }
 
     private void Poll()
     {
@@ -65,6 +76,7 @@ public sealed class StartupAppWatcher : IDisposable
         {
             return;
         }
+
         // Snapshot the watch list on the UI thread — Apply() replaces _apps wholesale
         // on a config reload, so the background probe must not enumerate it.
         var probes = new List<(string Path, string Name)>();
@@ -76,17 +88,21 @@ public sealed class StartupAppWatcher : IDisposable
                 _states.Remove(app.Path);
                 continue;
             }
+
             if (!app.Enabled || !app.AutoRelaunch || app.Path.Length == 0 || AppLauncher.IsProtocol(app.Path))
             {
                 continue;
             }
+
             var name = Path.GetFileNameWithoutExtension(app.Path);
             if (name.Length == 0)
             {
                 continue;
             }
+
             probes.Add((app.Path, name));
         }
+
         if (probes.Count == 0)
         {
             return;
@@ -109,18 +125,21 @@ public sealed class StartupAppWatcher : IDisposable
                 {
                     names[i] = probes[i].Name;
                 }
+
                 running = WindowFinder.FindRunningNames(names);
             }
             catch (Exception ex)
             {
                 Log.Warn($"Startup app liveness poll failed: {ex.Message}");
             }
+
             for (var i = 0; i < probes.Count; i++)
             {
                 // An unknown result must never read as a crash: a failed probe
                 // would otherwise relaunch an app that is still running.
                 alive[i] = running?.Contains(probes[i].Name) ?? true;
             }
+
             if (!lifetime.IsCancellationRequested)
             {
                 Dispatcher.UIThread.Post(() =>
@@ -145,6 +164,7 @@ public sealed class StartupAppWatcher : IDisposable
                 _states.Remove(path);
                 continue;
             }
+
             var generation = LaunchGeneration?.Invoke(path) ?? 0;
             if (!_states.TryGetValue(path, out var state) || state.LaunchGeneration != generation)
             {
@@ -160,6 +180,7 @@ public sealed class StartupAppWatcher : IDisposable
             {
                 continue;
             }
+
             // A falling edge inside the cooldown isn't dropped — the relaunch is
             // scheduled for when the cooldown expires (never sooner than the
             // normal delay).
@@ -197,35 +218,41 @@ public sealed class StartupAppWatcher : IDisposable
         }
     }
 
-    /// <summary>Fires a scheduled relaunch. The app is re-resolved from the CURRENT
-    /// config here — a reload during the delay window may have removed or disabled
-    /// it, and stale captured path/args must not win over the user's edit.</summary>
+    /// <summary>
+    ///     Fires a scheduled relaunch. The app is re-resolved from the CURRENT
+    ///     config here — a reload during the delay window may have removed or disabled
+    ///     it, and stale captured path/args must not win over the user's edit.
+    /// </summary>
     private void Relaunch(string path, string name, WatchState state)
     {
         state.RelaunchPending = false;
         if (!_states.TryGetValue(path, out var current) || !ReferenceEquals(current, state)
-                                                        || state.LaunchGeneration != (LaunchGeneration?.Invoke(path) ?? 0)) { return; }
+                                                        || state.LaunchGeneration !=
+                                                        (LaunchGeneration?.Invoke(path) ?? 0))
+        {
+            return;
+        }
+
         var app = _apps.Find(a => string.Equals(a.Path, path, StringComparison.OrdinalIgnoreCase));
         if (app is null || !app.Enabled || !app.AutoRelaunch || IsLaunchSuppressed?.Invoke(path) == true)
         {
             Log.Info($"Startup app '{name}' relaunch skipped — removed or disabled meanwhile.");
             return;
         }
+
         state.LastRelaunchUtc = DateTime.UtcNow;
         AppLauncher.Start(app.Path, app.Args, app.Elevated);
     }
 
-    /// <summary>Stops periodic process monitoring.</summary>
-    public void Dispose()
+    private sealed class WatchState
     {
-        if (_disposed)
-        {
-            return;
-        }
+        public DateTime LastRelaunchUtc;
+        public int LaunchGeneration;
 
-        _disposed = true;
-        _timer.Stop();
-        _lifetime.Cancel();
-        _lifetime.Dispose();
+        public bool RelaunchPending;
+
+        // Only true after a poll saw the process alive, so "seen alive once" before a
+        // relaunch is implied rather than tracked separately.
+        public bool WasAlive;
     }
 }

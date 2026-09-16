@@ -10,9 +10,9 @@ public sealed class PerApplicationPowerPolicyTests
         Assert.Equal(
             21,
             PerApplicationPowerPolicy.ResolveEffective(
-                globalWatts: 37,
-                applicationWatts: 21,
-                perGameProfileActive: true));
+                37,
+                21,
+                true));
     }
 
     [Fact]
@@ -23,9 +23,9 @@ public sealed class PerApplicationPowerPolicyTests
         Assert.Equal(
             37,
             PerApplicationPowerPolicy.ResolveEffective(
-                globalWatts: 37,
-                applicationWatts: 21,
-                perGameProfileActive: false));
+                37,
+                21,
+                false));
     }
 
     [Fact]
@@ -34,9 +34,9 @@ public sealed class PerApplicationPowerPolicyTests
         Assert.Equal(
             37,
             PerApplicationPowerPolicy.ResolveEffective(
-                globalWatts: 37,
-                applicationWatts: null,
-                perGameProfileActive: true));
+                37,
+                null,
+                true));
     }
 
     [Fact]
@@ -49,10 +49,10 @@ public sealed class PerApplicationPowerPolicyTests
     public void AResolvedLimitIsAlwaysApplied()
     {
         var decision = PerApplicationPowerPolicy.DecideOnTargetChange(
-            effectiveWatts: 21,
-            powerCurrentlyImposed: false,
-            autoTdpEnabled: true,
-            ceilingWatts: 37);
+            21,
+            false,
+            true,
+            37);
 
         Assert.Equal(PerAppPowerAction.Apply, decision.Action);
         Assert.Equal(21, decision.Watts);
@@ -64,10 +64,10 @@ public sealed class PerApplicationPowerPolicyTests
         // The reported bug's AutoTDP case: a limit set in a game paused control; leaving the game
         // with no limit preferred must resume it rather than leave the game's limit latched.
         var decision = PerApplicationPowerPolicy.DecideOnTargetChange(
-            effectiveWatts: null,
-            powerCurrentlyImposed: true,
-            autoTdpEnabled: true,
-            ceilingWatts: 37);
+            null,
+            true,
+            true,
+            37);
 
         Assert.Equal(PerAppPowerAction.ResumeAutomatic, decision.Action);
     }
@@ -78,10 +78,10 @@ public sealed class PerApplicationPowerPolicyTests
         // The reported bug's non-AutoTDP case: without automatic control there is nothing to resume,
         // so the game's limit is released to the ceiling instead of leaking onto the desktop.
         var decision = PerApplicationPowerPolicy.DecideOnTargetChange(
-            effectiveWatts: null,
-            powerCurrentlyImposed: true,
-            autoTdpEnabled: false,
-            ceilingWatts: 37);
+            null,
+            true,
+            false,
+            37);
 
         Assert.Equal(PerAppPowerAction.ReleaseToCeiling, decision.Action);
         Assert.Equal(37, decision.Watts);
@@ -93,15 +93,15 @@ public sealed class PerApplicationPowerPolicyTests
         // A session that never used the feature must never have its power limit written: WSGM has no
         // limit of its own to take back, and forcing the ceiling would raise power the user did not.
         var autoOn = PerApplicationPowerPolicy.DecideOnTargetChange(
-            effectiveWatts: null,
-            powerCurrentlyImposed: false,
-            autoTdpEnabled: true,
-            ceilingWatts: 37);
+            null,
+            false,
+            true,
+            37);
         var autoOff = PerApplicationPowerPolicy.DecideOnTargetChange(
-            effectiveWatts: null,
-            powerCurrentlyImposed: false,
-            autoTdpEnabled: false,
-            ceilingWatts: 37);
+            null,
+            false,
+            false,
+            37);
 
         Assert.Equal(PerAppPowerAction.Leave, autoOn.Action);
         Assert.Equal(PerAppPowerAction.Leave, autoOff.Action);
@@ -111,18 +111,18 @@ public sealed class PerApplicationPowerPolicyTests
     public void VrrAnEnabledProfilePrefersItsOwnState()
     {
         Assert.True(PerApplicationVrrPolicy.ResolveEffective(
-            globalState: false,
-            applicationState: true,
-            perGameProfileActive: true));
+            false,
+            true,
+            true));
     }
 
     [Fact]
     public void VrrADisabledProfileInheritsTheGlobalState()
     {
         Assert.False(PerApplicationVrrPolicy.ResolveEffective(
-            globalState: false,
-            applicationState: true,
-            perGameProfileActive: false));
+            false,
+            true,
+            false));
     }
 
     [Fact]
@@ -135,8 +135,8 @@ public sealed class PerApplicationPowerPolicyTests
     public void VrrAResolvedStateIsAlwaysApplied()
     {
         var decision = PerApplicationVrrPolicy.DecideOnTargetChange(
-            effectiveState: true,
-            stateCurrentlyImposed: false);
+            true,
+            false);
 
         Assert.Equal(PerAppVrrAction.Apply, decision.Action);
         Assert.True(decision.Enabled);
@@ -148,8 +148,8 @@ public sealed class PerApplicationPowerPolicyTests
         // The leak this prevents: a game turned VRR on; leaving it with no state preferred returns
         // to off — Steam's own default and a fixed-refresh desktop's expectation — not on.
         var decision = PerApplicationVrrPolicy.DecideOnTargetChange(
-            effectiveState: null,
-            stateCurrentlyImposed: true);
+            null,
+            true);
 
         Assert.Equal(PerAppVrrAction.Apply, decision.Action);
         Assert.False(decision.Enabled);
@@ -159,8 +159,8 @@ public sealed class PerApplicationPowerPolicyTests
     public void VrrNoStateAndNothingImposedLeavesTheDisplayUntouched()
     {
         var decision = PerApplicationVrrPolicy.DecideOnTargetChange(
-            effectiveState: null,
-            stateCurrentlyImposed: false);
+            null,
+            false);
 
         Assert.Equal(PerAppVrrAction.Leave, decision.Action);
     }

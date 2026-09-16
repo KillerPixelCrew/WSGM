@@ -12,7 +12,7 @@ public sealed class ControllerTargetSelectionTests
         var resolved = ControllerTargetSelection.Resolve(
             ManagedControllerTarget.Xbox360,
             [],
-            applicationId: null);
+            null);
 
         Assert.Equal(ManagedControllerTarget.Xbox360, resolved.Target);
         Assert.Equal(ControllerTargetSource.GlobalDefault, resolved.Source);

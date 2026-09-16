@@ -8,32 +8,32 @@ namespace WSGM.Core;
 /// <param name="FrameLimitOptions">Frame caps to offer, or empty to hide the slider.</param>
 /// <param name="VariableRefreshRateSupported">Whether the panel supports VRR.</param>
 /// <param name="VariableRefreshRateEnabled">
-/// Whether VRR is on now, read from the same capability that reports support so the toggle cannot
-/// show a state the device disagrees with.
+///     Whether VRR is on now, read from the same capability that reports support so the toggle cannot
+///     show a state the device disagrees with.
 /// </param>
 /// <param name="RefreshRatesSelectable">
-/// Whether the user may choose a refresh rate by hand. False under the pairing strategies, where
-/// WSGM owns the refresh rate and a manual row would fight it.
+///     Whether the user may choose a refresh rate by hand. False under the pairing strategies, where
+///     WSGM owns the refresh rate and a manual row would fight it.
 /// </param>
 /// <param name="RefreshRateMinHz">Lowest selectable refresh rate.</param>
 /// <param name="RefreshRateMaxHz">Highest selectable refresh rate.</param>
 /// <param name="CurrentRefreshRateHz">
-/// The rate in force, which the manual refresh row needs a concrete value for. Null only when that
-/// row is not offered.
+///     The rate in force, which the manual refresh row needs a concrete value for. Null only when that
+///     row is not offered.
 /// </param>
 /// <param name="RefreshForCap">
-/// The refresh rate each cap will be presented at, keyed by cap. Empty under
-/// <c>FrameLimitOnly</c>, where the cap changes no display state and there is nothing to name.
-/// <para>
-/// Sent as a map rather than as a rule the injected half re-derives: the pairing policy is one
-/// decision and it belongs in one place. The slider reads it to label a cap the way SteamOS does —
-/// "60 FPS (60 Hz)" — while the user is still dragging, before anything has been applied.
-/// </para>
+///     The refresh rate each cap will be presented at, keyed by cap. Empty under
+///     <c>FrameLimitOnly</c>, where the cap changes no display state and there is nothing to name.
+///     <para>
+///         Sent as a map rather than as a rule the injected half re-derives: the pairing policy is one
+///         decision and it belongs in one place. The slider reads it to label a cap the way SteamOS does —
+///         "60 FPS (60 Hz)" — while the user is still dragging, before anything has been applied.
+///     </para>
 /// </param>
 /// <param name="RefreshRates">
-/// Every rate the display actually accepted, ascending. Windows takes a mode or it does not —
-/// there is no continuum to slide along — so the unified row's refresh mode is NOTCHED to exactly
-/// these, unlike its frame-cap mode, where the limiter really does hold any integer.
+///     Every rate the display actually accepted, ascending. Windows takes a mode or it does not —
+///     there is no continuum to slide along — so the unified row's refresh mode is NOTCHED to exactly
+///     these, unlike its frame-cap mode, where the limiter really does hold any integer.
 /// </param>
 internal readonly record struct NativeQamPerfSupport(
     IReadOnlyList<int> FrameLimitOptions,
@@ -48,8 +48,8 @@ internal readonly record struct NativeQamPerfSupport(
 
 /// <summary>Builds the performance state from what WSGM knows, supplying only backed fields.</summary>
 /// <remarks>
-/// The state's shape, its field names and the rules about which fields hide which controls are the
-/// toolkit's (<see cref="SteamPerformanceState"/>). This is WSGM's policy about what to put in it.
+///     The state's shape, its field names and the rules about which fields hide which controls are the
+///     toolkit's (<see cref="SteamPerformanceState" />). This is WSGM's policy about what to put in it.
 /// </remarks>
 internal static class NativeQamPerfProjection
 {
@@ -58,16 +58,16 @@ internal static class NativeQamPerfProjection
     /// <param name="support">What the device can back.</param>
     /// <param name="steamAppId">The running Steam AppID, or null when none is running.</param>
     /// <param name="perApplicationProfileEnabled">
-    /// Whether the running application keeps its own profile.
+    ///     Whether the running application keeps its own profile.
     /// </param>
     /// <param name="advancedSettingsEnabled">Whether the advanced rows are shown.</param>
     /// <param name="variableRefreshRateEnabled">Current VRR state, or null when unsupported.</param>
     /// <param name="refreshRateHz">Current refresh rate, or null when WSGM owns it.</param>
     /// <returns>The state to publish to the injected gate.</returns>
     /// <remarks>
-    /// Pure, and the only place that decides what the panel shows. A field is supplied when WSGM can
-    /// both report and honour it; anything else is left null so the control does not render at all,
-    /// which is safer than rendering a control whose writes go nowhere.
+    ///     Pure, and the only place that decides what the panel shows. A field is supplied when WSGM can
+    ///     both report and honour it; anything else is left null so the control does not render at all,
+    ///     which is safer than rendering a control whose writes go nowhere.
     /// </remarks>
     internal static SteamPerformanceState Project(
         PerformanceValues values,
@@ -159,9 +159,9 @@ internal static class NativeQamPerfProjection
 
     /// <summary>The lowest cap actually offered, or zero when none is.</summary>
     /// <remarks>
-    /// Mirrors the filter applied to <c>fps_limit_options</c> above, so the value reported can never
-    /// be one the slider does not have a notch for. Shared with the frame-limit projection and the
-    /// enable-toggle default, which need the same "lowest playable cap" answer.
+    ///     Mirrors the filter applied to <c>fps_limit_options</c> above, so the value reported can never
+    ///     be one the slider does not have a notch for. Shared with the frame-limit projection and the
+    ///     enable-toggle default, which need the same "lowest playable cap" answer.
     /// </remarks>
     internal static int LowestOption(IReadOnlyList<int> options)
     {

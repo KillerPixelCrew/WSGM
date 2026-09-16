@@ -8,15 +8,18 @@ public sealed class FanCurvePresetTests
 {
     private static readonly CurveBounds Bounds = new(0, 100, 0, 100);
 
-    private static IReadOnlyList<CurvePoint> ClawTable() =>
-    [
-        new(0, 0),
-        new(50, 40),
-        new(60, 50),
-        new(70, 60),
-        new(80, 70),
-        new(90, 80)
-    ];
+    private static IReadOnlyList<CurvePoint> ClawTable()
+    {
+        return
+        [
+            new CurvePoint(0, 0),
+            new CurvePoint(50, 40),
+            new CurvePoint(60, 50),
+            new CurvePoint(70, 60),
+            new CurvePoint(80, 70),
+            new CurvePoint(90, 80)
+        ];
+    }
 
     /// The samples are HandheldCompanion's own arrays, so a preset read at one of its grid points
     /// must return that entry unchanged rather than something interpolation happened to produce.
@@ -128,11 +131,11 @@ public sealed class FanCurvePresetTests
     {
         var moved = CurveEditing.Move(
             ClawTable(),
-            index: 3,
-            input: 70,
-            output: 10,
+            3,
+            70,
+            10,
             Bounds,
-            risingOutput: true);
+            true);
 
         Assert.Equal(50, moved[3].Output);
     }
@@ -142,11 +145,11 @@ public sealed class FanCurvePresetTests
     {
         var moved = CurveEditing.Move(
             ClawTable(),
-            index: 3,
-            input: 70,
-            output: 95,
+            3,
+            70,
+            95,
             Bounds,
-            risingOutput: true);
+            true);
 
         Assert.Equal(70, moved[3].Output);
     }
@@ -156,11 +159,11 @@ public sealed class FanCurvePresetTests
     {
         var moved = CurveEditing.Move(
             ClawTable(),
-            index: 3,
-            input: 70,
-            output: 55,
+            3,
+            70,
+            55,
             Bounds,
-            risingOutput: true);
+            true);
 
         Assert.Equal(55, moved[3].Output);
     }
@@ -171,9 +174,9 @@ public sealed class FanCurvePresetTests
     {
         var moved = CurveEditing.Move(
             ClawTable(),
-            index: 3,
-            input: 70,
-            output: 10,
+            3,
+            70,
+            10,
             Bounds);
 
         Assert.Equal(10, moved[3].Output);
@@ -194,11 +197,11 @@ public sealed class FanCurvePresetTests
 
         var moved = CurveEditing.Move(
             dipped,
-            index: 2,
-            input: 60,
-            output: 50,
+            2,
+            60,
+            50,
             Bounds,
-            risingOutput: true);
+            true);
 
         Assert.Equal(90, moved[2].Output);
     }
@@ -219,11 +222,11 @@ public sealed class FanCurvePresetTests
 
         var moved = CurveEditing.Move(
             crossed,
-            index: 2,
-            input: 60,
-            output: 50,
+            2,
+            60,
+            50,
             Bounds,
-            risingOutput: true);
+            true);
 
         Assert.Equal(50, moved[2].Output);
     }

@@ -25,13 +25,13 @@ public enum DeviceProfileApplyOutcome
 }
 
 /// <summary>
-/// Applies the authored profile in force for the running application to the device.
+///     Applies the authored profile in force for the running application to the device.
 /// </summary>
 /// <remarks>
-/// Three steps, each of which can stop the chain for a different reason worth logging separately:
-/// resolve which profile the selection points at, check it against the descriptor the device
-/// publishes right now, and only then send it. The pre-apply check reads the live descriptor on
-/// purpose; see <c>docs\device-integration.md</c> §Authored profiles.
+///     Three steps, each of which can stop the chain for a different reason worth logging separately:
+///     resolve which profile the selection points at, check it against the descriptor the device
+///     publishes right now, and only then send it. The pre-apply check reads the live descriptor on
+///     purpose; see <c>docs\device-integration.md</c> §Authored profiles.
 /// </remarks>
 internal static class DeviceProfileApplier
 {

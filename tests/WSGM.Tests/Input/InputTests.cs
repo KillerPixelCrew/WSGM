@@ -14,7 +14,9 @@ public sealed class InputTests
     [InlineData(0x87, "F24")]
     [InlineData(0xFF, "Key 0xFF")]
     public void KeyNamesCoverNamedRangesAndFallbacks(int virtualKey, string expected)
-        => Assert.Equal(expected, KeyRecorder.KeyName(virtualKey));
+    {
+        Assert.Equal(expected, KeyRecorder.KeyName(virtualKey));
+    }
 
     [Fact]
     public void HotkeyDescriptionIncludesEnabledModifiersInDisplayOrder()
@@ -26,15 +28,21 @@ public sealed class InputTests
 
     [Fact]
     public void DisabledHotkeyHasNoDescription()
-        => Assert.Equal("None", KeyRecorder.Describe(new HotkeyConfig { Enabled = false, VirtualKey = 0x41 }));
+    {
+        Assert.Equal("None", KeyRecorder.Describe(new HotkeyConfig { Enabled = false, VirtualKey = 0x41 }));
+    }
 
     [Theory]
     [InlineData(GamepadButtons.Start | GamepadButtons.LeftShoulder | GamepadButtons.A, true, "Hold A + LB + Start")]
     [InlineData((GamepadButtons)0, false, "None")]
-    [InlineData(GamepadButtons.RightTrigger | GamepadButtons.L4 | GamepadButtons.QuickAccess, false, "R2 + L4 + Quick Access")]
+    [InlineData(GamepadButtons.RightTrigger | GamepadButtons.L4 | GamepadButtons.QuickAccess, false,
+        "R2 + L4 + Quick Access")]
     [InlineData(GamepadButtons.DPadUp | GamepadButtons.RightPadPress, true, "Hold D-Up + R-Pad")]
-    public void GamepadDescriptionsUseStableOrderingAndCoverEmptyAndExtendedButtons(GamepadButtons buttons, bool hold, string expected)
-        => Assert.Equal(expected, GamepadService.Describe(buttons, hold));
+    public void GamepadDescriptionsUseStableOrderingAndCoverEmptyAndExtendedButtons(GamepadButtons buttons, bool hold,
+        string expected)
+    {
+        Assert.Equal(expected, GamepadService.Describe(buttons, hold));
+    }
 
     [Theory]
     [InlineData(GamepadButtons.DPadUp, NavigationDirection.Up)]
@@ -44,11 +52,15 @@ public sealed class InputTests
     public void DpadMapsToMatchingSpatialDirection(
         GamepadButtons buttons,
         NavigationDirection expected)
-        => Assert.Equal(expected, GamepadNavigation.DirectionForButtons(buttons));
+    {
+        Assert.Equal(expected, GamepadNavigation.DirectionForButtons(buttons));
+    }
 
     [Fact]
     public void NonDirectionalButtonHasNoNavigationDirection()
-        => Assert.Null(GamepadNavigation.DirectionForButtons(GamepadButtons.A));
+    {
+        Assert.Null(GamepadNavigation.DirectionForButtons(GamepadButtons.A));
+    }
 
     [Theory]
     [InlineData(50, 0, 100, 1, true, 51)]
@@ -63,9 +75,11 @@ public sealed class InputTests
         double tickFrequency,
         bool increase,
         double expected)
-        => Assert.Equal(
+    {
+        Assert.Equal(
             expected,
             GamepadNavigation.AdjustSliderValue(value, minimum, maximum, tickFrequency, increase));
+    }
 
     [Theory]
     [InlineData(-1, 3, true, 0)]
@@ -79,9 +93,11 @@ public sealed class InputTests
         int itemCount,
         bool increase,
         int expected)
-        => Assert.Equal(
+    {
+        Assert.Equal(
             expected,
             GamepadNavigation.AdjustComboBoxIndex(selectedIndex, itemCount, increase));
+    }
 
     [Fact]
     public void ChordTrackerKeepsEachPadIndependentAndUnionsUntilRelease()

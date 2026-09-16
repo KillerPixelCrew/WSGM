@@ -6,12 +6,12 @@ using WSGM.Device.Sdk.Settings;
 namespace WSGM.Device.Sdk.Capabilities;
 
 /// <summary>
-/// The WSGM-owned vocabulary of section icons for the Device overlay surface.
+///     The WSGM-owned vocabulary of section icons for the Device overlay surface.
 /// </summary>
 /// <remarks>
-/// The same ownership split as <see cref="DisplayKey"/>: a plugin selects an icon and WSGM draws it
-/// with its own artwork. Adding an icon is a WSGM change with a geometry behind it, not something a
-/// package can do — which is what keeps a plugin from shipping artwork through this path.
+///     The same ownership split as <see cref="DisplayKey" />: a plugin selects an icon and WSGM draws it
+///     with its own artwork. Adding an icon is a WSGM change with a geometry behind it, not something a
+///     package can do — which is what keeps a plugin from shipping artwork through this path.
 /// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<SectionIcon>))]
 public enum SectionIcon
@@ -45,46 +45,46 @@ public enum SectionIcon
 }
 
 /// <summary>
-/// One titled group of capabilities inside a declared overlay section.
+///     One titled group of capabilities inside a declared overlay section.
 /// </summary>
 /// <remarks>
-/// A category is a heading within a section's page, not a page of its own. It uses the same
-/// title contract as <see cref="PluginSettingSection"/>: the plugin selects a
-/// <see cref="SettingSectionKey"/> WSGM localizes, or supplies bounded plain text through
-/// <see cref="SettingSectionKey.Custom"/>.
+///     A category is a heading within a section's page, not a page of its own. It uses the same
+///     title contract as <see cref="PluginSettingSection" />: the plugin selects a
+///     <see cref="SettingSectionKey" /> WSGM localizes, or supplies bounded plain text through
+///     <see cref="SettingSectionKey.Custom" />.
 /// </remarks>
 public sealed record CapabilityCategory
 {
-    /// <summary>Longest accepted <see cref="CategoryId"/>.</summary>
+    /// <summary>Longest accepted <see cref="CategoryId" />.</summary>
     public const int MaxCategoryIdLength = 64;
 
-    /// <summary>Longest accepted <see cref="CustomTitle"/>.</summary>
+    /// <summary>Longest accepted <see cref="CustomTitle" />.</summary>
     public const int MaxCustomTitleLength = 48;
 
     /// <summary>Stable identifier descriptors reference, for example <c>fan.readings</c>.</summary>
     public required string CategoryId { get; init; }
 
-    /// <summary>The WSGM-owned title key, or <see cref="SettingSectionKey.Custom"/>.</summary>
-    /// <remarks>Undefined numeric enum values are rejected by <see cref="TryValidate"/>.</remarks>
+    /// <summary>The WSGM-owned title key, or <see cref="SettingSectionKey.Custom" />.</summary>
+    /// <remarks>Undefined numeric enum values are rejected by <see cref="TryValidate" />.</remarks>
     public required SettingSectionKey Key { get; init; }
 
     /// <summary>
-    /// Bounded plugin-supplied title, used only when <see cref="Key"/> is
-    /// <see cref="SettingSectionKey.Custom"/>. Not localized: WSGM cannot translate text it did not
-    /// author.
+    ///     Bounded plugin-supplied title, used only when <see cref="Key" /> is
+    ///     <see cref="SettingSectionKey.Custom" />. Not localized: WSGM cannot translate text it did not
+    ///     author.
     /// </summary>
     public string? CustomTitle { get; init; }
 
     /// <summary>
-    /// Placement among the other categories of the section. Ties break on declaration order.
+    ///     Placement among the other categories of the section. Ties break on declaration order.
     /// </summary>
     public int SortOrder { get; init; }
 
     /// <summary>
-    /// Whether this category is usable.
+    ///     Whether this category is usable.
     /// </summary>
-    /// <param name="error">The reason it is not, when the result is <see langword="false"/>.</param>
-    /// <returns><see langword="true"/> when the category is safe to render.</returns>
+    /// <param name="error">The reason it is not, when the result is <see langword="false" />.</param>
+    /// <returns><see langword="true" /> when the category is safe to render.</returns>
     public bool TryValidate(out string? error)
     {
         if (!PlainText.IsIdentifier(CategoryId, MaxCategoryIdLength))
@@ -123,16 +123,16 @@ public sealed record CapabilityCategory
 }
 
 /// <summary>
-/// One declared section of the Device overlay surface: a page of capabilities the plugin lays out.
+///     One declared section of the Device overlay surface: a page of capabilities the plugin lays out.
 /// </summary>
 /// <remarks>
-/// Sections are published inside the <see cref="CapabilityDescriptorSet"/> so layout and content
-/// replace atomically: a capability can never reference a section from another generation. The
-/// plugin chooses custom section placement, order, title key, and icon; shared sections use
-/// <see cref="DeviceSections"/> metadata. The plugin never supplies layout, markup, or
-/// artwork — titles come from <see cref="SettingSectionKey"/> or bounded plain text, and icons from
-/// the closed <see cref="SectionIcon"/> vocabulary, which is what keeps every device speaking the
-/// same visual language in the overlay.
+///     Sections are published inside the <see cref="CapabilityDescriptorSet" /> so layout and content
+///     replace atomically: a capability can never reference a section from another generation. The
+///     plugin chooses custom section placement, order, title key, and icon; shared sections use
+///     <see cref="DeviceSections" /> metadata. The plugin never supplies layout, markup, or
+///     artwork — titles come from <see cref="SettingSectionKey" /> or bounded plain text, and icons from
+///     the closed <see cref="SectionIcon" /> vocabulary, which is what keeps every device speaking the
+///     same visual language in the overlay.
 /// </remarks>
 public sealed record CapabilitySection
 {
@@ -142,42 +142,42 @@ public sealed record CapabilitySection
     /// <summary>Most categories one section may declare.</summary>
     public const int MaxCategories = 16;
 
-    /// <summary>Longest accepted <see cref="SectionId"/>.</summary>
+    /// <summary>Longest accepted <see cref="SectionId" />.</summary>
     public const int MaxSectionIdLength = 64;
 
-    /// <summary>Longest accepted <see cref="CustomTitle"/>.</summary>
+    /// <summary>Longest accepted <see cref="CustomTitle" />.</summary>
     public const int MaxCustomTitleLength = 48;
 
-    /// <summary>Longest accepted <see cref="CustomDescription"/>.</summary>
+    /// <summary>Longest accepted <see cref="CustomDescription" />.</summary>
     public const int MaxCustomDescriptionLength = 96;
 
     /// <summary>Stable identifier descriptors reference, for example <c>cooling</c>.</summary>
     public required string SectionId { get; init; }
 
-    /// <summary>The WSGM-owned title key, or <see cref="SettingSectionKey.Custom"/>.</summary>
-    /// <remarks>Undefined numeric enum values are rejected by <see cref="TryValidate"/>.</remarks>
+    /// <summary>The WSGM-owned title key, or <see cref="SettingSectionKey.Custom" />.</summary>
+    /// <remarks>Undefined numeric enum values are rejected by <see cref="TryValidate" />.</remarks>
     public required SettingSectionKey Key { get; init; }
 
     /// <summary>
-    /// Bounded plugin-supplied title, used only when <see cref="Key"/> is
-    /// <see cref="SettingSectionKey.Custom"/>. Not localized: WSGM cannot translate text it did not
-    /// author.
+    ///     Bounded plugin-supplied title, used only when <see cref="Key" /> is
+    ///     <see cref="SettingSectionKey.Custom" />. Not localized: WSGM cannot translate text it did not
+    ///     author.
     /// </summary>
     public string? CustomTitle { get; init; }
 
     /// <summary>
-    /// Bounded plugin-supplied one-line description shown on the section's card, or null for
-    /// WSGM's own wording for <see cref="Key"/>. Plain text, never markup or a format string.
+    ///     Bounded plugin-supplied one-line description shown on the section's card, or null for
+    ///     WSGM's own wording for <see cref="Key" />. Plain text, never markup or a format string.
     /// </summary>
     public string? CustomDescription { get; init; }
 
     /// <summary>The icon WSGM draws on the section's card.</summary>
-    /// <remarks>Undefined numeric enum values are rejected by <see cref="TryValidate"/>.</remarks>
+    /// <remarks>Undefined numeric enum values are rejected by <see cref="TryValidate" />.</remarks>
     public SectionIcon Icon { get; init; } = SectionIcon.None;
 
     /// <summary>
-    /// Placement among the other declared sections. Ties break on declaration order, so a set that
-    /// orders nothing still renders deterministically.
+    ///     Placement among the other declared sections. Ties break on declaration order, so a set that
+    ///     orders nothing still renders deterministically.
     /// </summary>
     public int SortOrder { get; init; }
 
@@ -185,10 +185,10 @@ public sealed record CapabilitySection
     public IReadOnlyList<CapabilityCategory> Categories { get; init; } = [];
 
     /// <summary>
-    /// Whether this section and every category in it are usable.
+    ///     Whether this section and every category in it are usable.
     /// </summary>
-    /// <param name="error">The reason they are not, when the result is <see langword="false"/>.</param>
-    /// <returns><see langword="true"/> when the section is safe to render.</returns>
+    /// <param name="error">The reason they are not, when the result is <see langword="false" />.</param>
+    /// <returns><see langword="true" /> when the section is safe to render.</returns>
     public bool TryValidate(out string? error)
     {
         if (!PlainText.IsIdentifier(SectionId, MaxSectionIdLength))

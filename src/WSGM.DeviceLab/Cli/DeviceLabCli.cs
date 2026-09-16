@@ -125,7 +125,8 @@ internal static class DeviceLabCli
         var input = Option(options, "--from", "-f");
         if (input is null)
         {
-            return UsageError("probe-read requires --from <inventory.json> and optionally --run <probe-id> --out-dir <directory>.");
+            return UsageError(
+                "probe-read requires --from <inventory.json> and optionally --run <probe-id> --out-dir <directory>.");
         }
 
         var executable = DeviceLabExecutable.CurrentPath;
@@ -177,16 +178,24 @@ internal static class DeviceLabCli
         var interactive = Environment.UserInteractive
                           && !Console.IsInputRedirected
                           && !Console.IsOutputRedirected
-                          && !string.Equals(Environment.GetEnvironmentVariable("CI"), "true", StringComparison.OrdinalIgnoreCase);
+                          && !string.Equals(Environment.GetEnvironmentVariable("CI"), "true",
+                              StringComparison.OrdinalIgnoreCase);
         if (!interactive)
         {
-            await Console.Error.WriteLineAsync("capture run refused: a local interactive terminal is mandatory.").ConfigureAwait(false);
+            await Console.Error.WriteLineAsync("capture run refused: a local interactive terminal is mandatory.")
+                .ConfigureAwait(false);
             return Failed;
         }
 
         var review = DeviceLabApplication.ReviewCaptureRecipe(recipe);
-        await Console.Error.WriteLineAsync("Observe-only capture scope: read-only inventory and locally compiled passive observers only.").ConfigureAwait(false);
-        await Console.Error.WriteLineAsync("Unknown observers remain unavailable; imported recipe data cannot open a device or authorize mutation.").ConfigureAwait(false);
+        await Console.Error
+            .WriteLineAsync(
+                "Observe-only capture scope: read-only inventory and locally compiled passive observers only.")
+            .ConfigureAwait(false);
+        await Console.Error
+            .WriteLineAsync(
+                "Unknown observers remain unavailable; imported recipe data cannot open a device or authorize mutation.")
+            .ConfigureAwait(false);
         await Console.Error.WriteLineAsync(JsonSerializer.Serialize(review, OutputJson)).ConfigureAwait(false);
         await Console.Error.WriteAsync("Type OBSERVE to prepare the private session: ").ConfigureAwait(false);
         if (!string.Equals(Console.ReadLine(), "OBSERVE", StringComparison.Ordinal))
@@ -214,7 +223,8 @@ internal static class DeviceLabCli
         }
         catch (OperationCanceledException)
         {
-            await Console.Error.WriteLineAsync("Capture cancelled. No shareable bundle was written.").ConfigureAwait(false);
+            await Console.Error.WriteLineAsync("Capture cancelled. No shareable bundle was written.")
+                .ConfigureAwait(false);
             return Failed;
         }
         finally
@@ -224,7 +234,8 @@ internal static class DeviceLabCli
 
         if (prepared.Status is not ObserveOnlyCaptureStatus.ReadyForExport || prepared.ExportPlan is null)
         {
-            await Console.Error.WriteLineAsync($"Capture failed ({prepared.Status}): {prepared.Error}").ConfigureAwait(false);
+            await Console.Error.WriteLineAsync($"Capture failed ({prepared.Status}): {prepared.Error}")
+                .ConfigureAwait(false);
             return Failed;
         }
 
@@ -234,7 +245,9 @@ internal static class DeviceLabCli
         await Console.Error.WriteLineAsync(JsonSerializer.Serialize(
             CapturePrivacyPreview.Create(plan.Bundle),
             OutputJson)).ConfigureAwait(false);
-        await Console.Error.WriteAsync("Type EXPORT to write the sanitized .wsgmcap, or press Enter to keep it private: ").ConfigureAwait(false);
+        await Console.Error
+            .WriteAsync("Type EXPORT to write the sanitized .wsgmcap, or press Enter to keep it private: ")
+            .ConfigureAwait(false);
         var exportConfirmed = string.Equals(Console.ReadLine(), "EXPORT", StringComparison.Ordinal);
         var exported = Application().ExportCapture(plan, exportConfirmed);
         WriteJson(new
@@ -328,13 +341,14 @@ internal static class DeviceLabCli
         var usbInstance = Option(args, "--usb-instance");
         if (from is null || output is null)
         {
-            return UsageError("scaffold requires --from <capture> --out-dir <new-directory>; use --usb-instance when the capture has multiple exact USB endpoints.");
+            return UsageError(
+                "scaffold requires --from <capture> --out-dir <new-directory>; use --usb-instance when the capture has multiple exact USB endpoints.");
         }
 
         WriteJson(Application().Scaffold(
             from,
             output,
-            usbInstanceId: usbInstance));
+            usbInstance));
         return Success;
     }
 
@@ -354,7 +368,8 @@ internal static class DeviceLabCli
     {
         if (args is ["sample"])
         {
-            var report = await DeviceLabApplication.TestSyntheticPluginAsync(CancellationToken.None).ConfigureAwait(false);
+            var report = await DeviceLabApplication.TestSyntheticPluginAsync(CancellationToken.None)
+                .ConfigureAwait(false);
             WriteJson(report);
             return report.Passed ? Success : Failed;
         }
@@ -384,7 +399,7 @@ internal static class DeviceLabCli
         }
 
         if (!HardwareTestCliArguments.TryParse(args.AsSpan(1), out var parsed,
-            out var parseError))
+                out var parseError))
         {
             return UsageError(parseError);
         }
@@ -395,18 +410,24 @@ internal static class DeviceLabCli
         if (Console.IsInputRedirected || Console.IsOutputRedirected || !Environment.UserInteractive
             || string.Equals(Environment.GetEnvironmentVariable("CI"), "true", StringComparison.OrdinalIgnoreCase))
         {
-            await Console.Error.WriteLineAsync("test hardware refused: a local interactive terminal is mandatory.").ConfigureAwait(false);
+            await Console.Error.WriteLineAsync("test hardware refused: a local interactive terminal is mandatory.")
+                .ConfigureAwait(false);
             return Failed;
         }
 
         await Console.Error.WriteLineAsync($"Selected action: {DescribeHardwareAction(action)}.").ConfigureAwait(false);
-        await Console.Error.WriteLineAsync("This loads the selected local plugin and may access or change matched hardware.").ConfigureAwait(false);
-        await Console.Error.WriteLineAsync("WSGM Device Integration must be stopped. Cleanup runs immediately after activation.").ConfigureAwait(false);
+        await Console.Error
+            .WriteLineAsync("This loads the selected local plugin and may access or change matched hardware.")
+            .ConfigureAwait(false);
+        await Console.Error
+            .WriteLineAsync("WSGM Device Integration must be stopped. Cleanup runs immediately after activation.")
+            .ConfigureAwait(false);
         await Console.Error.WriteAsync("Type RUN HARDWARE to continue: ").ConfigureAwait(false);
         var confirmed = string.Equals(Console.ReadLine(), "RUN HARDWARE", StringComparison.Ordinal);
         if (!confirmed)
         {
-            await Console.Error.WriteLineAsync("Hardware action cancelled before plugin activation.").ConfigureAwait(false);
+            await Console.Error.WriteLineAsync("Hardware action cancelled before plugin activation.")
+                .ConfigureAwait(false);
             return Failed;
         }
 
@@ -419,14 +440,16 @@ internal static class DeviceLabCli
                     hardwareArguments.InventoryPath,
                     hardwareArguments.StateDirectory,
                     action,
-                    confirmed: true,
+                    true,
                     token)).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            await Console.Error.WriteLineAsync("Hardware action cancelled after plugin cleanup completed.").ConfigureAwait(false);
+            await Console.Error.WriteLineAsync("Hardware action cancelled after plugin cleanup completed.")
+                .ConfigureAwait(false);
             return Failed;
         }
+
         WriteJson(hardware);
         return hardware.Passed ? Success : Failed;
     }
@@ -435,6 +458,7 @@ internal static class DeviceLabCli
         Func<CancellationToken, Task<T>> operation)
     {
         using CancellationTokenSource cancellation = new();
+
         void handler(object? _, ConsoleCancelEventArgs eventArgs)
         {
             eventArgs.Cancel = true;
@@ -480,10 +504,16 @@ internal static class DeviceLabCli
         return report.Valid ? Success : Failed;
     }
 
-    private static DeviceLabApplication Application() => new(RepositoryRoot(), DeviceLabExecutable.CurrentPath);
+    private static DeviceLabApplication Application()
+    {
+        return new DeviceLabApplication(RepositoryRoot(), DeviceLabExecutable.CurrentPath);
+    }
 
-    private static string? RepositoryRoot() => DeviceLabRepositoryLocator.Find(Environment.CurrentDirectory)
-        ?? DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory);
+    private static string? RepositoryRoot()
+    {
+        return DeviceLabRepositoryLocator.Find(Environment.CurrentDirectory)
+               ?? DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory);
+    }
 
     /// <summary>Rejects misspelled options before any workflow can observe their absence.</summary>
     /// <param name="args">Complete CLI arguments, including the command.</param>
@@ -571,7 +601,10 @@ internal static class DeviceLabCli
         return null;
     }
 
-    private static void WriteJson<T>(T value) => Console.Out.WriteLine(JsonSerializer.Serialize(value, OutputJson));
+    private static void WriteJson<T>(T value)
+    {
+        Console.Out.WriteLine(JsonSerializer.Serialize(value, OutputJson));
+    }
 
     private static int UsageError(string message)
     {
@@ -588,29 +621,36 @@ internal static class DeviceLabCli
 
     private static void WriteUsage(TextWriter writer)
     {
-        writer.WriteLine("wsgm-device doctor|inventory|candidates|probe-read|capture|inspect|compare|correlate|fixture|scaffold|glyph|validate|test|pack");
+        writer.WriteLine(
+            "wsgm-device doctor|inventory|candidates|probe-read|capture|inspect|compare|correlate|fixture|scaffold|glyph|validate|test|pack");
         writer.WriteLine("test: sample | plugin <dir> --from <inventory>");
         writer.WriteLine("scaffold --from <capture> --out-dir <new-dir> [--usb-instance <exact-id>]");
-        writer.WriteLine("test hardware <dir> --from <inventory> --state-dir <new-dir> --action capability --capability <id> [--instance <id>] --value <value>");
-        writer.WriteLine("test hardware <dir> --from <inventory> --state-dir <new-dir> --action haptic|haptic-sweep|controller [--instance <id>]");
-        writer.WriteLine("Only 'test hardware' may access or change hardware, and it requires immediate local confirmation.");
+        writer.WriteLine(
+            "test hardware <dir> --from <inventory> --state-dir <new-dir> --action capability --capability <id> [--instance <id>] --value <value>");
+        writer.WriteLine(
+            "test hardware <dir> --from <inventory> --state-dir <new-dir> --action haptic|haptic-sweep|controller [--instance <id>]");
+        writer.WriteLine(
+            "Only 'test hardware' may access or change hardware, and it requires immediate local confirmation.");
     }
 
-    private static string DescribeHardwareAction(AttendedPluginActionRequest action) => action.Kind switch
+    private static string DescribeHardwareAction(AttendedPluginActionRequest action)
     {
-        AttendedPluginActionKind.CapabilityValue => action.InstanceId is null
-            ? $"capability value {action.CapabilityId}={action.ValueText}"
-            : $"capability value {action.CapabilityId}/{action.InstanceId}={action.ValueText}",
-        AttendedPluginActionKind.HapticPulse => action.InstanceId is null
-            ? "one fixed 250 ms haptic pulse with zero-output cleanup"
-            : $"one fixed 250 ms haptic pulse on {action.InstanceId} with zero-output cleanup",
-        AttendedPluginActionKind.ControllerManagement =>
-            action.InstanceId is null
-                ? "one controller-management acquisition with verified topology release"
-                : $"one controller-management acquisition for {action.InstanceId} with verified topology release",
-        AttendedPluginActionKind.HapticSweep => action.InstanceId is null
-            ? "the interactive A/B-stepped haptic calibration sweep with zero-output cleanup"
-            : $"the interactive A/B-stepped haptic calibration sweep on {action.InstanceId} with zero-output cleanup",
-        _ => action.Kind.ToString()
-    };
+        return action.Kind switch
+        {
+            AttendedPluginActionKind.CapabilityValue => action.InstanceId is null
+                ? $"capability value {action.CapabilityId}={action.ValueText}"
+                : $"capability value {action.CapabilityId}/{action.InstanceId}={action.ValueText}",
+            AttendedPluginActionKind.HapticPulse => action.InstanceId is null
+                ? "one fixed 250 ms haptic pulse with zero-output cleanup"
+                : $"one fixed 250 ms haptic pulse on {action.InstanceId} with zero-output cleanup",
+            AttendedPluginActionKind.ControllerManagement =>
+                action.InstanceId is null
+                    ? "one controller-management acquisition with verified topology release"
+                    : $"one controller-management acquisition for {action.InstanceId} with verified topology release",
+            AttendedPluginActionKind.HapticSweep => action.InstanceId is null
+                ? "the interactive A/B-stepped haptic calibration sweep with zero-output cleanup"
+                : $"the interactive A/B-stepped haptic calibration sweep on {action.InstanceId} with zero-output cleanup",
+            _ => action.Kind.ToString()
+        };
+    }
 }

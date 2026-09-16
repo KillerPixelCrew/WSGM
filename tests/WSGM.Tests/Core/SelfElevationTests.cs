@@ -13,5 +13,7 @@ public sealed class SelfElevationTests
     [InlineData(@"C:\Program Files\", @"""C:\Program Files\\""")]
     [InlineData("say \"hello\"", "\"say \\\"hello\\\"\"")]
     public void QuoteUsesCommandLineToArgvWCompatibleEscaping(string argument, string expected)
-        => Assert.Equal(expected, SelfElevation.Quote(argument));
+    {
+        Assert.Equal(expected, SelfElevation.Quote(argument));
+    }
 }

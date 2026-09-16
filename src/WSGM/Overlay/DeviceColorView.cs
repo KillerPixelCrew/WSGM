@@ -13,28 +13,28 @@ namespace WSGM.Overlay;
 
 /// <summary>A bounded, controller-driven editor for one device lighting-zone color.</summary>
 /// <remarks>
-/// The editor stages every change locally and writes only when Apply is pressed. That is required
-/// for device lighting whose firmware persists every commit: navigating a picker must not stream
-/// writes into non-volatile profile memory. The full-spectrum field and the three channel sliders
-/// edit the same staged state; the overlay keyboard remains available for an exact hexadecimal
-/// value. Brightness is deliberately absent: it is one device-wide value, not a per-zone one, so it
-/// belongs to its own row on the Lighting page rather than to each zone's editor.
+///     The editor stages every change locally and writes only when Apply is pressed. That is required
+///     for device lighting whose firmware persists every commit: navigating a picker must not stream
+///     writes into non-volatile profile memory. The full-spectrum field and the three channel sliders
+///     edit the same staged state; the overlay keyboard remains available for an exact hexadecimal
+///     value. Brightness is deliberately absent: it is one device-wide value, not a per-zone one, so it
+///     belongs to its own row on the Lighting page rather than to each zone's editor.
 /// </remarks>
 public sealed class DeviceColorView : OverlaySubView
 {
-    private IDeviceOverlaySource? _source;
-    private DeviceOverlayCapability? _capability;
-    private int _initialColor;
-    private int _color;
+    private readonly TextBlock?[] _channelValues = new TextBlock?[3];
+    private readonly Slider?[] _channels = new Slider?[3];
     private bool _applying;
+    private DeviceOverlayCapability? _capability;
+    private int _color;
+    private int _initialColor;
+    private IDeviceOverlaySource? _source;
+    private DeviceColorSpectrum? _spectrum;
+
+    private Border? _swatch;
 
     /// <summary>Guards the control↔state sync so one edit cannot echo through the others.</summary>
     private bool _updating;
-
-    private Border? _swatch;
-    private DeviceColorSpectrum? _spectrum;
-    private readonly Slider?[] _channels = new Slider?[3];
-    private readonly TextBlock?[] _channelValues = new TextBlock?[3];
 
     /// <inheritdoc />
     protected override string LogScope => "Device color";
@@ -114,7 +114,7 @@ public sealed class DeviceColorView : OverlaySubView
             {
                 SetColor(
                     (e.NewColor.R << 16) | (e.NewColor.G << 8) | e.NewColor.B,
-                    source: _spectrum);
+                    _spectrum);
             }
         };
         left.Children.Add(_spectrum);
@@ -174,7 +174,7 @@ public sealed class DeviceColorView : OverlaySubView
 
             var mask = 0xFF << shift;
             var next = Math.Clamp((int)Math.Round(slider.Value), 0, 255);
-            SetColor((_color & ~mask) | (next << shift), source: slider);
+            SetColor((_color & ~mask) | (next << shift), slider);
         };
         return SliderRow(label, slider, value);
     }
@@ -199,14 +199,20 @@ public sealed class DeviceColorView : OverlaySubView
         return row;
     }
 
-    private static TextBlock SliderValueText(string text) => new()
+    private static TextBlock SliderValueText(string text)
     {
-        Text = text,
-        VerticalAlignment = VerticalAlignment.Center,
-        HorizontalAlignment = HorizontalAlignment.Right
-    };
+        return new TextBlock
+        {
+            Text = text,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+    }
 
-    private int Channel(int shift) => (_color >> shift) & 0xFF;
+    private int Channel(int shift)
+    {
+        return (_color >> shift) & 0xFF;
+    }
 
     /// <summary>Moves the staged color and syncs every control except the one that changed it.</summary>
     /// <param name="value">The new packed RGB value.</param>
@@ -244,22 +250,25 @@ public sealed class DeviceColorView : OverlaySubView
         }
     }
 
-    private void EditHex() => EditText(
-        "Lighting color (#RRGGBB)",
-        $"#{_color:X6}",
-        7,
-        value =>
-        {
-            if (TryParseColor(value, out var color))
+    private void EditHex()
+    {
+        EditText(
+            "Lighting color (#RRGGBB)",
+            $"#{_color:X6}",
+            7,
+            value =>
             {
-                SetColor(color);
-                Replace(Render);
-            }
-            else
-            {
-                Toast("Enter six hexadecimal digits, for example #FF8000.");
-            }
-        });
+                if (TryParseColor(value, out var color))
+                {
+                    SetColor(color);
+                    Replace(Render);
+                }
+                else
+                {
+                    Toast("Enter six hexadecimal digits, for example #FF8000.");
+                }
+            });
+    }
 
     private async Task ApplyAsync()
     {
@@ -315,13 +324,16 @@ public sealed class DeviceColorView : OverlaySubView
         }
 
         return candidate.Length == 6
-            && int.TryParse(candidate, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture,
-                out color)
-            && color is >= 0 and <= 0xFFFFFF;
+               && int.TryParse(candidate, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture,
+                   out color)
+               && color is >= 0 and <= 0xFFFFFF;
     }
 
-    private static Color ToAvaloniaColor(int color) => Color.FromRgb(
-        (byte)((color >> 16) & 0xFF),
-        (byte)((color >> 8) & 0xFF),
-        (byte)(color & 0xFF));
+    private static Color ToAvaloniaColor(int color)
+    {
+        return Color.FromRgb(
+            (byte)((color >> 16) & 0xFF),
+            (byte)((color >> 8) & 0xFF),
+            (byte)(color & 0xFF));
+    }
 }

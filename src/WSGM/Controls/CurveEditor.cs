@@ -11,24 +11,24 @@ using WSGM.Device.Sdk.Capabilities;
 namespace WSGM.Controls;
 
 /// <summary>
-/// Edits a device curve — a fan curve, an RGB response — by dragging its points.
+///     Edits a device curve — a fan curve, an RGB response — by dragging its points.
 /// </summary>
 /// <remarks>
-/// Presentation only. Every edit goes through <see cref="CurveEditing"/>, which is what guarantees
-/// the curve stays inside the contract the device router validates; this control owns hit testing,
-/// rendering, and input, and decides nothing about what a valid curve is.
-/// <para>
-/// Usable by touch, mouse, keyboard, and gamepad, because it appears on a handheld's Settings page:
-/// a selected point moves with the arrow keys or the left stick, and the two commit affordances
-/// (add, remove) are reachable without a right mouse button that the device does not have.
-/// </para>
+///     Presentation only. Every edit goes through <see cref="CurveEditing" />, which is what guarantees
+///     the curve stays inside the contract the device router validates; this control owns hit testing,
+///     rendering, and input, and decides nothing about what a valid curve is.
+///     <para>
+///         Usable by touch, mouse, keyboard, and gamepad, because it appears on a handheld's Settings page:
+///         a selected point moves with the arrow keys or the left stick, and the two commit affordances
+///         (add, remove) are reachable without a right mouse button that the device does not have.
+///     </para>
 /// </remarks>
 internal sealed class CurveEditor : Control
 {
     /// <summary>How close a pointer must be to a point to grab it, in device-independent pixels.</summary>
     /// <remarks>
-    /// Sized for a fingertip rather than a cursor. Too small and the control is unusable on the
-    /// panel it was built for; too large and adjacent points cannot be told apart.
+    ///     Sized for a fingertip rather than a cursor. Too small and the control is unusable on the
+    ///     panel it was built for; too large and adjacent points cannot be told apart.
     /// </remarks>
     private const double GrabRadius = 22;
 
@@ -42,28 +42,28 @@ internal sealed class CurveEditor : Control
     public static readonly StyledProperty<IReadOnlyList<CurvePoint>> PointsProperty =
         AvaloniaProperty.Register<CurveEditor, IReadOnlyList<CurvePoint>>(
             nameof(Points),
-            defaultValue: []);
+            []);
 
     /// <summary>The percent-over-percent plane every authored curve is edited within.</summary>
     private static readonly CurveBounds EditBounds = new(0, 100, 0, 100);
 
     /// <summary>Index of the selected point, or -1 when none is selected.</summary>
     private static readonly StyledProperty<int> SelectedIndexProperty =
-        AvaloniaProperty.Register<CurveEditor, int>(nameof(SelectedIndex), defaultValue: -1);
+        AvaloniaProperty.Register<CurveEditor, int>(nameof(SelectedIndex), -1);
 
     /// <summary>The input the device is currently at, drawn as a marker, or null for none.</summary>
     /// <remarks>
-    /// A fan curve is read to answer "what is it doing right now", and the answer is where the
-    /// current temperature crosses it. HandheldCompanion draws the same line for the same reason.
+    ///     A fan curve is read to answer "what is it doing right now", and the answer is where the
+    ///     current temperature crosses it. HandheldCompanion draws the same line for the same reason.
     /// </remarks>
     private static readonly StyledProperty<int?> MarkerInputProperty =
         AvaloniaProperty.Register<CurveEditor, int?>(nameof(MarkerInput));
 
     /// <summary>Whether outputs must not decrease along the curve.</summary>
     /// <remarks>
-    /// Set for a fan table, whose firmware requires it. The rule lives in
-    /// <see cref="CurveEditing.Move"/>; this only says which curves it applies to, because a
-    /// lighting response has no reason to rise.
+    ///     Set for a fan table, whose firmware requires it. The rule lives in
+    ///     <see cref="CurveEditing.Move" />; this only says which curves it applies to, because a
+    ///     lighting response has no reason to rise.
     /// </remarks>
     private static readonly StyledProperty<bool> RisingOutputProperty =
         AvaloniaProperty.Register<CurveEditor, bool>(nameof(RisingOutput));
@@ -90,13 +90,6 @@ internal sealed class CurveEditor : Control
         init => SetValue(RisingOutputProperty, value);
     }
 
-    /// <summary>Raised when an edit produced a new curve.</summary>
-    /// <remarks>
-    /// The control does not persist anything. The owner decides whether an edit is written to a
-    /// profile, held until a Save, or discarded, because that is policy and this is a control.
-    /// </remarks>
-    internal event Action<IReadOnlyList<CurvePoint>>? CurveChanged;
-
     /// <summary>The curve being edited.</summary>
     public IReadOnlyList<CurvePoint> Points
     {
@@ -111,11 +104,18 @@ internal sealed class CurveEditor : Control
         set => SetValue(SelectedIndexProperty, value);
     }
 
+    /// <summary>Raised when an edit produced a new curve.</summary>
+    /// <remarks>
+    ///     The control does not persist anything. The owner decides whether an edit is written to a
+    ///     profile, held until a Save, or discarded, because that is policy and this is a control.
+    /// </remarks>
+    internal event Action<IReadOnlyList<CurvePoint>>? CurveChanged;
+
     /// <summary>Adds a point at the midpoint of the widest gap.</summary>
     /// <remarks>
-    /// Deliberately not "at the selection": the reason to add a point is that the curve needs more
-    /// resolution somewhere, and the widest gap is where that is true. It also gives the keyboard
-    /// and gamepad paths an add that needs no pointer position.
+    ///     Deliberately not "at the selection": the reason to add a point is that the curve needs more
+    ///     resolution somewhere, and the widest gap is where that is true. It also gives the keyboard
+    ///     and gamepad paths an add that needs no pointer position.
     /// </remarks>
     internal void AddPointAtWidestGap()
     {
@@ -217,7 +217,7 @@ internal sealed class CurveEditor : Control
         using (var fill = area.Open())
         {
             var first = ToScreen(points[0], plot, bounds);
-            fill.BeginFigure(new Point(first.X, plot.Bottom), isFilled: true);
+            fill.BeginFigure(new Point(first.X, plot.Bottom));
             fill.LineTo(first);
             for (var index = 1; index < points.Count; index++)
             {
@@ -225,7 +225,7 @@ internal sealed class CurveEditor : Control
             }
 
             fill.LineTo(new Point(ToScreen(points[^1], plot, bounds).X, plot.Bottom));
-            fill.EndFigure(isClosed: true);
+            fill.EndFigure(true);
         }
 
         context.DrawGeometry(new SolidColorBrush(Colors.White, 0.06), null, area);
@@ -305,6 +305,7 @@ internal sealed class CurveEditor : Control
         {
             return;
         }
+
         var added = IndexOfInput(updated, EditBounds.ClampInput(input));
         SelectedIndex = added;
         _dragIndex = added;
@@ -348,9 +349,9 @@ internal sealed class CurveEditor : Control
 
     /// <inheritdoc />
     /// <remarks>
-    /// Left and right move the selection between points, up and down change its output, and
-    /// Shift+left/right changes an interior point's input. Gamepad navigation mirrors the
-    /// unmodified arrows so either of the controller's input paths produces the same action.
+    ///     Left and right move the selection between points, up and down change its output, and
+    ///     Shift+left/right changes an interior point's input. Gamepad navigation mirrors the
+    ///     unmodified arrows so either of the controller's input paths produces the same action.
     /// </remarks>
     protected override void OnKeyDown(KeyEventArgs e)
     {
@@ -371,9 +372,9 @@ internal sealed class CurveEditor : Control
         }
 
         if (ApplyDirectionalKey(
-            e.Key,
-            e.KeyModifiers.HasFlag(KeyModifiers.Shift),
-            "keyboard"))
+                e.Key,
+                e.KeyModifiers.HasFlag(KeyModifiers.Shift),
+                "keyboard"))
         {
             e.Handled = true;
         }
@@ -382,10 +383,10 @@ internal sealed class CurveEditor : Control
     /// <summary>Applies one gamepad direction to the focused editor.</summary>
     /// <param name="direction">The physical direction reported by controller navigation.</param>
     /// <remarks>
-    /// This mirrors the unmodified keyboard arrows: left and right choose a point, while up and
-    /// down change its output. Steam's desktop-layout arrow and SDL's copy of the same press must
-    /// produce identical edits so the cross-source suppression in <c>GamepadNavigation</c> cannot
-    /// make the result depend on which event arrived first.
+    ///     This mirrors the unmodified keyboard arrows: left and right choose a point, while up and
+    ///     down change its output. Steam's desktop-layout arrow and SDL's copy of the same press must
+    ///     produce identical edits so the cross-source suppression in <c>GamepadNavigation</c> cannot
+    ///     make the result depend on which event arrived first.
     /// </remarks>
     internal void ApplyDirection(NavigationDirection direction)
     {
@@ -403,7 +404,7 @@ internal sealed class CurveEditor : Control
             return;
         }
 
-        ApplyDirectionalKey(key, moving: false, "gamepad");
+        ApplyDirectionalKey(key, false, "gamepad");
     }
 
     private bool ApplyDirectionalKey(Key key, bool moving, string inputSource)
@@ -487,11 +488,13 @@ internal sealed class CurveEditor : Control
         return true;
     }
 
-    private void LogEditRefused(string operation, string reason) =>
+    private void LogEditRefused(string operation, string reason)
+    {
         Log.Change(
             "curve-editor.refusal",
             $"Curve edit refused: operation={operation}, reason={reason}, "
-                + $"points={Points.Count}, selected={SelectedIndex}.");
+            + $"points={Points.Count}, selected={SelectedIndex}.");
+    }
 
     private static int IndexOfInput(IReadOnlyList<CurvePoint> points, int input)
     {
@@ -550,12 +553,12 @@ internal sealed class CurveEditor : Control
         double inputSpan = bounds.InputMaximum - bounds.InputMinimum;
         double outputSpan = bounds.OutputMaximum - bounds.OutputMinimum;
         input = bounds.ClampInput(bounds.InputMinimum
-            + (int)Math.Round((position.X - plot.X) / plot.Width * inputSpan));
+                                  + (int)Math.Round((position.X - plot.X) / plot.Width * inputSpan));
 
         // Screen Y grows downward and an output grows upward, so this inverts. Getting it wrong
         // gives an editor that works and draws every curve upside down.
         output = bounds.ClampOutput(bounds.OutputMinimum
-            + (int)Math.Round((plot.Bottom - position.Y) / plot.Height * outputSpan));
+                                    + (int)Math.Round((plot.Bottom - position.Y) / plot.Height * outputSpan));
         return true;
     }
 
@@ -569,9 +572,9 @@ internal sealed class CurveEditor : Control
     }
 
     /// <remarks>
-    /// Guarded rather than deflated blindly: a control laid out smaller than its own inset would
-    /// otherwise produce an inverted rect, and every screen-space conversion built on it would
-    /// place points outside the control.
+    ///     Guarded rather than deflated blindly: a control laid out smaller than its own inset would
+    ///     otherwise produce an inverted rect, and every screen-space conversion built on it would
+    ///     place points outside the control.
     /// </remarks>
     private Rect PlotRect()
     {
@@ -581,6 +584,8 @@ internal sealed class CurveEditor : Control
             : new Rect(size).Deflate(Inset);
     }
 
-    private IBrush Resolve(string key, IBrush fallback) =>
-        this.TryFindResource(key, out var value) && value is IBrush brush ? brush : fallback;
+    private IBrush Resolve(string key, IBrush fallback)
+    {
+        return this.TryFindResource(key, out var value) && value is IBrush brush ? brush : fallback;
+    }
 }

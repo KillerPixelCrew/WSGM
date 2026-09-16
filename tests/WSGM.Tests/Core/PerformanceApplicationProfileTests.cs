@@ -5,9 +5,12 @@ namespace WSGM.Tests.Core;
 
 public sealed class PerformanceApplicationProfileTests
 {
-    private static PerformancePolicy Global(int frameLimit) => new(
-        new PerformanceValues(frameLimit, 2),
-        []);
+    private static PerformancePolicy Global(int frameLimit)
+    {
+        return new PerformancePolicy(
+            new PerformanceValues(frameLimit, 2),
+            []);
+    }
 
     [Fact]
     public async Task WithNoRunningApplicationTheToggleIsRefused()

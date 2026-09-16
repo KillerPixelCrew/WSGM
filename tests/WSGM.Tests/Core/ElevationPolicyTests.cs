@@ -6,8 +6,10 @@ public sealed class ElevationPolicyTests
 {
     [Fact]
     public void AnElevatedSteamAlwaysWins()
-        => Assert.Equal("Steam requires matching elevation",
-            ElevationPolicy.ElevationReason(new AppConfig(), steamAlreadyElevated: true));
+    {
+        Assert.Equal("Steam requires matching elevation",
+            ElevationPolicy.ElevationReason(new AppConfig(), true));
+    }
 
     [Fact]
     public void AnElevatedStartupAppWantsElevation()
@@ -19,7 +21,7 @@ public sealed class ElevationPolicyTests
         };
 
         Assert.Equal("the configuration starts elevated apps",
-            ElevationPolicy.ElevationReason(config, steamAlreadyElevated: false));
+            ElevationPolicy.ElevationReason(config, false));
     }
 
     [Fact]
@@ -31,7 +33,7 @@ public sealed class ElevationPolicyTests
             StartupApps = [new StartupAppConfig { Enabled = false, Elevated = true, Path = @"C:\x.exe" }]
         };
 
-        Assert.Null(ElevationPolicy.ElevationReason(config, steamAlreadyElevated: false));
+        Assert.Null(ElevationPolicy.ElevationReason(config, false));
     }
 
     [Fact]
@@ -40,7 +42,7 @@ public sealed class ElevationPolicyTests
         var config = new AppConfig { SteamLaunchUnelevated = true, DeviceIntegration = { Enabled = true } };
 
         Assert.Equal("device integration is enabled",
-            ElevationPolicy.ElevationReason(config, steamAlreadyElevated: false));
+            ElevationPolicy.ElevationReason(config, false));
     }
 
     [Fact]
@@ -50,7 +52,7 @@ public sealed class ElevationPolicyTests
         // session would silently drop to medium integrity once the user's own elevated Steam
         // autostart is gone.
         Assert.Equal("WSGM starts Steam at its own integrity",
-            ElevationPolicy.ElevationReason(new AppConfig(), steamAlreadyElevated: false));
+            ElevationPolicy.ElevationReason(new AppConfig(), false));
     }
 
     [Fact]
@@ -58,7 +60,7 @@ public sealed class ElevationPolicyTests
     {
         var config = new AppConfig { SteamLaunchUnelevated = true };
 
-        Assert.Null(ElevationPolicy.ElevationReason(config, steamAlreadyElevated: false));
-        Assert.False(ElevationPolicy.WantsElevation(config, steamAlreadyElevated: false));
+        Assert.Null(ElevationPolicy.ElevationReason(config, false));
+        Assert.False(ElevationPolicy.WantsElevation(config, false));
     }
 }

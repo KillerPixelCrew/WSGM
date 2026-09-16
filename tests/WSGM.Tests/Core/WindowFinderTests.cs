@@ -14,10 +14,13 @@ public sealed class WindowFinderTests
     [InlineData(true, false, 0, false, 2u, 5, false)] // DWM-cloaked UWP ghost
     [InlineData(true, false, 0, false, 0u, 0, false)] // untitled
     public void SwitchableWindowFilterAdmitsOnlyAltTabStyleWindows(
-        bool isVisible, bool isShellWindow, int exStyle, bool isOwnProcess, uint cloaked, int titleLength, bool expected)
-        => Assert.Equal(
+        bool isVisible, bool isShellWindow, int exStyle, bool isOwnProcess, uint cloaked, int titleLength,
+        bool expected)
+    {
+        Assert.Equal(
             expected,
             WindowFinder.PassesSwitchableFilter(isVisible, isShellWindow, exStyle, isOwnProcess, cloaked, titleLength));
+    }
 
     [Fact]
     public void WindowSnapshotCarriesTheMinimizedStateForSwitcherPresentation()

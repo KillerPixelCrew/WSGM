@@ -4,19 +4,19 @@ using System.Collections.Generic;
 namespace WSGM.Core;
 
 /// <summary>
-/// Reads the refresh rates a panel itself advertises out of its EDID.
+///     Reads the refresh rates a panel itself advertises out of its EDID.
 /// </summary>
 /// <remarks>
-/// Needed because enumeration cannot tell an advertised mode from one the driver synthesized. The
-/// reference Claw enumerates 30/48/60/75/100/120 and accepts every one, while its EDID advertises
-/// only 60 and 120 — the rest exist because the panel's adaptive-sync range lets the driver make
-/// them up. That distinction is the whole difference between the `NativeModes` and `FrameDoubling`
-/// frame-limit strategies, and without it the two would silently be the same thing.
-/// <para>
-/// Only the detailed timing descriptors are read. Established and standard timings describe old
-/// low-resolution modes no handheld panel uses, and reading them would add rates the panel does not
-/// actually run at its native resolution.
-/// </para>
+///     Needed because enumeration cannot tell an advertised mode from one the driver synthesized. The
+///     reference Claw enumerates 30/48/60/75/100/120 and accepts every one, while its EDID advertises
+///     only 60 and 120 — the rest exist because the panel's adaptive-sync range lets the driver make
+///     them up. That distinction is the whole difference between the `NativeModes` and `FrameDoubling`
+///     frame-limit strategies, and without it the two would silently be the same thing.
+///     <para>
+///         Only the detailed timing descriptors are read. Established and standard timings describe old
+///         low-resolution modes no handheld panel uses, and reading them would add rates the panel does not
+///         actually run at its native resolution.
+///     </para>
 /// </remarks>
 internal static class EdidModes
 {
@@ -33,13 +33,13 @@ internal static class EdidModes
     private const int DescriptorLength = 18;
 
     /// <summary>
-    /// The vertical refresh rates a panel advertises as detailed timings.
+    ///     The vertical refresh rates a panel advertises as detailed timings.
     /// </summary>
     /// <param name="edid">A complete EDID base block, or more.</param>
     /// <returns>Advertised rates in Hz, ascending and deduplicated; empty when none can be read.</returns>
     /// <remarks>
-    /// Rates are rounded to whole hertz because that is how Windows reports and accepts them; a
-    /// panel's 59.95 Hz timing is the 60 Hz mode everywhere else in the system.
+    ///     Rates are rounded to whole hertz because that is how Windows reports and accepts them; a
+    ///     panel's 59.95 Hz timing is the 60 Hz mode everywhere else in the system.
     /// </remarks>
     internal static IReadOnlyList<int> ReadAdvertisedRefreshRates(byte[]? edid)
     {
@@ -61,15 +61,17 @@ internal static class EdidModes
         return [.. rates];
     }
 
-    private static bool HasValidHeader(byte[] edid) =>
-        edid[0] == 0x00
-        && edid[1] == 0xFF
-        && edid[2] == 0xFF
-        && edid[3] == 0xFF
-        && edid[4] == 0xFF
-        && edid[5] == 0xFF
-        && edid[6] == 0xFF
-        && edid[7] == 0x00;
+    private static bool HasValidHeader(byte[] edid)
+    {
+        return edid[0] == 0x00
+               && edid[1] == 0xFF
+               && edid[2] == 0xFF
+               && edid[3] == 0xFF
+               && edid[4] == 0xFF
+               && edid[5] == 0xFF
+               && edid[6] == 0xFF
+               && edid[7] == 0x00;
+    }
 
     private static bool TryReadDetailedTiming(byte[] edid, int offset, out int refreshHz)
     {

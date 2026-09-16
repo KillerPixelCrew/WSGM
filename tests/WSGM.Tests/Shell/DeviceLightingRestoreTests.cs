@@ -101,7 +101,10 @@ public sealed class DeviceLightingRestoreTests
         Assert.False(restore.TryBegin(view));
     }
 
-    private static CapabilityValue Color(int color) => new() { Kind = CapabilityValueKind.Color, ColorValue = color };
+    private static CapabilityValue Color(int color)
+    {
+        return new CapabilityValue { Kind = CapabilityValueKind.Color, ColorValue = color };
+    }
 
     [Fact]
     public void ReturningFromAnAlreadyAppliedProfileAllowsThePreviousColorToRestore()
@@ -123,38 +126,46 @@ public sealed class DeviceLightingRestoreTests
         DeviceLightingRestore restore = new();
         var view = View();
         Assert.False(restore.CanApply(view with { Projection = view.Projection with { DesiredValue = null } }));
-        Assert.False(restore.CanApply(view with { Projection = view.Projection with { DesiredValueOutOfRange = true } }));
-        Assert.False(restore.CanApply(view with { Projection = view.Projection with { PendingValue = Color(0x654321) } }));
+        Assert.False(
+            restore.CanApply(view with { Projection = view.Projection with { DesiredValueOutOfRange = true } }));
+        Assert.False(
+            restore.CanApply(view with { Projection = view.Projection with { PendingValue = Color(0x654321) } }));
         Assert.False(restore.CanApply(view with { Descriptor = view.Descriptor with { SupportsWrite = false } }));
-        Assert.False(restore.CanApply(view with { Descriptor = view.Descriptor with { Role = CapabilityRole.PowerSlowLimit } }));
+        Assert.False(restore.CanApply(view with
+        {
+            Descriptor = view.Descriptor with { Role = CapabilityRole.PowerSlowLimit }
+        }));
         Assert.True(restore.TryBegin(view));
     }
 
-    private static DeviceCapabilityView View() => new(
-        new CapabilityDescriptor
-        {
-            CapabilityId = "lighting.zone-color",
-            InstanceId = "left-ring",
-            Role = CapabilityRole.LightingZoneColor,
-            ValueKind = CapabilityValueKind.Color,
-            Display = new CapabilityDisplay { Key = DisplayKey.Lighting },
-            SupportsRead = true,
-            SupportsWrite = true,
-            Persistence = CapabilityPersistence.DevicePersistent
-        },
-        new CapabilityProjection
-        {
-            DesiredValue = Color(0x123456),
-            DesiredSource = DeviceDesiredValueSource.GlobalDefault,
-            State = new CapabilityState
+    private static DeviceCapabilityView View()
+    {
+        return new DeviceCapabilityView(
+            new CapabilityDescriptor
             {
                 CapabilityId = "lighting.zone-color",
                 InstanceId = "left-ring",
-                Available = true,
-                Quality = HardwareStateQuality.Observed,
-                CycleGeneration = 1,
-                DescriptorGeneration = 1,
-                ObservedValue = Color(0xFFFFFF)
-            }
-        }, null);
+                Role = CapabilityRole.LightingZoneColor,
+                ValueKind = CapabilityValueKind.Color,
+                Display = new CapabilityDisplay { Key = DisplayKey.Lighting },
+                SupportsRead = true,
+                SupportsWrite = true,
+                Persistence = CapabilityPersistence.DevicePersistent
+            },
+            new CapabilityProjection
+            {
+                DesiredValue = Color(0x123456),
+                DesiredSource = DeviceDesiredValueSource.GlobalDefault,
+                State = new CapabilityState
+                {
+                    CapabilityId = "lighting.zone-color",
+                    InstanceId = "left-ring",
+                    Available = true,
+                    Quality = HardwareStateQuality.Observed,
+                    CycleGeneration = 1,
+                    DescriptorGeneration = 1,
+                    ObservedValue = Color(0xFFFFFF)
+                }
+            }, null);
+    }
 }

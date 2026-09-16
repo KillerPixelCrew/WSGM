@@ -9,12 +9,12 @@ using RadioPower = WindowsDeviceControl.WindowsRadio.Power;
 namespace WSGM.Shell;
 
 /// <summary>
-/// The backend behind Steam's own Bluetooth pairing UI, reading and driving the session's radio
-/// manager.
+///     The backend behind Steam's own Bluetooth pairing UI, reading and driving the session's radio
+///     manager.
 /// </summary>
 /// <remarks>
-/// Pairing opens the session's prompt surface before dispatching through <see cref="RadioManager"/>.
-/// Device identity, operation state and completion remain shared with the Overlay.
+///     Pairing opens the session's prompt surface before dispatching through <see cref="RadioManager" />.
+///     Device identity, operation state and completion remain shared with the Overlay.
 /// </remarks>
 internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
 {
@@ -23,63 +23,23 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
 
     /// <summary>Creates the service over the session's radio manager.</summary>
     internal NativeQamBluetoothService(RadioManager radios, Func<bool>? showBluetoothPanel = null)
-    { _radios = radios; _showBluetoothPanel = showBluetoothPanel; }
-
-    /// <summary>
-    /// Reads the radio manager's Bluetooth view into the shape Steam's panel consumes.
-    /// </summary>
-    /// <returns>The state to publish.</returns>
-    /// <remarks>
-    /// Reported unavailable when the radio is off rather than as an empty device list. Steam's panel
-    /// distinguishes the two — "Bluetooth is off" is a state a user can act on, while an empty list
-    /// reads as "nothing found" and invites them to keep waiting for devices that will never arrive.
-    /// </remarks>
-    internal async ValueTask<SteamBluetoothState?> ReadStateAsync()
     {
-        List<SteamBluetoothDevice> devices = [];
-        var available = false;
-        var enabled = false;
-        var discovering = false;
-        await NativeQamUi.RunAsync(() =>
-        {
-            // Available means "this machine has a Bluetooth radio WSGM can drive", never "the radio
-            // is on". Wiring it to the on/off state made turning Bluetooth off remove the entire
-            // settings page and the toggle with it — the exact control needed to turn it back on.
-            available = _radios.BluetoothPower
-                is not RadioPower.Absent and not RadioPower.Disabled;
-            enabled = _radios.BluetoothOn;
-            discovering = _radios.BluetoothScanning;
-            devices.AddRange(_radios.BluetoothDevices
-                .Where(entry => !string.IsNullOrWhiteSpace(entry.Id))
-                .Select(entry => new SteamBluetoothDevice(
-                    entry.Id,
-                    string.IsNullOrWhiteSpace(entry.Name) ? entry.Id : entry.Name,
-                    entry.Id,
-                    // Steam's generic device type. WSGM does not classify Bluetooth devices, and a
-                    // guessed class would put the wrong icon beside a real device.
-                    0,
-                    entry.Paired,
-                    entry.AudioConnectable ? entry.AudioActive : entry.Connected)
-                { OperationInProgress = entry.Busy }));
-        }).ConfigureAwait(false);
-
-        return new SteamBluetoothState(available, enabled, discovering, devices);
+        _radios = radios;
+        _showBluetoothPanel = showBluetoothPanel;
     }
 
     /// <inheritdoc />
     /// <remarks>
-    /// BluetoothScanning is manager-owned and driven by the same sweep as Wi-Fi, so discovery goes
-    /// through the scanning lifecycle rather than being set directly. One sweep covering both
-    /// radios is also what the taskbar's panel does.
+    ///     BluetoothScanning is manager-owned and driven by the same sweep as Wi-Fi, so discovery goes
+    ///     through the scanning lifecycle rather than being set directly. One sweep covering both
+    ///     radios is also what the taskbar's panel does.
     /// </remarks>
     public async Task<SteamUiCommandResult> SetDiscoveringAsync(
         bool discovering,
         CancellationToken cancellationToken)
     {
-        await NativeQamUi.RunAsync(() =>
-        {
-            _radios.SetSteamDiscovery(discovering);
-        }, cancellationToken).ConfigureAwait(false);
+        await NativeQamUi.RunAsync(() => { _radios.SetSteamDiscovery(discovering); }, cancellationToken)
+            .ConfigureAwait(false);
         return new SteamUiCommandResult(true, null);
     }
 
@@ -96,7 +56,11 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
         await NativeQamUi.RunAsync(() =>
         {
             if (_showBluetoothPanel?.Invoke() != true)
-            { _radios.ReportStatus("The Bluetooth pairing prompt is unavailable."); return; }
+            {
+                _radios.ReportStatus("The Bluetooth pairing prompt is unavailable.");
+                return;
+            }
+
             started = _radios.BeginPairing(device);
         }, cancellationToken).ConfigureAwait(false);
         return new SteamUiCommandResult(started, started ? null : _radios.StatusText);
@@ -111,7 +75,8 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
         }
 
         var cancelled = false;
-        await NativeQamUi.RunAsync(() => cancelled = _radios.CancelPairing(device), cancellationToken).ConfigureAwait(false);
+        await NativeQamUi.RunAsync(() => cancelled = _radios.CancelPairing(device), cancellationToken)
+            .ConfigureAwait(false);
         return new SteamUiCommandResult(cancelled, cancelled ? null : "That device has no active pairing attempt.");
     }
 
@@ -156,21 +121,68 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
     }
 
     /// <inheritdoc />
-    /// <remarks>A BlueZ concept with no Windows equivalent; accepted so Steam's UI does not report
-    /// a failure for a control that was never going to change anything.</remarks>
+    /// <remarks>
+    ///     A BlueZ concept with no Windows equivalent; accepted so Steam's UI does not report
+    ///     a failure for a control that was never going to change anything.
+    /// </remarks>
     public Task<SteamUiCommandResult> SetTrustedAsync(
         string deviceId,
         bool trusted,
-        CancellationToken cancellationToken) =>
-        AcceptWithoutEquivalent("setTrusted");
+        CancellationToken cancellationToken)
+    {
+        return AcceptWithoutEquivalent("setTrusted");
+    }
 
     /// <inheritdoc />
-    /// <remarks>See <see cref="SetTrustedAsync"/>.</remarks>
+    /// <remarks>See <see cref="SetTrustedAsync" />.</remarks>
     public Task<SteamUiCommandResult> SetWakeAllowedAsync(
         string deviceId,
         bool allowed,
-        CancellationToken cancellationToken) =>
-        AcceptWithoutEquivalent("setWakeAllowed");
+        CancellationToken cancellationToken)
+    {
+        return AcceptWithoutEquivalent("setWakeAllowed");
+    }
+
+    /// <summary>
+    ///     Reads the radio manager's Bluetooth view into the shape Steam's panel consumes.
+    /// </summary>
+    /// <returns>The state to publish.</returns>
+    /// <remarks>
+    ///     Reported unavailable when the radio is off rather than as an empty device list. Steam's panel
+    ///     distinguishes the two — "Bluetooth is off" is a state a user can act on, while an empty list
+    ///     reads as "nothing found" and invites them to keep waiting for devices that will never arrive.
+    /// </remarks>
+    internal async ValueTask<SteamBluetoothState?> ReadStateAsync()
+    {
+        List<SteamBluetoothDevice> devices = [];
+        var available = false;
+        var enabled = false;
+        var discovering = false;
+        await NativeQamUi.RunAsync(() =>
+        {
+            // Available means "this machine has a Bluetooth radio WSGM can drive", never "the radio
+            // is on". Wiring it to the on/off state made turning Bluetooth off remove the entire
+            // settings page and the toggle with it — the exact control needed to turn it back on.
+            available = _radios.BluetoothPower
+                is not RadioPower.Absent and not RadioPower.Disabled;
+            enabled = _radios.BluetoothOn;
+            discovering = _radios.BluetoothScanning;
+            devices.AddRange(_radios.BluetoothDevices
+                .Where(entry => !string.IsNullOrWhiteSpace(entry.Id))
+                .Select(entry => new SteamBluetoothDevice(
+                        entry.Id,
+                        string.IsNullOrWhiteSpace(entry.Name) ? entry.Id : entry.Name,
+                        entry.Id,
+                        // Steam's generic device type. WSGM does not classify Bluetooth devices, and a
+                        // guessed class would put the wrong icon beside a real device.
+                        0,
+                        entry.Paired,
+                        entry.AudioConnectable ? entry.AudioActive : entry.Connected)
+                    { OperationInProgress = entry.Busy }));
+        }).ConfigureAwait(false);
+
+        return new SteamBluetoothState(available, enabled, discovering, devices);
+    }
 
     private static Task<SteamUiCommandResult> AcceptWithoutEquivalent(string command)
     {
@@ -186,7 +198,8 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
         return device;
     }
 
-    private async Task<SteamUiCommandResult> SetConnectionAsync(BluetoothDeviceEntry device, bool connect, CancellationToken cancellationToken)
+    private async Task<SteamUiCommandResult> SetConnectionAsync(BluetoothDeviceEntry device, bool connect,
+        CancellationToken cancellationToken)
     {
         Task<bool>? operation = null;
         await NativeQamUi.RunAsync(() =>
@@ -204,5 +217,8 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
         return new SteamUiCommandResult(false, "That device is no longer present.");
     }
 
-    internal Task StopDiscoveryAsync() => NativeQamUi.RunAsync(() => _radios.SetSteamDiscovery(false));
+    internal Task StopDiscoveryAsync()
+    {
+        return NativeQamUi.RunAsync(() => _radios.SetSteamDiscovery(false));
+    }
 }

@@ -153,7 +153,9 @@ internal static class DeviceLabDoctor
         string category,
         DeviceLabDoctorStatus status,
         string summary,
-        string? detail = null) => new()
+        string? detail = null)
+    {
+        return new DeviceLabDoctorCheck
         {
             Code = code,
             Category = category,
@@ -161,6 +163,7 @@ internal static class DeviceLabDoctor
             Summary = summary,
             Detail = detail
         };
+    }
 
     private static class WindowsDoctorSnapshotCollector
     {
@@ -193,10 +196,10 @@ internal static class DeviceLabDoctor
             try
             {
                 available = NativeLibrary.TryLoad(libraryPath, out handle)
-                    && NativeLibrary.TryGetExport(handle, api.Export, out _);
+                            && NativeLibrary.TryGetExport(handle, api.Export, out _);
             }
             catch (Exception exception) when (exception is DllNotFoundException
-                or BadImageFormatException or FileLoadException)
+                                                  or BadImageFormatException or FileLoadException)
             {
                 available = false;
             }
@@ -251,7 +254,7 @@ internal static class DeviceLabDoctor
                 $".wsgm-device-doctor-{Guid.NewGuid():N}.tmp");
             try
             {
-                DurableFile.WriteNew(probePath, stream => stream.WriteByte(0), bufferSize: 1);
+                DurableFile.WriteNew(probePath, stream => stream.WriteByte(0), 1);
 
                 File.Delete(probePath);
                 return (true, Directory.Exists(outputPath)
@@ -259,7 +262,7 @@ internal static class DeviceLabDoctor
                     : "The nearest existing parent is writable; the output directory was not created.");
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-                or NotSupportedException)
+                                                  or NotSupportedException)
             {
                 return (false, exception.GetType().Name);
             }

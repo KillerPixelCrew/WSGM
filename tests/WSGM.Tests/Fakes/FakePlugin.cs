@@ -4,12 +4,12 @@ namespace WSGM.Tests.Fakes;
 
 /// <summary>A common plugin that records every lifecycle call it receives.</summary>
 /// <param name="id">The plugin id.</param>
-/// <param name="publishReadyOnResume">Whether a resume reports the plugin ready again, as the plugin host
-/// tests expect. The manager tests only count resumes.</param>
+/// <param name="publishReadyOnResume">
+///     Whether a resume reports the plugin ready again, as the plugin host
+///     tests expect. The manager tests only count resumes.
+/// </param>
 internal sealed class FakePlugin(string id, bool publishReadyOnResume = false) : IPlugin
 {
-    public string Id => id;
-
     internal IPluginHost? Host { get; private set; }
 
     internal PluginSessionMode Mode { get; private set; }
@@ -29,19 +29,29 @@ internal sealed class FakePlugin(string id, bool publishReadyOnResume = false) :
     internal int Suspends { get; private set; }
 
     internal int Resumes { get; private set; }
+    public string Id => id;
 
-    public async ValueTask<PluginHealth> StartAsync(IPluginHost host, PluginContext context, CancellationToken cancellationToken)
+    public async ValueTask<PluginHealth> StartAsync(IPluginHost host, PluginContext context,
+        CancellationToken cancellationToken)
     {
         Starts++;
         Host = host;
         Mode = context.Mode;
-        if (StartWork is not null) { await StartWork(); }
+        if (StartWork is not null)
+        {
+            await StartWork();
+        }
+
         return PluginHealth.Ready;
     }
 
     public async ValueTask SessionChangedAsync(PluginContext context, CancellationToken cancellationToken)
     {
-        if (ModeWork is not null) { await ModeWork(context.Mode, cancellationToken); }
+        if (ModeWork is not null)
+        {
+            await ModeWork(context.Mode, cancellationToken);
+        }
+
         Mode = context.Mode;
     }
 
@@ -56,8 +66,10 @@ internal sealed class FakePlugin(string id, bool publishReadyOnResume = false) :
         Resumes++;
         if (publishReadyOnResume)
         {
-            Host!.PublishHealth(new PluginHealthPublication(context.Instance, context.Generation, PluginHealth.Ready, null));
+            Host!.PublishHealth(new PluginHealthPublication(context.Instance, context.Generation, PluginHealth.Ready,
+                null));
         }
+
         return ValueTask.CompletedTask;
     }
 

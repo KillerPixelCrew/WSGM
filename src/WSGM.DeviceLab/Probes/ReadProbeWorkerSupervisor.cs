@@ -40,7 +40,7 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
     private const int MaximumErrorLength = 16_384;
     private static readonly TimeSpan TeardownDeadline = TimeSpan.FromSeconds(2);
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public async Task<ReadProbeProcessOutcome> RunAsync(
         string executablePath,
         IReadOnlyList<string> arguments,
@@ -113,8 +113,8 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
             await authorizationPipe.DisposeAsync().ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is Win32Exception
-            or InvalidOperationException
-            or IOException)
+                                              or InvalidOperationException
+                                              or IOException)
         {
             var containmentVerified = assignedToContainment
                 ? await TerminateAndWaitAsync(process, containment).ConfigureAwait(false)
@@ -186,14 +186,17 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
         };
     }
 
-    private static ReadProbeProcessOutcome Failed(string error, bool containmentVerified = true) => new()
+    private static ReadProbeProcessOutcome Failed(string error, bool containmentVerified = true)
     {
-        Started = false,
-        TimedOut = false,
-        ContainmentVerified = containmentVerified,
-        ResultProduced = false,
-        Error = error
-    };
+        return new ReadProbeProcessOutcome
+        {
+            Started = false,
+            TimedOut = false,
+            ContainmentVerified = containmentVerified,
+            ResultProduced = false,
+            Error = error
+        };
+    }
 
     private static async Task<bool> TerminateAndWaitAsync(
         Process process,
@@ -234,7 +237,7 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
         {
             if (!process.HasExited)
             {
-                process.Kill(entireProcessTree: true);
+                process.Kill(true);
             }
         }
         catch (InvalidOperationException)
@@ -360,7 +363,7 @@ internal static class ReadProbeWorkerSupervisor
             await File.WriteAllTextAsync(
                 requestPath,
                 DeviceLabJson.Serialize(request),
-                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+                new UTF8Encoding(false),
                 cancellationToken).ConfigureAwait(false);
 
             string[] arguments =
@@ -399,7 +402,8 @@ internal static class ReadProbeWorkerSupervisor
             FileInfo resultInfo = new(resultPath);
             if (resultInfo.Length > MaximumResponseBytes)
             {
-                return Result(ReadProbeRunStatus.MalformedResponse, "Read-probe worker response exceeded the size limit.");
+                return Result(ReadProbeRunStatus.MalformedResponse,
+                    "Read-probe worker response exceeded the size limit.");
             }
 
             await using FileStream stream = new(
@@ -407,7 +411,7 @@ internal static class ReadProbeWorkerSupervisor
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.Read,
-                bufferSize: 4096,
+                4096,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
             response = await JsonSerializer.DeserializeAsync(
                 stream,
@@ -427,14 +431,19 @@ internal static class ReadProbeWorkerSupervisor
     /// <summary>Whole-process deadline including time for the worker to publish its own timeout.</summary>
     /// <param name="metadata">Compiled semantic worker deadline.</param>
     /// <returns>The outer containment deadline.</returns>
-    internal static TimeSpan ProcessDeadline(ReadProbeMetadata metadata) =>
-        TimeSpan.FromMilliseconds(metadata.TimeoutMilliseconds + 2_000);
-
-    private static ReadProbeRunResult Result(ReadProbeRunStatus status, string message) => new()
+    internal static TimeSpan ProcessDeadline(ReadProbeMetadata metadata)
     {
-        Status = status,
-        Message = message
-    };
+        return TimeSpan.FromMilliseconds(metadata.TimeoutMilliseconds + 2_000);
+    }
+
+    private static ReadProbeRunResult Result(ReadProbeRunStatus status, string message)
+    {
+        return new ReadProbeRunResult
+        {
+            Status = status,
+            Message = message
+        };
+    }
 }
 
 /// <summary>Maps process and typed-response failure modes to stable Device Lab results.</summary>
@@ -465,7 +474,8 @@ internal static class ReadProbeOutcomeClassifier
 
         if (process.ExitCode != 0)
         {
-            return Result(ReadProbeRunStatus.WorkerCrashed, process.Error ?? $"Read-probe worker exited with code {process.ExitCode}.");
+            return Result(ReadProbeRunStatus.WorkerCrashed,
+                process.Error ?? $"Read-probe worker exited with code {process.ExitCode}.");
         }
 
         return process.ResultProduced
@@ -486,9 +496,11 @@ internal static class ReadProbeOutcomeClassifier
         switch (response.Status)
         {
             case ReadProbeWorkerStatus.AccessDenied:
-                return WithResponse(ReadProbeRunStatus.AccessDenied, response.Error ?? "Read-probe worker was denied access.", response);
+                return WithResponse(ReadProbeRunStatus.AccessDenied,
+                    response.Error ?? "Read-probe worker was denied access.", response);
             case ReadProbeWorkerStatus.Disconnected:
-                return WithResponse(ReadProbeRunStatus.Disconnected, response.Error ?? "The exact endpoint disconnected.", response);
+                return WithResponse(ReadProbeRunStatus.Disconnected,
+                    response.Error ?? "The exact endpoint disconnected.", response);
         }
 
         var validation = ReadProbeResponseValidator.Validate(metadata, response);
@@ -498,19 +510,25 @@ internal static class ReadProbeOutcomeClassifier
             response);
     }
 
-    private static ReadProbeRunResult Result(ReadProbeRunStatus status, string message) => new()
+    private static ReadProbeRunResult Result(ReadProbeRunStatus status, string message)
     {
-        Status = status,
-        Message = message
-    };
+        return new ReadProbeRunResult
+        {
+            Status = status,
+            Message = message
+        };
+    }
 
     private static ReadProbeRunResult WithResponse(
         ReadProbeRunStatus status,
         string message,
-        ReadProbeWorkerResponse response) => new()
+        ReadProbeWorkerResponse response)
+    {
+        return new ReadProbeRunResult
         {
             Status = status,
             Message = message,
             Response = response
         };
+    }
 }

@@ -42,51 +42,61 @@ internal sealed record AutoTdpStatus(
 internal sealed record AutoTdpAvailability(bool Available, string Detail, double? TargetFrametimeMs);
 
 /// <summary>
-/// The one AutoTDP session service.
+///     The one AutoTDP session service.
 /// </summary>
 /// <remarks>
-/// A thin binding around <see cref="AutoTdpController"/>: it decides nothing itself, so the whole
-/// control policy stays replayable from a recorded trace without a device. What lives here is the
-/// plumbing the controller must not know about — which application is in front, which capability is
-/// the primary power limit, and the rule that only one power write may be in flight.
-/// <para>
-/// Every prerequisite is optional and checked each tick. No RTSS, no plugin, no power capability, or
-/// no rendering application simply means AutoTDP holds; none of them is an error, and none of them
-/// may take a frame limit or a manual power setting away from the user.
-/// </para>
+///     A thin binding around <see cref="AutoTdpController" />: it decides nothing itself, so the whole
+///     control policy stays replayable from a recorded trace without a device. What lives here is the
+///     plumbing the controller must not know about — which application is in front, which capability is
+///     the primary power limit, and the rule that only one power write may be in flight.
+///     <para>
+///         Every prerequisite is optional and checked each tick. No RTSS, no plugin, no power capability, or
+///         no rendering application simply means AutoTDP holds; none of them is an error, and none of them
+///         may take a frame limit or a manual power setting away from the user.
+///     </para>
 /// </remarks>
 internal sealed class AutoTdpService : IAsyncDisposable
 {
     /// <summary>How often frame delivery is judged.</summary>
     /// <remarks>
-    /// One second per window. Shorter windows judge a power change before the SoC has finished
-    /// responding to the previous one; longer ones let a stutter run for too long before power rises.
+    ///     One second per window. Shorter windows judge a power change before the SoC has finished
+    ///     responding to the previous one; longer ones let a stutter run for too long before power rises.
     /// </remarks>
     private static readonly TimeSpan Window = TimeSpan.FromSeconds(1);
 
-    private readonly IFrametimeSource _frametimes;
     private readonly Func<IReadOnlyList<DeviceCapabilityView>> _capabilities;
-    private readonly Func<DeviceCapabilityView, CapabilityValue, bool, CancellationToken, Task<CapabilityCommandResult>> _writeAsync;
-    private readonly Func<double> _targetFrametimeMs;
     private readonly AutoTdpController _controller = new();
-    private readonly SemaphoreSlim _write = new(1, 1);
-    private readonly CancellationTokenSource _shutdown = new();
+
+    private readonly IFrametimeSource _frametimes;
     private readonly Lock _gate = new();
+    private readonly CancellationTokenSource _shutdown = new();
+    private readonly Func<double> _targetFrametimeMs;
+    private readonly SemaphoreSlim _write = new(1, 1);
+
+    private readonly Func<DeviceCapabilityView, CapabilityValue, bool, CancellationToken, Task<CapabilityCommandResult>>
+        _writeAsync;
+
+    private CancellationTokenSource _applicationWrites = new();
+    private bool _controllerStarted;
+    private bool _disposed;
+    private bool _enabled;
+    private CancellationTokenSource? _generation;
+    private Task<bool> _lastStop = Task.FromResult(true);
+    private bool _powerMayDiffer;
+
+    // What the last prerequisite refresh reported. The refresh runs on every tick and every
+    // performance poll, and its subscribers rebuild Steam and OSD state, so it raises only when
+    // availability or the enabled flag moved.
+    private AutoTdpAvailability? _reportedAvailability;
+    private bool _reportedEnabled;
+    private DeviceCapabilityKey? _restoreCapability;
+    private long? _restoreCycle;
+    private DeviceCapabilityView? _restorePair;
+    private int? _restoreTo;
+    private bool _resync;
+    private RunningApplicationTargetSnapshot? _running;
 
     private Task _worker = Task.CompletedTask;
-    private Task<bool> _lastStop = Task.FromResult(true);
-    private CancellationTokenSource? _generation;
-    private CancellationTokenSource _applicationWrites = new();
-    private RunningApplicationTargetSnapshot? _running;
-    private int? _restoreTo;
-    private DeviceCapabilityView? _restorePair;
-    private long? _restoreCycle;
-    private DeviceCapabilityKey? _restoreCapability;
-    private bool _controllerStarted;
-    private bool _powerMayDiffer;
-    private bool _enabled;
-    private bool _resync;
-    private bool _disposed;
 
     internal AutoTdpService(
         IFrametimeSource frametimes,
@@ -104,9 +114,6 @@ internal sealed class AutoTdpService : IAsyncDisposable
         _targetFrametimeMs = targetFrametimeMs;
     }
 
-    /// <summary>Raised when the projection changes.</summary>
-    internal event Action<AutoTdpStatus>? StatusChanged;
-
     /// <summary>Current projection.</summary>
     internal AutoTdpStatus Status { get; private set; } = new(
         AutoTdpState.Off,
@@ -121,7 +128,13 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
     internal bool OwnsPower
     {
-        get { lock (_gate) { return _enabled && !_controller.IsPaused; } }
+        get
+        {
+            lock (_gate)
+            {
+                return _enabled && !_controller.IsPaused;
+            }
+        }
     }
 
     internal AutoTdpAvailability Availability
@@ -133,26 +146,89 @@ internal sealed class AutoTdpService : IAsyncDisposable
             {
                 return new AutoTdpAvailability(false, "Requires frame-rate limit.", null);
             }
+
             var power = FindPowerCapability();
             lock (_gate)
             {
                 if (_restoreTo is not null && power is not null
-                    && (_restoreCycle != power.Projection.State.CycleGeneration
-                        || _restoreCapability != new DeviceCapabilityKey(power.Descriptor.CapabilityId, power.Descriptor.InstanceId)))
+                                           && (_restoreCycle != power.Projection.State.CycleGeneration
+                                               || _restoreCapability !=
+                                               new DeviceCapabilityKey(power.Descriptor.CapabilityId,
+                                                   power.Descriptor.InstanceId)))
                 {
-                    return new AutoTdpAvailability(false, "The previous power owner must be restored before control can resume.", target);
+                    return new AutoTdpAvailability(false,
+                        "The previous power owner must be restored before control can resume.", target);
                 }
             }
+
             if (power?.Descriptor.PairedPowerLimitId is not null
                 && !IsObserved(FindPairedPower(power)))
             {
                 return new AutoTdpAvailability(false, "The paired power limit is unavailable.", target);
             }
+
             return IsObserved(power)
                 ? new AutoTdpAvailability(true, string.Empty, target)
                 : new AutoTdpAvailability(false, "No primary power limit is available.", target);
         }
     }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        Task worker;
+        Task<bool> lastStop;
+        CancellationTokenSource? generation;
+        CancellationTokenSource applicationWrites;
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _enabled = false;
+            worker = _worker;
+            lastStop = _lastStop;
+            generation = _generation;
+            _worker = Task.CompletedTask;
+            _generation = null;
+            applicationWrites = _applicationWrites;
+        }
+
+        await applicationWrites.CancelAsync().ConfigureAwait(false);
+
+        // A disable may already be restoring the previous value. Let that finish before stopping a
+        // newer generation or disposing the shared write gate; otherwise its late write would race
+        // a disposed semaphore and could leave AutoTDP's value latched during shutdown.
+        _ = await lastStop.ConfigureAwait(false);
+
+        // The tick loop ends first and the restore follows, while the write path still works:
+        // exiting with WSGM's probe value latched would leave the user's handheld on a limit they
+        // never chose, and a surviving tick could re-latch it after the restore.
+        _ = await StopGenerationAsync(worker, generation).ConfigureAwait(false);
+        await _shutdown.CancelAsync().ConfigureAwait(false);
+
+        int? unrestored;
+        lock (_gate)
+        {
+            unrestored = _restoreTo;
+        }
+
+        (_frametimes as IDisposable)?.Dispose();
+        applicationWrites.Dispose();
+        _write.Dispose();
+        _shutdown.Dispose();
+        if (unrestored is { } watts)
+        {
+            throw new InvalidOperationException(
+                $"AutoTDP could not verify restoration of the previous {watts} W power limit.");
+        }
+    }
+
+    /// <summary>Raised when the projection changes.</summary>
+    internal event Action<AutoTdpStatus>? StatusChanged;
 
     /// <summary>Releases control immediately when the limiter disappears.</summary>
     /// <returns>Whether an active session was forced off.</returns>
@@ -160,7 +236,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
     {
         var availability = Availability;
         var disabled = Enabled && availability.TargetFrametimeMs is null;
-        if (disabled) { Apply(false); }
+        if (disabled)
+        {
+            Apply(false);
+        }
+
         var enabled = Enabled;
         bool changed;
         lock (_gate)
@@ -169,37 +249,39 @@ internal sealed class AutoTdpService : IAsyncDisposable
             _reportedAvailability = availability;
             _reportedEnabled = enabled;
         }
+
         if (changed)
         {
             StatusChanged?.Invoke(Status);
         }
+
         return disabled;
     }
 
-    // What the last prerequisite refresh reported. The refresh runs on every tick and every
-    // performance poll, and its subscribers rebuild Steam and OSD state, so it raises only when
-    // availability or the enabled flag moved.
-    private AutoTdpAvailability? _reportedAvailability;
-    private bool _reportedEnabled;
-
-    internal static double TargetFrametime(PerformanceState? state) =>
-        state is { FrameLimitQuality: PerformanceReadbackQuality.Verified, Observed.FrameLimit: > 0 }
-            && state.Desired.FrameLimit != 0
+    internal static double TargetFrametime(PerformanceState? state)
+    {
+        return state is { FrameLimitQuality: PerformanceReadbackQuality.Verified, Observed.FrameLimit: > 0 }
+               && state.Desired.FrameLimit != 0
             ? 1000d / state.Observed.FrameLimit.Value
             : 0;
+    }
 
     /// <summary>Enables or disables automatic control.</summary>
     /// <param name="enabled">Whether AutoTDP should run.</param>
     /// <remarks>
-    /// One tick loop exists at a time, and disabling ends the current one before the previous limit
-    /// is restored. Leaving the loop alive across a disable let the next enable start a second one
-    /// against the same flag: every off/on cycle then multiplied the policy rate and its hardware
-    /// writes, and a tick already inside <see cref="TickAsync"/> could write AutoTDP's own value
-    /// after the restore and leave it latched while the feature was off.
+    ///     One tick loop exists at a time, and disabling ends the current one before the previous limit
+    ///     is restored. Leaving the loop alive across a disable let the next enable start a second one
+    ///     against the same flag: every off/on cycle then multiplied the policy rate and its hardware
+    ///     writes, and a tick already inside <see cref="TickAsync" /> could write AutoTDP's own value
+    ///     after the restore and leave it latched while the feature was off.
     /// </remarks>
     internal void Apply(bool enabled)
     {
-        if (enabled && Availability.TargetFrametimeMs is null) { enabled = false; }
+        if (enabled && Availability.TargetFrametimeMs is null)
+        {
+            enabled = false;
+        }
+
         Task<bool> stop;
         CancellationTokenSource applicationWrites;
         lock (_gate)
@@ -292,9 +374,9 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// <summary>Suspends control because the power limit was set by hand.</summary>
     /// <param name="watts">The limit that was just set.</param>
     /// <remarks>
-    /// Called by whoever writes the power capability from a user action. Control does not resume by
-    /// itself — only switching AutoTDP off and on does: the user has overridden the controller, and
-    /// quietly taking the limit back would make the manual control look broken.
+    ///     Called by whoever writes the power capability from a user action. Control does not resume by
+    ///     itself — only switching AutoTDP off and on does: the user has overridden the controller, and
+    ///     quietly taking the limit back would make the manual control look broken.
     /// </remarks>
     internal void NoteManualChange(int watts)
     {
@@ -326,11 +408,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
     /// <summary>Resumes automatic control that a per-application limit had paused.</summary>
     /// <remarks>
-    /// Called when the application whose own limit paused control is no longer running and no limit
-    /// is preferred for what replaced it. The next window re-bases on whatever the device reports —
-    /// the same recovery path an unapplied write uses — so control continues from the real limit
-    /// rather than from a stale believed one. A no-op while AutoTDP is off: there is no control to
-    /// resume, and the next enable starts a fresh generation anyway.
+    ///     Called when the application whose own limit paused control is no longer running and no limit
+    ///     is preferred for what replaced it. The next window re-bases on whatever the device reports —
+    ///     the same recovery path an unapplied write uses — so control continues from the real limit
+    ///     rather than from a stale believed one. A no-op while AutoTDP is off: there is no control to
+    ///     resume, and the next enable starts a fresh generation anyway.
     /// </remarks>
     internal void ResumeAutomaticControl()
     {
@@ -348,59 +430,6 @@ internal sealed class AutoTdpService : IAsyncDisposable
         }
 
         Publish(AutoTdpState.Idle, null, null, null, "Automatic control resumed.");
-    }
-
-    /// <inheritdoc/>
-    public async ValueTask DisposeAsync()
-    {
-        Task worker;
-        Task<bool> lastStop;
-        CancellationTokenSource? generation;
-        CancellationTokenSource applicationWrites;
-        lock (_gate)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            _enabled = false;
-            worker = _worker;
-            lastStop = _lastStop;
-            generation = _generation;
-            _worker = Task.CompletedTask;
-            _generation = null;
-            applicationWrites = _applicationWrites;
-        }
-
-        await applicationWrites.CancelAsync().ConfigureAwait(false);
-
-        // A disable may already be restoring the previous value. Let that finish before stopping a
-        // newer generation or disposing the shared write gate; otherwise its late write would race
-        // a disposed semaphore and could leave AutoTDP's value latched during shutdown.
-        _ = await lastStop.ConfigureAwait(false);
-
-        // The tick loop ends first and the restore follows, while the write path still works:
-        // exiting with WSGM's probe value latched would leave the user's handheld on a limit they
-        // never chose, and a surviving tick could re-latch it after the restore.
-        _ = await StopGenerationAsync(worker, generation).ConfigureAwait(false);
-        await _shutdown.CancelAsync().ConfigureAwait(false);
-
-        int? unrestored;
-        lock (_gate)
-        {
-            unrestored = _restoreTo;
-        }
-        (_frametimes as IDisposable)?.Dispose();
-        applicationWrites.Dispose();
-        _write.Dispose();
-        _shutdown.Dispose();
-        if (unrestored is { } watts)
-        {
-            throw new InvalidOperationException(
-                $"AutoTDP could not verify restoration of the previous {watts} W power limit.");
-        }
     }
 
     /// <summary>Ends one enable generation and restores the limit it took over from.</summary>
@@ -457,6 +486,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         {
             return;
         }
+
         if (!Volatile.Read(ref _enabled))
         {
             return;
@@ -478,6 +508,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 cancellationToken,
                 _applicationWrites.Token);
         }
+
         using (writeCancellation)
         {
             await TickForApplicationAsync(
@@ -499,7 +530,6 @@ internal sealed class AutoTdpService : IAsyncDisposable
         CancellationTokenSource writeCancellation,
         CancellationToken cancellationToken)
     {
-
         if (FindPowerCapability() is not { } power || !Availability.Available)
         {
             Publish(
@@ -549,6 +579,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             Apply(false);
             return;
         }
+
         var context = ContextKey(running, frametime);
         AutoTdpDecision decision;
         bool rebased;
@@ -633,12 +664,12 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <param name="expectedRunningGeneration">The application generation allowed to dispatch.</param>
     /// <param name="restoreFrom">The user's prior limit to capture when the write is admitted.</param>
-    /// <returns><see langword="true"/> when the device accepted the value.</returns>
+    /// <returns><see langword="true" /> when the device accepted the value.</returns>
     /// <remarks>
-    /// The outcome is acted on, not merely logged. <see cref="AutoTdpController"/> has already moved
-    /// its believed wattage by the time this runs, so a refused, timed-out or indeterminate write
-    /// leaves every later decision resting on a limit the device may never have taken; the resync
-    /// flag makes the next window re-base on what the hardware actually reports.
+    ///     The outcome is acted on, not merely logged. <see cref="AutoTdpController" /> has already moved
+    ///     its believed wattage by the time this runs, so a refused, timed-out or indeterminate write
+    ///     leaves every later decision resting on a limit the device may never have taken; the resync
+    ///     flag makes the next window re-base on what the hardware actually reports.
     /// </remarks>
     private async Task<bool> WriteAsync(
         DeviceCapabilityView power,
@@ -684,9 +715,12 @@ internal sealed class AutoTdpService : IAsyncDisposable
                             _resync = true;
                             return false;
                         }
+
                         _restoreCycle = power.Projection.State.CycleGeneration;
-                        _restoreCapability = new DeviceCapabilityKey(power.Descriptor.CapabilityId, power.Descriptor.InstanceId);
+                        _restoreCapability =
+                            new DeviceCapabilityKey(power.Descriptor.CapabilityId, power.Descriptor.InstanceId);
                     }
+
                     _restoreTo ??= watts;
                 }
 
@@ -703,7 +737,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
             var result = await command.ConfigureAwait(false);
             var applied = power.Descriptor.PairedPowerLimitId is not null
-                ? result.Outcome == CommandOutcome.AppliedVerified && result.ReadbackValue?.IntegerValue == decision.Watts
+                ? result.Outcome == CommandOutcome.AppliedVerified &&
+                  result.ReadbackValue?.IntegerValue == decision.Watts
                 : result.Outcome.IsApplied();
             lock (_gate)
             {
@@ -721,6 +756,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
                     _powerMayDiffer = true;
                 }
             }
+
             Log.Info(
                 $"AutoTDP {decision.Action}: {decision.Watts} W ({decision.Reason}), "
                 + $"outcome={result.Outcome}, applied={applied}.");
@@ -739,6 +775,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 // The call may have failed after dispatch; preserve the restore obligation.
                 _powerMayDiffer = true;
             }
+
             MarkWriteUnapplied();
             return false;
         }
@@ -782,10 +819,12 @@ internal sealed class AutoTdpService : IAsyncDisposable
         }
 
         if (!IsObserved(power) || power.Projection.State.CycleGeneration != _restoreCycle
-            || _restoreCapability != new DeviceCapabilityKey(power.Descriptor.CapabilityId, power.Descriptor.InstanceId)
-            || (_restorePair is not null && !IsObserved(FindPairedPower(power))))
+                               || _restoreCapability != new DeviceCapabilityKey(power.Descriptor.CapabilityId,
+                                   power.Descriptor.InstanceId)
+                               || (_restorePair is not null && !IsObserved(FindPairedPower(power))))
         {
-            Publish(AutoTdpState.Off, null, null, null, "AutoTDP is off; restoration requires current power readback in the original device cycle.");
+            Publish(AutoTdpState.Off, null, null, null,
+                "AutoTDP is off; restoration requires current power readback in the original device cycle.");
             return false;
         }
 
@@ -798,7 +837,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         {
             var live = FindPairedPower(power);
             if (!IsObserved(live) || live!.Projection.State.CycleGeneration != _restoreCycle
-                || live.Descriptor.CapabilityId != pair.Descriptor.CapabilityId)
+                                  || live.Descriptor.CapabilityId != pair.Descriptor.CapabilityId)
             {
                 restored = false;
             }
@@ -809,7 +848,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
                     var result = await _writeAsync(live,
                         pair.Projection.State.ObservedValue!, false, cancellationToken).ConfigureAwait(false);
                     restored = result.Outcome == CommandOutcome.AppliedVerified
-                        && result.ReadbackValue?.IntegerValue == pair.Projection.State.ObservedValue?.IntegerValue;
+                               && result.ReadbackValue?.IntegerValue ==
+                               pair.Projection.State.ObservedValue?.IntegerValue;
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
@@ -818,6 +858,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 }
             }
         }
+
         lock (_gate)
         {
             switch (restored)
@@ -835,6 +876,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
                     break;
             }
         }
+
         Publish(
             AutoTdpState.Off,
             watts,
@@ -846,32 +888,43 @@ internal sealed class AutoTdpService : IAsyncDisposable
         return restored;
     }
 
-    private DeviceCapabilityView? FindPowerCapability() => _capabilities()
-        .FirstOrDefault(view =>
-            view.Descriptor is
-            {
-                Role: CapabilityRole.PowerSustainedLimit,
-                SupportsWrite: true,
-                ValueKind: CapabilityValueKind.Integer
-            });
-
-    private DeviceCapabilityView? FindPairedPower(DeviceCapabilityView primary) =>
-        primary.Descriptor.PairedPowerLimitId is { } id
-            ? _capabilities().FirstOrDefault(view => view.Descriptor.CapabilityId == id && view.Descriptor.InstanceId is null
-                && view.Projection.State.CycleGeneration == primary.Projection.State.CycleGeneration
-                && view.Projection.State.DescriptorGeneration == primary.Projection.State.DescriptorGeneration)
-            : null;
-
-    private static bool IsObserved(DeviceCapabilityView? view) => view?.Projection is
+    private DeviceCapabilityView? FindPowerCapability()
     {
-        Progress: not CommandProgress.Pending, State:
-        {
-            Available: true, Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified,
-            ObservedValue.IntegerValue: not null
-        }
+        return _capabilities()
+            .FirstOrDefault(view =>
+                view.Descriptor is
+                {
+                    Role: CapabilityRole.PowerSustainedLimit,
+                    SupportsWrite: true,
+                    ValueKind: CapabilityValueKind.Integer
+                });
     }
-        && (view.Projection.Progress != CommandProgress.Uncertain
-            || view.Projection.State.ObservedAt > view.LastResult?.CompletedAt);
+
+    private DeviceCapabilityView? FindPairedPower(DeviceCapabilityView primary)
+    {
+        return primary.Descriptor.PairedPowerLimitId is { } id
+            ? _capabilities().FirstOrDefault(view => view.Descriptor.CapabilityId == id &&
+                                                     view.Descriptor.InstanceId is null
+                                                     && view.Projection.State.CycleGeneration ==
+                                                     primary.Projection.State.CycleGeneration
+                                                     && view.Projection.State.DescriptorGeneration ==
+                                                     primary.Projection.State.DescriptorGeneration)
+            : null;
+    }
+
+    private static bool IsObserved(DeviceCapabilityView? view)
+    {
+        return view?.Projection is
+               {
+                   Progress: not CommandProgress.Pending, State:
+                   {
+                       Available: true, Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified,
+                       ObservedValue.IntegerValue: not null
+                   }
+               }
+               && (view.Projection.Progress != CommandProgress.Uncertain
+                   || view.Projection.State.ObservedAt > view.LastResult?.CompletedAt);
+    }
 
     private RtssFrametimeSample? SelectSample(RunningApplicationTargetSnapshot? running)
     {
@@ -898,16 +951,20 @@ internal sealed class AutoTdpService : IAsyncDisposable
         return live.Count == 1 ? live[0] : null;
     }
 
-    private static bool IsCapped(RtssFrametimeSample sample, double targetFrametimeMs) =>
-        sample.MeanFrametimeMs >= targetFrametimeMs * 0.97
-        && sample.MeanFrametimeMs <= targetFrametimeMs * AutoTdpController.MissRatio;
+    private static bool IsCapped(RtssFrametimeSample sample, double targetFrametimeMs)
+    {
+        return sample.MeanFrametimeMs >= targetFrametimeMs * 0.97
+               && sample.MeanFrametimeMs <= targetFrametimeMs * AutoTdpController.MissRatio;
+    }
 
     private static string ContextKey(
         RunningApplicationTargetSnapshot? running,
-        RtssFrametimeSample sample) =>
-        running?.ApplicationId is { Length: > 0 } identity
+        RtssFrametimeSample sample)
+    {
+        return running?.ApplicationId is { Length: > 0 } identity
             ? identity
             : $"process:{Path.GetFileName(sample.ExecutablePath)}";
+    }
 
     private void Publish(
         AutoTdpState state,
@@ -953,6 +1010,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             {
                 return;
             }
+
             if (status == Status)
             {
                 return;
@@ -963,5 +1021,4 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
         StatusChanged?.Invoke(status);
     }
-
 }

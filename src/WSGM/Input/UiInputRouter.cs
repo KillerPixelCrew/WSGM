@@ -15,28 +15,28 @@ internal enum UiInputSource
 }
 
 /// <summary>
-/// The one source WSGM's own navigation subscribes to, whichever source is actually delivering.
+///     The one source WSGM's own navigation subscribes to, whichever source is actually delivering.
 /// </summary>
 /// <remarks>
-/// Managed canonical input supplies controls SDL does not expose, including rear paddles, Quick
-/// Access, and trackpad clicks. SDL remains the fallback and keeps running while managed input is
-/// active.
-/// <para>
-/// The switch is make-before-break, and the hard part is not the swap. It is the buttons held across
-/// it: without explicit handling, a control held while the source changes produces a press edge on
-/// the new source that the user never made, or a release that never arrives and leaves the control
-/// latched.
-/// </para>
+///     Managed canonical input supplies controls SDL does not expose, including rear paddles, Quick
+///     Access, and trackpad clicks. SDL remains the fallback and keeps running while managed input is
+///     active.
+///     <para>
+///         The switch is make-before-break, and the hard part is not the swap. It is the buttons held across
+///         it: without explicit handling, a control held while the source changes produces a press edge on
+///         the new source that the user never made, or a release that never arrives and leaves the control
+///         latched.
+///     </para>
 /// </remarks>
 internal sealed class UiInputRouter : IUiButtonSource, IDisposable
 {
-    /// <summary>Maximum time a control held across a source switch stays suppressed.</summary>
+    /// <summary>How far a trigger travels before it counts as a press on the managed source.</summary>
     /// <remarks>
-    /// The incoming source may not expose every control the outgoing source saw. The timeout keeps
-    /// an unobservable rear paddle from suppressing input forever while still covering an ordinary
-    /// held control until its release arrives.
+    ///     NOT the SDL path's threshold: SdlGamepads synthesizes its trigger buttons at 8000/32767
+    ///     (about 0.24), so a trigger is easier to activate on SDL than here. The difference is
+    ///     long-shipped behavior; align only with device re-verification.
     /// </remarks>
-    internal static TimeSpan HeldControlTimeout { get; } = TimeSpan.FromSeconds(2);
+    private const float TriggerThreshold = 0.5f;
 
     /// <summary>The canonical-to-UI button map, in canonical order.</summary>
     private static readonly (CanonicalButtons Canonical, GamepadButtons Ui)[] Map =
@@ -65,21 +65,13 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
         (CanonicalButtons.RightPadClick, GamepadButtons.RightPadPress)
     ];
 
-    /// <summary>How far a trigger travels before it counts as a press on the managed source.</summary>
-    /// <remarks>
-    /// NOT the SDL path's threshold: SdlGamepads synthesizes its trigger buttons at 8000/32767
-    /// (about 0.24), so a trigger is easier to activate on SDL than here. The difference is
-    /// long-shipped behavior; align only with device re-verification.
-    /// </remarks>
-    private const float TriggerThreshold = 0.5f;
-
     private readonly IUiButtonSource _fallback;
     private readonly TimeProvider _time;
-    private GamepadButtons _suppressed;
-    private GamepadButtons _managedHeld;
-    private DateTimeOffset _switchedAt;
-    private bool _managedHealthy;
     private bool _disposed;
+    private bool _managedHealthy;
+    private GamepadButtons _managedHeld;
+    private GamepadButtons _suppressed;
+    private DateTimeOffset _switchedAt;
 
     /// <summary>Creates the router over the always-present fallback source.</summary>
     /// <param name="fallback">The SDL source, which stays subscribed for the whole session.</param>
@@ -91,18 +83,38 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
         _fallback.ButtonPressed += OnFallbackPressed;
     }
 
-    /// <inheritdoc/>
-    public event Action<GamepadButtons>? ButtonPressed;
+    /// <summary>Maximum time a control held across a source switch stays suppressed.</summary>
+    /// <remarks>
+    ///     The incoming source may not expose every control the outgoing source saw. The timeout keeps
+    ///     an unobservable rear paddle from suppressing input forever while still covering an ordinary
+    ///     held control until its release arrives.
+    /// </remarks>
+    internal static TimeSpan HeldControlTimeout { get; } = TimeSpan.FromSeconds(2);
 
     /// <summary>Which source WSGM's navigation is currently being driven by.</summary>
     internal UiInputSource Current { get; private set; } = UiInputSource.SdlWithSteamLease;
 
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _fallback.ButtonPressed -= OnFallbackPressed;
+    }
+
+    /// <inheritdoc />
+    public event Action<GamepadButtons>? ButtonPressed;
+
     /// <summary>Feeds one canonical sample from the plugin.</summary>
     /// <param name="sample">The sample the plugin published.</param>
     /// <remarks>
-    /// The first sample is what makes the managed source healthy, which is the condition
-    /// before the fallback is dropped: switching on "a managed source exists" rather than "it is
-    /// delivering" leaves a gap in which nothing is delivering and the UI appears frozen.
+    ///     The first sample is what makes the managed source healthy, which is the condition
+    ///     before the fallback is dropped: switching on "a managed source exists" rather than "it is
+    ///     delivering" leaves a gap in which nothing is delivering and the UI appears frozen.
     /// </remarks>
     internal void Submit(CanonicalControllerSample sample)
     {
@@ -146,8 +158,8 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
 
     /// <summary>Reports that the managed source has stopped delivering.</summary>
     /// <remarks>
-    /// Called when controller management stops or faults. The fallback is already subscribed and
-    /// running, so this is a break-after-make in the other direction and cannot leave a gap.
+    ///     Called when controller management stops or faults. The fallback is already subscribed and
+    ///     running, so this is a break-after-make in the other direction and cannot leave a gap.
     /// </remarks>
     internal void ManagedSourceLost()
     {
@@ -168,23 +180,11 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
         BeginSwitch(UiInputSource.SdlWithSteamLease);
     }
 
-    /// <inheritdoc/>
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _fallback.ButtonPressed -= OnFallbackPressed;
-    }
-
     /// <summary>Switches the current source and suppresses whatever is held across the switch.</summary>
     /// <param name="to">The source taking over.</param>
     /// <param name="incomingHeld">
-    /// Controls the incoming source reports as held right now, when the caller already knows them.
-    /// Null falls back to what the managed source has accumulated.
+    ///     Controls the incoming source reports as held right now, when the caller already knows them.
+    ///     Null falls back to what the managed source has accumulated.
     /// </param>
     private void BeginSwitch(UiInputSource to, GamepadButtons? incomingHeld = null)
     {
@@ -212,7 +212,7 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
 
         Log.Info(
             $"UI input source switched: from={from}, to={to}, "
-                + $"suppressedButtons={_suppressed}, managedHealthy={_managedHealthy}.");
+            + $"suppressedButtons={_suppressed}, managedHealthy={_managedHealthy}.");
     }
 
     private void ReleaseSuppressed(GamepadButtons observedNow)

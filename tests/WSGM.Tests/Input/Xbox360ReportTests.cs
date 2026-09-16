@@ -64,8 +64,11 @@ public sealed class Xbox360ReportTests
     }
 
     [Fact]
-    public void AWrongSizedDestinationIsRefused() => Assert.Throws<ArgumentException>(() =>
-        Xbox360Report.Write(Sample(CanonicalButtons.None), new byte[Xbox360Report.Length - 1]));
+    public void AWrongSizedDestinationIsRefused()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            Xbox360Report.Write(Sample(CanonicalButtons.None), new byte[Xbox360Report.Length - 1]));
+    }
 
     private static byte[] Frame(CanonicalControllerSample sample)
     {

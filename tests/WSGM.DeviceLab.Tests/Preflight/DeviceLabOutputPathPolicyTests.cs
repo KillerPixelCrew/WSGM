@@ -7,6 +7,11 @@ public sealed class DeviceLabOutputPathPolicyTests : IDisposable
 {
     private readonly TemporaryDirectory _temporary = new();
 
+    public void Dispose()
+    {
+        _temporary.Dispose();
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -54,10 +59,10 @@ public sealed class DeviceLabOutputPathPolicyTests : IDisposable
         var boundaries = Boundaries();
 
         foreach (var path in new[]
-        {
-            boundaries.LiveDataDirectory,
-            Path.Combine(boundaries.LiveDataDirectory, "capture", "bundle.wsgmcap")
-        })
+                 {
+                     boundaries.LiveDataDirectory,
+                     Path.Combine(boundaries.LiveDataDirectory, "capture", "bundle.wsgmcap")
+                 })
         {
             var decision = DeviceLabOutputPathPolicy.Evaluate(
                 path,
@@ -104,12 +109,13 @@ public sealed class DeviceLabOutputPathPolicyTests : IDisposable
         Assert.Equal(Path.GetFullPath(requested), decision.FullPath);
     }
 
-    public void Dispose() => _temporary.Dispose();
-
-    private DeviceLabPathBoundaries Boundaries() => new()
+    private DeviceLabPathBoundaries Boundaries()
     {
-        LiveDataDirectory = Path.Combine(_temporary.Root, "live"),
-        RepositoryRoot = Path.Combine(_temporary.Root, "repo"),
-        BroadHomeDirectories = [Path.Combine(_temporary.Root, "home")]
-    };
+        return new DeviceLabPathBoundaries
+        {
+            LiveDataDirectory = Path.Combine(_temporary.Root, "live"),
+            RepositoryRoot = Path.Combine(_temporary.Root, "repo"),
+            BroadHomeDirectories = [Path.Combine(_temporary.Root, "home")]
+        };
+    }
 }

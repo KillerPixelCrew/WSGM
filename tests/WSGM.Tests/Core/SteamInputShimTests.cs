@@ -3,11 +3,13 @@ using WSGM.Core;
 
 namespace WSGM.Tests.Core;
 
-/// <summary>Deployment coverage for the Steam Input shim: which candidate name it
-/// takes, when it refuses to touch a file, when it re-copies, and what the disable
-/// toggle does. Everything runs against a temporary directory standing in for
-/// Steam's install directory - nothing here reads or writes a real Steam or
-/// %LOCALAPPDATA%\WSGM.</summary>
+/// <summary>
+///     Deployment coverage for the Steam Input shim: which candidate name it
+///     takes, when it refuses to touch a file, when it re-copies, and what the disable
+///     toggle does. Everything runs against a temporary directory standing in for
+///     Steam's install directory - nothing here reads or writes a real Steam or
+///     %LOCALAPPDATA%\WSGM.
+/// </summary>
 public sealed class SteamInputShimTests : IDisposable
 {
     private const string XInput = "XInput1_4.dll";
@@ -16,9 +18,10 @@ public sealed class SteamInputShimTests : IDisposable
     /// <summary>The export name the deployer uses as proof a file is WSGM's own.</summary>
     private const string Signature = "WsgmSteamInputGateProxy";
 
-    private readonly string _steamDir;
-    private readonly string _sourceDir;
     private readonly string _payload;
+    private readonly string _sourceDir;
+
+    private readonly string _steamDir;
 
     public SteamInputShimTests()
     {
@@ -36,7 +39,7 @@ public sealed class SteamInputShimTests : IDisposable
     {
         try
         {
-            Directory.Delete(Path.GetDirectoryName(_steamDir)!, recursive: true);
+            Directory.Delete(Path.GetDirectoryName(_steamDir)!, true);
         }
         catch
         {
@@ -44,16 +47,25 @@ public sealed class SteamInputShimTests : IDisposable
         }
     }
 
-    private static void WritePayload(string path, string body) =>
+    private static void WritePayload(string path, string body)
+    {
         File.WriteAllBytes(path, Encoding.ASCII.GetBytes($"MZ...{Signature}...{body}"));
+    }
 
-    private static void WriteForeign(string path) =>
+    private static void WriteForeign(string path)
+    {
         File.WriteAllBytes(path, "MZ... someone else's controller dll"u8);
+    }
 
-    private SteamInputShimStatus Reconcile(bool enabled = true) =>
-        SteamInputShim.ReconcileIn(_steamDir, _payload, enabled, "test");
+    private SteamInputShimStatus Reconcile(bool enabled = true)
+    {
+        return SteamInputShim.ReconcileIn(_steamDir, _payload, enabled, "test");
+    }
 
-    private string InSteam(string name) => Path.Combine(_steamDir, name);
+    private string InSteam(string name)
+    {
+        return Path.Combine(_steamDir, name);
+    }
 
     [Fact]
     public void ChoosesXInputWhenBothCandidateNamesAreFree()
@@ -150,7 +162,7 @@ public sealed class SteamInputShimTests : IDisposable
     {
         Reconcile();
 
-        var status = Reconcile(enabled: false);
+        var status = Reconcile(false);
 
         Assert.Equal(SteamInputShimState.Disabled, status.State);
         Assert.False(File.Exists(InSteam(XInput)));
@@ -161,7 +173,7 @@ public sealed class SteamInputShimTests : IDisposable
     public void EnablingRestoresTheParkedFileToItsCandidateName()
     {
         Reconcile();
-        Reconcile(enabled: false);
+        Reconcile(false);
 
         var status = Reconcile();
 
@@ -174,7 +186,7 @@ public sealed class SteamInputShimTests : IDisposable
     public void DoesNotRestoreOverAForeignFileThatAppearedWhileParked()
     {
         Reconcile();
-        Reconcile(enabled: false);
+        Reconcile(false);
         WriteForeign(InSteam(XInput));
         var foreign = File.ReadAllBytes(InSteam(XInput));
 
@@ -207,7 +219,7 @@ public sealed class SteamInputShimTests : IDisposable
     public void ReportsSteamNotInstalledWithoutThrowingWhenTheDirectoryIsMissing()
     {
         var status = SteamInputShim.ReconcileIn(
-            Path.Combine(_steamDir, "does-not-exist"), _payload, enabled: true, "test");
+            Path.Combine(_steamDir, "does-not-exist"), _payload, true, "test");
 
         Assert.Equal(SteamInputShimState.SteamNotInstalled, status.State);
     }
@@ -216,7 +228,7 @@ public sealed class SteamInputShimTests : IDisposable
     public void ReportsFailureRatherThanDeployingWhenThePayloadIsMissing()
     {
         var status = SteamInputShim.ReconcileIn(
-            _steamDir, Path.Combine(_sourceDir, "absent.dll"), enabled: true, "test");
+            _steamDir, Path.Combine(_sourceDir, "absent.dll"), true, "test");
 
         Assert.Equal(SteamInputShimState.Failed, status.State);
         Assert.False(File.Exists(InSteam(XInput)));
@@ -241,7 +253,7 @@ public sealed class SteamInputShimTests : IDisposable
         Reconcile();
         var before = Directory.GetFiles(_steamDir).Length;
 
-        var status = SteamInputShim.ProbeIn(_steamDir, _payload, enabled: true);
+        var status = SteamInputShim.ProbeIn(_steamDir, _payload, true);
 
         Assert.Equal(SteamInputShimState.Deployed, status.State);
         Assert.Equal(SteamInputShimVector.XInput14, status.Vector);
@@ -254,7 +266,7 @@ public sealed class SteamInputShimTests : IDisposable
         WriteForeign(InSteam(XInput));
         WriteForeign(InSteam(DInput));
 
-        var status = SteamInputShim.ProbeIn(_steamDir, _payload, enabled: true);
+        var status = SteamInputShim.ProbeIn(_steamDir, _payload, true);
 
         Assert.Equal(SteamInputShimState.Blocked, status.State);
     }

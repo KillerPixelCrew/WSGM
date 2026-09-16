@@ -3,216 +3,246 @@
              xmlns:s="using:WSGM.Settings"
              x:Class="WSGM.Settings.Pages.IntegrationPage"
              x:DataType="s:SettingsViewModel">
-    <!-- Everything WSGM injects into the running Steam client over its debug
+  <!-- Everything WSGM injects into the running Steam client over its debug
          port. A page that stops fitting the 1024x640 layout floor earns its own
          tab — keep new CEF features here rather than growing another page's
          column. -->
-    <Border Padding="16,10,16,10">
-        <Grid ColumnDefinitions="*,24,*">
-            <StackPanel Grid.Column="0">
-                <Border Classes="section-header">
-                    <TextBlock Text="STEAM INTEGRATION (CEF)" />
-                </Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Steam CEF integration" Classes="setting-title" />
-                            <TextBlock Text="Master switch for everything WSGM injects into Steam over its debug port. Off leaves the debug port closed and hides every feature below." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefEnabled}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-
-                <Border Classes="section-header" IsVisible="{Binding CefEnabled}">
-                    <TextBlock Text="LIBRARY" />
-                </Border>
-                <Border Classes="setting-row" IsVisible="{Binding CefEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Library &amp; tabs" Classes="setting-title" />
-                            <TextBlock Text="Custom filter tabs, tab order, and hiding native Steam tabs." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefLibraryTabs}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row alt" IsVisible="{Binding CefEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="SD-card library manager" Classes="setting-title" />
-                            <TextBlock Text="Per-card library tabs, the library badge on game tiles, and live library labels." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefCardManager}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row" IsVisible="{Binding CefEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Format SD Card + add library" Classes="setting-title" />
-                            <TextBlock Text="Format a card as a Steam library and register it into the running Steam." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefSdFormat}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row" IsVisible="{Binding CefEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Allow formatting from Steam's storage page" Classes="setting-title" />
-                            <TextBlock Text="Let Steam's own Format Drive dialog erase a card through WSGM's format flow. Off, the dialog is refused; eject and library registration from that page keep working." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamStorageFormat}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row alt" IsVisible="{Binding CefEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Connected-library Home carousel" Classes="setting-title" />
-                            <TextBlock Text="Big Picture Home shows every game on the libraries attached right now, last played first, behind recent purchases. Games on an ejected card leave the carousel." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefConnectedLibraryCarousel}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row" IsVisible="{Binding CefConnectedLibraryCarousel}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Show uninstalled games in the carousel" Classes="setting-title" />
-                            <TextBlock Text="Also list owned games that are not installed, greyed, after the installed ones. Selecting one opens Steam's normal install flow." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefCarouselShowUninstalled}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-
-                <Border Classes="section-header">
-                    <TextBlock Text="PERFORMANCE" />
-                </Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="RTSS performance controls" Classes="setting-title" />
-                            <TextBlock Text="Use the verified RTSS profile API for the shared frame limiter in the overlay and native Quick Access. RTSS remains optional and independently installed." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding PerformanceEnabled}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Frame limit and refresh rate" Classes="setting-title" />
-                            <TextBlock Text="How a frame cap is paired with the panel. Frame limit only never changes the display. Native refresh modes switch only between the rates the panel advertises. Frame doubling picks the lowest rate the driver accepts that is an exact multiple of the cap, so 40 FPS runs the panel at 80 Hz." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" SelectedIndex="{Binding FrameLimitStrategyIndex}">
-                            <ComboBoxItem Content="Frame limit only" />
-                            <ComboBoxItem Content="Native refresh modes" />
-                            <ComboBoxItem Content="Frame doubling" />
-                        </ComboBox>
-                    </Grid>
-                </Border>
-
-                <Border Classes="section-header" IsVisible="{Binding PerformanceEnabled}">
-                    <TextBlock Text="CUSTOM OVERLAY (LEVEL 4)" />
-                </Border>
-                <Border Classes="setting-row alt" IsVisible="{Binding PerformanceEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Widget order" Classes="setting-title" />
-                            <TextBlock Text="Rows of the Quick Access overlay selector's Custom level, top to bottom. Names: Time, GPU, CPU, VRAM, RAM, BATT, FPS; unknown names are ignored." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <TextBox Grid.Column="1" Width="230" VerticalAlignment="Center" Text="{Binding OsdCustomOrder}" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <TextBlock Text="Clock" Classes="setting-title" VerticalAlignment="Center" />
-                        <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}" SelectedIndex="{Binding OsdCustomTimeIndex}" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row alt" IsVisible="{Binding PerformanceEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <TextBlock Text="Framerate" Classes="setting-title" VerticalAlignment="Center" />
-                        <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}" SelectedIndex="{Binding OsdCustomFpsIndex}" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <TextBlock Text="CPU" Classes="setting-title" VerticalAlignment="Center" />
-                        <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}" SelectedIndex="{Binding OsdCustomCpuIndex}" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row alt" IsVisible="{Binding PerformanceEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <TextBlock Text="GPU" Classes="setting-title" VerticalAlignment="Center" />
-                        <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}" SelectedIndex="{Binding OsdCustomGpuIndex}" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <TextBlock Text="Memory" Classes="setting-title" VerticalAlignment="Center" />
-                        <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}" SelectedIndex="{Binding OsdCustomRamIndex}" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row alt" IsVisible="{Binding PerformanceEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <TextBlock Text="Video memory" Classes="setting-title" VerticalAlignment="Center" />
-                        <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}" SelectedIndex="{Binding OsdCustomVramIndex}" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <TextBlock Text="Battery" Classes="setting-title" VerticalAlignment="Center" />
-                        <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}" SelectedIndex="{Binding OsdCustomBatteryIndex}" />
-                    </Grid>
-                </Border>
+  <Border Padding="16,10,16,10">
+    <Grid ColumnDefinitions="*,24,*">
+      <StackPanel Grid.Column="0">
+        <Border Classes="section-header">
+          <TextBlock Text="STEAM INTEGRATION (CEF)" />
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Steam CEF integration" Classes="setting-title" />
+              <TextBlock
+                Text="Master switch for everything WSGM injects into Steam over its debug port. Off leaves the debug port closed and hides every feature below."
+                Classes="caption" TextWrapping="Wrap" />
             </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefEnabled}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
 
-            <StackPanel Grid.Column="2" IsVisible="{Binding CefEnabled}">
-                <Border Classes="section-header">
-                    <TextBlock Text="CLIENT" />
-                </Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Shortcut artwork" Classes="setting-title" />
-                            <TextBlock Text="Swap game art from SteamGridDB via the overlay." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefArtwork}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Big Picture Wi-Fi indicator" Classes="setting-title" />
-                            <TextBlock Text="Make Big Picture's header Wi-Fi icon reflect the real connection." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefWifiIndicator}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Native Quick Access bridge" Classes="setting-title" />
-                            <TextBlock Text="Use the fingerprint-gated persistent Steam UI host. An incompatible Steam build stays untouched." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefNativeQuickAccess}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Keep awake during downloads" Classes="setting-title" />
-                            <TextBlock Text="Hold a wake lock while Steam downloads, so standby cannot interrupt them." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefDownloadKeepAwake}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Download queue sorting" Classes="setting-title" />
-                            <TextBlock Text="Add Name, Size and Type sort buttons to Big Picture's download queue." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefDownloadQueueSort}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
+        <Border Classes="section-header" IsVisible="{Binding CefEnabled}">
+          <TextBlock Text="LIBRARY" />
+        </Border>
+        <Border Classes="setting-row" IsVisible="{Binding CefEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Library &amp; tabs" Classes="setting-title" />
+              <TextBlock Text="Custom filter tabs, tab order, and hiding native Steam tabs." Classes="caption"
+                         TextWrapping="Wrap" />
             </StackPanel>
-        </Grid>
-    </Border>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefLibraryTabs}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row alt" IsVisible="{Binding CefEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="SD-card library manager" Classes="setting-title" />
+              <TextBlock Text="Per-card library tabs, the library badge on game tiles, and live library labels."
+                         Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefCardManager}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row" IsVisible="{Binding CefEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Format SD Card + add library" Classes="setting-title" />
+              <TextBlock Text="Format a card as a Steam library and register it into the running Steam."
+                         Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefSdFormat}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row" IsVisible="{Binding CefEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Allow formatting from Steam's storage page" Classes="setting-title" />
+              <TextBlock
+                Text="Let Steam's own Format Drive dialog erase a card through WSGM's format flow. Off, the dialog is refused; eject and library registration from that page keep working."
+                Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamStorageFormat}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row alt" IsVisible="{Binding CefEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Connected-library Home carousel" Classes="setting-title" />
+              <TextBlock
+                Text="Big Picture Home shows every game on the libraries attached right now, last played first, behind recent purchases. Games on an ejected card leave the carousel."
+                Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefConnectedLibraryCarousel}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row" IsVisible="{Binding CefConnectedLibraryCarousel}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Show uninstalled games in the carousel" Classes="setting-title" />
+              <TextBlock
+                Text="Also list owned games that are not installed, greyed, after the installed ones. Selecting one opens Steam's normal install flow."
+                Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefCarouselShowUninstalled}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+
+        <Border Classes="section-header">
+          <TextBlock Text="PERFORMANCE" />
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="RTSS performance controls" Classes="setting-title" />
+              <TextBlock
+                Text="Use the verified RTSS profile API for the shared frame limiter in the overlay and native Quick Access. RTSS remains optional and independently installed."
+                Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding PerformanceEnabled}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Frame limit and refresh rate" Classes="setting-title" />
+              <TextBlock
+                Text="How a frame cap is paired with the panel. Frame limit only never changes the display. Native refresh modes switch only between the rates the panel advertises. Frame doubling picks the lowest rate the driver accepts that is an exact multiple of the cap, so 40 FPS runs the panel at 80 Hz."
+                Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center"
+                      SelectedIndex="{Binding FrameLimitStrategyIndex}">
+              <ComboBoxItem Content="Frame limit only" />
+              <ComboBoxItem Content="Native refresh modes" />
+              <ComboBoxItem Content="Frame doubling" />
+            </ComboBox>
+          </Grid>
+        </Border>
+
+        <Border Classes="section-header" IsVisible="{Binding PerformanceEnabled}">
+          <TextBlock Text="CUSTOM OVERLAY (LEVEL 4)" />
+        </Border>
+        <Border Classes="setting-row alt" IsVisible="{Binding PerformanceEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Widget order" Classes="setting-title" />
+              <TextBlock
+                Text="Rows of the Quick Access overlay selector's Custom level, top to bottom. Names: Time, GPU, CPU, VRAM, RAM, BATT, FPS; unknown names are ignored."
+                Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <TextBox Grid.Column="1" Width="230" VerticalAlignment="Center" Text="{Binding OsdCustomOrder}" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock Text="Clock" Classes="setting-title" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}"
+                      SelectedIndex="{Binding OsdCustomTimeIndex}" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row alt" IsVisible="{Binding PerformanceEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock Text="Framerate" Classes="setting-title" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}"
+                      SelectedIndex="{Binding OsdCustomFpsIndex}" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock Text="CPU" Classes="setting-title" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}"
+                      SelectedIndex="{Binding OsdCustomCpuIndex}" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row alt" IsVisible="{Binding PerformanceEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock Text="GPU" Classes="setting-title" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}"
+                      SelectedIndex="{Binding OsdCustomGpuIndex}" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock Text="Memory" Classes="setting-title" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}"
+                      SelectedIndex="{Binding OsdCustomRamIndex}" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row alt" IsVisible="{Binding PerformanceEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock Text="Video memory" Classes="setting-title" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}"
+                      SelectedIndex="{Binding OsdCustomVramIndex}" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock Text="Battery" Classes="setting-title" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}"
+                      SelectedIndex="{Binding OsdCustomBatteryIndex}" />
+          </Grid>
+        </Border>
+      </StackPanel>
+
+      <StackPanel Grid.Column="2" IsVisible="{Binding CefEnabled}">
+        <Border Classes="section-header">
+          <TextBlock Text="CLIENT" />
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Shortcut artwork" Classes="setting-title" />
+              <TextBlock Text="Swap game art from SteamGridDB via the overlay." Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefArtwork}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Big Picture Wi-Fi indicator" Classes="setting-title" />
+              <TextBlock Text="Make Big Picture's header Wi-Fi icon reflect the real connection." Classes="caption"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefWifiIndicator}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Native Quick Access bridge" Classes="setting-title" />
+              <TextBlock
+                Text="Use the fingerprint-gated persistent Steam UI host. An incompatible Steam build stays untouched."
+                Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefNativeQuickAccess}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Keep awake during downloads" Classes="setting-title" />
+              <TextBlock Text="Hold a wake lock while Steam downloads, so standby cannot interrupt them."
+                         Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefDownloadKeepAwake}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Download queue sorting" Classes="setting-title" />
+              <TextBlock Text="Add Name, Size and Type sort buttons to Big Picture's download queue." Classes="caption"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefDownloadQueueSort}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+      </StackPanel>
+    </Grid>
+  </Border>
 </UserControl>

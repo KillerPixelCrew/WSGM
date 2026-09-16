@@ -47,11 +47,15 @@ public sealed class SteamCustomLaunchCommandTests
 
     [Fact]
     public void Build_MultilineArguments_RejectsThem()
-        => Assert.Throws<ArgumentException>(() =>
+    {
+        Assert.Throws<ArgumentException>(() =>
             SteamCustomLaunchCommand.Build("D:\\Tool.exe", "first\r\nsecond"));
+    }
 
     [Fact]
     public void Build_UnsupportedExtension_RejectsIt()
-        => Assert.Throws<ArgumentException>(() =>
+    {
+        Assert.Throws<ArgumentException>(() =>
             SteamCustomLaunchCommand.Build("D:\\Tool.com", ""));
+    }
 }

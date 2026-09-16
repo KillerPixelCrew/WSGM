@@ -10,16 +10,20 @@ namespace WSGM.Core;
 /// <summary>Shared shape check for plugin-supplied identifiers.</summary>
 public static class DeviceIdentifier
 {
-    /// <summary>Whether a plugin-supplied identifier is non-empty, bounded, and uses only ASCII
-    /// letters, digits, '.', '-' and '_'.</summary>
+    /// <summary>
+    ///     Whether a plugin-supplied identifier is non-empty, bounded, and uses only ASCII
+    ///     letters, digits, '.', '-' and '_'.
+    /// </summary>
     /// <param name="value">The identifier to check.</param>
     /// <param name="maximumLength">Longest accepted identifier.</param>
-    /// <returns><see langword="true"/> when the identifier is safe to store, log, and use as a key.</returns>
-    public static bool IsValid(string value, int maximumLength) =>
-        !string.IsNullOrWhiteSpace(value)
-        && value.Length <= maximumLength
-        && value.All(character => char.IsAsciiLetterOrDigit(character)
-            || character is '.' or '-' or '_');
+    /// <returns><see langword="true" /> when the identifier is safe to store, log, and use as a key.</returns>
+    public static bool IsValid(string value, int maximumLength)
+    {
+        return !string.IsNullOrWhiteSpace(value)
+               && value.Length <= maximumLength
+               && value.All(character => char.IsAsciiLetterOrDigit(character)
+                                         || character is '.' or '-' or '_');
+    }
 }
 
 /// <summary>Capability ids the authored-profile chain targets.</summary>
@@ -40,8 +44,8 @@ public sealed class DeviceIntegrationConfig
 
     /// <summary>Remembered child preference for physical-controller management.</summary>
     /// <remarks>
-    /// Turning the master switch off makes this ineffective but does not erase it. A later master
-    /// re-enable restores the user's previous choice after all safety gates are checked again.
+    ///     Turning the master switch off makes this ineffective but does not erase it. A later master
+    ///     re-enable restores the user's previous choice after all safety gates are checked again.
     /// </remarks>
     public bool ControllerManagementEnabled { get; set; }
 
@@ -51,24 +55,24 @@ public sealed class DeviceIntegrationConfig
 
     /// <summary>Per-application managed-controller target overrides.</summary>
     /// <remarks>
-    /// Stored beside the global default rather than under a per-device profile. There is one
-    /// installed plugin and therefore one device, so nesting the controller target under a device
-    /// identity would add a layer nothing can vary and a projection between the setting and the
-    /// virtual target.
+    ///     Stored beside the global default rather than under a per-device profile. There is one
+    ///     installed plugin and therefore one device, so nesting the controller target under a device
+    ///     identity would add a layer nothing can vary and a projection between the setting and the
+    ///     virtual target.
     /// </remarks>
     public List<DeviceApplicationTargetOverride> ControllerTargets { get; set; } = [];
 
     /// <summary>Whether AutoTDP controls the primary power limit from frame delivery.</summary>
     /// <remarks>
-    /// Requires Device Integration, because the limit it moves is a plugin capability. Off leaves
-    /// the power limit entirely to manual control and profiles.
+    ///     Requires Device Integration, because the limit it moves is a plugin capability. Off leaves
+    ///     the power limit entirely to manual control and profiles.
     /// </remarks>
     public bool AutoTdpEnabled { get; set; }
 
     /// <summary>How the active handheld glyph profile is selected.</summary>
     public DeviceGlyphSelection GlyphSelection { get; set; } = DeviceGlyphSelection.Automatic;
 
-    /// <summary>Manual reviewed glyph profile when <see cref="GlyphSelection"/> is manual.</summary>
+    /// <summary>Manual reviewed glyph profile when <see cref="GlyphSelection" /> is manual.</summary>
     public string? ManualGlyphProfileId { get; set; }
 
     /// <summary>Desired semantic profiles keyed by stable local device identity.</summary>
@@ -76,9 +80,9 @@ public sealed class DeviceIntegrationConfig
 
     /// <summary>Stored values for the settings a plugin declares for itself.</summary>
     /// <remarks>
-    /// Keyed by device definition and plugin, so a value authored for one plugin never reaches
-    /// another that happens to reuse the setting identifier. Values are revalidated against the
-    /// current manifest on load, because a plugin update can narrow a range or drop an option.
+    ///     Keyed by device definition and plugin, so a value authored for one plugin never reaches
+    ///     another that happens to reuse the setting identifier. Values are revalidated against the
+    ///     current manifest on load, because a plugin update can narrow a range or drop an option.
     /// </remarks>
     public List<PluginSettingsScope> PluginSettings { get; set; } = [];
 }
@@ -96,50 +100,50 @@ public sealed class PluginSettingsScope
     public List<PluginSettingValue> Values { get; set; } = [];
 
     /// <summary>
-    /// The manifest the plugin published when it last ran, or null when none has been seen.
+    ///     The manifest the plugin published when it last ran, or null when none has been seen.
     /// </summary>
     /// <remarks>
-    /// Cached because Settings has to draw the page without activating device hardware. The
-    /// declaration is published by plugin code rather than stored in <c>plugin.wsgm.json</c>, so
-    /// there is nothing equivalent to read from the installed package at rest.
-    /// <para>
-    /// It is a cache and never the authority. The shell replaces it whenever a running plugin
-    /// publishes, and stored values are still reconciled against the live declaration when one
-    /// exists — this only decides what can be <em>drawn</em> when no plugin is running, never what
-    /// is legal to send one.
-    /// </para>
-    /// <para>
-    /// Stale by construction: a plugin uninstalled or downgraded between sessions leaves a manifest
-    /// describing settings that no longer exist. That is why it is dropped when it fails its own
-    /// validation on load, and why the page it produces is editable but the values still go through
-    /// reconciliation before they reach a plugin.
-    /// </para>
+    ///     Cached because Settings has to draw the page without activating device hardware. The
+    ///     declaration is published by plugin code rather than stored in <c>plugin.wsgm.json</c>, so
+    ///     there is nothing equivalent to read from the installed package at rest.
+    ///     <para>
+    ///         It is a cache and never the authority. The shell replaces it whenever a running plugin
+    ///         publishes, and stored values are still reconciled against the live declaration when one
+    ///         exists — this only decides what can be <em>drawn</em> when no plugin is running, never what
+    ///         is legal to send one.
+    ///     </para>
+    ///     <para>
+    ///         Stale by construction: a plugin uninstalled or downgraded between sessions leaves a manifest
+    ///         describing settings that no longer exist. That is why it is dropped when it fails its own
+    ///         validation on load, and why the page it produces is editable but the values still go through
+    ///         reconciliation before they reach a plugin.
+    ///     </para>
     /// </remarks>
     public PluginSettingsManifest? Declaration { get; set; }
 
     /// <summary>Named fan curves and lighting profiles the user authored for this device.</summary>
     /// <remarks>
-    /// Device-keyed and stored beside the plugin's settings because they are authored the same way
-    /// and become meaningless against a different device. Authoring lives in Settings; choosing
-    /// which one is in force is the overlay's job (D22b), so nothing here records a selection.
+    ///     Device-keyed and stored beside the plugin's settings because they are authored the same way
+    ///     and become meaningless against a different device. Authoring lives in Settings; choosing
+    ///     which one is in force is the overlay's job (D22b), so nothing here records a selection.
     /// </remarks>
     public List<DeviceAuthoredProfile> Profiles { get; set; } = [];
 
     /// <summary>Which authored profile is in force, globally and per application.</summary>
     /// <remarks>
-    /// Selections reference a profile by id rather than copying its curve, so editing a profile
-    /// changes every application already using it. Copying would silently strand every override on
-    /// the shape the profile had when it was chosen.
+    ///     Selections reference a profile by id rather than copying its curve, so editing a profile
+    ///     changes every application already using it. Copying would silently strand every override on
+    ///     the shape the profile had when it was chosen.
     /// </remarks>
     public List<DeviceProfileSelection> ProfileSelections { get; set; } = [];
 }
 
 /// <summary>Which authored profile is in force for one capability.</summary>
 /// <remarks>
-/// The same two layers, and the same precedence, as
-/// <see cref="DeviceCapabilityPreference"/>: an application override outranks the global choice.
-/// This is deliberately not a second per-application mechanism — it stores a profile reference
-/// where that one stores a value, and both resolve against the same running-application identity.
+///     The same two layers, and the same precedence, as
+///     <see cref="DeviceCapabilityPreference" />: an application override outranks the global choice.
+///     This is deliberately not a second per-application mechanism — it stores a profile reference
+///     where that one stores a value, and both resolve against the same running-application identity.
 /// </remarks>
 public sealed class DeviceProfileSelection
 {
@@ -165,19 +169,19 @@ public sealed class DeviceApplicationProfileSelection
 
 /// <summary>One named profile the user authored for a device capability.</summary>
 /// <remarks>
-/// A profile is not a setting. A setting is one value WSGM keeps and hands the plugin; a profile is
-/// a named shape the user builds and then applies, globally or per application, from the overlay.
-/// That is why curves are refused as settings and live here instead — one home each.
+///     A profile is not a setting. A setting is one value WSGM keeps and hands the plugin; a profile is
+///     a named shape the user builds and then applies, globally or per application, from the overlay.
+///     That is why curves are refused as settings and live here instead — one home each.
 /// </remarks>
 public sealed class DeviceAuthoredProfile
 {
-    /// <summary>Longest accepted <see cref="Name"/>.</summary>
+    /// <summary>Longest accepted <see cref="Name" />.</summary>
     public const int MaxNameLength = 48;
 
     /// <summary>Stable identifier the overlay selects by.</summary>
     /// <remarks>
-    /// Separate from <see cref="Name"/> so renaming a profile does not detach every application
-    /// override that pointed at it.
+    ///     Separate from <see cref="Name" /> so renaming a profile does not detach every application
+    ///     override that pointed at it.
     /// </remarks>
     public string ProfileId { get; set; } = string.Empty;
 
@@ -196,9 +200,9 @@ public sealed class DeviceAuthoredProfile
 
 /// <summary>One authored curve point.</summary>
 /// <remarks>
-/// A mutable configuration class rather than the SDK's <c>CurvePoint</c> struct, matching every
-/// other stored shape in this file: configuration is deserialized, normalized in place, and
-/// re-serialized, while the SDK value is an immutable runtime contract.
+///     A mutable configuration class rather than the SDK's <c>CurvePoint</c> struct, matching every
+///     other stored shape in this file: configuration is deserialized, normalized in place, and
+///     re-serialized, while the SDK value is an immutable runtime contract.
 /// </remarks>
 public sealed class AuthoredCurvePoint
 {
@@ -211,9 +215,9 @@ public sealed class AuthoredCurvePoint
 
 /// <summary>One stored plugin setting value.</summary>
 /// <remarks>
-/// Mirrors the value shapes the SDK allows a setting to take. There is no curve field: a curve is
-/// authored as a named profile with its own storage, so a curve-shaped setting is refused at
-/// declaration rather than given a second home here.
+///     Mirrors the value shapes the SDK allows a setting to take. There is no curve field: a curve is
+///     authored as a named profile with its own storage, so a curve-shaped setting is refused at
+///     declaration rather than given a second home here.
 /// </remarks>
 public sealed class PluginSettingValue
 {
@@ -325,9 +329,9 @@ public sealed class DeviceApplicationDesiredValue
 
 /// <summary>Closed WSGM-owned actions that an OEM control may invoke.</summary>
 /// <remarks>
-/// There is deliberately no executable, script, shell-command, text-macro, or arbitrary-key action.
-/// Keeping the vocabulary here, rather than in the plugin SDK, prevents hardware packages from
-/// defining WSGM application policy or turning OEM assignment into a general remapper.
+///     There is deliberately no executable, script, shell-command, text-macro, or arbitrary-key action.
+///     Keeping the vocabulary here, rather than in the plugin SDK, prevents hardware packages from
+///     defining WSGM application policy or turning OEM assignment into a general remapper.
 /// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<OemAction>))]
 public enum OemAction
@@ -344,8 +348,10 @@ public enum OemAction
     /// <summary>Open the overlay directly on the Device page.</summary>
     ShowWsgmDevicePage,
 
-    /// <summary>Open the quick access sheet on its Open apps strip, or close it when it is up —
-    /// what the taskbar button did before the strip moved into the sheet.</summary>
+    /// <summary>
+    ///     Open the quick access sheet on its Open apps strip, or close it when it is up —
+    ///     what the taskbar button did before the strip moved into the sheet.
+    /// </summary>
     ToggleWsgmTaskbar,
 
     /// <summary>Switch between Desktop and Game Mode.</summary>
@@ -392,9 +398,9 @@ public sealed class DeviceApplicationTargetOverride
 
 /// <summary>The desired-state layer that supplied an effective value.</summary>
 /// <remarks>
-/// Ordered lowest to highest precedence. Captured hardware state is deliberately absent: it is
-/// restoration-only and never competes with what the user asked for, because adopting an observed
-/// value as a desired one would silently turn whatever the device happened to be doing into policy.
+///     Ordered lowest to highest precedence. Captured hardware state is deliberately absent: it is
+///     restoration-only and never competes with what the user asked for, because adopting an observed
+///     value as a desired one would silently turn whatever the device happened to be doing into policy.
 /// </remarks>
 public enum DeviceDesiredValueSource
 {
@@ -435,15 +441,16 @@ public static class DeviceDesiredStateResolver
         string? applicationId)
     {
         ArgumentNullException.ThrowIfNull(preference);
-        var application = preference.ApplicationOverrides.FirstOrDefault(
-            value => string.Equals(value.ApplicationId, applicationId, StringComparison.Ordinal))?.Value;
+        var application = preference.ApplicationOverrides.FirstOrDefault(value =>
+            string.Equals(value.ApplicationId, applicationId, StringComparison.Ordinal))?.Value;
         if (application is not null)
         {
             return new ResolvedDeviceDesiredValue(application, DeviceDesiredValueSource.ApplicationOverride);
         }
 
-        var profile = preference.HardwareProfiles.FirstOrDefault(
-            value => string.Equals(value.ProfileId, hardwareProfileId, StringComparison.Ordinal))?.Value;
+        var profile = preference.HardwareProfiles
+            .FirstOrDefault(value => string.Equals(value.ProfileId, hardwareProfileId, StringComparison.Ordinal))
+            ?.Value;
         if (profile is not null)
         {
             return new ResolvedDeviceDesiredValue(profile, DeviceDesiredValueSource.HardwareProfile);
@@ -463,10 +470,10 @@ public static class DeviceDesiredStateResolver
 
 /// <summary>Pure policy for recording a value the user set on a device control.</summary>
 /// <remarks>
-/// The counterpart to <see cref="DeviceDesiredStateResolver"/>, and deliberately narrower than it:
-/// resolution reads five layers, but only two of them are ones a person can author by moving a
-/// control. The AC/DC and named-profile layers are authored elsewhere, so writing into them from a
-/// control press would put a value somewhere the user cannot see they put it.
+///     The counterpart to <see cref="DeviceDesiredStateResolver" />, and deliberately narrower than it:
+///     resolution reads five layers, but only two of them are ones a person can author by moving a
+///     control. The AC/DC and named-profile layers are authored elsewhere, so writing into them from a
+///     control press would put a value somewhere the user cannot see they put it.
 /// </remarks>
 public static class DeviceDesiredStateWriter
 {
@@ -476,15 +483,15 @@ public static class DeviceDesiredStateWriter
     /// <param name="capabilityId">The capability the value belongs to.</param>
     /// <param name="instanceId">Its instance, or null for a single-instance capability.</param>
     /// <param name="applicationId">
-    /// The running application, whose override layer receives the value, or null for the global
-    /// default. Mid-game a user is configuring what they are playing; on the desktop there is no
-    /// per-game scope to mean.
+    ///     The running application, whose override layer receives the value, or null for the global
+    ///     default. Mid-game a user is configuring what they are playing; on the desktop there is no
+    ///     per-game scope to mean.
     /// </param>
     /// <param name="value">The value the device accepted.</param>
     /// <remarks>
-    /// The profile and the capability entry are created on demand, because storing a value is the
-    /// first thing a user can do and refusing until some other write had already made a profile
-    /// would be arbitrary.
+    ///     The profile and the capability entry are created on demand, because storing a value is the
+    ///     first thing a user can do and refusing until some other write had already made a profile
+    ///     would be arbitrary.
     /// </remarks>
     public static void Store(
         DeviceIntegrationConfig device,
@@ -506,9 +513,9 @@ public static class DeviceDesiredStateWriter
             device.Profiles.Add(profile);
         }
 
-        var preference = profile.Capabilities.FirstOrDefault(
-            item => string.Equals(item.CapabilityId, capabilityId, StringComparison.Ordinal)
-                && string.Equals(item.InstanceId, instanceId, StringComparison.Ordinal));
+        var preference = profile.Capabilities.FirstOrDefault(item =>
+            string.Equals(item.CapabilityId, capabilityId, StringComparison.Ordinal)
+            && string.Equals(item.InstanceId, instanceId, StringComparison.Ordinal));
         if (preference is null)
         {
             preference = new DeviceCapabilityPreference
@@ -525,8 +532,8 @@ public static class DeviceDesiredStateWriter
             return;
         }
 
-        var entry = preference.ApplicationOverrides.FirstOrDefault(
-            item => string.Equals(item.ApplicationId, applicationId, StringComparison.Ordinal));
+        var entry = preference.ApplicationOverrides.FirstOrDefault(item =>
+            string.Equals(item.ApplicationId, applicationId, StringComparison.Ordinal));
         if (entry is null)
         {
             entry = new DeviceApplicationDesiredValue { ApplicationId = applicationId };

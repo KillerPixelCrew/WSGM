@@ -8,7 +8,10 @@ namespace WSGM.Settings.Pages;
 public partial class DeviceOwnershipPage : UserControl
 {
     /// <summary>Loads the compiled page XAML.</summary>
-    public DeviceOwnershipPage() => InitializeComponent();
+    public DeviceOwnershipPage()
+    {
+        InitializeComponent();
+    }
 
     private void OnRefreshStatus(object? sender, RoutedEventArgs e)
     {

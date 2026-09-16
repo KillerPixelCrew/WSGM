@@ -8,40 +8,68 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>Event-based badge/tab freshness for card libraries: watches every mounted
-/// card's <c>SteamLibrary\steamapps</c> for <c>appmanifest_*.acf</c> create/delete/rename
-/// and triggers a debounced full sync, so installing or removing a game on a card
-/// updates its tab and in-page badge without the user opening the overlay.
-///
-/// Only file-NAME events are watched: an install creates its appmanifest immediately
-/// and an uninstall deletes it, while download progress only rewrites file contents —
-/// so a multi-gigabyte download does not re-sync every few seconds.
-///
-/// Mounts change (insert/eject/format), so a cheap poll reconciles the watcher set.
-/// The watchers hold directory handles on the cards, which would make WSGM veto its
-/// own Safe Eject (FSCTL_LOCK_VOLUME needs the volume otherwise unopened) — the eject
-/// flow calls <see cref="SuspendAll"/> first, and reconciliation stays away until the
-/// suppression window passes.</summary>
+/// <summary>
+///     Event-based badge/tab freshness for card libraries: watches every mounted
+///     card's <c>SteamLibrary\steamapps</c> for <c>appmanifest_*.acf</c> create/delete/rename
+///     and triggers a debounced full sync, so installing or removing a game on a card
+///     updates its tab and in-page badge without the user opening the overlay.
+///     Only file-NAME events are watched: an install creates its appmanifest immediately
+///     and an uninstall deletes it, while download progress only rewrites file contents —
+///     so a multi-gigabyte download does not re-sync every few seconds.
+///     Mounts change (insert/eject/format), so a cheap poll reconciles the watcher set.
+///     The watchers hold directory handles on the cards, which would make WSGM veto its
+///     own Safe Eject (FSCTL_LOCK_VOLUME needs the volume otherwise unopened) — the eject
+///     flow calls <see cref="SuspendAll" /> first, and reconciliation stays away until the
+///     suppression window passes.
+/// </summary>
 internal sealed class CardAcfWatcher : IDisposable
 {
     private static CardAcfWatcher? _active;
+    private readonly CancellationTokenSource _cts = new();
+    private readonly object _gate = new();
+    private readonly CancellationToken _token;
 
     private readonly Dictionary<char, FileSystemWatcher> _watchers = new();
-    private readonly object _gate = new();
-    private readonly CancellationTokenSource _cts = new();
-    private readonly CancellationToken _token;
-    private Timer? _reconcile;
-    private Timer? _debounce;
 
-    /// <summary>1 while a deferred boot sync is running. Its retry loop outlives many
-    /// debounce ticks, and overlapping loops would drive concurrent CEF mutation.</summary>
+    /// <summary>
+    ///     1 while a deferred boot sync is running. Its retry loop outlives many
+    ///     debounce ticks, and overlapping loops would drive concurrent CEF mutation.
+    /// </summary>
     private int _bootSyncPending;
-    private long _suppressedUntilTicks;
+
+    private Timer? _debounce;
     private bool _disposed;
+    private Timer? _reconcile;
+    private long _suppressedUntilTicks;
 
     private CardAcfWatcher()
     {
         _token = _cts.Token;
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        lock (_gate)
+        {
+            _disposed = true;
+            _reconcile?.Dispose();
+            _reconcile = null;
+            _debounce?.Dispose();
+            _debounce = null;
+            foreach (var watcher in _watchers.Values)
+            {
+                watcher.Dispose();
+            }
+
+            _watchers.Clear();
+        }
+
+        _cts.Dispose();
+        if (ReferenceEquals(_active, this))
+        {
+            _active = null;
+        }
     }
 
     /// <summary>Creates, registers and starts the session's watcher.</summary>
@@ -53,9 +81,11 @@ internal sealed class CardAcfWatcher : IDisposable
         return watcher;
     }
 
-    /// <summary>Drops every directory handle before a Safe Eject and keeps the
-    /// reconciler from re-opening one for the next 20 seconds. Cards that remain
-    /// mounted are re-watched automatically afterwards.</summary>
+    /// <summary>
+    ///     Drops every directory handle before a Safe Eject and keeps the
+    ///     reconciler from re-opening one for the next 20 seconds. Cards that remain
+    ///     mounted are re-watched automatically afterwards.
+    /// </summary>
     internal static void SuspendAll()
     {
         var active = _active;
@@ -63,6 +93,7 @@ internal sealed class CardAcfWatcher : IDisposable
         {
             return;
         }
+
         lock (active._gate)
         {
             active._suppressedUntilTicks = DateTime.UtcNow.AddSeconds(20).Ticks;
@@ -70,10 +101,12 @@ internal sealed class CardAcfWatcher : IDisposable
             {
                 watcher.Dispose();
             }
+
             if (active._watchers.Count > 0)
             {
                 Log.Info("Card watcher: suspended for eject.");
             }
+
             active._watchers.Clear();
         }
     }
@@ -86,6 +119,7 @@ internal sealed class CardAcfWatcher : IDisposable
             {
                 return;
             }
+
             var mounted = new HashSet<char>();
             foreach (var drive in DriveInfo.GetDrives())
             {
@@ -95,6 +129,7 @@ internal sealed class CardAcfWatcher : IDisposable
                     {
                         continue;
                     }
+
                     var root = Path.Combine(drive.Name, "SteamLibrary");
                     if (File.Exists(Path.Combine(root, "libraryfolder.vdf"))
                         && Directory.Exists(Path.Combine(root, "steamapps")))
@@ -107,18 +142,21 @@ internal sealed class CardAcfWatcher : IDisposable
                     // A vanishing drive mid-probe is normal (eject, card swap).
                 }
             }
+
             lock (_gate)
             {
                 if (_disposed)
                 {
                     return;
                 }
+
                 foreach (var letter in _watchers.Keys.Where(l => !mounted.Contains(l)).ToList())
                 {
                     _watchers[letter].Dispose();
                     _watchers.Remove(letter);
                     Log.Info($"Card watcher: stopped watching {letter}: (unmounted).");
                 }
+
                 foreach (var letter in mounted.Where(l => !_watchers.ContainsKey(l)))
                 {
                     TryWatch(letter);
@@ -165,12 +203,16 @@ internal sealed class CardAcfWatcher : IDisposable
             {
                 return;
             }
+
             _debounce ??= new Timer(OnDebounceElapsed, null, Timeout.Infinite, Timeout.Infinite);
             _debounce.Change(2000, Timeout.Infinite);
         }
     }
 
-    private void OnDebounceElapsed(object? state) => _ = SyncAsync();
+    private void OnDebounceElapsed(object? state)
+    {
+        _ = SyncAsync();
+    }
 
     private async Task SyncAsync()
     {
@@ -191,6 +233,7 @@ internal sealed class CardAcfWatcher : IDisposable
                     Log.Info("Card watcher: a deferred boot sync is already pending; skipping.");
                     return;
                 }
+
                 try
                 {
                     Log.Info(
@@ -201,8 +244,10 @@ internal sealed class CardAcfWatcher : IDisposable
                 {
                     Interlocked.Exchange(ref _bootSyncPending, 0);
                 }
+
                 return;
             }
+
             var summary = await LibraryTabManager.SyncAllAsync(_token).ConfigureAwait(false);
             Log.Info($"Card watcher: {summary}");
         }
@@ -213,29 +258,6 @@ internal sealed class CardAcfWatcher : IDisposable
         catch (Exception ex)
         {
             Log.Warn($"Card watcher: sync failed: {ex.Message}");
-        }
-    }
-
-    public void Dispose()
-    {
-        _cts.Cancel();
-        lock (_gate)
-        {
-            _disposed = true;
-            _reconcile?.Dispose();
-            _reconcile = null;
-            _debounce?.Dispose();
-            _debounce = null;
-            foreach (var watcher in _watchers.Values)
-            {
-                watcher.Dispose();
-            }
-            _watchers.Clear();
-        }
-        _cts.Dispose();
-        if (ReferenceEquals(_active, this))
-        {
-            _active = null;
         }
     }
 }

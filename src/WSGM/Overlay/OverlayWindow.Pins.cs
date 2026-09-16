@@ -16,30 +16,35 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
-    /// <summary>Every pinnable XAML row, by its stable id (the CardButton's Tag).
-    /// Device rows are not here: they are rebuilt from the snapshot on every render.</summary>
-    private readonly Dictionary<string, CardButton> _pinnable = new(StringComparer.Ordinal);
+    /// <summary>The Tag prefix that marks a Quick access clone; X on one unpins.</summary>
+    private const string PinTagPrefix = "pin:";
 
-    /// <summary>Live mirrors on the Quick access root: each clone follows its source row's
-    /// title, description, badge and visibility through the source's property changes, and
-    /// presses through to the source's Click handlers.</summary>
+    /// <summary>
+    ///     Live mirrors on the Quick access root: each clone follows its source row's
+    ///     title, description, badge and visibility through the source's property changes, and
+    ///     presses through to the source's Click handlers.
+    /// </summary>
     private readonly List<(CardButton Source, EventHandler<AvaloniaPropertyChangedEventArgs> Handler)> _pinMirrors = [];
 
-    private IReadOnlyList<string> _pins = [];
+    /// <summary>
+    ///     Every pinnable XAML row, by its stable id (the CardButton's Tag).
+    ///     Device rows are not here: they are rebuilt from the snapshot on every render.
+    /// </summary>
+    private readonly Dictionary<string, CardButton> _pinnable = new(StringComparer.Ordinal);
+
+    private int _loggedPinRendered = -1;
+    private int _loggedPinTotal = -1;
 
     // The pin list the current mirrors were built for. Mirrors follow their source rows through
     // property changes, so while the list is unchanged a render only revisits the pinned sections.
     private string[]? _mirroredPins;
     private CardButton? _pinGhost;
-    private int _loggedPinRendered = -1;
-    private int _loggedPinTotal = -1;
+    private DispatcherTimer? _pinToastTimer;
 
-    /// <summary>The Tag prefix that marks a Quick access clone; X on one unpins.</summary>
-    private const string PinTagPrefix = "pin:";
+    private IReadOnlyList<string> _pins = [];
 
     /// <summary>False until the first SetPins, so restoring stored pins never toasts.</summary>
     private bool _pinsInitialized;
-    private DispatcherTimer? _pinToastTimer;
 
     private void IndexPinnableRows()
     {
@@ -52,19 +57,21 @@ public partial class OverlayWindow
         }
     }
 
-    /// <summary>Rebuilds the Quick access root from the persisted pin list. Ids this
-    /// build cannot resolve are skipped (kept in the config for the build or device that
-    /// can).</summary>
+    /// <summary>
+    ///     Rebuilds the Quick access root from the persisted pin list. Ids this
+    ///     build cannot resolve are skipped (kept in the config for the build or device that
+    ///     can).
+    /// </summary>
     /// <param name="ids">The pinned row ids in display order.</param>
     internal void SetPins(IReadOnlyList<string> ids)
     {
         var previous = _pinsInitialized ? _pins : null;
         _pins = ids;
         _pinsInitialized = true;
-        RenderPins(preserveEditing: false);
+        RenderPins(false);
         if (previous is not null && ids.Count != previous.Count)
         {
-            ShowPinToast(added: ids.Count > previous.Count);
+            ShowPinToast(ids.Count > previous.Count);
         }
     }
 
@@ -100,6 +107,7 @@ public partial class OverlayWindow
         {
             return;
         }
+
         if (!_opened)
         {
             _rendersAwaitingOpen |= PinsRenderAwaitingOpen;
@@ -107,7 +115,7 @@ public partial class OverlayWindow
         }
 
         if (preserveEditing && (IsEditingValueIn(PinnedGrid) || IsEditingValueIn(PinnedSectionsGrid))
-            && PinnedSectionProvidersAvailable())
+                            && PinnedSectionProvidersAvailable())
         {
             var snapshot = _deviceBridge?.Snapshot();
             foreach (var slider in PinnedSectionsGrid.GetLogicalDescendants().OfType<DeviceSliderRow>())
@@ -115,19 +123,23 @@ public partial class OverlayWindow
                 var key = (slider.Tag as string ?? "")[PinTagPrefix.Length..];
                 if (key.StartsWith("performance.", StringComparison.Ordinal)
                     && _performanceSource?.Snapshot() is { Visible: true } performance
-                    && performance.ProfileRows.Concat(performance.Rows).FirstOrDefault(row => "performance." + row.Id == key)
+                    && performance.ProfileRows.Concat(performance.Rows)
+                            .FirstOrDefault(row => "performance." + row.Id == key)
                         is { Range: { } range, Value: { } value } descriptor)
                 {
                     slider.RefreshReadback(range.Minimum, range.Maximum, range.Step, value, descriptor.CanInvoke);
                     continue;
                 }
+
                 var capability = snapshot?.Capabilities.FirstOrDefault(item => DeviceRowKey(item) == key);
                 slider.RefreshReadback(capability?.Minimum ?? 0, capability?.Maximum ?? 0, capability?.Step ?? 1,
                     capability?.CurrentValue?.IntegerValue ?? 0, snapshot?.Visible is true && capability is not null
-                        && RendersAsSlider(capability) && capability.CanInvoke);
+                    && RendersAsSlider(capability) && capability.CanInvoke);
             }
+
             return;
         }
+
         var focusedKey = CurrentSemanticFocusKey();
         Control? restoreFocus = null;
         var mirrorsCurrent = _mirroredPins is not null && _mirroredPins.SequenceEqual(_pins, StringComparer.Ordinal);
@@ -136,6 +148,7 @@ public partial class OverlayWindow
             ReleasePinMirrors();
             PinnedGrid.Children.Clear();
         }
+
         List<Control> valueControls = [];
         foreach (var id in _pins)
         {
@@ -149,6 +162,7 @@ public partial class OverlayWindow
                 {
                     continue;
                 }
+
                 if (!mirrorsCurrent)
                 {
                     row.Margin = new Thickness(0, 0, 10, 10);
@@ -162,14 +176,17 @@ public partial class OverlayWindow
                 {
                     continue;
                 }
+
                 row.Margin = new Thickness(0, 0, 10, 10);
                 valueControls.Add(row);
             }
+
             if (string.Equals(row.Tag as string, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = row;
             }
         }
+
         _mirroredPins = [.. _pins];
         // Host controls own subscriptions and user selections. Keep them attached across
         // telemetry refreshes; removing a pin is what ends that view's lifetime.
@@ -178,23 +195,35 @@ public partial class OverlayWindow
         {
             PinnedSectionsGrid.Children.Remove(stale);
         }
+
         for (var i = 0; i < valueControls.Count; i++)
         {
             var existing = PinnedSectionsGrid.Children.IndexOf(valueControls[i]);
-            if (existing < 0) { PinnedSectionsGrid.Children.Insert(i, valueControls[i]); }
-            else if (existing != i) { PinnedSectionsGrid.Children.Move(existing, i); }
+            if (existing < 0)
+            {
+                PinnedSectionsGrid.Children.Insert(i, valueControls[i]);
+            }
+            else if (existing != i)
+            {
+                PinnedSectionsGrid.Children.Move(existing, i);
+            }
         }
+
         // Once sections are present their headers explain pinning. Avoid an empty
         // action row above a front page containing only sections.
         if (valueControls.Count == 0)
         {
             _pinGhost ??= CreatePinGhost();
-            if (!PinnedGrid.Children.Contains(_pinGhost)) { PinnedGrid.Children.Add(_pinGhost); }
+            if (!PinnedGrid.Children.Contains(_pinGhost))
+            {
+                PinnedGrid.Children.Add(_pinGhost);
+            }
         }
         else if (_pinGhost is not null)
         {
             PinnedGrid.Children.Remove(_pinGhost);
         }
+
         PinnedGrid.IsVisible = PinnedGrid.Children.Count > 0;
         UpdatePinnedIndicators();
         if (restoreFocus is null && PanelQuickAccess.IsVisible && !AnySubView && focusedKey is not null)
@@ -202,20 +231,29 @@ public partial class OverlayWindow
             restoreFocus = PinnedSectionsGrid.GetLogicalDescendants().OfType<Control>()
                 .FirstOrDefault(control => control.Focusable && Equals(control.Tag, focusedKey));
         }
-        var rendered = PinnedGrid.Children.Count + PinnedSectionsGrid.Children.Count - (valueControls.Count == 0 ? 1 : 0);
+
+        var rendered = PinnedGrid.Children.Count + PinnedSectionsGrid.Children.Count -
+                       (valueControls.Count == 0 ? 1 : 0);
         if (rendered != _loggedPinRendered || _pins.Count != _loggedPinTotal)
         {
             _loggedPinRendered = rendered;
             _loggedPinTotal = _pins.Count;
             Log.Change("overlay.pins", $"Quick access pins: {rendered} of {_pins.Count} rendered.");
         }
+
         if (restoreFocus is not null)
         {
-            if (restoreFocus.Focusable) { restoreFocus.Focus(NavigationMethod.Directional); }
-            else { FocusFirstControl(restoreFocus); }
+            if (restoreFocus.Focusable)
+            {
+                restoreFocus.Focus(NavigationMethod.Directional);
+            }
+            else
+            {
+                FocusFirstControl(restoreFocus);
+            }
         }
         else if (PanelQuickAccess.IsVisible && !AnySubView && focusedKey is not null
-            && focusedKey.StartsWith(PinTagPrefix, StringComparison.Ordinal))
+                 && focusedKey.StartsWith(PinTagPrefix, StringComparison.Ordinal))
         {
             // The focused pin was just unpinned: land on whatever is left rather than on a
             // detached control.
@@ -225,10 +263,10 @@ public partial class OverlayWindow
 
     /// <summary>Updates the pin marker on every row in its original destination.</summary>
     /// <remarks>
-    /// Device and performance rows are rebuilt from snapshots, so this deliberately walks the
-    /// current logical tree instead of retaining references to those short-lived controls. Quick
-    /// access mirrors use a prefixed tag and remain unmarked: the icon is the immediate feedback at
-    /// the source row, where the user pressed X or held the card.
+    ///     Device and performance rows are rebuilt from snapshots, so this deliberately walks the
+    ///     current logical tree instead of retaining references to those short-lived controls. Quick
+    ///     access mirrors use a prefixed tag and remain unmarked: the icon is the immediate feedback at
+    ///     the source row, where the user pressed X or held the card.
     /// </remarks>
     private void UpdatePinnedIndicators()
     {
@@ -265,9 +303,11 @@ public partial class OverlayWindow
 
     /// <summary>Determines whether a tagged card is an original row in the active pin set.</summary>
     internal static bool IsOriginalPinnedRow(object? tag, IReadOnlySet<string> pinned)
-        => tag is string id
-            && !id.StartsWith(PinTagPrefix, StringComparison.Ordinal)
-            && pinned.Contains(id);
+    {
+        return tag is string id
+               && !id.StartsWith(PinTagPrefix, StringComparison.Ordinal)
+               && pinned.Contains(id);
+    }
 
     private CardButton CreatePinMirror(string id, CardButton source)
     {
@@ -280,6 +320,7 @@ public partial class OverlayWindow
                 clone.Classes.Add(cls);
             }
         }
+
         MirrorPinnedRow(clone, source);
         EventHandler<AvaloniaPropertyChangedEventArgs> handler = (_, _) => MirrorPinnedRow(clone, source);
         source.PropertyChanged += handler;
@@ -297,6 +338,7 @@ public partial class OverlayWindow
         {
             source.PropertyChanged -= handler;
         }
+
         _pinMirrors.Clear();
         _mirroredPins = null;
     }
@@ -317,15 +359,22 @@ public partial class OverlayWindow
     }
 
     private static string DeviceRowKey(DeviceOverlayCapability capability)
-        => capability.InstanceId is { Length: > 0 }
+    {
+        return capability.InstanceId is { Length: > 0 }
             ? $"{capability.CapabilityId}#{capability.InstanceId}"
             : capability.CapabilityId;
+    }
 
     /// <summary>Static actions and whole sections are the pin targets.</summary>
-    private bool IsPinnable(string id, Func<DeviceOverlaySnapshot?> deviceSnapshot) => _pinnable.ContainsKey(id) || _controlPinFactories.ContainsKey(id)
-        || id == "section.performance" && _performanceSource?.Snapshot().Visible is true
-        || _pins.Contains(id) && id.StartsWith("section.", StringComparison.Ordinal)
-        || deviceSnapshot() is { } snapshot && DevicePinSections(snapshot).Any(section => section.Id == id);
+    private bool IsPinnable(string id, Func<DeviceOverlaySnapshot?> deviceSnapshot)
+    {
+        return _pinnable.ContainsKey(id) || _controlPinFactories.ContainsKey(id)
+                                         || (id == "section.performance" &&
+                                             _performanceSource?.Snapshot().Visible is true)
+                                         || (_pins.Contains(id) && id.StartsWith("section.", StringComparison.Ordinal))
+                                         || (deviceSnapshot() is { } snapshot && DevicePinSections(snapshot)
+                                             .Any(section => section.Id == id));
+    }
 
     /// <summary>Resolves the row id a row or its Quick access mirror stands for.</summary>
     private bool TryGetPinId(Control? control, out string id)
@@ -335,10 +384,18 @@ public partial class OverlayWindow
         var snapshotRead = false;
         for (Visual? node = control; node is not null; node = node.GetVisualParent())
         {
-            if (node is not Control { Tag: string tag }) { continue; }
+            if (node is not Control { Tag: string tag })
+            {
+                continue;
+            }
+
             id = tag.StartsWith(PinTagPrefix, StringComparison.Ordinal) ? tag[PinTagPrefix.Length..] : tag;
-            if (IsPinnable(id, DeviceSnapshot)) { return true; }
+            if (IsPinnable(id, DeviceSnapshot))
+            {
+                return true;
+            }
         }
+
         id = "";
         return false;
 
@@ -348,15 +405,18 @@ public partial class OverlayWindow
             {
                 return snapshot;
             }
+
             snapshot = _deviceBridge?.Snapshot();
             snapshotRead = true;
             return snapshot;
         }
     }
 
-    /// <summary>Gamepad secondary action (X): the context menu of a focused tray
-    /// icon, otherwise pin/unpin the focused row. Logged either way — this is
-    /// remote-diagnosis territory.</summary>
+    /// <summary>
+    ///     Gamepad secondary action (X): the context menu of a focused tray
+    ///     icon, otherwise pin/unpin the focused row. Logged either way — this is
+    ///     remote-diagnosis territory.
+    /// </summary>
     internal void RequestSecondaryAction(InputElement? focused)
     {
         if (focused is Control { DataContext: TrayIconEntry entry } control)
@@ -365,13 +425,16 @@ public partial class OverlayWindow
             TrayIconActivated?.Invoke(entry, true, AnchorBelow(control));
             return;
         }
+
         if (TryGetPinId(focused as Control, out var id))
         {
             Log.Info($"Gamepad X: toggling pin '{id}'.");
             PinToggleRequested?.Invoke(id);
             return;
         }
-        Log.Info($"Gamepad X: focused element is not pinnable ({focused?.GetType().Name ?? "none"}, tag {(focused as Control)?.Tag ?? "-"}).");
+
+        Log.Info(
+            $"Gamepad X: focused element is not pinnable ({focused?.GetType().Name ?? "none"}, tag {(focused as Control)?.Tag ?? "-"}).");
     }
 
     private void OnHolding(object? sender, HoldingRoutedEventArgs e)
@@ -380,11 +443,13 @@ public partial class OverlayWindow
         {
             return;
         }
+
         var row = e.Source as Control;
         if (!TryGetPinId(row, out var id))
         {
             return;
         }
+
         e.Handled = true;
         Log.Info($"Touch hold: toggling pin '{id}'.");
         PinToggleRequested?.Invoke(id);
@@ -404,11 +469,13 @@ public partial class OverlayWindow
         {
             return;
         }
+
         var row = e.Source as Control;
         if (!TryGetPinId(row, out var id))
         {
             return;
         }
+
         e.Handled = true;
         PinToggleRequested?.Invoke(id);
     }

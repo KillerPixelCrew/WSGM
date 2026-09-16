@@ -6,5 +6,8 @@ namespace WSGM.Settings.Pages;
 public partial class DisplayPage : UserControl
 {
     /// <summary>Loads the compiled page XAML.</summary>
-    public DisplayPage() => InitializeComponent();
+    public DisplayPage()
+    {
+        InitializeComponent();
+    }
 }

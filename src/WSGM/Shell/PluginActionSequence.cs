@@ -17,8 +17,10 @@ internal sealed record PluginActionStepResult(PluginActionStep Step, PluginActio
     /// <summary>Whether the step got far enough for the next one to run.</summary>
     internal bool Succeeded => Outcome is PluginActionOutcome.AppliedVerified or PluginActionOutcome.Dispatched;
 
-    /// <summary>Whether the step may have changed something despite not succeeding. Compensation
-    /// has to run for these too, because "unknown" is not "nothing happened".</summary>
+    /// <summary>
+    ///     Whether the step may have changed something despite not succeeding. Compensation
+    ///     has to run for these too, because "unknown" is not "nothing happened".
+    /// </summary>
     internal bool MayHaveActed => Outcome is not PluginActionOutcome.Rejected;
 }
 
@@ -34,13 +36,14 @@ internal interface IPluginActionInvoker
         PluginActionStep step, DateTimeOffset deadline, CancellationToken cancellationToken);
 }
 
-/// <summary>Runs a configured list of plugin actions in order.
-///
-/// Two behaviours, because the lists mean different things. Entry stops at the first step that did
-/// not succeed: sending the rest after the TV failed to come on only makes the failure harder to
-/// read. Leave, desktop startup and desktop wake run every step and report what failed, because
-/// each one is independently worth attempting and there is nothing to abort. Nothing is ever
-/// retried in either mode.</summary>
+/// <summary>
+///     Runs a configured list of plugin actions in order.
+///     Two behaviours, because the lists mean different things. Entry stops at the first step that did
+///     not succeed: sending the rest after the TV failed to come on only makes the failure harder to
+///     read. Leave, desktop startup and desktop wake run every step and report what failed, because
+///     each one is independently worth attempting and there is nothing to abort. Nothing is ever
+///     retried in either mode.
+/// </summary>
 internal sealed class PluginActionSequence(IPluginActionInvoker invoker, Action<string>? log = null)
 {
     /// <summary>Runs steps in order, stopping at the first that did not succeed.</summary>
@@ -48,22 +51,28 @@ internal sealed class PluginActionSequence(IPluginActionInvoker invoker, Action<
     /// <param name="cancellationToken">Cancels the sequence between and during steps.</param>
     /// <returns>One result per step that ran.</returns>
     internal Task<IReadOnlyList<PluginActionStepResult>> RunUntilFailureAsync(
-        IReadOnlyList<PluginActionStep> steps, CancellationToken cancellationToken) =>
-        RunAsync(steps, stopOnFailure: true, cancellationToken);
+        IReadOnlyList<PluginActionStep> steps, CancellationToken cancellationToken)
+    {
+        return RunAsync(steps, true, cancellationToken);
+    }
 
     /// <summary>Runs every step, reporting each.</summary>
     /// <param name="steps">Configured steps.</param>
     /// <param name="cancellationToken">Cancels the sequence between and during steps.</param>
     /// <returns>One result per step.</returns>
     internal Task<IReadOnlyList<PluginActionStepResult>> RunAllAsync(
-        IReadOnlyList<PluginActionStep> steps, CancellationToken cancellationToken) =>
-        RunAsync(steps, stopOnFailure: false, cancellationToken);
+        IReadOnlyList<PluginActionStep> steps, CancellationToken cancellationToken)
+    {
+        return RunAsync(steps, false, cancellationToken);
+    }
 
     /// <summary>Whether any step in a partial run may have changed external state.</summary>
     /// <param name="results">Results from an earlier run.</param>
     /// <returns>True when compensation is owed.</returns>
-    internal static bool NeedsCompensation(IEnumerable<PluginActionStepResult> results) =>
-        results.Any(result => result.MayHaveActed);
+    internal static bool NeedsCompensation(IEnumerable<PluginActionStepResult> results)
+    {
+        return results.Any(result => result.MayHaveActed);
+    }
 
     private async Task<IReadOnlyList<PluginActionStepResult>> RunAsync(
         IReadOnlyList<PluginActionStep> steps, bool stopOnFailure, CancellationToken cancellationToken)
@@ -73,14 +82,22 @@ internal sealed class PluginActionSequence(IPluginActionInvoker invoker, Action<
         {
             // Keep outcomes already observed. Throwing between steps discards the evidence
             // needed to compensate actions that have already reached the appliance.
-            if (cancellationToken.IsCancellationRequested) { break; }
+            if (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+
             var action = $"{step.Plugin?.PluginId}/{step.Plugin?.InstanceId} {step.ActionId}";
             log?.Invoke($"Session action starting: {action}.");
             var result = await RunStepAsync(step, cancellationToken).ConfigureAwait(false);
             log?.Invoke($"Session action completed: {action}: {result.Outcome}; {result.Detail}");
             results.Add(result);
-            if (stopOnFailure && !result.Succeeded) { break; }
+            if (stopOnFailure && !result.Succeeded)
+            {
+                break;
+            }
         }
+
         return results;
     }
 
@@ -116,9 +133,11 @@ internal sealed class PluginActionSequence(IPluginActionInvoker invoker, Action<
     }
 }
 
-/// <summary>Invokes steps against the resident plugin host, resolving each step's generation at the
-/// moment it runs so a plugin that restarted between two steps is not addressed with a stale
-/// one.</summary>
+/// <summary>
+///     Invokes steps against the resident plugin host, resolving each step's generation at the
+///     moment it runs so a plugin that restarted between two steps is not addressed with a stale
+///     one.
+/// </summary>
 internal sealed class PluginHostActionInvoker(PluginHost host) : IPluginActionInvoker
 {
     /// <inheritdoc />
@@ -131,12 +150,14 @@ internal sealed class PluginHostActionInvoker(PluginHost host) : IPluginActionIn
             return Task.FromResult(new PluginActionResult(Guid.NewGuid(), PluginActionOutcome.Rejected,
                 "The step does not name a plugin action."));
         }
+
         var instance = host.Snapshot().FirstOrDefault(value => value.Instance == identity);
         if (instance is null)
         {
             return Task.FromResult(new PluginActionResult(Guid.NewGuid(), PluginActionOutcome.Rejected,
                 $"{identity.PluginId} / {identity.InstanceId} is not running."));
         }
+
         return host.InvokeActionAsync(identity, instance.Generation, step.ActionId, step.Arguments,
             PluginActionOrigin.SessionAutomation, deadline, cancellationToken);
     }

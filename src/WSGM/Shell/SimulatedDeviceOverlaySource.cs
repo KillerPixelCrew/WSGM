@@ -17,17 +17,6 @@ namespace WSGM.Shell;
 /// <summary>In-memory Device surface used only by the explicitly safe overlay-test mode.</summary>
 internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
 {
-    private int _tdp = 15;
-    private bool _lighting = true;
-    private int _brightness = 80;
-    private int _ringColor = 0xFF9D3D;
-    private int _chargeLimit = 80;
-    private int _fanMode;
-    private int _glyphSelection;
-    private bool _autoTdp;
-    private ManagedControllerTarget _controllerTarget = ManagedControllerTarget.SteamDeckComposite;
-    private string? _hardwareProfile;
-
     /// <summary>Two named profiles, so the preview shows the cycle rather than a single state.</summary>
     private static readonly string[] PreviewProfiles = ["handheld", "docked"];
 
@@ -43,8 +32,8 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
     ];
 
     /// <summary>
-    /// The layout a real plugin would declare, so --overlay-test exercises sections, categories,
-    /// icons, and the mixed case where rows without a placement keep their WSGM fallback home.
+    ///     The layout a real plugin would declare, so --overlay-test exercises sections, categories,
+    ///     icons, and the mixed case where rows without a placement keep their WSGM fallback home.
     /// </summary>
     private static readonly IReadOnlyList<DeviceOverlayPluginSection> PreviewSections =
     [
@@ -74,16 +63,27 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
             [new DeviceOverlayCategory("zones", "Zones")]) { Key = SettingSectionKey.Lighting }
     ];
 
+    private bool _autoTdp;
+    private int _brightness = 80;
+    private int _chargeLimit = 80;
+    private ManagedControllerTarget _controllerTarget = ManagedControllerTarget.SteamDeckComposite;
+    private int _fanMode;
+    private int _glyphSelection;
+    private string? _hardwareProfile;
+    private bool _lighting = true;
+    private int _ringColor = 0xFF9D3D;
+    private int _tdp = 15;
+
     public event Action? Changed;
 
     public DeviceOverlaySnapshot Snapshot()
     {
         string[] fanModes = ["Automatic", "Sport"];
         return new DeviceOverlaySnapshot(
-            Visible: true,
-            Status: "Simulated handheld",
-            Detail: "Preview data only · no plugin activation, hook, or device handle",
-            GlyphSelection: new DescriptorRow(
+            true,
+            "Simulated handheld",
+            "Preview data only · no plugin activation, hook, or device handle",
+            new DescriptorRow(
                 "device.glyph-selection",
                 "Physical glyphs",
                 "Preview-only physical presentation selection",
@@ -93,7 +93,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     1 => "STEAM",
                     _ => "REVIEWED"
                 },
-                CanInvoke: true,
+                true,
                 DescriptorStatus.Available),
             AutoTdp: DeviceOverlayBridge.AutoTdpView(
                 _autoTdp,
@@ -107,7 +107,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                         "Preview only; no power write is made.")
                     : null),
             Controller: DeviceOverlayBridge.ControllerView(
-                enabled: true,
+                true,
                 new ControllerManagerStatus(
                     ControllerManagementState.Active,
                     _controllerTarget,
@@ -129,13 +129,13 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "TDP",
                     "Verified readback · resets on device power loss",
                     $"{_tdp} W",
-                    CanInvoke: true,
-                    CurrentValue: new CapabilityValue
+                    true,
+                    new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Integer,
                         IntegerValue = _tdp
                     },
-                    NextValue: new CapabilityValue
+                    new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Integer,
                         IntegerValue = _tdp >= 30 ? 8 : _tdp + 1
@@ -153,13 +153,13 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "Charge limit",
                     "Observed · stored on device",
                     $"{_chargeLimit}%",
-                    CanInvoke: true,
-                    CurrentValue: new CapabilityValue
+                    true,
+                    new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Integer,
                         IntegerValue = _chargeLimit
                     },
-                    NextValue: new CapabilityValue
+                    new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Integer,
                         IntegerValue = _chargeLimit >= 100 ? 60 : _chargeLimit + 20
@@ -177,13 +177,13 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "Fan mode",
                     "Observed · stored on device",
                     fanModes[_fanMode],
-                    CanInvoke: true,
-                    CurrentValue: new CapabilityValue
+                    true,
+                    new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Choice,
                         ChoiceValue = fanModes[_fanMode]
                     },
-                    NextValue: new CapabilityValue
+                    new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Choice,
                         ChoiceValue = fanModes[(_fanMode + 1) % fanModes.Length]
@@ -201,13 +201,12 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "Fan curve",
                     "Authored in Settings · both fans follow one curve",
                     $"{PreviewCurve.Count} points",
-                    CanInvoke: false,
-                    CurrentValue: new CapabilityValue
+                    false,
+                    new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Curve,
                         CurveValue = PreviewCurve
-                    },
-                    NextValue: null)
+                    })
                 {
                     Role = CapabilityRole.FanCurve,
                     PluginSectionId = "cooling",
@@ -222,13 +221,13 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "Lighting",
                     "Verified readback · stored on device",
                     _lighting ? "ON" : "OFF",
-                    CanInvoke: true,
-                    CurrentValue: new CapabilityValue
+                    true,
+                    new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Boolean,
                         BooleanValue = _lighting
                     },
-                    NextValue: new CapabilityValue
+                    new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Boolean,
                         BooleanValue = !_lighting
@@ -245,13 +244,13 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "Brightness",
                     "Verified readback · stored on device",
                     $"{_brightness}%",
-                    CanInvoke: true,
-                    CurrentValue: new CapabilityValue
+                    true,
+                    new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Integer,
                         IntegerValue = _brightness
                     },
-                    NextValue: new CapabilityValue
+                    new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Integer,
                         IntegerValue = _brightness >= 100 ? 20 : _brightness + 20
@@ -269,13 +268,12 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "Rings",
                     "Both rings share one color · opens the color editor",
                     $"#{_ringColor:X6}",
-                    CanInvoke: true,
-                    CurrentValue: new CapabilityValue
+                    true,
+                    new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Color,
                         ColorValue = _ringColor
-                    },
-                    NextValue: null)
+                    })
                 {
                     Role = CapabilityRole.LightingZoneColor,
                     PluginSectionId = DeviceSections.RgbId,
@@ -289,9 +287,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "CPU temperature",
                     "Observed · read only",
                     "54 °C",
-                    CanInvoke: false,
-                    CurrentValue: null,
-                    NextValue: null)
+                    false)
                 {
                     Role = CapabilityRole.Telemetry,
                     PluginSectionId = "cooling",
@@ -305,9 +301,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "Rumble",
                     "Short bounded preview action",
                     "RUN",
-                    CanInvoke: true,
-                    CurrentValue: null,
-                    NextValue: null)
+                    true)
                 {
                     // Deliberately unplaced: the row proves the WSGM fallback home still renders
                     // beside a declared layout.
@@ -361,10 +355,15 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
         return Task.CompletedTask;
     }
 
-    public Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection, CancellationToken cancellationToken = default)
+    public Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection,
+        CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!Enum.IsDefined(selection)) { throw new ArgumentOutOfRangeException(nameof(selection)); }
+        if (!Enum.IsDefined(selection))
+        {
+            throw new ArgumentOutOfRangeException(nameof(selection));
+        }
+
         _glyphSelection = (int)selection;
         Changed?.Invoke();
         return Task.CompletedTask;
@@ -386,10 +385,10 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
         return Task.CompletedTask;
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     /// <remarks>
-    /// Nothing to cycle: the simulated source has no configuration, so it publishes no authored
-    /// profile row and there is no selection for this to advance.
+    ///     Nothing to cycle: the simulated source has no configuration, so it publishes no authored
+    ///     profile row and there is no selection for this to advance.
     /// </remarks>
     public Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default)
     {
@@ -400,7 +399,10 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
     /// <summary>Preview-only: no profile is loaded, so the written letters stand.</summary>
     /// <param name="control">The control the hint names.</param>
     /// <returns>Always null.</returns>
-    public PhysicalGlyphRenderPlan? NavigationHint(GlyphControlId control) => null;
+    public PhysicalGlyphRenderPlan? NavigationHint(GlyphControlId control)
+    {
+        return null;
+    }
 
     /// <summary>Never raised: the preview reads no device, so there is nothing to observe.</summary>
     public event Action<CanonicalControllerSample>? PhysicalSampleReceived
@@ -409,25 +411,19 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
         remove { }
     }
 
-    /// <inheritdoc/>
-    public IDisposable ObservePhysicalSamples() => EmptyLease.Instance;
-
-    private sealed class EmptyLease : IDisposable
+    /// <inheritdoc />
+    public IDisposable ObservePhysicalSamples()
     {
-        internal static readonly EmptyLease Instance = new();
-
-        public void Dispose()
-        {
-        }
+        return EmptyLease.Instance;
     }
 
     /// <summary>Preview-only: there is no device cycle to recover, so this reports and does nothing.</summary>
     /// <param name="cancellationToken">Cancels the attempt.</param>
     /// <returns>A completed task.</returns>
     /// <remarks>
-    /// `--overlay-test` exists to lay out the surfaces without starting anything, so the recovery
-    /// row is rendered but must stay inert. It is deliberately not an exception: a preview that
-    /// threw when a control was pressed would be worse at its one job than one that does nothing.
+    ///     `--overlay-test` exists to lay out the surfaces without starting anything, so the recovery
+    ///     row is rendered but must stay inert. It is deliberately not an exception: a preview that
+    ///     threw when a control was pressed would be worse at its one job than one that does nothing.
     /// </remarks>
     public Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default)
     {
@@ -437,5 +433,14 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
 
     public void Dispose()
     {
+    }
+
+    private sealed class EmptyLease : IDisposable
+    {
+        internal static readonly EmptyLease Instance = new();
+
+        public void Dispose()
+        {
+        }
     }
 }

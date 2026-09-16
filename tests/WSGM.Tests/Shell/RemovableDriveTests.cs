@@ -11,11 +11,15 @@ public sealed class RemovableDriveTests
     [InlineData(false, true, EjectKind.Media)]
     public void HotplugFactsPickTheEjectPath(
         bool deviceHotplug, bool mediaRemovable, EjectKind expected)
-        => Assert.Equal(expected, RemovableDriveManager.Classify(deviceHotplug, mediaRemovable));
+    {
+        Assert.Equal(expected, RemovableDriveManager.Classify(deviceHotplug, mediaRemovable));
+    }
 
     [Fact]
     public void InternalFixedDisksAreNeverListed()
-        => Assert.Null(RemovableDriveManager.Classify(deviceHotplug: false, mediaRemovable: false));
+    {
+        Assert.Null(RemovableDriveManager.Classify(false, false));
+    }
 
     [Theory]
     [InlineData(0L, "")]
@@ -26,7 +30,9 @@ public sealed class RemovableDriveTests
     [InlineData(512_100_000_000L, "512.1 GB")]
     [InlineData(1_500_000_000_000L, "1.5 TB")]
     public void CapacitiesFormatInDecimalUnitsInvariantly(long bytes, string expected)
-        => Assert.Equal(expected, RemovableDriveManager.FormatSize(bytes));
+    {
+        Assert.Equal(expected, RemovableDriveManager.FormatSize(bytes));
+    }
 
     [Fact]
     public void DriveLettersFormatWithColons()
@@ -89,8 +95,10 @@ public sealed class RemovableDriveTests
 
     [Fact]
     public void UnknownVetoesStillProduceAMessage()
-        => Assert.False(string.IsNullOrWhiteSpace(RemovableDriveManager.DescribeVeto(
+    {
+        Assert.False(string.IsNullOrWhiteSpace(RemovableDriveManager.DescribeVeto(
             NativeStorage.PnpVetoType.Device, "")));
+    }
 
     [Fact]
     public void StatusLinePrefersProgressThenOutcomeThenFacts()
@@ -190,7 +198,10 @@ public sealed class RemovableDriveTests
 
     private static RemovableDriveManager.EjectableDevice Device(
         string id, string name, string letters)
-        => new(id, name, letters, 32_000_000_000L, EjectKind.UsbDevice, 1, letters[0]);
+    {
+        return new RemovableDriveManager.EjectableDevice(id, name, letters, 32_000_000_000L, EjectKind.UsbDevice, 1,
+            letters[0]);
+    }
 
     [Fact]
     public void LinuxDiskWithoutMountedVolumesRemainsAnEjectCandidate()

@@ -8,6 +8,8 @@ public sealed class AutoTdpControllerTests
 {
     private const string Game = "steam:70|1920x1080@60";
 
+    private const string Context = "capped-game";
+
     private static readonly AutoTdpLimits Limits = new(8, 30, 2);
 
     [Fact]
@@ -125,7 +127,7 @@ public sealed class AutoTdpControllerTests
 
         var decisions = Replay(
             controller,
-            AutoTdpReplay.Run(8, 16.6, 16.6, Game, capped: true));
+            AutoTdpReplay.Run(8, 16.6, 16.6, Game, true));
 
         Assert.DoesNotContain(decisions, decision => decision.Action is AutoTdpAction.Raise);
         Assert.Equal(AutoTdpAction.Probe, decisions[^1].Action);
@@ -139,7 +141,7 @@ public sealed class AutoTdpControllerTests
 
         var decisions = Replay(
             controller,
-            AutoTdpReplay.Run(30, 16.7, 16.6, Game, capped: true));
+            AutoTdpReplay.Run(30, 16.7, 16.6, Game, true));
 
         Assert.DoesNotContain(decisions, decision => decision.Action is AutoTdpAction.Raise);
         Assert.True(controller.Watts <= 12);
@@ -223,7 +225,7 @@ public sealed class AutoTdpControllerTests
         var controller = Started(15);
         Replay(controller, Missing(3));
 
-        var decision = controller.Stop(restoreTo: 15);
+        var decision = controller.Stop(15);
 
         Assert.Equal(AutoTdpAction.Release, decision.Action);
         Assert.Equal(15, decision.Watts);
@@ -293,19 +295,25 @@ public sealed class AutoTdpControllerTests
 
     private static IReadOnlyList<AutoTdpDecision> Replay(
         AutoTdpController controller,
-        IEnumerable<AutoTdpSample> trace) =>
-        AutoTdpReplay.Run(controller, Limits, trace);
+        IEnumerable<AutoTdpSample> trace)
+    {
+        return AutoTdpReplay.Run(controller, Limits, trace);
+    }
 
-    private static IEnumerable<AutoTdpSample> Missing(int count) =>
-        AutoTdpReplay.Run(count, 22.0, 16.6, Game);
+    private static IEnumerable<AutoTdpSample> Missing(int count)
+    {
+        return AutoTdpReplay.Run(count, 22.0, 16.6, Game);
+    }
 
-    private static IEnumerable<AutoTdpSample> OnTarget(int count) =>
-        AutoTdpReplay.Run(count, 16.0, 16.6, Game);
+    private static IEnumerable<AutoTdpSample> OnTarget(int count)
+    {
+        return AutoTdpReplay.Run(count, 16.0, 16.6, Game);
+    }
 
-    private static IEnumerable<AutoTdpSample> Comfortable(int count) =>
-        AutoTdpReplay.Run(count, 12.0, 16.6, Game);
-
-    private const string Context = "capped-game";
+    private static IEnumerable<AutoTdpSample> Comfortable(int count)
+    {
+        return AutoTdpReplay.Run(count, 12.0, 16.6, Game);
+    }
 
     [Fact]
     public void SuccessfulCappedProbesKeepDescendingUntilTheMinimumAndHoldThere()
@@ -352,6 +360,8 @@ public sealed class AutoTdpControllerTests
         Assert.NotEqual("at-maximum", Run(controller, 1, 16.6)[0].Reason);
     }
 
-    private static IReadOnlyList<AutoTdpDecision> Run(AutoTdpController controller, int count, double frametime) =>
-        AutoTdpReplay.Run(controller, Limits, AutoTdpReplay.Run(count, frametime, 16.6, Context, capped: true));
+    private static IReadOnlyList<AutoTdpDecision> Run(AutoTdpController controller, int count, double frametime)
+    {
+        return AutoTdpReplay.Run(controller, Limits, AutoTdpReplay.Run(count, frametime, 16.6, Context, true));
+    }
 }

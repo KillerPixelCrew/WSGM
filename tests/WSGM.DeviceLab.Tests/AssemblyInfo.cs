@@ -4,4 +4,5 @@
 // process, not only the test that asked for it. Run in parallel with a suite that waits on a
 // bounded rendezvous, that stop-the-world work is charged to whichever test happens to be waiting.
 // WSGM.Tests follows the same rule for the same reason.
+
 [assembly: CollectionBehavior(DisableTestParallelization = true)]

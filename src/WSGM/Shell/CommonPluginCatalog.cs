@@ -8,6 +8,7 @@ using WSGM.Plugin.Sdk;
 namespace WSGM.Shell;
 
 internal sealed record CommonInstalledPlugin(string PackageRoot, PluginManifest Manifest);
+
 internal sealed record CommonPluginCatalog(IReadOnlyList<CommonInstalledPlugin> Packages, IReadOnlyList<string> Errors)
 {
     internal static string InstalledRoot => Path.Combine(DeviceInstallationPaths.ProtectedRoot, "Plugins");
@@ -21,28 +22,52 @@ internal sealed record CommonPluginCatalog(IReadOnlyList<CommonInstalledPlugin> 
         {
             var root = Path.GetFullPath(installedRoot);
             FileAttributes attributes;
-            try { attributes = File.GetAttributes(root); }
+            try
+            {
+                attributes = File.GetAttributes(root);
+            }
             catch (Exception ex) when (ex is DirectoryNotFoundException or FileNotFoundException)
-            { return new CommonPluginCatalog(packages.AsReadOnly(), errors.AsReadOnly()); }
+            {
+                return new CommonPluginCatalog(packages.AsReadOnly(), errors.AsReadOnly());
+            }
+
             if ((attributes & FileAttributes.ReparsePoint) != 0)
-            { throw new InvalidDataException("The installed plugin directory cannot be a reparse point."); }
-            var directories = Directory.EnumerateDirectories(root).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).Take(129).ToArray();
-            if (directories.Length > 128) { throw new InvalidDataException("The installed plugin count exceeds 128."); }
+            {
+                throw new InvalidDataException("The installed plugin directory cannot be a reparse point.");
+            }
+
+            var directories = Directory.EnumerateDirectories(root)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase).Take(129).ToArray();
+            if (directories.Length > 128)
+            {
+                throw new InvalidDataException("The installed plugin count exceeds 128.");
+            }
+
             foreach (var directory in directories)
             {
                 try
                 {
                     var manifest = CommonPluginPackage.ReadManifest(directory);
                     if (!string.Equals(Path.GetFileName(directory), manifest.Id, StringComparison.Ordinal))
-                    { throw new InvalidDataException("The package directory must match the manifest identity."); }
+                    {
+                        throw new InvalidDataException("The package directory must match the manifest identity.");
+                    }
+
                     packages.Add(new CommonInstalledPlugin(directory, manifest));
                 }
-                catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
-                { errors.Add(Path.GetFileName(directory) + ": " + ex.Message); }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException
+                                               or ArgumentException)
+                {
+                    errors.Add(Path.GetFileName(directory) + ": " + ex.Message);
+                }
             }
         }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
-        { errors.Add(ex.Message); }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException
+                                       or ArgumentException)
+        {
+            errors.Add(ex.Message);
+        }
+
         return new CommonPluginCatalog(packages.AsReadOnly(), errors.AsReadOnly());
     }
 }

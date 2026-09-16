@@ -22,7 +22,8 @@ public sealed class ManifestTests
         Assert.Equal(1, PluginCategoryPolicy.Device.MaximumActive);
         Assert.True(PluginCategoryPolicy.Device.RequiresSelection);
         Assert.Null(PluginCategoryPolicy.Multiple.MaximumActive);
-        Assert.DoesNotContain(typeof(IPlugin).Assembly.GetReferencedAssemblies(), name => name.Name!.StartsWith("WSGM.", StringComparison.Ordinal));
+        Assert.DoesNotContain(typeof(IPlugin).Assembly.GetReferencedAssemblies(),
+            name => name.Name!.StartsWith("WSGM.", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -30,16 +31,30 @@ public sealed class ManifestTests
     [InlineData("C:\\Remote.dll")]
     [InlineData("sub/Remote.dll")]
     [InlineData("Remote.dll:stream")]
-    public void AssemblyTraversalAndAlternateStreamsAreRejected(string path) =>
+    public void AssemblyTraversalAndAlternateStreamsAreRejected(string path)
+    {
         Assert.NotEmpty(PluginManifestReader.Validate(Valid with { EntryAssembly = path }));
+    }
 
     [Fact]
     public void DependenciesRejectSelfDuplicatesAndInvertedRanges()
     {
-        Assert.NotEmpty(PluginManifestReader.Validate(Valid with { Dependencies = [new PluginDependency(Valid.Id, "1.0")] }));
-        Assert.NotEmpty(PluginManifestReader.Validate(Valid with { Dependencies = [new PluginDependency("other", "2.0", "1.0")] }));
-        Assert.NotEmpty(PluginManifestReader.Validate(Valid with { Dependencies = [new PluginDependency("other", "1.0"), new PluginDependency("other", "1.1")] }));
-        Assert.Empty(PluginManifestReader.Validate(Valid with { Dependencies = [new PluginDependency("other", "1.0", "2.0")] }));
+        Assert.NotEmpty(PluginManifestReader.Validate(Valid with
+        {
+            Dependencies = [new PluginDependency(Valid.Id, "1.0")]
+        }));
+        Assert.NotEmpty(PluginManifestReader.Validate(Valid with
+        {
+            Dependencies = [new PluginDependency("other", "2.0", "1.0")]
+        }));
+        Assert.NotEmpty(PluginManifestReader.Validate(Valid with
+        {
+            Dependencies = [new PluginDependency("other", "1.0"), new PluginDependency("other", "1.1")]
+        }));
+        Assert.Empty(PluginManifestReader.Validate(Valid with
+        {
+            Dependencies = [new PluginDependency("other", "1.0", "2.0")]
+        }));
     }
 
     [Fact]
@@ -47,22 +62,24 @@ public sealed class ManifestTests
     {
         Assert.NotEmpty(PluginManifestReader.Validate(Valid with { MinimumApiVersion = 2, MaximumApiVersion = 3 }));
         var json = """
-                                          {"id":"example.remote","name":"Remote","version":"1.0","category":"example.remote",
-                                           "entryAssembly":"Remote.dll","entryType":"Example.Remote","unexpected":true}
-                                          """u8;
+                   {"id":"example.remote","name":"Remote","version":"1.0","category":"example.remote",
+                    "entryAssembly":"Remote.dll","entryType":"Example.Remote","unexpected":true}
+                   """u8;
         Assert.False(PluginManifestReader.TryRead(json, out var rejected, out var errors));
-        Assert.Null(rejected); Assert.NotEmpty(errors);
+        Assert.Null(rejected);
+        Assert.NotEmpty(errors);
     }
 
     [Fact]
     public void StrictReaderAcceptsCommonMetadataAndBoundsMalformedInputs()
     {
         var json = """
-                                          {"id":"example.remote","name":"Remote","version":"1.0","category":"example.remote",
-                                           "entryAssembly":"Remote.dll","entryType":"Example.Remote"}
-                                          """u8;
+                   {"id":"example.remote","name":"Remote","version":"1.0","category":"example.remote",
+                    "entryAssembly":"Remote.dll","entryType":"Example.Remote"}
+                   """u8;
         Assert.True(PluginManifestReader.TryRead(json, out var manifest, out var errors), string.Join("; ", errors));
-        Assert.Empty(errors); Assert.Equal("example.remote", manifest!.Id);
+        Assert.Empty(errors);
+        Assert.Equal("example.remote", manifest!.Id);
         Assert.False(PluginManifestReader.TryRead(new byte[PluginManifestReader.MaximumBytes + 1], out _, out _));
         Assert.False(PluginManifestReader.TryRead("null"u8, out _, out _));
         Assert.False(PluginManifestReader.TryRead("{"u8, out _, out _));

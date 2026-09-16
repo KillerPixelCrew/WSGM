@@ -7,10 +7,10 @@ namespace WSGM.Interop;
 
 /// <summary>Reads the target of a Windows shortcut (.lnk) through the shell's own resolver.</summary>
 /// <remarks>
-/// Parsing the file format by hand is the alternative, and it is wrong for the cases that matter:
-/// relative paths, environment-variable targets and 32-bit redirection are all resolved by the
-/// shell, not by the stored bytes. Resolution is suppressed so a shortcut to a missing target
-/// cannot start a search or a network probe.
+///     Parsing the file format by hand is the alternative, and it is wrong for the cases that matter:
+///     relative paths, environment-variable targets and 32-bit redirection are all resolved by the
+///     shell, not by the stored bytes. Resolution is suppressed so a shortcut to a missing target
+///     cannot start a search or a network probe.
 /// </remarks>
 internal static class ShellLink
 {
@@ -29,9 +29,9 @@ internal static class ShellLink
         object? instance = null;
         try
         {
-            var type = Type.GetTypeFromCLSID(new Guid("00021401-0000-0000-C000-000000000046"), throwOnError: true)!;
+            var type = Type.GetTypeFromCLSID(new Guid("00021401-0000-0000-C000-000000000046"), true)!;
             instance = Activator.CreateInstance(type)
-                ?? throw new COMException("Windows did not create the shortcut resolver.");
+                       ?? throw new COMException("Windows did not create the shortcut resolver.");
             ((IPersistFile)instance).Load(path, 0);
             var link = (IShellLinkW)instance;
             // Suppressed resolution: a shortcut whose target has moved must read as unknown rather
@@ -61,21 +61,22 @@ internal static class ShellLink
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IShellLinkW
     {
-        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder file, int fileLength,
+        void GetPath([Out] [MarshalAs(UnmanagedType.LPWStr)] StringBuilder file, int fileLength,
             IntPtr findData, uint flags);
+
         void GetIDList(out IntPtr idList);
         void SetIDList(IntPtr idList);
-        void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder name, int nameLength);
+        void GetDescription([Out] [MarshalAs(UnmanagedType.LPWStr)] StringBuilder name, int nameLength);
         void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string name);
-        void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder directory, int directoryLength);
+        void GetWorkingDirectory([Out] [MarshalAs(UnmanagedType.LPWStr)] StringBuilder directory, int directoryLength);
         void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string directory);
-        void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder arguments, int argumentsLength);
+        void GetArguments([Out] [MarshalAs(UnmanagedType.LPWStr)] StringBuilder arguments, int argumentsLength);
         void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string arguments);
         void GetHotkey(out short hotkey);
         void SetHotkey(short hotkey);
         void GetShowCmd(out int show);
         void SetShowCmd(int show);
-        void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder icon, int iconLength, out int index);
+        void GetIconLocation([Out] [MarshalAs(UnmanagedType.LPWStr)] StringBuilder icon, int iconLength, out int index);
         void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string icon, int index);
         void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string path, uint reserved);
         void Resolve(IntPtr window, uint flags);
@@ -88,10 +89,13 @@ internal static class ShellLink
     private interface IPersistFile
     {
         void GetClassID(out Guid classId);
-        [PreserveSig] int IsDirty();
+
+        [PreserveSig]
+        int IsDirty();
+
         void Load([MarshalAs(UnmanagedType.LPWStr)] string file, uint mode);
         void Save([MarshalAs(UnmanagedType.LPWStr)] string? file, [MarshalAs(UnmanagedType.Bool)] bool remember);
         void SaveCompleted([MarshalAs(UnmanagedType.LPWStr)] string file);
-        void GetCurFile([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder file);
+        void GetCurFile([Out] [MarshalAs(UnmanagedType.LPWStr)] StringBuilder file);
     }
 }

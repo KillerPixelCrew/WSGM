@@ -43,13 +43,17 @@ internal static class ApplicationShutdownRequest
         }
     }
 
-    internal static ApplicationShutdownReason Consume() =>
-        (ApplicationShutdownReason)Interlocked.Exchange(
+    internal static ApplicationShutdownReason Consume()
+    {
+        return (ApplicationShutdownReason)Interlocked.Exchange(
             ref _reason,
             (int)ApplicationShutdownReason.Normal);
+    }
 
-    /// <summary>Stops the Avalonia classic desktop lifetime when one is running — the one exit
-    /// door shared by installer exit requests and the session-end path.</summary>
+    /// <summary>
+    ///     Stops the Avalonia classic desktop lifetime when one is running — the one exit
+    ///     door shared by installer exit requests and the session-end path.
+    /// </summary>
     internal static void ShutdownLifetime()
     {
         if (Application.Current?.ApplicationLifetime
@@ -59,46 +63,58 @@ internal static class ApplicationShutdownRequest
         }
     }
 
-    private static int PriorityFor(ApplicationShutdownReason reason) => reason switch
+    private static int PriorityFor(ApplicationShutdownReason reason)
     {
-        ApplicationShutdownReason.Uninstall => 3,
-        ApplicationShutdownReason.Update => 2,
-        ApplicationShutdownReason.SessionEnd => 1,
-        _ => 0
-    };
+        return reason switch
+        {
+            ApplicationShutdownReason.Uninstall => 3,
+            ApplicationShutdownReason.Update => 2,
+            ApplicationShutdownReason.SessionEnd => 1,
+            _ => 0
+        };
+    }
 }
 
 /// <summary>
-/// Enforces the single outer process-shutdown deadline. Subsystems retain their protocol phase
-/// budgets; this owner prevents any collection of cleanup failures from holding installer or
-/// session termination indefinitely.
+///     Enforces the single outer process-shutdown deadline. Subsystems retain their protocol phase
+///     budgets; this owner prevents any collection of cleanup failures from holding installer or
+///     session termination indefinitely.
 /// </summary>
 internal static class ApplicationShutdownCoordinator
 {
-    internal static int ExitCodeFor(ApplicationShutdownOutcome outcome) =>
-        outcome is ApplicationShutdownOutcome.Clean ? 0 : 1;
-
-    internal static TimeSpan BudgetFor(ApplicationShutdownReason reason) => reason switch
+    internal static int ExitCodeFor(ApplicationShutdownOutcome outcome)
     {
-        ApplicationShutdownReason.Update => TimeSpan.FromSeconds(10),
-        ApplicationShutdownReason.SessionEnd => TimeSpan.FromSeconds(5),
-        ApplicationShutdownReason.Uninstall => TimeSpan.FromSeconds(20),
-        _ => TimeSpan.FromSeconds(15)
-    };
+        return outcome is ApplicationShutdownOutcome.Clean ? 0 : 1;
+    }
+
+    internal static TimeSpan BudgetFor(ApplicationShutdownReason reason)
+    {
+        return reason switch
+        {
+            ApplicationShutdownReason.Update => TimeSpan.FromSeconds(10),
+            ApplicationShutdownReason.SessionEnd => TimeSpan.FromSeconds(5),
+            ApplicationShutdownReason.Uninstall => TimeSpan.FromSeconds(20),
+            _ => TimeSpan.FromSeconds(15)
+        };
+    }
 
     internal static Task<ApplicationShutdownOutcome> ShutdownAsync(
         Func<DateTimeOffset, ValueTask> shutdownAsync,
         ApplicationShutdownReason reason,
         TimeSpan? budgetOverride = null)
-        => ShutdownAsync(
+    {
+        return ShutdownAsync(
             shutdownAsync,
             reason,
             budgetOverride,
             static () => DateTimeOffset.UtcNow,
             static timeout => Task.Delay(timeout));
+    }
 
-    /// <summary>Test seam for the process deadline clock and timer. Production always supplies
-    /// UTC and <see cref="Task.Delay(TimeSpan)"/> through the overload above.</summary>
+    /// <summary>
+    ///     Test seam for the process deadline clock and timer. Production always supplies
+    ///     UTC and <see cref="Task.Delay(TimeSpan)" /> through the overload above.
+    /// </summary>
     internal static async Task<ApplicationShutdownOutcome> ShutdownAsync(
         Func<DateTimeOffset, ValueTask> shutdownAsync,
         ApplicationShutdownReason reason,
@@ -174,13 +190,17 @@ internal static class ApplicationShutdownCoordinator
         }
     }
 
-    private static void ReportTimeout(ApplicationShutdownReason reason, TimeSpan budget) =>
+    private static void ReportTimeout(ApplicationShutdownReason reason, TimeSpan budget)
+    {
         Log.Warn(
             $"Application shutdown exceeded the {budget.TotalSeconds:0.#} s {reason} budget; "
             + "process exit will release process-owned resources and recovery will reconcile next start.");
+    }
 
-    private static void ObserveLateCleanup(Task cleanup, ApplicationShutdownReason reason) =>
+    private static void ObserveLateCleanup(Task cleanup, ApplicationShutdownReason reason)
+    {
         _ = ObserveAsync(cleanup, reason);
+    }
 
     private static async Task ObserveAsync(Task cleanup, ApplicationShutdownReason reason)
     {

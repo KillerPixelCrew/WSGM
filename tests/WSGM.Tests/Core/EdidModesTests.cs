@@ -58,5 +58,8 @@ public sealed class EdidModesTests
         Assert.Empty(EdidModes.ReadAdvertisedRefreshRates(corrupt));
     }
 
-    private static byte[] Bytes(string hex) => Convert.FromHexString(hex);
+    private static byte[] Bytes(string hex)
+    {
+        return Convert.FromHexString(hex);
+    }
 }

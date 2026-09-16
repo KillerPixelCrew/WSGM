@@ -33,10 +33,10 @@ public static class GlyphProfileLimits
 
     /// <summary>Maximum glyph profiles in one package.</summary>
     /// <remarks>
-    /// A package source enumerates at most one identifier beyond this, so the importer can tell a
-    /// conforming package from one that exceeds the limit. A source that truncated at exactly this
-    /// number made the importer's over-limit check unreachable, and an oversized package validated
-    /// as conforming after silently dropping the extra profiles.
+    ///     A package source enumerates at most one identifier beyond this, so the importer can tell a
+    ///     conforming package from one that exceeds the limit. A source that truncated at exactly this
+    ///     number made the importer's over-limit check unreachable, and an oversized package validated
+    ///     as conforming after silently dropping the extra profiles.
     /// </remarks>
     public const int MaxProfiles = 32;
 
@@ -70,8 +70,8 @@ public static class GlyphProfileLimits
 
 /// <summary>A plugin-owned, schema-versioned physical-controller presentation profile.</summary>
 /// <remarks>
-/// Artwork is addressed only by lowercase SHA-256 content hash. The sole package-relative path is
-/// the attribution notice; the loader confines and validates it before it reaches a package source.
+///     Artwork is addressed only by lowercase SHA-256 content hash. The sole package-relative path is
+///     the attribution notice; the loader confines and validates it before it reaches a package source.
 /// </remarks>
 public sealed record GlyphProfileManifest
 {
@@ -132,7 +132,6 @@ public sealed record GlyphAssetLockEntry
 
     /// <summary>Expected SVG view box; required only for SVG.</summary>
     public GlyphViewBox? ViewBox { get; init; }
-
 }
 
 /// <summary>Supported input media type.</summary>
@@ -189,60 +188,88 @@ public enum GlyphControlId
 {
     /// <summary>South face control.</summary>
     FaceSouth,
+
     /// <summary>East face control.</summary>
     FaceEast,
+
     /// <summary>West face control.</summary>
     FaceWest,
+
     /// <summary>North face control.</summary>
     FaceNorth,
+
     /// <summary>D-pad up.</summary>
     DpadUp,
+
     /// <summary>D-pad down.</summary>
     DpadDown,
+
     /// <summary>D-pad left.</summary>
     DpadLeft,
+
     /// <summary>D-pad right.</summary>
     DpadRight,
+
     /// <summary>Left stick press.</summary>
     LeftStick,
+
     /// <summary>Right stick press.</summary>
     RightStick,
+
     /// <summary>Left stick touch sensor.</summary>
     LeftStickTouch,
+
     /// <summary>Right stick touch sensor.</summary>
     RightStickTouch,
+
     /// <summary>Left shoulder.</summary>
     LeftShoulder,
+
     /// <summary>Right shoulder.</summary>
     RightShoulder,
+
     /// <summary>Left trigger.</summary>
     LeftTrigger,
+
     /// <summary>Right trigger.</summary>
     RightTrigger,
+
     /// <summary>Guide control.</summary>
     Guide,
+
     /// <summary>View control.</summary>
     View,
+
     /// <summary>Menu control.</summary>
     Menu,
+
     /// <summary>Quick-access control.</summary>
     QuickAccess,
+
     /// <summary>Left rear control M1.</summary>
     RearM1,
+
     /// <summary>Right rear control M2.</summary>
     RearM2,
+
     /// <summary>Additional left rear control.</summary>
     RearLeft2,
+
     /// <summary>Additional right rear control.</summary>
     RearRight2,
+
     /// <summary>First OEM control.</summary>
     Oem1,
+
     /// <summary>Second OEM control.</summary>
     Oem2,
+
     /// <summary>Touchscreen.</summary>
     Touchscreen,
+
     /// <summary>Left trackpad.</summary>
     LeftTrackpad,
+
     /// <summary>Right trackpad.</summary>
     RightTrackpad
 }
@@ -337,9 +364,9 @@ public sealed record NormalizedGlyphSvg
 
     /// <summary>The paths WSGM's own renderer can draw, which may be empty.</summary>
     /// <remarks>
-    /// Extracted for Avalonia, which draws geometry rather than documents, and for nothing else —
-    /// Steam is handed <see cref="SvgUtf8"/>. Artwork whose paths cannot all be understood still
-    /// imports and still reaches Steam intact; only WSGM's own glyph rendering falls back.
+    ///     Extracted for Avalonia, which draws geometry rather than documents, and for nothing else —
+    ///     Steam is handed <see cref="SvgUtf8" />. Artwork whose paths cannot all be understood still
+    ///     imports and still reaches Steam intact; only WSGM's own glyph rendering falls back.
     /// </remarks>
     public IReadOnlyList<NormalizedGlyphPath> Paths { get; init; } = [];
 }

@@ -3,9 +3,11 @@ using WSGM.Core;
 
 namespace WSGM.Tests.Core;
 
-/// <summary>Round-trip and robustness coverage for .wsgmsplash theme export/import
-/// (SplashTheme): bundled images, config-only archives, and archives that must be
-/// rejected with null instead of an exception.</summary>
+/// <summary>
+///     Round-trip and robustness coverage for .wsgmsplash theme export/import
+///     (SplashTheme): bundled images, config-only archives, and archives that must be
+///     rejected with null instead of an exception.
+/// </summary>
 public sealed class SplashThemeTests : IDisposable
 {
     private readonly string _root;
@@ -24,7 +26,7 @@ public sealed class SplashThemeTests : IDisposable
     {
         try
         {
-            Directory.Delete(_root, recursive: true);
+            Directory.Delete(_root, true);
         }
         catch
         {
@@ -32,8 +34,9 @@ public sealed class SplashThemeTests : IDisposable
         }
     }
 
-    private static SplashConfig FullyCustomized(string logoPath, string backgroundPath) =>
-        new()
+    private static SplashConfig FullyCustomized(string logoPath, string backgroundPath)
+    {
+        return new SplashConfig
         {
             Text = "WSGM",
             TextEnabled = false,
@@ -72,6 +75,7 @@ public sealed class SplashThemeTests : IDisposable
                 PaddingY = 96
             }
         };
+    }
 
     private static void AssertNonImageFieldsEqual(SplashConfig expected, SplashConfig actual)
     {
@@ -154,7 +158,7 @@ public sealed class SplashThemeTests : IDisposable
     [Fact]
     public void ConfigOnlyThemeRoundTripsWithoutImages()
     {
-        var original = FullyCustomized(logoPath: "", backgroundPath: "");
+        var original = FullyCustomized("", "");
         var themePath = Path.Combine(_root, "plain.wsgmsplash");
 
         Assert.True(SplashTheme.Export(original, themePath));
@@ -193,9 +197,9 @@ public sealed class SplashThemeTests : IDisposable
             WriteJsonEntry(
                 archive,
                 $$"""
-                { "LogoImagePath": "{{logoPath.Replace(@"\", @"\\")}}",
-                  "BackgroundImagePath": "{{backgroundPath.Replace(@"\", @"\\")}}" }
-                """
+                  { "LogoImagePath": "{{logoPath.Replace(@"\", @"\\")}}",
+                    "BackgroundImagePath": "{{backgroundPath.Replace(@"\", @"\\")}}" }
+                  """
             );
         }
 
@@ -222,6 +226,7 @@ public sealed class SplashThemeTests : IDisposable
             {
                 stream.Write([7, 7]);
             }
+
             var background = archive.CreateEntry("background.png");
             using (var stream = background.Open())
             {
@@ -410,6 +415,7 @@ public sealed class SplashThemeTests : IDisposable
             using var stream = entry.Open();
             stream.Write([1, 2, 3]);
         }
+
         // The archive really does carry the hostile name — ZipArchive stores it as-is.
         using (var written = ZipFile.OpenRead(themePath))
         {
@@ -494,12 +500,14 @@ public sealed class SplashThemeTests : IDisposable
             {
                 stream.Write([1, 2, 3]);
             }
+
             var background = archive.CreateEntry("background.png");
             using (var stream = background.Open())
             {
                 stream.Write([4, 5, 6]);
             }
         }
+
         // A directory squatting on background.png's destination makes the second
         // extraction fail after logo.png already landed — the failed import must
         // remove the partial state it created.
@@ -521,12 +529,14 @@ public sealed class SplashThemeTests : IDisposable
             {
                 stream.Write([1, 2, 3]);
             }
+
             var background = archive.CreateEntry("background.png");
             using (var stream = background.Open())
             {
                 stream.Write([4, 5, 6]);
             }
         }
+
         // Corrupt background.png's compressed bytes (right after its local file
         // header) so its extraction throws after the fresh target directory was
         // created and logo.png staged.
@@ -539,6 +549,7 @@ public sealed class SplashThemeTests : IDisposable
         {
             bytes[dataOffset + i] ^= 0xFF;
         }
+
         File.WriteAllBytes(themePath, bytes);
 
         Assert.Null(SplashTheme.Import(themePath, _targetDir));
@@ -588,11 +599,13 @@ public sealed class SplashThemeTests : IDisposable
                     """{ "Text": null, "LogoImagePath": "C:\\Users\\author\\logo.png", "BackgroundImagePath": "C:\\Users\\author\\bg.png" }"""
                 );
             }
+
             var logo = archive.CreateEntry("logo.png");
             using (var stream = logo.Open())
             {
                 stream.Write([10, 20]);
             }
+
             var background = archive.CreateEntry("background.png");
             using (var stream = background.Open())
             {
@@ -644,8 +657,10 @@ public sealed class SplashThemeTests : IDisposable
         Assert.Equal(16384, imported.TextPlacement.Y);
     }
 
-    /// <summary>Builds a staging directory holding one staged image, exactly like a
-    /// successful import leaves it.</summary>
+    /// <summary>
+    ///     Builds a staging directory holding one staged image, exactly like a
+    ///     successful import leaves it.
+    /// </summary>
     private static string StagedDirectory(string stagingRoot, string name)
     {
         var directory = Path.Combine(stagingRoot, name);
@@ -670,7 +685,7 @@ public sealed class SplashThemeTests : IDisposable
         using var owner = SplashTheme.ClaimStagingDirectory(otherWindow);
         Assert.NotNull(owner);
 
-        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, keep: thisImport);
+        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, thisImport);
 
         // The other window's unsaved import must still be able to materialize on Save.
         Assert.True(Directory.Exists(otherWindow));
@@ -686,7 +701,7 @@ public sealed class SplashThemeTests : IDisposable
         Assert.NotNull(owner);
         Backdate(otherWindow);
 
-        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, keep: Path.Combine(stagingRoot, "current"));
+        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, Path.Combine(stagingRoot, "current"));
 
         Assert.True(File.Exists(Path.Combine(otherWindow, "logo.png")));
     }
@@ -698,7 +713,7 @@ public sealed class SplashThemeTests : IDisposable
         var abandoned = StagedDirectory(stagingRoot, "saved-and-forgotten");
         SplashTheme.ClaimStagingDirectory(abandoned)!.Dispose();
 
-        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, keep: Path.Combine(stagingRoot, "current"));
+        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, Path.Combine(stagingRoot, "current"));
 
         Assert.False(Directory.Exists(abandoned));
     }
@@ -712,14 +727,14 @@ public sealed class SplashThemeTests : IDisposable
         Assert.NotNull(marker);
 
         // While the crashed process was alive the directory is untouchable...
-        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, keep: Path.Combine(stagingRoot, "current"));
+        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, Path.Combine(stagingRoot, "current"));
         Assert.True(Directory.Exists(crashed));
         Assert.True(File.Exists(Path.Combine(crashed, SplashTheme.OwnerMarkerName)));
 
         // ...and the moment Windows releases its handles (which it does on a crash too)
         // the very same marker becomes the signal that collects the directory.
         marker.Dispose();
-        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, keep: Path.Combine(stagingRoot, "current"));
+        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, Path.Combine(stagingRoot, "current"));
 
         Assert.False(Directory.Exists(crashed));
     }
@@ -734,7 +749,7 @@ public sealed class SplashThemeTests : IDisposable
 
         SplashTheme.CleanUpStaleStagingDirectories(
             stagingRoot,
-            keep: Path.Combine(stagingRoot, ".", "current")
+            Path.Combine(stagingRoot, ".", "current")
         );
 
         Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(current, "logo.png")));
@@ -748,7 +763,7 @@ public sealed class SplashThemeTests : IDisposable
         var ancient = StagedDirectory(stagingRoot, "no-marker-ancient");
         Backdate(ancient);
 
-        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, keep: Path.Combine(stagingRoot, "current"));
+        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, Path.Combine(stagingRoot, "current"));
 
         // An import whose marker could not be written (or one from an older build) may
         // still be on screen in another window; only age can retire it.
@@ -782,7 +797,7 @@ public sealed class SplashThemeTests : IDisposable
         // never produces one, so an exact string comparison used to miss the match and
         // hand the caller's OWN staging directory to the delete rules.
         SplashTheme.CleanUpStaleStagingDirectories(
-            stagingRoot, keep: current + Path.DirectorySeparatorChar);
+            stagingRoot, current + Path.DirectorySeparatorChar);
 
         Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(current, "logo.png")));
     }
@@ -799,7 +814,7 @@ public sealed class SplashThemeTests : IDisposable
         Assert.NotNull(owner);
 
         // The session sweeps belong to no import, so there is nothing to keep by name.
-        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, keep: null);
+        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, null);
 
         Assert.True(File.Exists(Path.Combine(owned, "logo.png")));
         Assert.True(Directory.Exists(young));
@@ -940,7 +955,7 @@ public sealed class SplashThemeTests : IDisposable
         var untouched = StagedDirectory(stagingRoot, "untouched-for-days");
         Backdate(untouched);
 
-        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, keep: null);
+        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, null);
 
         Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(stillExtracting, "logo.png")));
         Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(justCreated, "logo.png")));
@@ -957,7 +972,7 @@ public sealed class SplashThemeTests : IDisposable
         using var theirClaim = SplashTheme.ClaimStagingDirectory(theirs);
 
         SplashTheme.ReleaseTrackedStagingOwnership();
-        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, keep: null);
+        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, null);
 
         Assert.False(Directory.Exists(ours));
         Assert.True(Directory.Exists(theirs));
@@ -967,7 +982,7 @@ public sealed class SplashThemeTests : IDisposable
     public void ImportKeepsInRangeValuesFromASharedThemeExactly()
     {
         var themePath = Path.Combine(_root, "in-range.wsgmsplash");
-        var original = FullyCustomized(logoPath: "", backgroundPath: "");
+        var original = FullyCustomized("", "");
 
         Assert.True(SplashTheme.Export(original, themePath));
         var imported = SplashTheme.Import(themePath, _targetDir);

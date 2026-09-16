@@ -15,7 +15,8 @@ public sealed class ModernStandbyTests
         double sinceWakeSeconds = 60,
         double sinceInputSeconds = 600,
         int attempts = 0)
-        => ModernStandbyPolicy.Decide(
+    {
+        return ModernStandbyPolicy.Decide(
             enabled,
             unattended,
             displayOn,
@@ -23,6 +24,7 @@ public sealed class ModernStandbyTests
             TimeSpan.FromSeconds(sinceInputSeconds),
             Grace,
             attempts);
+    }
 
     [Fact]
     public void AnUnexplainedWakeOnADarkIdleMachineGoesBackToSleep()
@@ -35,11 +37,15 @@ public sealed class ModernStandbyTests
 
     [Fact]
     public void TheModeDoesNothingUntilItIsSwitchedOn()
-        => Assert.Equal(ModernStandbyOutcome.Disabled, Decide(enabled: false).Outcome);
+    {
+        Assert.Equal(ModernStandbyOutcome.Disabled, Decide(false).Outcome);
+    }
 
     [Fact]
     public void AWakeWindowsAttributesToAPersonIsNeverUndone()
-        => Assert.Equal(ModernStandbyOutcome.UserWoke, Decide(unattended: false).Outcome);
+    {
+        Assert.Equal(ModernStandbyOutcome.UserWoke, Decide(unattended: false).Outcome);
+    }
 
     [Fact]
     public void ALitDisplayStopsItRegardlessOfEverythingElse()
@@ -56,9 +62,11 @@ public sealed class ModernStandbyTests
 
     [Fact]
     public void InputSinceTheWakeMeansSomebodyIsThere()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             ModernStandbyOutcome.UserActive,
             Decide(sinceWakeSeconds: 60, sinceInputSeconds: 30).Outcome);
+    }
 
     [Fact]
     public void InputInsideTheGraceCountsEvenWhenTheWakeIsOlderStill()
@@ -85,13 +93,13 @@ public sealed class ModernStandbyTests
         // Every other refusal is a fact about this wake that will not change while it lasts, so a
         // timer that kept polling past one could never reach a decision.
         foreach (var decision in new[]
-        {
-            Decide(enabled: false),
-            Decide(unattended: false),
-            Decide(displayOn: true),
-            Decide(sinceInputSeconds: 1),
-            Decide(attempts: ModernStandbyPolicy.MaximumAttemptsPerWake)
-        })
+                 {
+                     Decide(false),
+                     Decide(unattended: false),
+                     Decide(displayOn: true),
+                     Decide(sinceInputSeconds: 1),
+                     Decide(attempts: ModernStandbyPolicy.MaximumAttemptsPerWake)
+                 })
         {
             Assert.False(decision.ShouldKeepWatching);
             Assert.False(decision.ShouldResuspend);
@@ -125,7 +133,9 @@ public sealed class ModernStandbyTests
 
     [Fact]
     public void TheDefaultGraceIsTheOneThePolicyPublishes()
-        => Assert.Equal(TimeSpan.FromSeconds(20), ModernStandbyPolicy.DefaultGrace);
+    {
+        Assert.Equal(TimeSpan.FromSeconds(20), ModernStandbyPolicy.DefaultGrace);
+    }
 
     // The standby diagnostic's own rules. It reads the live machine, so what is asserted here is the
     // shape of what it may say — never a value that depends on how this machine happens to be sleeping.

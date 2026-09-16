@@ -3,14 +3,17 @@ using WSGM.Core;
 namespace WSGM.Tests.Core;
 
 /// <summary>
-/// Log is a static shared by the whole process, so these run in one collection and restore the
-/// default threshold. They assert the threshold itself; the file write cannot be observed here
-/// because Log stays uninitialized in tests.
+///     Log is a static shared by the whole process, so these run in one collection and restore the
+///     default threshold. They assert the threshold itself; the file write cannot be observed here
+///     because Log stays uninitialized in tests.
 /// </summary>
 [Collection("log-level")]
 public sealed class LogLevelTests : IDisposable
 {
-    public void Dispose() => Log.SetVerbosity(LogVerbosity.Normal);
+    public void Dispose()
+    {
+        Log.SetVerbosity(LogVerbosity.Normal);
+    }
 
     [Fact]
     public void TheDefaultKeepsEverythingExceptDebug()
@@ -62,6 +65,8 @@ public sealed class LogLevelTests : IDisposable
     [InlineData(false)]
     public void TheVerboseFlagIsRecognizedAnywhereAndCaseInsensitively(
         bool expected,
-        params string[] args) =>
+        params string[] args)
+    {
         Assert.Equal(expected, Program.HasVerboseFlag(args));
+    }
 }

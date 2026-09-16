@@ -5,59 +5,59 @@ using System.Threading.Tasks;
 namespace WSGM.Core;
 
 /// <summary>
-/// Installs the handheld glyph stylesheet into a Steam document.
+///     Installs the handheld glyph stylesheet into a Steam document.
 /// </summary>
 /// <remarks>
-/// One patch, one stylesheet, one owned node. This replaces the four mapping-namespace tiers that
-/// installed JavaScript resolver objects nothing in Steam consulted, so nothing ever changed on
-/// screen. Glyphs are a presentation override and CSS is the entire mechanism; see
-/// <c>docs/steam-cef.md</c> and the reference theme at <c>_ref/handheld-controller-glyphs</c>.
-/// <para>
-/// Coexistence with CSSLoader is a first-class requirement rather than an edge case: WSGM appends a
-/// <c>&lt;style&gt;</c> carrying its own id and marker class and removes only that, exactly as
-/// CSSLoader does with its own. Neither tool touches the other's nodes, so a user can run both.
-/// </para>
+///     One patch, one stylesheet, one owned node. This replaces the four mapping-namespace tiers that
+///     installed JavaScript resolver objects nothing in Steam consulted, so nothing ever changed on
+///     screen. Glyphs are a presentation override and CSS is the entire mechanism; see
+///     <c>docs/steam-cef.md</c> and the reference theme at <c>_ref/handheld-controller-glyphs</c>.
+///     <para>
+///         Coexistence with CSSLoader is a first-class requirement rather than an edge case: WSGM appends a
+///         <c>&lt;style&gt;</c> carrying its own id and marker class and removes only that, exactly as
+///         CSSLoader does with its own. Neither tool touches the other's nodes, so a user can run both.
+///     </para>
 /// </remarks>
 internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState state) : ISteamUiPatch
 {
     /// <summary>Stable id of the one glyph delivery patch.</summary>
     internal const string PatchId = "wsgm.steam-input.glyph-style";
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public string Id => PatchId;
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public int Version => 1;
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     /// <remarks>
-    /// The window the user is looking at, not SharedJSContext. A stylesheet only affects the
-    /// document it is installed in, and SharedJSContext has essentially no DOM — measured at 218
-    /// bytes of body on the reference Claw with the Steam Input page open, against 29,555 bytes
-    /// here, along with every Valve glyph image the rules key off. Half a megabyte of correct CSS
-    /// installed there, verified there, and changed nothing the user could see.
+    ///     The window the user is looking at, not SharedJSContext. A stylesheet only affects the
+    ///     document it is installed in, and SharedJSContext has essentially no DOM — measured at 218
+    ///     bytes of body on the reference Claw with the Steam Input page open, against 29,555 bytes
+    ///     here, along with every Valve glyph image the rules key off. Half a megabyte of correct CSS
+    ///     installed there, verified there, and changed nothing the user could see.
     /// </remarks>
     public SteamUiTargetRole TargetRole => SteamUiTargetRole.MainWindow;
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public string ResourceKey => "wsgm.steam-input.glyph-style";
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     /// <remarks>
-    /// A wider payload bound than the default: the stylesheet inlines every glyph as a data URI, so
-    /// its size is set by the artwork rather than by the expression. The importer already caps
-    /// individual assets; this is the ceiling on the whole sheet.
+    ///     A wider payload bound than the default: the stylesheet inlines every glyph as a data URI, so
+    ///     its size is set by the artwork rather than by the expression. The importer already caps
+    ///     individual assets; this is the ceiling on the whole sheet.
     /// </remarks>
     public SteamUiPatchBounds Bounds { get; } = new(
         TimeSpan.FromSeconds(8),
-        MaximumExpressionCharacters: 2 * 1024 * 1024,
-        MaximumDiagnosticCharacters: 2048);
+        2 * 1024 * 1024,
+        2048);
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     /// <remarks>
-    /// The structure this patch depends on is Valve's glyph resource naming, which is stable, plus
-    /// generated Steam class names used for individual containers. Class observations are diagnostic:
-    /// lazy editor styles or an unrelated logo must not disable stable binding-row hiding.
+    ///     The structure this patch depends on is Valve's glyph resource naming, which is stable, plus
+    ///     generated Steam class names used for individual containers. Class observations are diagnostic:
+    ///     lazy editor styles or an unrelated logo must not disable stable binding-row hiding.
     /// </remarks>
     public async Task<SteamUiPatchProbeResult> ProbeAsync(
         SteamUiPatchContext context,
@@ -77,27 +77,27 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
         var result = await context.EvaluateAsync(
             TargetRole,
             $$"""
-            (()=>{try{
-              const rowClass={{SteamCef.JsString(SteamGlyphCss.ControlRowClass)}};
-              const logoClass={{SteamCef.JsString(SteamGlyphCss.InlineLogoContainerClass)}};
-              const styles=[...document.styleSheets].length;
-              let rowSeen=false,logoSeen=false;
-              for(const sheet of document.styleSheets){
-                let rules;
-                try{rules=sheet.cssRules;}catch{continue;}
-                if(!rules)continue;
-                for(const rule of rules){
-                  const text=rule.selectorText;
-                  if(!text)continue;
-                  rowSeen=rowSeen||text.includes(rowClass);
-                  logoSeen=logoSeen||text.includes(logoClass);
+              (()=>{try{
+                const rowClass={{SteamCef.JsString(SteamGlyphCss.ControlRowClass)}};
+                const logoClass={{SteamCef.JsString(SteamGlyphCss.InlineLogoContainerClass)}};
+                const styles=[...document.styleSheets].length;
+                let rowSeen=false,logoSeen=false;
+                for(const sheet of document.styleSheets){
+                  let rules;
+                  try{rules=sheet.cssRules;}catch{continue;}
+                  if(!rules)continue;
+                  for(const rule of rules){
+                    const text=rule.selectorText;
+                    if(!text)continue;
+                    rowSeen=rowSeen||text.includes(rowClass);
+                    logoSeen=logoSeen||text.includes(logoClass);
+                    if(rowSeen&&logoSeen)break;
+                  }
                   if(rowSeen&&logoSeen)break;
                 }
-                if(rowSeen&&logoSeen)break;
-              }
-              return JSON.stringify({ok:!!document.head,styleSheets:styles,rowClass:rowSeen,logoClass:logoSeen});
-            }catch(error){return JSON.stringify({ok:false,error:String(error)}); } })()
-            """,
+                return JSON.stringify({ok:!!document.head,styleSheets:styles,rowClass:rowSeen,logoClass:logoSeen});
+              }catch(error){return JSON.stringify({ok:false,error:String(error)}); } })()
+              """,
             cancellationToken).ConfigureAwait(false);
         if (!result.Reachable || result.Value is null)
         {
@@ -119,7 +119,7 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
             compatible ? null : SteamUiPatchEvaluation.Bounded(result.Value));
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public Task<SteamUiPatchOperationResult> ApplyAsync(
         SteamUiPatchContext context,
         CancellationToken cancellationToken)
@@ -132,7 +132,7 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
                 "No reviewed handheld glyph profile is selected."));
         }
 
-        var css = SteamGlyphCss.Build(presentation, hideAbsentControls: true);
+        var css = SteamGlyphCss.Build(presentation, true);
         if (css.Length == 0)
         {
             return Task.FromResult(new SteamUiPatchOperationResult(
@@ -144,66 +144,66 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
             context,
             TargetRole,
             $$"""
-            (()=>{try{
-              const id={{SteamCef.JsString(SteamGlyphCss.ElementId)}};
-              const owned={{SteamCef.JsString(SteamGlyphCss.OwnedClass)}};
-              const css={{SteamCef.JsString(css)}};
-              if(!document.head)return JSON.stringify({ok:false,error:'document head is absent'});
-              const prior=document.getElementById(id);
-              if(prior&&!prior.classList.contains(owned))
-                return JSON.stringify({ok:false,error:'the glyph style id is owned by something else'});
-              const style=prior??document.createElement('style');
-              style.id=id;
-              style.classList.add(owned);
+              (()=>{try{
+                const id={{SteamCef.JsString(SteamGlyphCss.ElementId)}};
+                const owned={{SteamCef.JsString(SteamGlyphCss.OwnedClass)}};
+                const css={{SteamCef.JsString(css)}};
+                if(!document.head)return JSON.stringify({ok:false,error:'document head is absent'});
+                const prior=document.getElementById(id);
+                if(prior&&!prior.classList.contains(owned))
+                  return JSON.stringify({ok:false,error:'the glyph style id is owned by something else'});
+                const style=prior??document.createElement('style');
+                style.id=id;
+                style.classList.add(owned);
 
-              // The controller illustration is a background on one div whose class is generated by
-              // Steam's build, so the selector is read from Valve's own rules instead of being
-              // hardcoded: every rule painting /images/controller/controller_config_controller_*
-              // ends in that same class, whatever this build happens to call it. A rebuild that
-              // rehashes it is followed automatically, and a build that stops using it simply
-              // yields nothing rather than a stale rule.
-              let illustration='';
-              try{
-                const classes=new Set();
-                for(const sheet of document.styleSheets){
-                  let rules;
-                  try{rules=sheet.cssRules;}catch{continue;}
-                  if(!rules)continue;
-                  for(const rule of rules){
-                    const text=rule.cssText||'';
-                    if(!text.includes('/images/controller/controller_config_controller'))continue;
-                    for(const part of (rule.selectorText||'').split(',')){
-                      const last=part.trim().split(/\s+/).pop()||'';
-                      if(last.startsWith('.')&&!last.includes(':'))classes.add(last);
+                // The controller illustration is a background on one div whose class is generated by
+                // Steam's build, so the selector is read from Valve's own rules instead of being
+                // hardcoded: every rule painting /images/controller/controller_config_controller_*
+                // ends in that same class, whatever this build happens to call it. A rebuild that
+                // rehashes it is followed automatically, and a build that stops using it simply
+                // yields nothing rather than a stale rule.
+                let illustration='';
+                try{
+                  const classes=new Set();
+                  for(const sheet of document.styleSheets){
+                    let rules;
+                    try{rules=sheet.cssRules;}catch{continue;}
+                    if(!rules)continue;
+                    for(const rule of rules){
+                      const text=rule.cssText||'';
+                      if(!text.includes('/images/controller/controller_config_controller'))continue;
+                      for(const part of (rule.selectorText||'').split(',')){
+                        const last=part.trim().split(/\s+/).pop()||'';
+                        if(last.startsWith('.')&&!last.includes(':'))classes.add(last);
+                      }
                     }
                   }
-                }
-                // !important because Steam's own rule qualifies the same element with a
-                // controller-type ancestor — ".controller_steamcontroller_neptune .rlz-…" — and two
-                // classes beat one. Without it the override installs, verifies, and loses the
-                // cascade in silence, which is exactly what it did.
-                if(classes.size&&css.includes('--wsgm-controller-full-image:'))
-                  illustration='\n'+[...classes].join(',\n')
-                    +' {\n  background-image: var(--wsgm-controller-full-image) !important;\n}\n';
-              }catch{}
-              style.textContent=css+illustration;
-              if(!prior)document.head.append(style);
-              const installed=document.getElementById(id)?.textContent??'';
-              return JSON.stringify({
-                ok:installed.startsWith(css),
-                reused:!!prior,
-                illustration:illustration.length>0,
-              });
-            }catch(error){return JSON.stringify({ok:false,error:String(error)}); } })()
-            """,
+                  // !important because Steam's own rule qualifies the same element with a
+                  // controller-type ancestor — ".controller_steamcontroller_neptune .rlz-…" — and two
+                  // classes beat one. Without it the override installs, verifies, and loses the
+                  // cascade in silence, which is exactly what it did.
+                  if(classes.size&&css.includes('--wsgm-controller-full-image:'))
+                    illustration='\n'+[...classes].join(',\n')
+                      +' {\n  background-image: var(--wsgm-controller-full-image) !important;\n}\n';
+                }catch{}
+                style.textContent=css+illustration;
+                if(!prior)document.head.append(style);
+                const installed=document.getElementById(id)?.textContent??'';
+                return JSON.stringify({
+                  ok:installed.startsWith(css),
+                  reused:!!prior,
+                  illustration:illustration.length>0,
+                });
+              }catch(error){return JSON.stringify({ok:false,error:String(error)}); } })()
+              """,
             "Handheld glyph stylesheet installation failed.",
             cancellationToken);
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     /// <remarks>
-    /// Verifies ownership and exact current stylesheet content. Matching individual controls still
-    /// depends on the editor/viewer being open and is not claimed by this installation check.
+    ///     Verifies ownership and exact current stylesheet content. Matching individual controls still
+    ///     depends on the editor/viewer being open and is not claimed by this installation check.
     /// </remarks>
     public Task<SteamUiPatchOperationResult> VerifyAsync(
         SteamUiPatchContext context,
@@ -214,25 +214,25 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
             context,
             TargetRole,
             $$"""
-            (()=>{try{
-              const id={{SteamCef.JsString(SteamGlyphCss.ElementId)}};
-              const owned={{SteamCef.JsString(SteamGlyphCss.OwnedClass)}};
-              const style=document.getElementById(id);
-              const expected={{SteamCef.JsString(state.Current is { } current ? SteamGlyphCss.Build(current, true) : "")}};
-              if(!style||!style.classList.contains(owned))
-                return JSON.stringify({ok:false,error:'the WSGM glyph stylesheet is absent'});
-              if(!expected||!style.textContent.startsWith(expected))return JSON.stringify({ok:false,error:'the WSGM glyph profile changed'});
-              const sheet=style.sheet;
-              const ruleCount=sheet?sheet.cssRules.length:0;
-              const foreign=document.querySelectorAll('.css-loader-style').length;
-              return JSON.stringify({ok:ruleCount>0,ruleCount,cssLoaderStyles:foreign});
-            }catch(error){return JSON.stringify({ok:false,error:String(error)}); } })()
-            """,
+              (()=>{try{
+                const id={{SteamCef.JsString(SteamGlyphCss.ElementId)}};
+                const owned={{SteamCef.JsString(SteamGlyphCss.OwnedClass)}};
+                const style=document.getElementById(id);
+                const expected={{SteamCef.JsString(state.Current is { } current ? SteamGlyphCss.Build(current, true) : "")}};
+                if(!style||!style.classList.contains(owned))
+                  return JSON.stringify({ok:false,error:'the WSGM glyph stylesheet is absent'});
+                if(!expected||!style.textContent.startsWith(expected))return JSON.stringify({ok:false,error:'the WSGM glyph profile changed'});
+                const sheet=style.sheet;
+                const ruleCount=sheet?sheet.cssRules.length:0;
+                const foreign=document.querySelectorAll('.css-loader-style').length;
+                return JSON.stringify({ok:ruleCount>0,ruleCount,cssLoaderStyles:foreign});
+              }catch(error){return JSON.stringify({ok:false,error:String(error)}); } })()
+              """,
             "Handheld glyph stylesheet verification failed.",
             cancellationToken);
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public Task<SteamUiPatchOperationResult> RemoveAsync(
         SteamUiPatchContext context,
         CancellationToken cancellationToken)
@@ -242,16 +242,16 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
             context,
             TargetRole,
             $$"""
-            (()=>{try{
-              const owned={{SteamCef.JsString(SteamGlyphCss.OwnedClass)}};
-              let removed=0;
-              for(const style of [...document.querySelectorAll('style.'+owned)]){
-                style.remove();
-                removed++;
-              }
-              return JSON.stringify({ok:document.querySelectorAll('style.'+owned).length===0,removed});
-            }catch(error){return JSON.stringify({ok:false,error:String(error)}); } })()
-            """,
+              (()=>{try{
+                const owned={{SteamCef.JsString(SteamGlyphCss.OwnedClass)}};
+                let removed=0;
+                for(const style of [...document.querySelectorAll('style.'+owned)]){
+                  style.remove();
+                  removed++;
+                }
+                return JSON.stringify({ok:document.querySelectorAll('style.'+owned).length===0,removed});
+              }catch(error){return JSON.stringify({ok:false,error:String(error)}); } })()
+              """,
             "Handheld glyph stylesheet removal failed.",
             cancellationToken);
     }

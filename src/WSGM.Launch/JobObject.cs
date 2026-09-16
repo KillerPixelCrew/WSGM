@@ -7,21 +7,21 @@ using System.Threading.Tasks;
 namespace WSGM.Launch;
 
 /// <summary>
-/// A Windows job object holding the launched target and everything it spawns, so
-/// the wrapper's lifetime tracks the whole process tree instead of the process it
-/// started directly.
+///     A Windows job object holding the launched target and everything it spawns, so
+///     the wrapper's lifetime tracks the whole process tree instead of the process it
+///     started directly.
 /// </summary>
 /// <remarks>
-/// Games fronted by a launcher (emulators, store front-ends, some anti-cheat
-/// bootstrappers) exit their root process seconds in and leave the real game
-/// running. Waiting on that root alone ends the wrapper early: Steam marks the game
-/// as stopped and, with <c>--input-lease</c>, the Steam Input block is released
-/// mid-session. The native lease wrapper already solves this by starting the target
-/// suspended and job-assigning it before resume; the medium-integrity child cannot
-/// (it starts the process through <c>Process.Start</c> to keep Steam's environment
-/// and the RunAsInvoker layer), so it assigns immediately after start. Descendants
-/// created in that sub-millisecond window are not captured — a launcher takes far
-/// longer than that to spawn anything.
+///     Games fronted by a launcher (emulators, store front-ends, some anti-cheat
+///     bootstrappers) exit their root process seconds in and leave the real game
+///     running. Waiting on that root alone ends the wrapper early: Steam marks the game
+///     as stopped and, with <c>--input-lease</c>, the Steam Input block is released
+///     mid-session. The native lease wrapper already solves this by starting the target
+///     suspended and job-assigning it before resume; the medium-integrity child cannot
+///     (it starts the process through <c>Process.Start</c> to keep Steam's environment
+///     and the RunAsInvoker layer), so it assigns immediately after start. Descendants
+///     created in that sub-millisecond window are not captured — a launcher takes far
+///     longer than that to spawn anything.
 /// </remarks>
 internal sealed partial class JobObject : IDisposable
 {
@@ -30,12 +30,33 @@ internal sealed partial class JobObject : IDisposable
 
     private nint _handle;
 
-    private JobObject(nint handle) => _handle = handle;
+    private JobObject(nint handle)
+    {
+        _handle = handle;
+    }
 
-    /// <summary>Creates a job and assigns an already-started process to it.
-    /// Returns null when the platform refuses either step. Callers must terminate the freshly
-    /// started target and fail the launch; continuing without tree ownership would release Steam
-    /// state as soon as a bootstrapper exits.</summary>
+    /// <summary>
+    ///     Closes the job handle. The job is deliberately created without
+    ///     kill-on-close, so anything still running outlives the wrapper instead of
+    ///     dying with it.
+    /// </summary>
+    public void Dispose()
+    {
+        if (_handle == 0)
+        {
+            return;
+        }
+
+        CloseHandle(_handle);
+        _handle = 0;
+    }
+
+    /// <summary>
+    ///     Creates a job and assigns an already-started process to it.
+    ///     Returns null when the platform refuses either step. Callers must terminate the freshly
+    ///     started target and fail the launch; continuing without tree ownership would release Steam
+    ///     state as soon as a bootstrapper exits.
+    /// </summary>
     /// <param name="processHandle">Handle of the freshly started process.</param>
     internal static JobObject? TryCapture(nint processHandle)
     {
@@ -43,17 +64,18 @@ internal sealed partial class JobObject : IDisposable
         if (handle == 0)
         {
             LaunchLog.Error($"Could not create a job object (error {Marshal.GetLastPInvokeError()}); "
-                + "the wrapper will only track the process it started.");
+                            + "the wrapper will only track the process it started.");
             return null;
         }
+
         if (AssignProcessToJobObject(handle, processHandle))
         {
             return new JobObject(handle);
         }
 
         LaunchLog.Error($"Could not assign the target to a job object "
-            + $"(error {Marshal.GetLastPInvokeError()}); the wrapper will only track the "
-            + "process it started.");
+                        + $"(error {Marshal.GetLastPInvokeError()}); the wrapper will only track the "
+                        + "process it started.");
         CloseHandle(handle);
         return null;
     }
@@ -89,6 +111,7 @@ internal sealed partial class JobObject : IDisposable
         {
             return 0;
         }
+
         var info = default(JobObjectBasicAccountingInfo);
         if (!QueryInformationJobObject(
                 _handle,
@@ -103,33 +126,6 @@ internal sealed partial class JobObject : IDisposable
         }
 
         return info.ActiveProcesses;
-    }
-
-    /// <summary>Closes the job handle. The job is deliberately created without
-    /// kill-on-close, so anything still running outlives the wrapper instead of
-    /// dying with it.</summary>
-    public void Dispose()
-    {
-        if (_handle == 0)
-        {
-            return;
-        }
-
-        CloseHandle(_handle);
-        _handle = 0;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct JobObjectBasicAccountingInfo
-    {
-        public long TotalUserTime;
-        public long TotalKernelTime;
-        public long ThisPeriodTotalUserTime;
-        public long ThisPeriodTotalKernelTime;
-        public uint TotalPageFaultCount;
-        public uint TotalProcesses;
-        public uint ActiveProcesses;
-        public uint TotalTerminatedProcesses;
     }
 
     [LibraryImport("kernel32.dll", EntryPoint = "CreateJobObjectW", SetLastError = true,
@@ -151,4 +147,17 @@ internal sealed partial class JobObject : IDisposable
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     private static partial void CloseHandle(nint handle);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JobObjectBasicAccountingInfo
+    {
+        public long TotalUserTime;
+        public long TotalKernelTime;
+        public long ThisPeriodTotalUserTime;
+        public long ThisPeriodTotalKernelTime;
+        public uint TotalPageFaultCount;
+        public uint TotalProcesses;
+        public uint ActiveProcesses;
+        public uint TotalTerminatedProcesses;
+    }
 }

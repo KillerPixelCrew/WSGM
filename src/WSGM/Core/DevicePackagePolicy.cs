@@ -29,7 +29,7 @@ internal sealed record DevicePackageInventory
     /// <summary>Every immediate package root, sorted by absolute path.</summary>
     public required IReadOnlyList<string> PackageRoots { get; init; }
 
-    /// <summary>The hard startup cardinality derived solely from <see cref="PackageRoots"/>.</summary>
+    /// <summary>The hard startup cardinality derived solely from <see cref="PackageRoots" />.</summary>
     public DevicePackageCardinality Cardinality => PackageRoots.Count switch
     {
         0 => DevicePackageCardinality.Empty,
@@ -84,7 +84,7 @@ internal static class DevicePackagePolicy
     internal const long MaxPackageBytes = 512L * 1024 * 1024;
 
     /// <summary>
-    /// Counts immediate package directories without reading a manifest or opening plugin files.
+    ///     Counts immediate package directories without reading a manifest or opening plugin files.
     /// </summary>
     /// <param name="packageRoot">The protected directory containing zero or one package directory.</param>
     /// <param name="attributeReader">Attribute reader; defaults to the filesystem.</param>
@@ -106,6 +106,7 @@ internal static class DevicePackagePolicy
         {
             throw new InvalidDataException("The protected package slot must be a directory.");
         }
+
         if ((rootAttributes.Value & FileAttributes.ReparsePoint) != 0)
         {
             return new DevicePackageInventory { PackageRoots = [root] };
@@ -113,7 +114,8 @@ internal static class DevicePackagePolicy
 
         var sortedPackages = Directory.EnumerateFileSystemEntries(root)
             .Where(entry => ((readAttributes(entry)
-                ?? throw new IOException("A package-slot entry disappeared during inspection.")) & FileAttributes.Directory) != 0)
+                              ?? throw new IOException("A package-slot entry disappeared during inspection.")) &
+                             FileAttributes.Directory) != 0)
             .Select(entry => NormalizeDirectoryPath(entry))
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -121,8 +123,8 @@ internal static class DevicePackagePolicy
     }
 
     /// <summary>
-    /// Validates the sole installed package. Multiple roots are all rejected without reading any
-    /// manifest, and an empty slot returns no package.
+    ///     Validates the sole installed package. Multiple roots are all rejected without reading any
+    ///     manifest, and an empty slot returns no package.
     /// </summary>
     /// <param name="packageRoot">Protected directory whose immediate children are package roots.</param>
     /// <param name="attributeReader">Attribute reader; defaults to the filesystem.</param>
@@ -161,11 +163,13 @@ internal static class DevicePackagePolicy
         {
             var root = NormalizeDirectoryPath(packagePath);
             FileAttributes? rootAttributes = readAttributes(root)
-                ?? throw new IOException("The installed package disappeared during validation.");
+                                             ?? throw new IOException(
+                                                 "The installed package disappeared during validation.");
             if ((rootAttributes.Value & FileAttributes.Directory) == 0)
             {
                 return Reject(root, "package-invalid", "The installed package is not a directory.");
             }
+
             if ((rootAttributes.Value & FileAttributes.ReparsePoint) != 0)
             {
                 return Reject(root, "package-link", "Package directories may not be links or reparse points.");
@@ -217,7 +221,7 @@ internal static class DevicePackagePolicy
             };
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-            or InvalidDataException)
+                                       or InvalidDataException)
         {
             return Reject(packagePath, "package-invalid", ex.Message);
         }
@@ -242,7 +246,7 @@ internal static class DevicePackagePolicy
             foreach (var entry in entries)
             {
                 FileAttributes? attributes = readAttributes(entry)
-                    ?? throw new IOException("A package entry disappeared during validation.");
+                                             ?? throw new IOException("A package entry disappeared during validation.");
                 if ((attributes.Value & FileAttributes.ReparsePoint) != 0)
                 {
                     throw new InvalidDataException("Package paths may not traverse links.");
@@ -262,6 +266,7 @@ internal static class DevicePackagePolicy
                 {
                     throw new InvalidDataException("Package exceeds the bounded file or size limit.");
                 }
+
                 totalBytes += file.Length;
             }
         }
@@ -295,7 +300,7 @@ internal static class DevicePackagePolicy
             FileMode.Open,
             FileAccess.Read,
             FileShare.Read,
-            bufferSize: 64 * 1024,
+            64 * 1024,
             FileOptions.SequentialScan);
         return ReadAllBytesBounded(stream, maxBytes, description);
     }
@@ -338,8 +343,8 @@ internal static class DevicePackagePolicy
 
         var current = normalizedRoot;
         foreach (var segment in Path.GetRelativePath(normalizedRoot, candidate).Split(
-            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
-            StringSplitOptions.RemoveEmptyEntries))
+                     [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                     StringSplitOptions.RemoveEmptyEntries))
         {
             current = Path.Combine(current, segment);
             var attributes = readAttributes(current);
@@ -360,9 +365,9 @@ internal static class DevicePackagePolicy
             using var stream = File.OpenRead(path);
             using PEReader pe = new(stream, PEStreamOptions.LeaveOpen);
             return pe.PEHeaders.CoffHeader.Machine is Machine.Amd64
-                && pe.PEHeaders.CorHeader is not null
-                && pe.HasMetadata
-                && pe.GetMetadataReader().IsAssembly;
+                   && pe.PEHeaders.CorHeader is not null
+                   && pe.HasMetadata
+                   && pe.GetMetadataReader().IsAssembly;
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException)
         {
@@ -370,8 +375,10 @@ internal static class DevicePackagePolicy
         }
     }
 
-    internal static string NormalizeDirectoryPath(string path) =>
-        Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+    internal static string NormalizeDirectoryPath(string path)
+    {
+        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+    }
 
     internal static FileAttributes? ReadPathAttributes(string path)
     {
@@ -389,7 +396,9 @@ internal static class DevicePackagePolicy
         string path,
         string code,
         string detail,
-        PluginManifest? manifest = null) => new()
+        PluginManifest? manifest = null)
+    {
+        return new InstalledDevicePackage
         {
             PackagePath = Path.GetFullPath(path),
             Manifest = manifest,
@@ -397,4 +406,5 @@ internal static class DevicePackagePolicy
             RejectionCode = code,
             Detail = detail
         };
+    }
 }

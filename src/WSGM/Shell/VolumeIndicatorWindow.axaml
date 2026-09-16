@@ -11,38 +11,38 @@
         Background="Transparent"
         TransparencyLevelHint="Transparent">
 
-    <Viewbox Stretch="Uniform">
-        <Border Width="320" Height="106"
-                IsHitTestVisible="False"
-                Background="{StaticResource HcOsdBackgroundBrush}"
-                BorderBrush="{StaticResource HcControlBrush}"
-                BorderThickness="1"
-                CornerRadius="10"
-                Padding="20,14">
-            <Grid ColumnDefinitions="48,*" ColumnSpacing="12">
-                <TextBlock x:Name="VolumeIcon"
-                           FontSize="30"
-                           VerticalAlignment="Center"
-                           HorizontalAlignment="Center" />
-                <StackPanel Grid.Column="1" Spacing="7" VerticalAlignment="Center">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock x:Name="VolumeTitle"
-                                   Text="Volume"
-                                   FontSize="17"
-                                   FontWeight="SemiBold" />
-                        <TextBlock x:Name="VolumePercent"
-                                   Grid.Column="1"
-                                   FontSize="17"
-                                   Foreground="{StaticResource HcTextSecondaryBrush}" />
-                    </Grid>
-                    <ProgressBar x:Name="VolumeLevel"
-                                 Minimum="0"
-                                 Maximum="100"
-                                 Height="8"
-                                 Foreground="{DynamicResource HcAccentBrush}"
-                                 Background="{StaticResource HcControlHoverBrush}" />
-                </StackPanel>
-            </Grid>
-        </Border>
-    </Viewbox>
+  <Viewbox Stretch="Uniform">
+    <Border Width="320" Height="106"
+            IsHitTestVisible="False"
+            Background="{StaticResource HcOsdBackgroundBrush}"
+            BorderBrush="{StaticResource HcControlBrush}"
+            BorderThickness="1"
+            CornerRadius="10"
+            Padding="20,14">
+      <Grid ColumnDefinitions="48,*" ColumnSpacing="12">
+        <TextBlock x:Name="VolumeIcon"
+                   FontSize="30"
+                   VerticalAlignment="Center"
+                   HorizontalAlignment="Center" />
+        <StackPanel Grid.Column="1" Spacing="7" VerticalAlignment="Center">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock x:Name="VolumeTitle"
+                       Text="Volume"
+                       FontSize="17"
+                       FontWeight="SemiBold" />
+            <TextBlock x:Name="VolumePercent"
+                       Grid.Column="1"
+                       FontSize="17"
+                       Foreground="{StaticResource HcTextSecondaryBrush}" />
+          </Grid>
+          <ProgressBar x:Name="VolumeLevel"
+                       Minimum="0"
+                       Maximum="100"
+                       Height="8"
+                       Foreground="{DynamicResource HcAccentBrush}"
+                       Background="{StaticResource HcControlHoverBrush}" />
+        </StackPanel>
+      </Grid>
+    </Border>
+  </Viewbox>
 </Window>

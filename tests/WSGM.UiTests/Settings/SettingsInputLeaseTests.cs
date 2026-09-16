@@ -38,7 +38,11 @@ public sealed class SettingsInputLeaseTests
             Assert.False(window.IsVisible);
             Assert.False(released.Task.IsCompleted);
         }
-        finally { finish.TrySetResult(); }
+        finally
+        {
+            finish.TrySetResult();
+        }
+
         Assert.Equal(await acquiring.Task, await released.Task.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 

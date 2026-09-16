@@ -4,12 +4,12 @@ using System.Collections.Generic;
 namespace WSGM.DeviceLab.Inventory;
 
 /// <summary>
-/// Everything the sweep observed about one machine, before any interpretation.
+///     Everything the sweep observed about one machine, before any interpretation.
 /// </summary>
 /// <remarks>
-/// Raw observation kept separate from candidate matching, so a capture taken today can be re-matched
-/// against a catalog that grows later. Nothing here opens a device for writing, invokes an unknown
-/// method, or transmits on a serial port — inventory is enumeration only.
+///     Raw observation kept separate from candidate matching, so a capture taken today can be re-matched
+///     against a catalog that grows later. Nothing here opens a device for writing, invokes an unknown
+///     method, or transmits on a serial port — inventory is enumeration only.
 /// </remarks>
 internal sealed record MachineInventory
 {
@@ -80,9 +80,9 @@ internal sealed record InventoryCollectionIssue
 
 /// <summary>SMBIOS and firmware identity as read from the machine.</summary>
 /// <remarks>
-/// System and baseboard fields are recorded separately and never merged. On the reference handheld
-/// the exact board identifier lives in the baseboard product while the system product carries only a
-/// marketing string, so a schema with one "product" field would silently lose the useful half.
+///     System and baseboard fields are recorded separately and never merged. On the reference handheld
+///     the exact board identifier lives in the baseboard product while the system product carries only a
+///     marketing string, so a schema with one "product" field would silently lose the useful half.
 /// </remarks>
 internal sealed record FirmwareInventory
 {
@@ -108,13 +108,13 @@ internal sealed record FirmwareInventory
     public string? BiosVersion { get; init; }
 
     /// <summary>
-    /// EC firmware version as SMBIOS reports it, which is frequently useless.
+    ///     EC firmware version as SMBIOS reports it, which is frequently useless.
     /// </summary>
     /// <remarks>
-    /// Recorded as observed, including the <c>255</c> "unknown" encoding that the reference handheld
-    /// returns for both major and minor. Storing the useless value rather than dropping it is what
-    /// lets a matcher tell "SMBIOS says unknown" apart from "nobody looked", and the real version
-    /// comes from the vendor provider instead.
+    ///     Recorded as observed, including the <c>255</c> "unknown" encoding that the reference handheld
+    ///     returns for both major and minor. Storing the useless value rather than dropping it is what
+    ///     lets a matcher tell "SMBIOS says unknown" apart from "nobody looked", and the real version
+    ///     comes from the vendor provider instead.
     /// </remarks>
     public string? EmbeddedControllerVersion { get; init; }
 }
@@ -166,22 +166,22 @@ internal sealed record UsbInterfaceInventory
     public int? InterfaceNumber { get; init; }
 
     /// <summary>
-    /// Physical USB location path.
+    ///     Physical USB location path.
     /// </summary>
     /// <remarks>
-    /// Captured because it is the only identifier verified stable across a controller mode switch on
-    /// the reference hardware. It belongs to this machine and is redacted from shareable output.
+    ///     Captured because it is the only identifier verified stable across a controller mode switch on
+    ///     the reference hardware. It belongs to this machine and is redacted from shareable output.
     /// </remarks>
     public string? LocationPath { get; init; }
 
     /// <summary>
-    /// The composite device this interface belongs to, as a location path.
+    ///     The composite device this interface belongs to, as a location path.
     /// </summary>
     /// <remarks>
-    /// <see cref="LocationPath"/> with any trailing interface component removed. This is the value
-    /// hotplug continuation keys on: the composite-level prefix was verified byte-identical across a
-    /// full controller mode switch, while the interface index it drops is not established as stable
-    /// across that same event — a mode switch is precisely what rearranges the interfaces.
+    ///     <see cref="LocationPath" /> with any trailing interface component removed. This is the value
+    ///     hotplug continuation keys on: the composite-level prefix was verified byte-identical across a
+    ///     full controller mode switch, while the interface index it drops is not established as stable
+    ///     across that same event — a mode switch is precisely what rearranges the interfaces.
     /// </remarks>
     public string? DeviceLevelLocationPath { get; init; }
 
@@ -191,8 +191,8 @@ internal sealed record UsbInterfaceInventory
 
 /// <summary>One WMI class found present.</summary>
 /// <remarks>
-/// Presence and method <em>signatures</em> only. Enumerating a vendor method never authorizes calling
-/// it: an unknown method may write, and the whole inventory stage is read-only by construction.
+///     Presence and method <em>signatures</em> only. Enumerating a vendor method never authorizes calling
+///     it: an unknown method may write, and the whole inventory stage is read-only by construction.
 /// </remarks>
 internal sealed record WmiClassInventory
 {
@@ -214,10 +214,10 @@ internal sealed record WmiClassInventory
 
 /// <summary>Whether a WMI class could be reached.</summary>
 /// <remarks>
-/// <see cref="AccessDenied"/> is distinct from <see cref="NotFound"/> on purpose, and the difference
-/// is load-bearing: on the reference handheld the vendor provider returns access-denied from a
-/// medium-integrity process and enumerates fine when elevated. Recording both as "absent" would
-/// diagnose a rights problem as a missing provider.
+///     <see cref="AccessDenied" /> is distinct from <see cref="NotFound" /> on purpose, and the difference
+///     is load-bearing: on the reference handheld the vendor provider returns access-denied from a
+///     medium-integrity process and enumerates fine when elevated. Recording both as "absent" would
+///     diagnose a rights problem as a missing provider.
 /// </remarks>
 internal enum WmiAccess
 {

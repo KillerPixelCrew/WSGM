@@ -69,6 +69,7 @@ public sealed class InventoryWorkflowTests
             Assert.Contains(path, result.Error);
             Assert.True(File.Exists(path));
         }
+
         Assert.Null(DeviceLabInventoryWorkflow.CleanupCancelledWrite(path));
         Assert.False(File.Exists(path));
         Assert.Null(DeviceLabInventoryWorkflow.CleanupCancelledWrite(path));

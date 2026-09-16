@@ -34,7 +34,8 @@ public sealed class VisualComparisonTests
     {
         Assert.Equal(
             "1 pixels differ",
-            VisualBaseline.Compare(Png(2, new SKColor(0x2D, 0x2A, 0x2A)), Png(2, new SKColor(0x2A, 0x2A, 0x2A)), out _));
+            VisualBaseline.Compare(Png(2, new SKColor(0x2D, 0x2A, 0x2A)), Png(2, new SKColor(0x2A, 0x2A, 0x2A)),
+                out _));
     }
 
     [Fact]
@@ -51,7 +52,8 @@ public sealed class VisualComparisonTests
     [Fact]
     public void ChangedDimensionsFail()
     {
-        Assert.StartsWith("Dimensions differ", VisualBaseline.Compare(Png(2, SKColors.Black), Png(3, SKColors.Black), out _));
+        Assert.StartsWith("Dimensions differ",
+            VisualBaseline.Compare(Png(2, SKColors.Black), Png(3, SKColors.Black), out _));
     }
 
     private static byte[] Png(int width, SKColor first)

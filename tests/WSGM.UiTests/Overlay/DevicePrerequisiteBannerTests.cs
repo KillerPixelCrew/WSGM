@@ -14,12 +14,17 @@ public sealed class DevicePrerequisiteBannerTests
         bool package = true,
         bool integration = false,
         bool library = false,
-        bool hidHide = false) => new(package, integration, library, hidHide);
+        bool hidHide = false)
+    {
+        return new DevicePrerequisiteState(package, integration, library, hidHide);
+    }
 
-    /// <summary>The banner is a child of the Device panel, so that panel's visibility is the gate
-    /// and attaching the reader is what decides the banner itself. The panel is shown here because
-    /// the tab that normally shows it needs a device coordinator or a power-scheme selection, and
-    /// neither is what these tests are about.</summary>
+    /// <summary>
+    ///     The banner is a child of the Device panel, so that panel's visibility is the gate
+    ///     and attaching the reader is what decides the banner itself. The panel is shown here because
+    ///     the tab that normally shows it needs a device coordinator or a power-scheme selection, and
+    ///     neither is what these tests are about.
+    /// </summary>
     private static OverlayWindow Device(UiFixture fixture, DevicePrerequisiteSource source)
     {
         var window = fixture.Overlay();
@@ -52,7 +57,11 @@ public sealed class DevicePrerequisiteBannerTests
         var enabled = false;
         DevicePrerequisiteSource source = new(
             () => State(integration: enabled),
-            () => { enabled = true; return Task.CompletedTask; });
+            () =>
+            {
+                enabled = true;
+                return Task.CompletedTask;
+            });
 
         var window = Device(fixture, source);
         var enable = UiFixture.Named<Button>(window, "DevicePrerequisiteEnable");
@@ -75,7 +84,7 @@ public sealed class DevicePrerequisiteBannerTests
     {
         using UiFixture fixture = new();
         DevicePrerequisiteSource source = new(
-            () => State(package: false), () => Task.CompletedTask);
+            () => State(false), () => Task.CompletedTask);
 
         var window = Device(fixture, source);
 

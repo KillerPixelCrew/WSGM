@@ -31,21 +31,46 @@ internal sealed class PinnedPluginWidgets : StackPanel
         TextBlock error = new() { IsVisible = false, Classes = { "caption" } };
         DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(1) };
         // A hidden page keeps its controls in the tree for the sheet's life; skip the tick there.
-        timer.Tick += async (_, _) => { if (this.GetVisualParent() is { IsEffectivelyVisible: false }) { return; } await RefreshAsync(); };
-        AttachedToVisualTree += async (_, _) => { timer.Start(); await RefreshAsync(); };
-        DetachedFromVisualTree += (_, _) => { _closed = true; timer.Stop(); };
+        timer.Tick += async (_, _) =>
+        {
+            if (this.GetVisualParent() is { IsEffectivelyVisible: false })
+            {
+                return;
+            }
+
+            await RefreshAsync();
+        };
+        AttachedToVisualTree += async (_, _) =>
+        {
+            timer.Start();
+            await RefreshAsync();
+        };
+        DetachedFromVisualTree += (_, _) =>
+        {
+            _closed = true;
+            timer.Stop();
+        };
         return;
 
         async Task RefreshAsync()
         {
-            if (reading || _closed) { return; }
+            if (reading || _closed)
+            {
+                return;
+            }
+
             reading = true;
             try
             {
                 var pins = await preferences.Read();
-                if (_closed || previous.SequenceEqual(pins)) { return; }
+                if (_closed || previous.SequenceEqual(pins))
+                {
+                    return;
+                }
+
                 previous = pins;
-                var expanded = Children.OfType<StackPanel>().Where(card => card.Children.OfType<Expander>().Any(e => e.IsExpanded))
+                var expanded = Children.OfType<StackPanel>()
+                    .Where(card => card.Children.OfType<Expander>().Any(e => e.IsExpanded))
                     .Select(card => card.Tag).ToHashSet();
                 Children.Clear();
                 Children.Add(error);
@@ -78,7 +103,11 @@ internal sealed class PinnedPluginWidgets : StackPanel
                             IconGeometry = label == "Unpin" ? Icons.Pin : Icons.Restart,
                             IsEnabled = label != "Move up" || pin != pins[0]
                         };
-                        if (label == "Move down" && pin == pins[^1]) { button.IsEnabled = false; }
+                        if (label == "Move down" && pin == pins[^1])
+                        {
+                            button.IsEnabled = false;
+                        }
+
                         button.Click += async (_, _) =>
                         {
                             button.IsEnabled = false;
@@ -90,15 +119,24 @@ internal sealed class PinnedPluginWidgets : StackPanel
                                 pendingFocus = (pin, label, index);
                                 await RefreshAsync();
                             }
-                            catch (Exception ex) { error.Text = ex.Message; error.IsVisible = true; }
-                            finally { button.IsEnabled = true; }
+                            catch (Exception ex)
+                            {
+                                error.Text = ex.Message;
+                                error.IsVisible = true;
+                            }
+                            finally
+                            {
+                                button.IsEnabled = true;
+                            }
                         };
                         actions.Children.Add(button);
                     }
                 }
+
                 if (pins.Length > 0)
                 {
-                    CardButton reset = new() { Title = "Reset widget order", Tag = "reset", IconGeometry = Icons.Restart };
+                    CardButton reset = new()
+                        { Title = "Reset widget order", Tag = "reset", IconGeometry = Icons.Restart };
                     reset.Click += async (_, _) =>
                     {
                         try
@@ -107,7 +145,11 @@ internal sealed class PinnedPluginWidgets : StackPanel
                             pendingFocus = (null, "reset", 0);
                             await RefreshAsync();
                         }
-                        catch (Exception ex) { error.Text = ex.Message; error.IsVisible = true; }
+                        catch (Exception ex)
+                        {
+                            error.Text = ex.Message;
+                            error.IsVisible = true;
+                        }
                     };
                     Children.Add(new Expander
                     {
@@ -119,7 +161,11 @@ internal sealed class PinnedPluginWidgets : StackPanel
                     });
                 }
             }
-            catch (Exception ex) { error.Text = ex.Message; error.IsVisible = true; }
+            catch (Exception ex)
+            {
+                error.Text = ex.Message;
+                error.IsVisible = true;
+            }
             finally
             {
                 reading = false;
@@ -127,14 +173,17 @@ internal sealed class PinnedPluginWidgets : StackPanel
                 {
                     pendingFocus = null;
                     var buttons = this.GetLogicalDescendants().OfType<Button>().ToArray();
-                    var button = target.Pin is null ? buttons.FirstOrDefault(item => Equals(item.Tag, "reset"))
-                        : buttons.FirstOrDefault(item => Equals(item.Tag, (target.Pin, target.Label)) && item.IsEnabled);
+                    var button = target.Pin is null
+                        ? buttons.FirstOrDefault(item => Equals(item.Tag, "reset"))
+                        : buttons.FirstOrDefault(item =>
+                            Equals(item.Tag, (target.Pin, target.Label)) && item.IsEnabled);
                     button ??= buttons.FirstOrDefault(item => Equals(item.Tag, (target.Pin, "Unpin")));
                     if (button is null && previous.Length > 0)
                     {
                         var neighbor = previous[Math.Clamp(target.Index, 0, previous.Length - 1)];
                         button = buttons.FirstOrDefault(item => Equals(item.Tag, (neighbor, "Unpin")));
                     }
+
                     Control destination = button is null ? this : button;
                     UpdateLayout();
                     destination.BringIntoView();

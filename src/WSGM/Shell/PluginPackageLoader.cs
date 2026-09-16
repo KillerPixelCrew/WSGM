@@ -28,6 +28,17 @@ internal sealed class PluginPackageLoader : IDisposable
 
     internal IDevicePlugin Plugin { get; }
 
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _loadContext.Unload();
+    }
+
     internal static PluginPackageLoader Load(InstalledDevicePackage package)
     {
         ArgumentNullException.ThrowIfNull(package);
@@ -60,10 +71,11 @@ internal sealed class PluginPackageLoader : IDisposable
                 // soon as its lifecycle is quiescent; dependencies still resolve package-locally.
                 assembly = context.LoadFromStream(entry);
             }
+
             var entryType = assembly.GetType(
                                 package.Manifest.EntryType,
-                                throwOnError: false,
-                                ignoreCase: false)
+                                false,
+                                false)
                             ?? throw new InvalidDataException("The declared plugin entry type was not found.");
             if (!entryType.IsPublic
                 || entryType.IsAbstract
@@ -82,8 +94,8 @@ internal sealed class PluginPackageLoader : IDisposable
             }
 
             plugin = Activator.CreateInstance(entryType) as IDevicePlugin
-                ?? throw new InvalidDataException(
-                    "The plugin entry type did not create an IDevicePlugin instance.");
+                     ?? throw new InvalidDataException(
+                         "The plugin entry type did not create an IDevicePlugin instance.");
             if (!string.Equals(plugin.PackageId, package.Manifest.Id, StringComparison.Ordinal))
             {
                 throw new InvalidDataException(
@@ -127,17 +139,6 @@ internal sealed class PluginPackageLoader : IDisposable
         }
     }
 
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _loadContext.Unload();
-    }
-
     internal static string ConstrainPackagePath(string packageRoot, string relativePath)
     {
         if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath))
@@ -156,15 +157,6 @@ internal sealed class PluginPackageLoader : IDisposable
     internal sealed class PluginLoadContext : AssemblyLoadContext
     {
         private static readonly string SdkName = typeof(IDevicePlugin).Assembly.GetName().Name!;
-        private readonly string _packageRoot;
-        private readonly AssemblyDependencyResolver _resolver;
-
-        internal PluginLoadContext(string packageRoot, string entryPath)
-            : base($"WSGM.Plugin:{Path.GetFileName(packageRoot)}", isCollectible: true)
-        {
-            _packageRoot = packageRoot;
-            _resolver = new AssemblyDependencyResolver(entryPath);
-        }
 
         // Assemblies that may exist only once per process, whatever version the package carries.
         // CsWinRT's runtime registers a process-global ComWrappers instance when it first runs; a
@@ -181,6 +173,16 @@ internal sealed class PluginPackageLoader : IDisposable
             [typeof(Point).Assembly.GetName().Name!] =
                 typeof(Point).Assembly
         };
+
+        private readonly string _packageRoot;
+        private readonly AssemblyDependencyResolver _resolver;
+
+        internal PluginLoadContext(string packageRoot, string entryPath)
+            : base($"WSGM.Plugin:{Path.GetFileName(packageRoot)}", true)
+        {
+            _packageRoot = packageRoot;
+            _resolver = new AssemblyDependencyResolver(entryPath);
+        }
 
         protected override Assembly? Load(AssemblyName assemblyName)
         {
@@ -218,7 +220,7 @@ internal sealed class PluginPackageLoader : IDisposable
                 if (path is not null)
                 {
                     Log.Warn($"Plugin dependency {assemblyName.Name} {assemblyName.Version} loads "
-                        + $"from the package because the host's copy does not satisfy it ({ex.Message}).");
+                             + $"from the package because the host's copy does not satisfy it ({ex.Message}).");
                 }
             }
 

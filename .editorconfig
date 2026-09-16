@@ -13,9 +13,14 @@ dotnet_sort_system_directives_first = true
 dotnet_separate_import_directive_groups = false
 csharp_new_line_before_open_brace = all
 csharp_indent_case_contents = true
+# Rider is the formatting authority. Its layout puts a case block's braces at the case label's
+# level; Roslyn accepts that with this switch.
+csharp_indent_case_contents_when_block = false
 csharp_prefer_braces = true:warning
 dotnet_diagnostic.IDE0005.severity = warning
-dotnet_diagnostic.IDE0055.severity = warning
+# Rider's formatter is the layout authority (jb cleanupcode in the gate); Roslyn's own
+# formatter disagrees on a few constructs and must not fail the build over them.
+dotnet_diagnostic.IDE0055.severity = none
 
 [*.{axaml,xml,csproj,props,slnx}]
 indent_size = 2

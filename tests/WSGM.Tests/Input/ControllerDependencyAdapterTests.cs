@@ -173,8 +173,8 @@ public sealed class ControllerDependencyAdapterTests
     public async Task HidHideAdapterPreservesExactOrderAndVerifiesReadback()
     {
         FakeHidHideControl control = new(
-            applications: ["external-b.exe", "external-a.exe"],
-            devices: ["HID\\B", "HID\\A"]);
+            ["external-b.exe", "external-a.exe"],
+            ["HID\\B", "HID\\A"]);
         WindowsHidHideAdapter adapter = new(control);
         var expected = await adapter.ReadAsync(CancellationToken.None);
 
@@ -194,7 +194,7 @@ public sealed class ControllerDependencyAdapterTests
     [Fact]
     public async Task HidHideAdapterRefusesMutationAfterExternalExactStateChange()
     {
-        FakeHidHideControl control = new(applications: ["external.exe"]);
+        FakeHidHideControl control = new(["external.exe"]);
         WindowsHidHideAdapter adapter = new(control);
         var expected = await adapter.ReadAsync(CancellationToken.None);
         control.ReplaceApplications(["new-external.exe", "external.exe"]);
@@ -242,9 +242,9 @@ public sealed class ControllerDependencyAdapterTests
 
     private sealed class FakeHidHideControl : IHidHideControl
     {
+        private readonly int _error;
         private List<string> _applications;
         private List<string> _devices;
-        private readonly int _error;
 
         internal FakeHidHideControl(
             IEnumerable<string>? applications = null,
@@ -266,9 +266,12 @@ public sealed class ControllerDependencyAdapterTests
 
         internal int WriteCount { get; private set; }
 
-        public HidHideControlState Read() => _error == 0
-            ? new HidHideControlState(true, 0, Active, Inverse, [.. _applications], [.. _devices])
-            : new HidHideControlState(false, _error, false, false, [], []);
+        public HidHideControlState Read()
+        {
+            return _error == 0
+                ? new HidHideControlState(true, 0, Active, Inverse, [.. _applications], [.. _devices])
+                : new HidHideControlState(false, _error, false, false, [], []);
+        }
 
         public int Write(HidHideEntryKind entryKind, IReadOnlyList<string> entries)
         {
@@ -285,7 +288,9 @@ public sealed class ControllerDependencyAdapterTests
             return 0;
         }
 
-        internal void ReplaceApplications(IEnumerable<string> entries) =>
+        internal void ReplaceApplications(IEnumerable<string> entries)
+        {
             _applications = [.. entries];
+        }
     }
 }

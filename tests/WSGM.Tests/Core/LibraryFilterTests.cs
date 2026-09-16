@@ -4,19 +4,19 @@ namespace WSGM.Tests.Core;
 
 public sealed class LibraryFilterTests
 {
-    private sealed class StubCards(IReadOnlyCollection<long> ids) : ISdCardResolver
-    {
-        public IReadOnlyCollection<long> Resolve(SdCardScope scope, string contentId) => ids;
-    }
-
     private static readonly ISdCardResolver NoCards = new StubCards([]);
 
-    private static string Compile(FilterNode node) => LibraryFilter.CompilePredicate(node, NoCards);
+    private static string Compile(FilterNode node)
+    {
+        return LibraryFilter.CompilePredicate(node, NoCards);
+    }
 
     // Full evaluation (predicate + hoisted prologue) — hoisted literals (id sets, tag
     // arrays, compiled regexes) live in the prologue, not the returned predicate.
     private static string Full(FilterNode node, ISdCardResolver? cards = null)
-        => LibraryFilter.BuildEvaluation(node, LibraryFilter.Categories.Games, cards ?? NoCards);
+    {
+        return LibraryFilter.BuildEvaluation(node, LibraryFilter.Categories.Games, cards ?? NoCards);
+    }
 
     // ---- per-kind predicates ----
 
@@ -57,17 +57,26 @@ public sealed class LibraryFilterTests
     public void PlatformDistinguishesSteamFromNonSteam()
     {
         Assert.Contains("===0", Compile(new FilterNode { Kind = FilterKind.Platform, Platform = PlatformKind.Steam }));
-        Assert.Contains("!==0", Compile(new FilterNode { Kind = FilterKind.Platform, Platform = PlatformKind.NonSteam }));
+        Assert.Contains("!==0",
+            Compile(new FilterNode { Kind = FilterKind.Platform, Platform = PlatformKind.NonSteam }));
     }
 
     [Fact]
     public void ReviewScorePicksFieldAndCondition()
     {
-        var meta = Compile(new FilterNode { Kind = FilterKind.ReviewScore, ScoreType = ReviewScoreType.Metacritic, Condition = ThresholdCondition.Above, Threshold = 80 });
+        var meta = Compile(new FilterNode
+        {
+            Kind = FilterKind.ReviewScore, ScoreType = ReviewScoreType.Metacritic, Condition = ThresholdCondition.Above,
+            Threshold = 80
+        });
         Assert.Contains("a.metacritic_score", meta);
         Assert.Contains(">=80", meta);
 
-        var pct = Compile(new FilterNode { Kind = FilterKind.ReviewScore, ScoreType = ReviewScoreType.SteamPercent, Condition = ThresholdCondition.Below, Threshold = 50 });
+        var pct = Compile(new FilterNode
+        {
+            Kind = FilterKind.ReviewScore, ScoreType = ReviewScoreType.SteamPercent,
+            Condition = ThresholdCondition.Below, Threshold = 50
+        });
         Assert.Contains("a.review_percentage", pct);
         Assert.Contains("<50", pct);
     }
@@ -75,22 +84,33 @@ public sealed class LibraryFilterTests
     [Fact]
     public void TimePlayedConvertsUnitsToMinutes()
     {
-        var hours = Compile(new FilterNode { Kind = FilterKind.TimePlayed, Units = TimeUnit.Hours, Threshold = 2, Condition = ThresholdCondition.Above });
+        var hours = Compile(new FilterNode
+        {
+            Kind = FilterKind.TimePlayed, Units = TimeUnit.Hours, Threshold = 2, Condition = ThresholdCondition.Above
+        });
         Assert.Contains("minutes_playtime_forever", hours);
         Assert.Contains(">=120", hours);
 
-        var days = Compile(new FilterNode { Kind = FilterKind.TimePlayed, Units = TimeUnit.Days, Threshold = 1, Condition = ThresholdCondition.Above });
+        var days = Compile(new FilterNode
+        {
+            Kind = FilterKind.TimePlayed, Units = TimeUnit.Days, Threshold = 1, Condition = ThresholdCondition.Above
+        });
         Assert.Contains(">=1440", days);
     }
 
     [Fact]
     public void SizeOnDiskComparesGigabytes()
-        => Assert.Contains("/1073741824", Compile(new FilterNode { Kind = FilterKind.SizeOnDisk, Threshold = 10, Condition = ThresholdCondition.Above }));
+    {
+        Assert.Contains("/1073741824",
+            Compile(new FilterNode
+                { Kind = FilterKind.SizeOnDisk, Threshold = 10, Condition = ThresholdCondition.Above }));
+    }
 
     [Fact]
     public void ReleaseDateDaysAgoUsesRelativeThreshold()
     {
-        var js = Compile(new FilterNode { Kind = FilterKind.ReleaseDate, DaysAgo = 30, Condition = ThresholdCondition.Above });
+        var js = Compile(new FilterNode
+            { Kind = FilterKind.ReleaseDate, DaysAgo = 30, Condition = ThresholdCondition.Above });
         Assert.Contains("rt_original_release_date", js);
         Assert.Contains("Date.now()", js);
         Assert.Contains("30*86400", js);
@@ -115,16 +135,18 @@ public sealed class LibraryFilterTests
     }
 
     [Theory]
-    [InlineData("([0-9]+)+x")]      // needs digits — an all-'a' probe returns instantly
-    [InlineData(@"(\s+\S+)+$")]     // needs whitespace
+    [InlineData("([0-9]+)+x")] // needs digits — an all-'a' probe returns instantly
+    [InlineData(@"(\s+\S+)+$")] // needs whitespace
     [InlineData("(ab+)+c")]
     [InlineData("(a?)*b")]
     public void NestedQuantifiersAreRejectedWhateverAlphabetTheyNeed(string pattern)
-        => Assert.False(LibraryFilter.IsValid(new FilterNode
+    {
+        Assert.False(LibraryFilter.IsValid(new FilterNode
         {
             Kind = FilterKind.Regex,
             Pattern = pattern
         }));
+    }
 
     [Theory]
     [InlineData("Portal")]
@@ -132,19 +154,23 @@ public sealed class LibraryFilterTests
     [InlineData("(Legacy|Remastered)$")]
     [InlineData("[0-9]+")]
     public void OrdinaryPatternsStillPassTheSafetyGate(string pattern)
-        => Assert.True(LibraryFilter.IsValid(new FilterNode
+    {
+        Assert.True(LibraryFilter.IsValid(new FilterNode
         {
             Kind = FilterKind.Regex,
             Pattern = pattern
         }));
+    }
 
     [Fact]
     public void CatastrophicRegexIsRejectedBeforeSteamEvaluation()
-        => Assert.False(LibraryFilter.IsValid(new FilterNode
+    {
+        Assert.False(LibraryFilter.IsValid(new FilterNode
         {
             Kind = FilterKind.Regex,
             Pattern = "(a+)+b"
         }));
+    }
 
     [Fact]
     public void SdCardBakesResolvedAppIdsAsSet()
@@ -177,7 +203,9 @@ public sealed class LibraryFilterTests
 
     [Fact]
     public void EmptyMergeIsAlwaysTrue()
-        => Assert.Equal("true", Compile(new FilterNode { Kind = FilterKind.Merge }));
+    {
+        Assert.Equal("true", Compile(new FilterNode { Kind = FilterKind.Merge }));
+    }
 
     [Fact]
     public void InvertWrapsInvertibleKinds()
@@ -204,7 +232,9 @@ public sealed class LibraryFilterTests
     [InlineData(FilterKind.Installed, true)]
     [InlineData(FilterKind.Platform, true)]
     public void ValidityRequiresPopulatedParams(FilterKind kind, bool validWhenEmpty)
-        => Assert.Equal(validWhenEmpty, LibraryFilter.IsValid(new FilterNode { Kind = kind }));
+    {
+        Assert.Equal(validWhenEmpty, LibraryFilter.IsValid(new FilterNode { Kind = kind }));
+    }
 
     [Fact]
     public void MergeIsValidOnlyWhenEveryChildIs()
@@ -240,5 +270,13 @@ public sealed class LibraryFilterTests
         Assert.True(LibraryFilter.CanInvert(FilterKind.Merge));
         Assert.False(LibraryFilter.CanInvert(FilterKind.Installed));
         Assert.False(LibraryFilter.CanInvert(FilterKind.ReviewScore));
+    }
+
+    private sealed class StubCards(IReadOnlyCollection<long> ids) : ISdCardResolver
+    {
+        public IReadOnlyCollection<long> Resolve(SdCardScope scope, string contentId)
+        {
+            return ids;
+        }
     }
 }

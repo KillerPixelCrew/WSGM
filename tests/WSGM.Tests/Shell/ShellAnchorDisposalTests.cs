@@ -3,20 +3,20 @@ using System.IO.Pipes;
 namespace WSGM.Tests.Shell;
 
 /// <summary>
-/// The disposal behaviour the game-mode transition depends on.
+///     The disposal behaviour the game-mode transition depends on.
 /// </summary>
 /// <remarks>
-/// Entering game mode installs a fresh shell anchor and retires the previous one. Retiring it flows
-/// through <c>StreamWriter.Dispose</c>, which flushes, and a flush to a pipe whose peer has already
-/// exited throws <c>IOException: IO_PipeBroken</c>. A dead peer is the ordinary state for an anchor
-/// being retired, so that throw escaping disposal aborted the entire transition: WSGM logged
-/// "Game-mode transition failed", rolled back, and closed the Big Picture it had just started —
-/// leaving the user on the desktop with no way back for the rest of the session.
-/// <para>
-/// These tests pin the primitive rather than the anchor, because the anchor owns a live child
-/// process and cannot be constructed in a unit test. What broke was the assumption about flushing,
-/// and that is exactly what is asserted here.
-/// </para>
+///     Entering game mode installs a fresh shell anchor and retires the previous one. Retiring it flows
+///     through <c>StreamWriter.Dispose</c>, which flushes, and a flush to a pipe whose peer has already
+///     exited throws <c>IOException: IO_PipeBroken</c>. A dead peer is the ordinary state for an anchor
+///     being retired, so that throw escaping disposal aborted the entire transition: WSGM logged
+///     "Game-mode transition failed", rolled back, and closed the Big Picture it had just started —
+///     leaving the user on the desktop with no way back for the rest of the session.
+///     <para>
+///         These tests pin the primitive rather than the anchor, because the anchor owns a live child
+///         process and cannot be constructed in a unit test. What broke was the assumption about flushing,
+///         and that is exactly what is asserted here.
+///     </para>
 /// </remarks>
 public sealed class ShellAnchorDisposalTests
 {

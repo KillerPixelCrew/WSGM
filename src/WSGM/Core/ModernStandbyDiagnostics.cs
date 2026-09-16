@@ -9,9 +9,9 @@ namespace WSGM.Core;
 /// <param name="Supported">Whether this machine does Modern Standby at all.</param>
 /// <param name="Summary">One sentence for the settings surface.</param>
 /// <param name="ArmedWakeSources">
-/// The devices currently allowed to wake the machine, named as Windows names them. This is the one
-/// genuinely actionable diagnostic here: Windows will not say what woke the machine, but it will
-/// say what is permitted to, and on a handheld that list is usually the answer.
+///     The devices currently allowed to wake the machine, named as Windows names them. This is the one
+///     genuinely actionable diagnostic here: Windows will not say what woke the machine, but it will
+///     say what is permitted to, and on a handheld that list is usually the answer.
 /// </param>
 public sealed record ModernStandbyReport(
     bool Supported,
@@ -19,20 +19,23 @@ public sealed record ModernStandbyReport(
     IReadOnlyList<string> ArmedWakeSources);
 
 /// <summary>
-/// Reads Windows' own account of the last standby for the settings surface.
+///     Reads Windows' own account of the last standby for the settings surface.
 /// </summary>
 /// <remarks>
-/// Deliberately reports only what Windows actually exposes. There is no documented call that says
-/// what woke the machine, so this never names a culprit: it reports whether the resume was
-/// attributed to a person, how long the machine slept, and how long it has been awake. Inventing a
-/// cause from those would be a guess presented as a diagnosis, which is worse than saying less.
-/// <para>
-/// It also answers the "degrade safely" requirement: a machine without S0 low-power idle is told so
-/// plainly, rather than being offered a feature that can never do anything for it.
-/// </para>
+///     Deliberately reports only what Windows actually exposes. There is no documented call that says
+///     what woke the machine, so this never names a culprit: it reports whether the resume was
+///     attributed to a person, how long the machine slept, and how long it has been awake. Inventing a
+///     cause from those would be a guess presented as a diagnosis, which is worse than saying less.
+///     <para>
+///         It also answers the "degrade safely" requirement: a machine without S0 low-power idle is told so
+///         plainly, rather than being offered a feature that can never do anything for it.
+///     </para>
 /// </remarks>
 public static class ModernStandbyDiagnostics
 {
+    /// <summary>Enough to diagnose a handheld; a list longer than this is not a settings row.</summary>
+    private const int MaximumReportedWakeSources = 16;
+
     /// <summary>Describes the last standby, or why nothing can be described.</summary>
     /// <returns>A report safe to show in settings; never throws.</returns>
     public static ModernStandbyReport Read()
@@ -77,10 +80,10 @@ public static class ModernStandbyDiagnostics
     /// <summary>The devices Windows currently allows to wake the machine.</summary>
     /// <returns>Their names, or an empty list when the enumeration fails.</returns>
     /// <remarks>
-    /// Bounded and best-effort: a diagnostic that could throw would take the whole settings page
-    /// with it. Measured on the reference handheld on 2026-09-10, two of three wake-capable devices
-    /// were armed — the Wi-Fi adapter and the USB4 root router — which is the shape of answer this
-    /// is for.
+    ///     Bounded and best-effort: a diagnostic that could throw would take the whole settings page
+    ///     with it. Measured on the reference handheld on 2026-09-10, two of three wake-capable devices
+    ///     were armed — the Wi-Fi adapter and the USB4 root router — which is the shape of answer this
+    ///     is for.
     /// </remarks>
     private static List<string> ReadArmedWakeSources()
     {
@@ -94,6 +97,7 @@ public static class ModernStandbyDiagnostics
                     armed.Add(device.Name);
                 }
             }
+
             return armed;
         }
         catch (Exception ex)
@@ -102,9 +106,6 @@ public static class ModernStandbyDiagnostics
             return [];
         }
     }
-
-    /// <summary>Enough to diagnose a handheld; a list longer than this is not a settings row.</summary>
-    private const int MaximumReportedWakeSources = 16;
 
     /// <summary>Renders a duration the way someone reading a settings page would say it.</summary>
     /// <param name="span">The duration to describe.</param>
@@ -115,6 +116,7 @@ public static class ModernStandbyDiagnostics
         {
             return string.Create(CultureInfo.CurrentCulture, $"{span.TotalSeconds:F0} seconds");
         }
+
         return span.TotalHours < 1
             ? string.Create(CultureInfo.CurrentCulture, $"{span.TotalMinutes:F0} minutes")
             : string.Create(CultureInfo.CurrentCulture, $"{span.TotalHours:F1} hours");

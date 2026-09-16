@@ -19,7 +19,11 @@ public sealed class DisplayPageViewsTests
         int? brightness = 43;
         var writes = 0;
         using NativeQamBrightnessService service = new(() => true, () => { },
-            () => brightness, _ => { writes++; return true; }, Timeout.InfiniteTimeSpan);
+            () => brightness, _ =>
+            {
+                writes++;
+                return true;
+            }, Timeout.InfiniteTimeSpan);
         await service.ReadAsync();
         DisplayBrightnessView view = new(service);
         var slider = view.GetLogicalDescendants().OfType<Slider>().Single();
@@ -39,7 +43,10 @@ public sealed class DisplayPageViewsTests
             Assert.False(slider.IsEnabled);
             Assert.Equal(0, writes);
         }
-        finally { window.Close(); }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [AvaloniaFact]
@@ -47,7 +54,8 @@ public sealed class DisplayPageViewsTests
     {
         using UiFixture fixture = new();
         DisplayTargetIdentity target = new("test", null, null, "Test display", 1, 0, 1);
-        DisplayModeSnapshot snapshot = new(new ActiveDisplayPath(target, "test", 0, 120, 1), new DisplayMode(1920, 1080, 120),
+        DisplayModeSnapshot snapshot = new(new ActiveDisplayPath(target, "test", 0, 120, 1),
+            new DisplayMode(1920, 1080, 120),
             [new DisplayMode(1920, 1080, 60), new DisplayMode(1920, 1080, 120), new DisplayMode(1280, 720, 60)]);
         DisplayModeView view = new(() => Task.FromResult<DisplayModeSnapshot?>(snapshot));
         Window window = new() { Content = view, Width = 500, Height = 400 };
@@ -62,6 +70,9 @@ public sealed class DisplayPageViewsTests
             Assert.Single(refresh.Items);
             Assert.Equal(new DisplayMode(1920, 1080, 120), snapshot.Current);
         }
-        finally { window.Close(); }
+        finally
+        {
+            window.Close();
+        }
     }
 }

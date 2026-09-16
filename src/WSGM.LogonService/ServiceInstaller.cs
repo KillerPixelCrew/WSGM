@@ -6,18 +6,22 @@ using WSGM.LogonService.Interop;
 
 namespace WSGM.LogonService;
 
-/// <summary>Elevated one-shots the installer drives: create-or-reconfigure (also
-/// adopts a leftover preview registration of the same name), failure actions, and
-/// stop+delete on uninstall.</summary>
+/// <summary>
+///     Elevated one-shots the installer drives: create-or-reconfigure (also
+///     adopts a leftover preview registration of the same name), failure actions, and
+///     stop+delete on uninstall.
+/// </summary>
 internal static class ServiceInstaller
 {
     private const string DisplayName = "WSGM Logon Service";
     private const string Description = "Starts WSGM game mode at sign-in and restores the desktop if it fails.";
     private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(10);
 
-    /// <summary>Creates or reconfigures + starts the service. Auto-start on purpose
-    /// (NOT delayed auto-start — delayed would lose the logon race; the startup
-    /// catch-up only covers the autologon remainder).</summary>
+    /// <summary>
+    ///     Creates or reconfigures + starts the service. Auto-start on purpose
+    ///     (NOT delayed auto-start — delayed would lose the logon race; the startup
+    ///     catch-up only covers the autologon remainder).
+    /// </summary>
     internal static int Install()
     {
         var exe = Environment.ProcessPath;
@@ -26,6 +30,7 @@ internal static class ServiceInstaller
             ServiceLog.Error("Install: cannot determine own executable path.");
             return 1;
         }
+
         var binPath = $"\"{exe}\"";
 
         var scm = NativeMethods.OpenSCManagerW(null, null, NativeMethods.ScManagerAllAccess);
@@ -34,6 +39,7 @@ internal static class ServiceInstaller
             ServiceLog.Error($"Install: OpenSCManager failed (error {Marshal.GetLastWin32Error()}) — run elevated.");
             return 1;
         }
+
         try
         {
             var service = NativeMethods.OpenServiceW(scm, ServiceHost.ServiceName, NativeMethods.ServiceAllAccess);
@@ -48,6 +54,7 @@ internal static class ServiceInstaller
                     ServiceLog.Error($"Install: CreateService failed (error {Marshal.GetLastWin32Error()}).");
                     return 1;
                 }
+
                 ServiceLog.Info($"Install: service created ({binPath}).");
             }
             else
@@ -62,6 +69,7 @@ internal static class ServiceInstaller
                     NativeMethods.CloseServiceHandle(service);
                     return 1;
                 }
+
                 ServiceLog.Info($"Install: existing service reconfigured ({binPath}).");
             }
 
@@ -78,6 +86,7 @@ internal static class ServiceInstaller
             {
                 NativeMethods.CloseServiceHandle(service);
             }
+
             return 0;
         }
         finally
@@ -86,12 +95,16 @@ internal static class ServiceInstaller
         }
     }
 
-    /// <summary>Starts the service, tagging the start as installer-initiated.
-    /// <para>The tag matters because <c>--install</c> runs from inside Setup, minutes
-    /// or hours after the user signed in, and the installer stopped the service first
-    /// — so its per-session "already launched" memory is gone. Without the tag the
-    /// host's catch-up sweep would treat the live session as an autologon that beat
-    /// the service and run a full game-mode boot takeover in the middle of setup.</para></summary>
+    /// <summary>
+    ///     Starts the service, tagging the start as installer-initiated.
+    ///     <para>
+    ///         The tag matters because <c>--install</c> runs from inside Setup, minutes
+    ///         or hours after the user signed in, and the installer stopped the service first
+    ///         — so its per-session "already launched" memory is gone. Without the tag the
+    ///         host's catch-up sweep would treat the live session as an autologon that beat
+    ///         the service and run a full game-mode boot takeover in the middle of setup.
+    ///     </para>
+    /// </summary>
     /// <param name="service">An open service handle with start rights.</param>
     private static unsafe bool StartForInstall(nint service)
     {
@@ -102,10 +115,12 @@ internal static class ServiceInstaller
             argv[0] = (nint)tag;
             started = NativeMethods.StartServiceW(service, 1, (nint)argv);
         }
+
         if (started)
         {
             return true;
         }
+
         var error = Marshal.GetLastWin32Error();
         if (error == NativeMethods.ErrorServiceAlreadyRunning)
         {
@@ -116,8 +131,10 @@ internal static class ServiceInstaller
         return false;
     }
 
-    /// <summary>Stops (bounded) and deletes the service. A missing service is
-    /// success — the uninstaller must be idempotent.</summary>
+    /// <summary>
+    ///     Stops (bounded) and deletes the service. A missing service is
+    ///     success — the uninstaller must be idempotent.
+    /// </summary>
     internal static int Uninstall()
     {
         var scm = NativeMethods.OpenSCManagerW(null, null, NativeMethods.ScManagerAllAccess);
@@ -126,6 +143,7 @@ internal static class ServiceInstaller
             ServiceLog.Error($"Uninstall: OpenSCManager failed (error {Marshal.GetLastWin32Error()}) — run elevated.");
             return 1;
         }
+
         try
         {
             var service = NativeMethods.OpenServiceW(scm, ServiceHost.ServiceName, NativeMethods.ServiceAllAccess);
@@ -134,13 +152,14 @@ internal static class ServiceInstaller
                 ServiceLog.Info("Uninstall: service not installed — nothing to do.");
                 return 0;
             }
+
             try
             {
                 if (!NativeMethods.QueryServiceStatus(service, out var status))
                 {
                     ServiceLog.Error(
                         $"Uninstall: initial service-state query failed "
-                            + $"(error {Marshal.GetLastWin32Error()}).");
+                        + $"(error {Marshal.GetLastWin32Error()}).");
                     return 1;
                 }
 
@@ -165,11 +184,10 @@ internal static class ServiceInstaller
 
                         ServiceLog.Error(
                             $"Uninstall: service-state query failed while stopping "
-                                + $"(error {Marshal.GetLastWin32Error()}).");
+                            + $"(error {Marshal.GetLastWin32Error()}).");
                         return 1;
-                    }
-                    while (status.dwCurrentState != NativeMethods.ServiceStopped
-                        && elapsed.Elapsed < StopTimeout);
+                    } while (status.dwCurrentState != NativeMethods.ServiceStopped
+                             && elapsed.Elapsed < StopTimeout);
 
                     if (status.dwCurrentState != NativeMethods.ServiceStopped)
                     {
@@ -178,11 +196,13 @@ internal static class ServiceInstaller
                         return 1;
                     }
                 }
+
                 if (!NativeMethods.DeleteService(service))
                 {
                     ServiceLog.Error($"Uninstall: DeleteService failed (error {Marshal.GetLastWin32Error()}).");
                     return 1;
                 }
+
                 ServiceLog.Info("Uninstall: service deleted.");
                 return 0;
             }
@@ -233,6 +253,7 @@ internal static class ServiceInstaller
                     Delay = delays[i]
                 }, actions + i * actionSize, false);
             }
+
             Marshal.StructureToPtr(new NativeMethods.ServiceFailureActionsW
             {
                 dwResetPeriod = 86400,

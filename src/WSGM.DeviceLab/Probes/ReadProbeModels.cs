@@ -105,10 +105,10 @@ internal sealed record ReadProbeCrossCheck
     /// <summary>Required relation between the primary and independent values.</summary>
     public required ReadProbeCrossCheckKind Kind { get; init; }
 
-    /// <summary>Smallest accepted independent numeric value for <see cref="ReadProbeCrossCheckKind.InRange"/>.</summary>
+    /// <summary>Smallest accepted independent numeric value for <see cref="ReadProbeCrossCheckKind.InRange" />.</summary>
     public long? MinimumValue { get; init; }
 
-    /// <summary>Largest accepted independent numeric value for <see cref="ReadProbeCrossCheckKind.InRange"/>.</summary>
+    /// <summary>Largest accepted independent numeric value for <see cref="ReadProbeCrossCheckKind.InRange" />.</summary>
     public long? MaximumValue { get; init; }
 }
 
@@ -227,8 +227,8 @@ internal sealed record ReadProbeWorkerResponse
 
 /// <summary>Immutable invocation envelope consumed by one disposable Device Lab self-worker.</summary>
 /// <remarks>
-/// It contains no transport operation, address, method, report ID, library path, or arbitrary
-/// parameter. Those remain compiled into the profile selected by <see cref="ProbeId"/>.
+///     It contains no transport operation, address, method, report ID, library path, or arbitrary
+///     parameter. Those remain compiled into the profile selected by <see cref="ProbeId" />.
 /// </remarks>
 internal sealed record ReadProbeWorkerRequest
 {
@@ -291,7 +291,7 @@ internal sealed class DisposableWorkerCanceledException : OperationCanceledExcep
     internal DisposableWorkerCanceledException(
         bool containmentVerified,
         CancellationToken cancellationToken)
-        : base("The disposable worker operation was cancelled.", innerException: null, cancellationToken)
+        : base("The disposable worker operation was cancelled.", null, cancellationToken)
     {
         ContainmentVerified = containmentVerified;
     }

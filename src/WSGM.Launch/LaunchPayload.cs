@@ -31,10 +31,11 @@ internal sealed record LaunchPayload(
             // Steam's inherited filter can hide the VIIPER virtual pad independently of
             // lease success. Sanitize only this controlled child's environment.
             if (key.Equals(
-                "SDL_GAMECONTROLLER_IGNORE_DEVICES", StringComparison.OrdinalIgnoreCase))
+                    "SDL_GAMECONTROLLER_IGNORE_DEVICES", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
+
             environment.Add(KeyValuePair.Create(key, value));
         }
 
@@ -99,6 +100,7 @@ internal sealed record LaunchPayload(
         {
             throw new InvalidDataException($"Invalid {description} count {count}.");
         }
+
         return count;
     }
 }

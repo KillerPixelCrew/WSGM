@@ -475,20 +475,32 @@ public sealed class PerformanceServiceTests
             request is { RtssProfileName: "game.exe", Control: PerformanceControl.OverlayLevel, Value: 1 });
     }
 
+    private static PerformanceService CreateService(
+        IRtssAdapter adapter,
+        PerformancePolicy? policy = null)
+    {
+        return new PerformanceService(adapter, PersistAsync, policy);
+    }
+
+    private static Task PersistAsync(
+        PerformancePolicy policy,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task TheServiceRunsWithNoDevicePlatformPresent()
+    {
+        await using var service = Service();
+
+        Assert.True(service.Enabled);
+        Assert.NotNull(service.Current);
+    }
+
     private sealed class FakeRtssAdapter : IRtssAdapter
     {
-        public void ApplyOsdCustomization(RtssOsdCustomSettings settings)
-        {
-            // The fake has no renderer; the service only forwards.
-        }
-
-        public void ApplyOsdPowerStatus(RtssOsdPowerStatus status)
-        {
-            PowerStatuses.Add(status);
-        }
-
-        public List<RtssOsdPowerStatus> PowerStatuses { get; } = [];
-
         public static readonly RtssProbe ReadyProbe = new(
             RtssAvailability.Ready,
             "7.3.7",
@@ -502,6 +514,14 @@ public sealed class PerformanceServiceTests
                 true),
             null);
 
+        public int ActiveApplies;
+
+        public int MaximumActiveApplies;
+
+        public int ProbeCount;
+
+        public List<RtssOsdPowerStatus> PowerStatuses { get; } = [];
+
         public RtssProbe Probe { get; set; } = ReadyProbe;
 
         public Dictionary<string, PerformanceValues> Values { get; } = new(StringComparer.OrdinalIgnoreCase)
@@ -512,23 +532,29 @@ public sealed class PerformanceServiceTests
         /// <summary>Profiles RTSS already holds on disk, as the service would find them.</summary>
         public HashSet<string> ExistingProfiles { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-        public bool ProfileExists(string rtssProfileName) =>
-            rtssProfileName.Length == 0
-            || ExistingProfiles.Contains(rtssProfileName)
-            || Values.ContainsKey(rtssProfileName);
-
         public List<RtssApplyRequest> Applies { get; } = [];
 
         public Func<RtssApplyRequest, CancellationToken, Task<RtssApplyResult>>? OnApply { get; set; }
 
-        public int ActiveApplies;
-
-        public int MaximumActiveApplies;
-
-        public int ProbeCount;
-
         public TaskCompletionSource<bool> FirstProbe { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void ApplyOsdCustomization(RtssOsdCustomSettings settings)
+        {
+            // The fake has no renderer; the service only forwards.
+        }
+
+        public void ApplyOsdPowerStatus(RtssOsdPowerStatus status)
+        {
+            PowerStatuses.Add(status);
+        }
+
+        public bool ProfileExists(string rtssProfileName)
+        {
+            return rtssProfileName.Length == 0
+                   || ExistingProfiles.Contains(rtssProfileName)
+                   || Values.ContainsKey(rtssProfileName);
+        }
 
         public Task<RtssProbe> ProbeAsync(CancellationToken cancellationToken)
         {
@@ -565,6 +591,11 @@ public sealed class PerformanceServiceTests
             return Task.FromResult(new RtssApplyResult(true, null));
         }
 
+        public ValueTask DisposeAsync()
+        {
+            return ValueTask.CompletedTask;
+        }
+
         public void Write(RtssApplyRequest request)
         {
             Applies.Add(request);
@@ -573,28 +604,5 @@ public sealed class PerformanceServiceTests
                 request.Control,
                 request.Value);
         }
-
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-    }
-
-    private static PerformanceService CreateService(
-        IRtssAdapter adapter,
-        PerformancePolicy? policy = null) => new(adapter, PersistAsync, policy);
-
-    private static Task PersistAsync(
-        PerformancePolicy policy,
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        return Task.CompletedTask;
-    }
-
-    [Fact]
-    public async Task TheServiceRunsWithNoDevicePlatformPresent()
-    {
-        await using var service = Service();
-
-        Assert.True(service.Enabled);
-        Assert.NotNull(service.Current);
     }
 }

@@ -3,10 +3,12 @@ using Microsoft.Win32;
 
 namespace WSGM.Core;
 
-/// <summary>Restores the per-user Winlogon Shell value and owns the anti-Xbox-FSE
-/// StartupToGamingHome guard. HKCU only — no admin rights needed, other accounts
-/// untouched. WSGM never registers itself as the shell; <see cref="Uninstall"/> exists
-/// so recovery and the uninstaller can put back a snapshotted value exactly.</summary>
+/// <summary>
+///     Restores the per-user Winlogon Shell value and owns the anti-Xbox-FSE
+///     StartupToGamingHome guard. HKCU only — no admin rights needed, other accounts
+///     untouched. WSGM never registers itself as the shell; <see cref="Uninstall" /> exists
+///     so recovery and the uninstaller can put back a snapshotted value exactly.
+/// </summary>
 public static class ShellRegistration
 {
     private const string WinlogonKey = @"Software\Microsoft\Windows NT\CurrentVersion\Winlogon";
@@ -16,15 +18,16 @@ public static class ShellRegistration
 
     private static readonly RegistryValueSnapshot<string?> ShellSnapshot = new(
         ShellValue,
-        absentValue: null,
-        writeFallback: string.Empty,
-        defaultKind: RegistryValueKind.String,
-        coerce: static value => value as string ?? string.Empty,
-        normalizeKind: static kind =>
+        null,
+        string.Empty,
+        RegistryValueKind.String,
+        static value => value as string ?? string.Empty,
+        static kind =>
             kind == RegistryValueKind.ExpandString ? RegistryValueKind.ExpandString : RegistryValueKind.String,
-        load: static config => new RegistryValueSnapshot<string?>.State(config.PreviousShellSnapshotCaptured, config.PreviousShellValueExists,
+        static config => new RegistryValueSnapshot<string?>.State(config.PreviousShellSnapshotCaptured,
+            config.PreviousShellValueExists,
             config.PreviousShellValue, config.PreviousShellValueKind),
-        store: static (config, state) =>
+        static (config, state) =>
         {
             config.PreviousShellValue = state.Value;
             config.PreviousShellSnapshotCaptured = state.Captured;
@@ -34,17 +37,17 @@ public static class ShellRegistration
 
     private static readonly RegistryValueSnapshot<int> GamingHomeSnapshot = new(
         StartupToGamingHome,
-        absentValue: 0,
-        writeFallback: 0,
-        defaultKind: RegistryValueKind.DWord,
-        coerce: static value => value is int number ? number : 0,
-        normalizeKind: static kind =>
+        0,
+        0,
+        RegistryValueKind.DWord,
+        static value => value is int number ? number : 0,
+        static kind =>
             kind == RegistryValueKind.QWord ? RegistryValueKind.QWord : RegistryValueKind.DWord,
-        load: static config => new RegistryValueSnapshot<int>.State(config.PreviousStartupToGamingHomeSnapshotCaptured,
+        static config => new RegistryValueSnapshot<int>.State(config.PreviousStartupToGamingHomeSnapshotCaptured,
             config.PreviousStartupToGamingHomeValueExists,
             config.PreviousStartupToGamingHomeValue,
             config.PreviousStartupToGamingHomeValueKind),
-        store: static (config, state) =>
+        static (config, state) =>
         {
             config.PreviousStartupToGamingHomeValue = state.Value;
             config.PreviousStartupToGamingHomeSnapshotCaptured = state.Captured;
@@ -52,11 +55,13 @@ public static class ShellRegistration
             config.PreviousStartupToGamingHomeValueKind = state.Kind;
         });
 
-    /// <summary>Applies the anti-Xbox-FSE guard on its own: with explorer as the
-    /// registered shell again, StartupToGamingHome=1 would boot the Xbox Full
-    /// Screen Experience over WSGM's cover at sign-in. Captures the pre-existing
-    /// value once (upgrades keep the original snapshot — Restore never clears the
-    /// captured flag) and then writes 0.</summary>
+    /// <summary>
+    ///     Applies the anti-Xbox-FSE guard on its own: with explorer as the
+    ///     registered shell again, StartupToGamingHome=1 would boot the Xbox Full
+    ///     Screen Experience over WSGM's cover at sign-in. Captures the pre-existing
+    ///     value once (upgrades keep the original snapshot — Restore never clears the
+    ///     captured flag) and then writes 0.
+    /// </summary>
     public static void ApplyGamingHomeGuard(AppConfig config)
     {
         try
@@ -84,6 +89,7 @@ public static class ShellRegistration
                 config.PreviousStartupToGamingHomeValueExists = persisted.PreviousStartupToGamingHomeValueExists;
                 config.PreviousStartupToGamingHomeValueKind = persisted.PreviousStartupToGamingHomeValueKind;
             }
+
             using var gaming = Registry.CurrentUser.CreateSubKey(GamingConfigKey);
             gaming.SetValue(StartupToGamingHome, 0, RegistryValueKind.DWord);
             Log.Info("StartupToGamingHome guard applied (0) — Xbox FSE will not contest sign-in.");
@@ -94,20 +100,29 @@ public static class ShellRegistration
         }
     }
 
-    /// <summary>Restores the previous shell registration (delete our value, or write back
-    /// the saved pre-existing one). Safe to call from a broken state — reads config
-    /// defensively and never throws.</summary>
+    /// <summary>
+    ///     Restores the previous shell registration (delete our value, or write back
+    ///     the saved pre-existing one). Safe to call from a broken state — reads config
+    ///     defensively and never throws.
+    /// </summary>
     public static void Uninstall()
     {
         try
         {
             var config = new AppConfig();
-            try { config = ConfigStore.Load(); } catch (Exception) { /* keep the defaults: restore must run with a broken config */ }
+            try
+            {
+                config = ConfigStore.Load();
+            }
+            catch (Exception)
+            {
+                /* keep the defaults: restore must run with a broken config */
+            }
 
             // OpenSubKey (not CreateSubKey): a restore that finds nothing to restore
             // must not create keys as a side effect. Winlogon always exists; a null
             // here also means our value can't be registered there.
-            using (var key = Registry.CurrentUser.OpenSubKey(WinlogonKey, writable: true))
+            using (var key = Registry.CurrentUser.OpenSubKey(WinlogonKey, true))
             {
                 if (key is not null && IsOwnedByThisExe(ShellSnapshot.ReadCurrent(key).Value))
                 {
@@ -115,7 +130,7 @@ public static class ShellRegistration
                 }
             }
 
-            using (var gaming = Registry.CurrentUser.OpenSubKey(GamingConfigKey, writable: true))
+            using (var gaming = Registry.CurrentUser.OpenSubKey(GamingConfigKey, true))
             {
                 if (gaming is not null && GamingHomeSnapshot.IsCaptured(config))
                 {
@@ -129,6 +144,7 @@ public static class ShellRegistration
                     }
                 }
             }
+
             Log.Info($"Shell registration restored (previous: {DisplayShellSnapshot(config)})");
         }
         catch (Exception ex)
@@ -148,32 +164,39 @@ public static class ShellRegistration
         {
             return false;
         }
+
         var exe = Environment.ProcessPath;
         return (exe is not null && string.Equals(registeredExe, exe, StringComparison.OrdinalIgnoreCase))
-            || string.Equals(registeredExe, Installer.InstalledExePath, StringComparison.OrdinalIgnoreCase);
+               || string.Equals(registeredExe, Installer.InstalledExePath, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Parses the executable out of a Shell command line: the quoted token
-    /// if the command starts with a quote, otherwise everything up to the first
-    /// space (matching how Winlogon itself launches the value).</summary>
+    /// <summary>
+    ///     Parses the executable out of a Shell command line: the quoted token
+    ///     if the command starts with a quote, otherwise everything up to the first
+    ///     space (matching how Winlogon itself launches the value).
+    /// </summary>
     internal static string? ExtractExecutablePath(string? command)
     {
         if (string.IsNullOrWhiteSpace(command))
         {
             return null;
         }
+
         command = command.Trim();
         if (command.StartsWith('"'))
         {
             var closing = command.IndexOf('"', 1);
             return closing > 1 ? command[1..closing] : null;
         }
+
         var space = command.IndexOf(' ');
         return space < 0 ? command : command[..space];
     }
 
     private static string DisplayShellSnapshot(AppConfig config)
-        => ShellSnapshot.HasValue(config)
+    {
+        return ShellSnapshot.HasValue(config)
             ? config.PreviousShellValue ?? string.Empty
             : "<absent>";
+    }
 }

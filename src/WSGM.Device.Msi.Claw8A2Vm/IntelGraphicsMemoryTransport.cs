@@ -12,45 +12,45 @@ namespace WSGM.Device.Msi.Claw8A2Vm;
 /// <summary>What the Intel driver currently reports for the shared-memory split.</summary>
 /// <param name="Percent">The pinning limit, as a whole percentage of system memory.</param>
 /// <param name="ReportedAdapterBytes">
-/// The adapter memory size the driver publishes, or zero when it is unreadable. This follows the
-/// percentage but only across a restart, so a fresh write and this value legitimately disagree
-/// until the machine reboots.
+///     The adapter memory size the driver publishes, or zero when it is unreadable. This follows the
+///     percentage but only across a restart, so a fresh write and this value legitimately disagree
+///     until the machine reboots.
 /// </param>
 internal readonly record struct IntelGraphicsMemoryState(int Percent, ulong ReportedAdapterBytes);
 
 /// <summary>
-/// Intel's Shared GPU Memory Override, as the driver stores it.
+///     Intel's Shared GPU Memory Override, as the driver stores it.
 /// </summary>
 /// <remarks>
-/// The system/video split on an Intel integrated GPU is a driver setting rather than a firmware
-/// carve-out, and it is not in the Graphics Control Library: <c>ControlLib.dll</c> exposes four
-/// memory entry points and every one of them is a get. What Intel Graphics Software drives is
-/// <c>GpuSystemMemoryPinninglimit</c>, a percentage under the display adapter's <c>GMM</c> key,
-/// which the driver reads when it sets up its memory manager. That is why the change needs a
-/// restart and why nothing here can verify the effect, only the setting.
-/// <para>
-/// Measured on the reference handheld on 2026-09-10, driver <c>32.0.101.8992</c>: the value read 57,
-/// Intel documents 57% as the feature's default, installed memory was 32 GB with
-/// <c>ullTotalPhys</c> at 33,866,657,792 bytes, and the adapter reported exactly 19,327,352,832
-/// bytes — 57.07% of it. The percentage and the reported adapter size agree to three digits, which
-/// is what ties this key to the feature. The adapter's own <c>(16GB)</c> name string is the nominal
-/// half of installed memory and does not track the setting.
-/// </para>
-/// <para>
-/// The accepted range is 13-87 percent, which is what Intel Graphics Software itself offers. Intel
-/// publishes the 57% default and a 10 GB system-memory requirement but no formula for the bounds,
-/// so they are taken from the shipping control rather than derived.
-/// </para>
-/// <para>
-/// There is no companion flag saying whether the split has been changed, and there does not need to
-/// be one: the default is the literal value 57. Confirmed on the reference unit on 2026-09-10 by
-/// watching Intel Graphics Software both ways — setting 44 wrote 44, and pressing reset wrote 57
-/// back rather than deleting the value. Nothing else moved either time: no other value under the
-/// adapter, nothing under <c>HKLM\SOFTWARE\Intel</c>, and nothing in ProgramData. The only other
-/// file it touched was its own DPAPI-encrypted per-user settings blob, which the driver never reads.
-/// So an absent value is the default too, and this transport reports 57 for it rather than treating
-/// an untouched machine as one without the feature.
-/// </para>
+///     The system/video split on an Intel integrated GPU is a driver setting rather than a firmware
+///     carve-out, and it is not in the Graphics Control Library: <c>ControlLib.dll</c> exposes four
+///     memory entry points and every one of them is a get. What Intel Graphics Software drives is
+///     <c>GpuSystemMemoryPinninglimit</c>, a percentage under the display adapter's <c>GMM</c> key,
+///     which the driver reads when it sets up its memory manager. That is why the change needs a
+///     restart and why nothing here can verify the effect, only the setting.
+///     <para>
+///         Measured on the reference handheld on 2026-09-10, driver <c>32.0.101.8992</c>: the value read 57,
+///         Intel documents 57% as the feature's default, installed memory was 32 GB with
+///         <c>ullTotalPhys</c> at 33,866,657,792 bytes, and the adapter reported exactly 19,327,352,832
+///         bytes — 57.07% of it. The percentage and the reported adapter size agree to three digits, which
+///         is what ties this key to the feature. The adapter's own <c>(16GB)</c> name string is the nominal
+///         half of installed memory and does not track the setting.
+///     </para>
+///     <para>
+///         The accepted range is 13-87 percent, which is what Intel Graphics Software itself offers. Intel
+///         publishes the 57% default and a 10 GB system-memory requirement but no formula for the bounds,
+///         so they are taken from the shipping control rather than derived.
+///     </para>
+///     <para>
+///         There is no companion flag saying whether the split has been changed, and there does not need to
+///         be one: the default is the literal value 57. Confirmed on the reference unit on 2026-09-10 by
+///         watching Intel Graphics Software both ways — setting 44 wrote 44, and pressing reset wrote 57
+///         back rather than deleting the value. Nothing else moved either time: no other value under the
+///         adapter, nothing under <c>HKLM\SOFTWARE\Intel</c>, and nothing in ProgramData. The only other
+///         file it touched was its own DPAPI-encrypted per-user settings blob, which the driver never reads.
+///         So an absent value is the default too, and this transport reports 57 for it rather than treating
+///         an untouched machine as one without the feature.
+///     </para>
 /// </remarks>
 internal sealed partial class IntelGraphicsMemoryTransport
 {
@@ -88,10 +88,11 @@ internal sealed partial class IntelGraphicsMemoryTransport
     /// <summary>The first Intel driver that shipped Shared GPU Memory Override.</summary>
     private static readonly Version FirstSupportedDriver = new(32, 0, 101, 6974);
 
-    private readonly RegistryKey _root;
-    private readonly string _classPath;
-    private readonly ulong _totalPhysicalBytes;
     private readonly string? _adapterPath;
+    private readonly string _classPath;
+
+    private readonly RegistryKey _root;
+    private readonly ulong _totalPhysicalBytes;
 
     /// <summary>Resolves the adapter that carries the setting, without writing anything.</summary>
     public IntelGraphicsMemoryTransport()
@@ -104,8 +105,8 @@ internal sealed partial class IntelGraphicsMemoryTransport
     /// <param name="classPath">The display adapter class key path below it.</param>
     /// <param name="totalPhysicalBytes">Total physical memory, or zero when unknown.</param>
     /// <remarks>
-    /// The seam exists because the real key is machine-wide and under HKLM, which no test may write.
-    /// It changes where the transport looks, never what it accepts.
+    ///     The seam exists because the real key is machine-wide and under HKLM, which no test may write.
+    ///     It changes where the transport looks, never what it accepts.
     /// </remarks>
     internal IntelGraphicsMemoryTransport(RegistryKey root, string classPath, ulong totalPhysicalBytes)
     {
@@ -163,12 +164,12 @@ internal sealed partial class IntelGraphicsMemoryTransport
 
     /// <summary>Writes a new split and reads it back.</summary>
     /// <param name="percent">The requested percentage, which must be within the offered range.</param>
-    /// <returns><see langword="true"/> when the stored value is the requested one.</returns>
+    /// <returns><see langword="true" /> when the stored value is the requested one.</returns>
     /// <remarks>
-    /// Only the setting is verified. The driver applies it when it next initializes, so the caller
-    /// owns telling the user that the split changes at the next restart. Nothing is journalled for
-    /// restore: this is a persistent user choice like the charge limit, and putting it back on a
-    /// normal stop would undo the user's own decision.
+    ///     Only the setting is verified. The driver applies it when it next initializes, so the caller
+    ///     owns telling the user that the split changes at the next restart. Nothing is journalled for
+    ///     restore: this is a persistent user choice like the charge limit, and putting it back on a
+    ///     normal stop would undo the user's own decision.
     /// </remarks>
     public bool TryWrite(int percent)
     {
@@ -179,11 +180,11 @@ internal sealed partial class IntelGraphicsMemoryTransport
 
         try
         {
-            using var adapter = _root.OpenSubKey(_adapterPath, writable: true);
+            using var adapter = _root.OpenSubKey(_adapterPath, true);
 
             // Created when absent, because absent is the default rather than a refusal and Intel's
             // own software writes into the same place.
-            using var memory = adapter?.CreateSubKey(MemoryManagerSubkey, writable: true);
+            using var memory = adapter?.CreateSubKey(MemoryManagerSubkey, true);
             if (memory is null)
             {
                 PluginTrace.Warn("intel-memory", "The graphics memory manager key is not writable.");
@@ -196,7 +197,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
                 "intel-memory",
                 applied
                     ? $"Shared GPU memory limit set to {percent}% ({DescribeBytes(BytesForPercent(percent))}); "
-                        + "it takes effect at the next restart."
+                      + "it takes effect at the next restart."
                     : $"Shared GPU memory limit did not read back as {percent}%.");
             return applied;
         }
@@ -210,23 +211,26 @@ internal sealed partial class IntelGraphicsMemoryTransport
     /// <summary>Reads the driver's stored frame-presentation mode.</summary>
     /// <returns>Intel's gaming-flip flag value, or null when the adapter stores none.</returns>
     /// <remarks>
-    /// This, not IGCL, is where the mode actually lives. Measured on the reference unit on
-    /// 2026-09-10: <c>ctlGetSet3DFeature</c> answers feature 9 with an enable byte and a value of
-    /// zero no matter what has been set, and a write returns <c>CTL_RESULT_SUCCESS</c> and changes
-    /// nothing — the getter, this value, and the per-application entries all stay put, elevated or
-    /// not, with Intel Graphics Software and its service running. What does move is this value, and
-    /// it holds Intel's own <c>ctl_gaming_flip_mode_flag_t</c> bits: the untouched machine reads 1,
-    /// which is <c>APPLICATION_DEFAULT</c>. So the capability reads and writes here, exactly as the
-    /// shared-memory split does, and IGCL is used only to ask which modes the driver offers.
+    ///     This, not IGCL, is where the mode actually lives. Measured on the reference unit on
+    ///     2026-09-10: <c>ctlGetSet3DFeature</c> answers feature 9 with an enable byte and a value of
+    ///     zero no matter what has been set, and a write returns <c>CTL_RESULT_SUCCESS</c> and changes
+    ///     nothing — the getter, this value, and the per-application entries all stay put, elevated or
+    ///     not, with Intel Graphics Software and its service running. What does move is this value, and
+    ///     it holds Intel's own <c>ctl_gaming_flip_mode_flag_t</c> bits: the untouched machine reads 1,
+    ///     which is <c>APPLICATION_DEFAULT</c>. So the capability reads and writes here, exactly as the
+    ///     shared-memory split does, and IGCL is used only to ask which modes the driver offers.
     /// </remarks>
-    public uint? ReadFlipMode() => ReadThreeDValue(FlipModeValue);
+    public uint? ReadFlipMode()
+    {
+        return ReadThreeDValue(FlipModeValue);
+    }
 
     /// <summary>Stores a frame-presentation mode and reads it back.</summary>
     /// <param name="mode">Intel's gaming-flip flag value.</param>
-    /// <returns><see langword="true"/> when the stored value is the requested one.</returns>
+    /// <returns><see langword="true" /> when the stored value is the requested one.</returns>
     /// <remarks>
-    /// Only the setting is verified. Whether the driver picks it up without a restart is not
-    /// established, which is why the capability says so rather than implying an immediate effect.
+    ///     Only the setting is verified. Whether the driver picks it up without a restart is not
+    ///     established, which is why the capability says so rather than implying an immediate effect.
     /// </remarks>
     public bool TryWriteFlipMode(uint mode)
     {
@@ -237,8 +241,8 @@ internal sealed partial class IntelGraphicsMemoryTransport
 
         try
         {
-            using var adapter = _root.OpenSubKey(_adapterPath, writable: true);
-            using var settings = adapter?.CreateSubKey(ThreeDSubkey, writable: true);
+            using var adapter = _root.OpenSubKey(_adapterPath, true);
+            using var settings = adapter?.CreateSubKey(ThreeDSubkey, true);
             if (settings is null)
             {
                 PluginTrace.Warn("intel-3d", "The driver's 3D settings key is not writable.");
@@ -284,25 +288,30 @@ internal sealed partial class IntelGraphicsMemoryTransport
     /// <summary>How much memory a percentage corresponds to on this machine.</summary>
     /// <param name="percent">A percentage within the offered range.</param>
     /// <returns>The byte count, or zero when total memory is unknown.</returns>
-    internal ulong BytesForPercent(int percent) =>
-        _totalPhysicalBytes == 0 ? 0 : _totalPhysicalBytes / 100 * (ulong)percent;
+    internal ulong BytesForPercent(int percent)
+    {
+        return _totalPhysicalBytes == 0 ? 0 : _totalPhysicalBytes / 100 * (ulong)percent;
+    }
 
     /// <summary>Renders a byte count for a trace line.</summary>
     /// <param name="bytes">The byte count, or zero when it is unknown.</param>
     /// <returns>A short gibibyte figure, or "unknown" when there is nothing to render.</returns>
-    private static string DescribeBytes(ulong bytes) => bytes == 0
-        ? "unknown"
-        : string.Create(CultureInfo.InvariantCulture, $"{bytes / (double)(1024 * 1024 * 1024):0.0} GiB");
+    private static string DescribeBytes(ulong bytes)
+    {
+        return bytes == 0
+            ? "unknown"
+            : string.Create(CultureInfo.InvariantCulture, $"{bytes / (double)(1024 * 1024 * 1024):0.0} GiB");
+    }
 
     /// <summary>
-    /// Finds the one Intel adapter that stores the setting.
+    ///     Finds the one Intel adapter that stores the setting.
     /// </summary>
     /// <returns>Its registry path below HKLM, or null when there is not exactly one.</returns>
     /// <remarks>
-    /// The adapter index is not fixed — it is <c>0001</c> on the reference unit and <c>0000</c> on
-    /// machines with a different enumeration order — so it is matched rather than hard-coded. Two
-    /// matching adapters is ambiguous rather than a reason to pick one, which is the same rule the
-    /// rest of this package applies to structural matches.
+    ///     The adapter index is not fixed — it is <c>0001</c> on the reference unit and <c>0000</c> on
+    ///     machines with a different enumeration order — so it is matched rather than hard-coded. Two
+    ///     matching adapters is ambiguous rather than a reason to pick one, which is the same rule the
+    ///     rest of this package applies to structural matches.
     /// </remarks>
     private string? ResolveAdapter()
     {
@@ -368,28 +377,15 @@ internal sealed partial class IntelGraphicsMemoryTransport
         }
     }
 
-    /// <summary>How well one adapter subkey matches the adapter that owns the setting.</summary>
-    private enum AdapterMatch
-    {
-        /// <summary>Not an Intel driver new enough to have the feature.</summary>
-        None,
-
-        /// <summary>A supported Intel driver that has no stored value, which means the default.</summary>
-        Supported,
-
-        /// <summary>A supported Intel driver that already carries the stored value.</summary>
-        StoresLimit
-    }
-
     /// <summary>Classifies one adapter subkey.</summary>
     /// <param name="adapters">The open display adapter class key.</param>
     /// <param name="name">The numbered subkey to inspect.</param>
     /// <returns>How well the adapter matches.</returns>
     /// <remarks>
-    /// Failures are contained to the one subkey rather than the enumeration. Measured on the
-    /// reference unit on 2026-09-10: the class holds an unreadable <c>0000</c> alongside the Intel
-    /// adapter, so letting an access failure escape here would have removed the feature on a machine
-    /// that has it.
+    ///     Failures are contained to the one subkey rather than the enumeration. Measured on the
+    ///     reference unit on 2026-09-10: the class holds an unreadable <c>0000</c> alongside the Intel
+    ///     adapter, so letting an access failure escape here would have removed the feature on a machine
+    ///     that has it.
     /// </remarks>
     private static AdapterMatch Classify(RegistryKey adapters, string name)
     {
@@ -412,7 +408,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
 
     /// <summary>Whether an adapter subkey is an Intel driver new enough to have the feature.</summary>
     /// <param name="adapter">An open adapter subkey.</param>
-    /// <returns><see langword="true"/> when the driver is Intel and at or past the first release.</returns>
+    /// <returns><see langword="true" /> when the driver is Intel and at or past the first release.</returns>
     private static bool IsSupportedIntelDriver(RegistryKey adapter)
     {
         if (adapter.GetValue("ProviderName") is not string provider
@@ -422,16 +418,16 @@ internal sealed partial class IntelGraphicsMemoryTransport
         }
 
         return adapter.GetValue("DriverVersion") is string version
-            && Version.TryParse(version, out var parsed)
-            && parsed >= FirstSupportedDriver;
+               && Version.TryParse(version, out var parsed)
+               && parsed >= FirstSupportedDriver;
     }
 
     /// <summary>Total physical memory as Windows reports it, in bytes.</summary>
     /// <returns>The byte count, or zero when the query fails.</returns>
     /// <remarks>
-    /// The driver's percentage is against this figure rather than the installed SPD total: 57% of
-    /// the reference unit's 33,866,657,792 bytes is the 19,327,352,832 it reports, while 57% of the
-    /// 34,359,738,368 bytes of installed DIMMs is not.
+    ///     The driver's percentage is against this figure rather than the installed SPD total: 57% of
+    ///     the reference unit's 33,866,657,792 bytes is the 19,327,352,832 it reports, while 57% of the
+    ///     34,359,738,368 bytes of installed DIMMs is not.
     /// </remarks>
     private static ulong TotalPhysicalBytes()
     {
@@ -440,11 +436,31 @@ internal sealed partial class IntelGraphicsMemoryTransport
         return GlobalMemoryStatusEx(ref status) ? status.TotalPhys : 0;
     }
 
-    private static bool IsRegistryFailure(Exception error) => error
-        is SecurityException
-        or UnauthorizedAccessException
-        or IOException
-        or ObjectDisposedException;
+    private static bool IsRegistryFailure(Exception error)
+    {
+        return error
+            is SecurityException
+            or UnauthorizedAccessException
+            or IOException
+            or ObjectDisposedException;
+    }
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GlobalMemoryStatusEx(ref MemoryStatusEx buffer);
+
+    /// <summary>How well one adapter subkey matches the adapter that owns the setting.</summary>
+    private enum AdapterMatch
+    {
+        /// <summary>Not an Intel driver new enough to have the feature.</summary>
+        None,
+
+        /// <summary>A supported Intel driver that has no stored value, which means the default.</summary>
+        Supported,
+
+        /// <summary>A supported Intel driver that already carries the stored value.</summary>
+        StoresLimit
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct MemoryStatusEx
@@ -459,8 +475,4 @@ internal sealed partial class IntelGraphicsMemoryTransport
         public ulong AvailVirtual;
         public ulong AvailExtendedVirtual;
     }
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool GlobalMemoryStatusEx(ref MemoryStatusEx buffer);
 }

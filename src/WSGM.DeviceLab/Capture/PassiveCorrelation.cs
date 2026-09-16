@@ -85,12 +85,18 @@ internal static class PassiveCorrelationAnalyzer
                 return new { Event = captureEvent, Kind = kind };
             })
             .ToArray();
-        CaptureStreamEvent[] presses = [.. markers
-            .Where(marker => marker.Kind is GuidedOperatorMarkerKind.ButtonPress)
-            .Select(marker => marker.Event)];
-        CaptureStreamEvent[] releases = [.. markers
-            .Where(marker => marker.Kind is GuidedOperatorMarkerKind.ButtonRelease)
-            .Select(marker => marker.Event)];
+        CaptureStreamEvent[] presses =
+        [
+            .. markers
+                .Where(marker => marker.Kind is GuidedOperatorMarkerKind.ButtonPress)
+                .Select(marker => marker.Event)
+        ];
+        CaptureStreamEvent[] releases =
+        [
+            .. markers
+                .Where(marker => marker.Kind is GuidedOperatorMarkerKind.ButtonRelease)
+                .Select(marker => marker.Event)
+        ];
         if (presses.Length != 1 || releases.Length != 1)
         {
             return [];
@@ -112,30 +118,48 @@ internal static class PassiveCorrelationAnalyzer
         List<PassiveCorrelationFinding> findings = [];
 
         foreach (var source in usable
-            .GroupBy(captureEvent => captureEvent.SourceId, StringComparer.Ordinal)
-            .OrderBy(group => group.Key, StringComparer.Ordinal))
+                     .GroupBy(captureEvent => captureEvent.SourceId, StringComparer.Ordinal)
+                     .OrderBy(group => group.Key, StringComparer.Ordinal))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            CaptureStreamEvent[] baseline = [.. WithCancellation(source, cancellationToken).Where(captureEvent =>
-                captureEvent.QpcReceiptTime >= press - request.ContextWindowTicks
-                && captureEvent.QpcReceiptTime < press)];
-            CaptureStreamEvent[] action = [.. WithCancellation(source, cancellationToken).Where(captureEvent =>
-                captureEvent.QpcReceiptTime >= press
-                && captureEvent.QpcReceiptTime < release)];
-            CaptureStreamEvent[] released = [.. WithCancellation(source, cancellationToken).Where(captureEvent =>
-                captureEvent.QpcReceiptTime >= release
-                && captureEvent.QpcReceiptTime <= release + request.ContextWindowTicks)];
+            CaptureStreamEvent[] baseline =
+            [
+                .. WithCancellation(source, cancellationToken).Where(captureEvent =>
+                    captureEvent.QpcReceiptTime >= press - request.ContextWindowTicks
+                    && captureEvent.QpcReceiptTime < press)
+            ];
+            CaptureStreamEvent[] action =
+            [
+                .. WithCancellation(source, cancellationToken).Where(captureEvent =>
+                    captureEvent.QpcReceiptTime >= press
+                    && captureEvent.QpcReceiptTime < release)
+            ];
+            CaptureStreamEvent[] released =
+            [
+                .. WithCancellation(source, cancellationToken).Where(captureEvent =>
+                    captureEvent.QpcReceiptTime >= release
+                    && captureEvent.QpcReceiptTime <= release + request.ContextWindowTicks)
+            ];
             var width = MinimumWidth(baseline, action, released);
             for (var offset = 0; offset < width; offset++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var byteOffset = offset;
-                byte[] baselineValues = [.. WithCancellation(baseline, cancellationToken)
-                    .Select(captureEvent => captureEvent.Payload.Bytes![byteOffset])];
-                byte[] actionValues = [.. WithCancellation(action, cancellationToken)
-                    .Select(captureEvent => captureEvent.Payload.Bytes![byteOffset])];
-                byte[] releaseValues = [.. WithCancellation(released, cancellationToken)
-                    .Select(captureEvent => captureEvent.Payload.Bytes![byteOffset])];
+                byte[] baselineValues =
+                [
+                    .. WithCancellation(baseline, cancellationToken)
+                        .Select(captureEvent => captureEvent.Payload.Bytes![byteOffset])
+                ];
+                byte[] actionValues =
+                [
+                    .. WithCancellation(action, cancellationToken)
+                        .Select(captureEvent => captureEvent.Payload.Bytes![byteOffset])
+                ];
+                byte[] releaseValues =
+                [
+                    .. WithCancellation(released, cancellationToken)
+                        .Select(captureEvent => captureEvent.Payload.Bytes![byteOffset])
+                ];
                 if (!TrySingle(baselineValues, out var baselineValue)
                     || !TrySingle(actionValues, out var actionValue)
                     || !TrySingle(releaseValues, out var releaseValue)
@@ -162,10 +186,13 @@ internal static class PassiveCorrelationAnalyzer
             }
         }
 
-        return [.. findings
-            .OrderByDescending(finding => finding.Score)
-            .ThenBy(finding => finding.SourceId, StringComparer.Ordinal)
-            .ThenBy(finding => finding.ByteOffset)];
+        return
+        [
+            .. findings
+                .OrderByDescending(finding => finding.Score)
+                .ThenBy(finding => finding.SourceId, StringComparer.Ordinal)
+                .ThenBy(finding => finding.ByteOffset)
+        ];
     }
 
     private static int MinimumWidth(params CaptureStreamEvent[][] phases)
@@ -186,11 +213,13 @@ internal static class PassiveCorrelationAnalyzer
         return values.Length != 0 && values.All(candidate => candidate == expected);
     }
 
-    private static bool IsDegraded(CaptureStreamEvent captureEvent) =>
-        captureEvent.Loss is not EventLossState.None
-        || captureEvent.Discontinuity is not EventDiscontinuity.None
-        || captureEvent.TimedOut
-        || captureEvent.Access is not EventAccessState.Available;
+    private static bool IsDegraded(CaptureStreamEvent captureEvent)
+    {
+        return captureEvent.Loss is not EventLossState.None
+               || captureEvent.Discontinuity is not EventDiscontinuity.None
+               || captureEvent.TimedOut
+               || captureEvent.Access is not EventAccessState.Available;
+    }
 
     private static IEnumerable<T> WithCancellation<T>(
         IEnumerable<T> source,

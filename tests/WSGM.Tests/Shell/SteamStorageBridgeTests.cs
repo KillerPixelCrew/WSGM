@@ -3,13 +3,13 @@ using WSGM.Shell;
 namespace WSGM.Tests.Shell;
 
 /// <summary>
-/// The rules the Steam storage bridge enforces before anything reaches a storage manager.
+///     The rules the Steam storage bridge enforces before anything reaches a storage manager.
 /// </summary>
 /// <remarks>
-/// The managers themselves are not exercised here: they own disks, and this project never touches
-/// real storage. What is asserted is the part that belongs to the bridge — how a drive's letters
-/// become mount paths Steam can show, and that every refusal carries a reason rather than being a
-/// control that silently does nothing.
+///     The managers themselves are not exercised here: they own disks, and this project never touches
+///     real storage. What is asserted is the part that belongs to the bridge — how a drive's letters
+///     become mount paths Steam can show, and that every refusal carries a reason rather than being a
+///     control that silently does nothing.
 /// </remarks>
 public sealed class SteamStorageBridgeTests
 {

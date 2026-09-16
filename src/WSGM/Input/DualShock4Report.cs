@@ -74,9 +74,9 @@ internal static class DualShock4Report
         BinaryPrimitives.WriteUInt16LittleEndian(destination[4..6], wireButtons);
 
         destination[6] = (byte)(Mask(buttons, CanonicalButtons.DPadUp, DPadUp)
-            | Mask(buttons, CanonicalButtons.DPadDown, DPadDown)
-            | Mask(buttons, CanonicalButtons.DPadLeft, DPadLeft)
-            | Mask(buttons, CanonicalButtons.DPadRight, DPadRight));
+                                | Mask(buttons, CanonicalButtons.DPadDown, DPadDown)
+                                | Mask(buttons, CanonicalButtons.DPadLeft, DPadLeft)
+                                | Mask(buttons, CanonicalButtons.DPadRight, DPadRight));
         destination[7] = Trigger(sample.LeftTrigger);
         destination[8] = Trigger(sample.RightTrigger);
 
@@ -115,24 +115,36 @@ internal static class DualShock4Report
             ScaledMotion(motion.AccelZ, AccelCountsPerG));
     }
 
-    private static ushort Mask(CanonicalButtons buttons, CanonicalButtons flag, ushort bit) =>
-        (buttons & flag) != 0 ? bit : (ushort)0;
+    private static ushort Mask(CanonicalButtons buttons, CanonicalButtons flag, ushort bit)
+    {
+        return (buttons & flag) != 0 ? bit : (ushort)0;
+    }
 
-    private static byte Mask(CanonicalButtons buttons, CanonicalButtons flag, byte bit) =>
-        (buttons & flag) != 0 ? bit : (byte)0;
+    private static byte Mask(CanonicalButtons buttons, CanonicalButtons flag, byte bit)
+    {
+        return (buttons & flag) != 0 ? bit : (byte)0;
+    }
 
-    private static sbyte Axis(float value) =>
-        (sbyte)Math.Clamp(MathF.Round(value * sbyte.MaxValue), -sbyte.MaxValue, sbyte.MaxValue);
+    private static sbyte Axis(float value)
+    {
+        return (sbyte)Math.Clamp(MathF.Round(value * sbyte.MaxValue), -sbyte.MaxValue, sbyte.MaxValue);
+    }
 
-    private static byte Trigger(float value) =>
-        (byte)Math.Clamp(MathF.Round(value * byte.MaxValue), 0, byte.MaxValue);
+    private static byte Trigger(float value)
+    {
+        return (byte)Math.Clamp(MathF.Round(value * byte.MaxValue), 0, byte.MaxValue);
+    }
 
-    private static ushort Touch(float value, ushort maximum) =>
-        (ushort)Math.Clamp(
+    private static ushort Touch(float value, ushort maximum)
+    {
+        return (ushort)Math.Clamp(
             MathF.Round((Math.Clamp(value, -1f, 1f) + 1f) / 2f * maximum),
             0,
             maximum);
+    }
 
-    private static short ScaledMotion(float value, float scale) =>
-        (short)Math.Clamp(MathF.Round(value * scale), short.MinValue, short.MaxValue);
+    private static short ScaledMotion(float value, float scale)
+    {
+        return (short)Math.Clamp(MathF.Round(value * scale), short.MinValue, short.MaxValue);
+    }
 }

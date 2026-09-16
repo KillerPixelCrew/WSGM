@@ -29,9 +29,9 @@ internal interface IFrametimeSource
 
 /// <summary>Random access to the mapped RTSS region.</summary>
 /// <remarks>
-/// A seam over the memory-mapped view, so the layout below can be exercised against a synthetic
-/// region. Without it the parsing is only reachable when RTSS happens to be running with a hooked
-/// application, which is exactly when a test cannot rely on it.
+///     A seam over the memory-mapped view, so the layout below can be exercised against a synthetic
+///     region. Without it the parsing is only reachable when RTSS happens to be running with a hooked
+///     application, which is exactly when a test cannot rely on it.
 /// </remarks>
 internal interface IRtssRegion
 {
@@ -51,20 +51,20 @@ internal interface IRtssRegion
 }
 
 /// <summary>
-/// Reads frametimes from RTSS's own shared memory.
+///     Reads frametimes from RTSS's own shared memory.
 /// </summary>
 /// <remarks>
-/// Read-only, and the only thing WSGM takes from RTSS that its profile API cannot answer. The layout
-/// below was confirmed against a live RTSS 2.21 (<c>dwVersion 0x00020015</c>) on the reference Claw
-/// rather than copied from a header: an entry's <c>dwTime0</c>/<c>dwTime1</c> are
-/// <c>GetTickCount</c> milliseconds and <c>dwFrames</c> is the frame count between them, which a
-/// 1 fps application confirmed by reporting a 1000 ms mean over two frames.
-/// <para>
-/// Every field is read defensively. RTSS writes this region while WSGM reads it, the array is sized
-/// by the header rather than by a constant, and a shared memory that is absent, truncated, or from
-/// an unexpected version simply produces no samples — AutoTDP then holds rather than acting on
-/// numbers it cannot trust.
-/// </para>
+///     Read-only, and the only thing WSGM takes from RTSS that its profile API cannot answer. The layout
+///     below was confirmed against a live RTSS 2.21 (<c>dwVersion 0x00020015</c>) on the reference Claw
+///     rather than copied from a header: an entry's <c>dwTime0</c>/<c>dwTime1</c> are
+///     <c>GetTickCount</c> milliseconds and <c>dwFrames</c> is the frame count between them, which a
+///     1 fps application confirmed by reporting a 1000 ms mean over two frames.
+///     <para>
+///         Every field is read defensively. RTSS writes this region while WSGM reads it, the array is sized
+///         by the header rather than by a constant, and a shared memory that is absent, truncated, or from
+///         an unexpected version simply produces no samples — AutoTDP then holds rather than acting on
+///         numbers it cannot trust.
+///     </para>
 /// </remarks>
 internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
 {
@@ -93,20 +93,28 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
 
     /// <summary>Entries whose last frame is older than this are treated as not rendering.</summary>
     /// <remarks>
-    /// RTSS leaves an entry behind after an application stops drawing, so staleness is the only way
-    /// to tell a finished game from one that is mid-frame. Two seconds is long enough to survive a
-    /// shader-compilation hitch and short enough that AutoTDP stops acting on a dead entry quickly.
+    ///     RTSS leaves an entry behind after an application stops drawing, so staleness is the only way
+    ///     to tell a finished game from one that is mid-frame. Two seconds is long enough to survive a
+    ///     shader-compilation hitch and short enough that AutoTDP stops acting on a dead entry quickly.
     /// </remarks>
     private const long MaximumAgeMs = 2000;
 
     /// <summary>Upper bound on entries walked, whatever the header claims.</summary>
     private const int MaximumEntries = 1024;
 
-    private MemoryMappedFile? _map;
-    private MemoryMappedViewAccessor? _view;
     private bool _disposed;
 
-    /// <inheritdoc/>
+    private MemoryMappedFile? _map;
+    private MemoryMappedViewAccessor? _view;
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _disposed = true;
+        Close();
+    }
+
+    /// <inheritdoc />
     public IReadOnlyList<RtssFrametimeSample> ReadLive()
     {
         if (_disposed || !TryOpen())
@@ -119,7 +127,7 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
             return ReadLiveCore();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-            or ArgumentException or ObjectDisposedException)
+                                       or ArgumentException or ObjectDisposedException)
         {
             // RTSS exited or replaced its mapping mid-read. Drop the handles so the next poll
             // reopens rather than reporting a permanently dead source.
@@ -127,13 +135,6 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
             Close();
             return [];
         }
-    }
-
-    /// <inheritdoc/>
-    public void Dispose()
-    {
-        _disposed = true;
-        Close();
     }
 
     private IReadOnlyList<RtssFrametimeSample> ReadLiveCore()
@@ -151,10 +152,10 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
     }
 
     /// <summary>
-    /// Parses the RTSS application table out of a mapped region.
+    ///     Parses the RTSS application table out of a mapped region.
     /// </summary>
     /// <param name="region">The mapped region.</param>
-    /// <param name="nowTicks">Current <see cref="Environment.TickCount64"/>.</param>
+    /// <param name="nowTicks">Current <see cref="Environment.TickCount64" />.</param>
     /// <param name="incompatible">Set when the region is not an RTSS mapping this build understands.</param>
     /// <returns>Applications currently delivering frames.</returns>
     internal static IReadOnlyList<RtssFrametimeSample> Parse(
@@ -228,16 +229,6 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
         return Encoding.ASCII.GetString(name, 0, length < 0 ? name.Length : length);
     }
 
-    private sealed class AccessorRegion(MemoryMappedViewAccessor view) : IRtssRegion
-    {
-        public long Capacity => view.Capacity;
-
-        public uint ReadUInt32(long offset) => view.ReadUInt32(offset);
-
-        public void ReadBytes(long offset, byte[] buffer, int count) =>
-            view.ReadArray(offset, buffer, 0, count);
-    }
-
     private bool TryOpen()
     {
         if (_view is not null)
@@ -252,7 +243,7 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
             return true;
         }
         catch (Exception ex) when (ex is FileNotFoundException or UnauthorizedAccessException
-            or IOException)
+                                       or IOException)
         {
             // Not running, or running elevated while WSGM is not. Neither is an error: AutoTDP is
             // simply unavailable until RTSS is reachable.
@@ -267,5 +258,20 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
         _view = null;
         _map?.Dispose();
         _map = null;
+    }
+
+    private sealed class AccessorRegion(MemoryMappedViewAccessor view) : IRtssRegion
+    {
+        public long Capacity => view.Capacity;
+
+        public uint ReadUInt32(long offset)
+        {
+            return view.ReadUInt32(offset);
+        }
+
+        public void ReadBytes(long offset, byte[] buffer, int count)
+        {
+            view.ReadArray(offset, buffer, 0, count);
+        }
     }
 }

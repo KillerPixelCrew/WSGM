@@ -28,22 +28,20 @@ public enum ScreenEdge
 }
 
 /// <summary>
-/// Turns inward swipes from enabled screen edges into <see cref="Triggered"/>
-/// events by observing the touch digitizer through Raw Input (WM_INPUT on a
-/// message-only window, RIDEV_INPUTSINK).
-///
-/// Purely observational: touch-screen and mouse input are registered without suppressing
-/// legacy delivery. Nothing is consumed, and no window takes part in
-/// hit-testing — the foreground game keeps receiving every event untouched.
-/// Contact coordinates are parsed straight from the raw HID reports and scaled
-/// from the digitizer's logical range to primary-screen physical pixels (the
-/// built-in panel is assumed to be the primary display, as before).
-///
-/// Fallback knowledge if raw HID parsing ever fails on a device: a hit-testable
-/// strip window (layered alpha 1, NOT 0 — fully transparent layered windows are
-/// click-through) whose WM_NCHITTEST returns HTCLIENT only when
-/// GetMessageExtraInfo() carries MI_WP_SIGNATURE ((extra &amp; 0xFFFFFF00) ==
-/// 0xFF515700, i.e. touch/pen-synthesized) and HTTRANSPARENT for real mouse.
+///     Turns inward swipes from enabled screen edges into <see cref="Triggered" />
+///     events by observing the touch digitizer through Raw Input (WM_INPUT on a
+///     message-only window, RIDEV_INPUTSINK).
+///     Purely observational: touch-screen and mouse input are registered without suppressing
+///     legacy delivery. Nothing is consumed, and no window takes part in
+///     hit-testing — the foreground game keeps receiving every event untouched.
+///     Contact coordinates are parsed straight from the raw HID reports and scaled
+///     from the digitizer's logical range to primary-screen physical pixels (the
+///     built-in panel is assumed to be the primary display, as before).
+///     Fallback knowledge if raw HID parsing ever fails on a device: a hit-testable
+///     strip window (layered alpha 1, NOT 0 — fully transparent layered windows are
+///     click-through) whose WM_NCHITTEST returns HTCLIENT only when
+///     GetMessageExtraInfo() carries MI_WP_SIGNATURE ((extra &amp; 0xFFFFFF00) ==
+///     0xFF515700, i.e. touch/pen-synthesized) and HTTRANSPARENT for real mouse.
 /// </summary>
 public sealed unsafe class TouchSwipeMonitor : IDisposable
 {
@@ -53,6 +51,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     private const ulong TriggerTimeMs = 800;
 
     private static readonly Lock Gate = new();
+
     // Raw-input registration is per-process per HID usage: registering a second
     // window RETARGETS delivery, and one RIDEV_REMOVE kills it for everyone. So
     // ONE shared message-only window owns the registration, WM_INPUT is dispatched
@@ -66,73 +65,29 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     private static TouchSwipeMonitor[] _instanceSnapshot = [];
     private static nint _sharedHwnd;
 
-    private sealed class DeviceCaps
-    {
-        public nint PreparsedData;
-        public ushort LinkCollection;
-        public int XMin;
-        public int XMax;
-        public int YMin;
-        public int YMax;
-        /// <summary>Usage-list capacity for HidP_GetUsages, from HidP_GetCaps
-        /// (NumberInputDataIndices bounds the usages one input report can carry).</summary>
-        public int UsageListLength = 16;
-        public bool Usable;
-        public bool WarnedBadReport;
-        public bool WarnedUsagesFailed;
-    }
-
     private readonly Dictionary<nint, DeviceCaps> _devices = [];
-    private ushort[] _usageBuffer = new ushort[16];
-    private byte[] _inputBuffer = new byte[256];
-    private bool _bottomEnabled;
-    private bool _rightEnabled;
-    private bool _leftEnabled;
-    private bool _topEnabled;
-    private int _bandPx = MinimumBandPx;
     private bool _armed = true;
-    private bool _contactWasDown;
-    private bool _tracking;
+    private int _bandPx = MinimumBandPx;
     private bool _bottomCandidate;
-    private bool _rightCandidate;
+    private bool _bottomEnabled;
+    private bool _contactWasDown;
+    private int _dispatchPending;
+    private bool _disposed;
+    private byte[] _inputBuffer = new byte[256];
     private bool _leftCandidate;
-    private bool _topCandidate;
+    private bool _leftEnabled;
+    private bool _loggedFirstReport;
+    private bool _rightCandidate;
+    private bool _rightEnabled;
+    private int _screenH;
+    private int _screenW;
     private int _startX;
     private int _startY;
     private ulong _startedAt;
-    private int _screenW;
-    private int _screenH;
-    private int _dispatchPending;
-    private bool _loggedFirstReport;
-    private bool _disposed;
-
-    /// <summary>Raised on the Avalonia UI thread with the edge that was swiped.</summary>
-    public event Action<ScreenEdge>? Triggered;
-
-    /// <summary>Raised on the Avalonia UI thread with primary-screen pixel
-    /// coordinates for every new touch contact or mouse click while <see cref="WatchTaps"/> is on.
-    /// Lets the overlay dismiss itself on taps or clicks outside its bounds.</summary>
-    public event Action<int, int>? TappedAt;
-
-    /// <summary>Enables <see cref="TappedAt"/> (overlay open).</summary>
-    public bool WatchTaps { get; set; }
-
-    // RAWMOUSE has a 24-byte layout: button flags at offset 4, extra information at 20.
-    // Only button-down edges dismiss. Touch-promoted mouse input is already handled by the
-    // digitizer path and must not dismiss a second surface from the same contact.
-    internal static bool IsMouseClick(ReadOnlySpan<byte> mouse)
-    {
-        if (mouse.Length < 24) { return false; }
-        var buttons = BinaryPrimitives.ReadUInt16LittleEndian(mouse[4..]);
-        var extra = BinaryPrimitives.ReadUInt32LittleEndian(mouse[20..]);
-        return (buttons & 0x0015) != 0
-            && (extra & NativeMethods.MiWpSignatureMask) != NativeMethods.MiWpSignature;
-    }
-
-    private void DispatchTap(int x, int y) => Dispatcher.UIThread.Post(() =>
-    {
-        if (!_disposed && WatchTaps) { TappedAt?.Invoke(x, y); }
-    });
+    private bool _topCandidate;
+    private bool _topEnabled;
+    private bool _tracking;
+    private ushort[] _usageBuffer = new ushort[16];
 
     /// <summary>Creates a monitor and joins the shared process-wide raw-input registration.</summary>
     public TouchSwipeMonitor()
@@ -143,9 +98,123 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             {
                 CreateSharedWindowAndRegister();
             }
+
             Instances.Add(this);
             Volatile.Write(ref _instanceSnapshot, [.. Instances]);
         }
+    }
+
+    /// <summary>Enables <see cref="TappedAt" /> (overlay open).</summary>
+    public bool WatchTaps { get; set; }
+
+    /// <summary>Stops monitoring and removes shared raw-input registration when last disposed.</summary>
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+
+        lock (Gate)
+        {
+            Instances.Remove(this);
+            Volatile.Write(ref _instanceSnapshot, [.. Instances]);
+            // The registration is process-wide: it may only go away with the LAST
+            // monitor, or disposing the Settings test monitor would kill the live
+            // shell's edge swipes and tap-dismiss until the shell restarts.
+            if (Instances.Count == 0)
+            {
+                var devices = new[]
+                {
+                    new NativeMethods.RawInputDevice
+                    {
+                        usUsagePage = NativeMethods.HidUsagePageDigitizer,
+                        usUsage = NativeMethods.HidUsageTouchScreen,
+                        dwFlags = NativeMethods.RidevRemove,
+                        hwndTarget = 0
+                    },
+                    new NativeMethods.RawInputDevice
+                    {
+                        usUsagePage = NativeMethods.HidUsagePageGenericDesktop,
+                        usUsage = NativeMethods.HidUsageMouse,
+                        dwFlags = NativeMethods.RidevRemove,
+                        hwndTarget = 0
+                    }
+                };
+                if (!NativeMethods.RegisterRawInputDevices(devices, (uint)devices.Length,
+                        (uint)Marshal.SizeOf<NativeMethods.RawInputDevice>()))
+                {
+                    Log.Warn(
+                        $"Raw touch input de-registration failed (Win32 error {Marshal.GetLastWin32Error()}); last touch monitor disposed.");
+                }
+                else
+                {
+                    Log.Info("Raw touch input unregistered (last touch monitor disposed).");
+                }
+
+                if (_sharedHwnd != 0)
+                {
+                    // DestroyWindow fails from a thread other than the one that
+                    // created the window; the window then still exists, so the
+                    // handle must not be cleared as if it were gone.
+                    if (NativeMethods.DestroyWindow(_sharedHwnd))
+                    {
+                        _sharedHwnd = 0;
+                    }
+                    else
+                    {
+                        Log.Warn(
+                            $"Failed to destroy the raw touch input window (Win32 error {Marshal.GetLastWin32Error()}); the handle survives this teardown.");
+                    }
+                }
+            }
+        }
+
+        foreach (var caps in _devices.Values.Where(device => device.PreparsedData != 0))
+        {
+            Marshal.FreeHGlobal(caps.PreparsedData);
+        }
+
+        _devices.Clear();
+    }
+
+    /// <summary>Raised on the Avalonia UI thread with the edge that was swiped.</summary>
+    public event Action<ScreenEdge>? Triggered;
+
+    /// <summary>
+    ///     Raised on the Avalonia UI thread with primary-screen pixel
+    ///     coordinates for every new touch contact or mouse click while <see cref="WatchTaps" /> is on.
+    ///     Lets the overlay dismiss itself on taps or clicks outside its bounds.
+    /// </summary>
+    public event Action<int, int>? TappedAt;
+
+    // RAWMOUSE has a 24-byte layout: button flags at offset 4, extra information at 20.
+    // Only button-down edges dismiss. Touch-promoted mouse input is already handled by the
+    // digitizer path and must not dismiss a second surface from the same contact.
+    internal static bool IsMouseClick(ReadOnlySpan<byte> mouse)
+    {
+        if (mouse.Length < 24)
+        {
+            return false;
+        }
+
+        var buttons = BinaryPrimitives.ReadUInt16LittleEndian(mouse[4..]);
+        var extra = BinaryPrimitives.ReadUInt32LittleEndian(mouse[20..]);
+        return (buttons & 0x0015) != 0
+               && (extra & NativeMethods.MiWpSignatureMask) != NativeMethods.MiWpSignature;
+    }
+
+    private void DispatchTap(int x, int y)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_disposed && WatchTaps)
+            {
+                TappedAt?.Invoke(x, y);
+            }
+        });
     }
 
     private static void CreateSharedWindowAndRegister()
@@ -174,7 +243,8 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                 hwndTarget = _sharedHwnd
             }
         };
-        if (!NativeMethods.RegisterRawInputDevices(devices, (uint)devices.Length, (uint)Marshal.SizeOf<NativeMethods.RawInputDevice>()))
+        if (!NativeMethods.RegisterRawInputDevices(devices, (uint)devices.Length,
+                (uint)Marshal.SizeOf<NativeMethods.RawInputDevice>()))
         {
             Log.Warn($"Raw touch input registration failed (Win32 error {Marshal.GetLastWin32Error()}).");
         }
@@ -209,6 +279,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         {
             return;
         }
+
         _armed = true;
         // Reset the one-shot so every arm cycle proves whether raw reports
         // still flow — swipes reportedly die when specific apps take focus.
@@ -223,6 +294,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         {
             return "none";
         }
+
         NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
         try
         {
@@ -241,6 +313,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         {
             return;
         }
+
         _armed = false;
         _tracking = false;
         Log.Info("Touch edge swipes disarmed.");
@@ -260,18 +333,19 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             switch (message)
             {
                 case NativeMethods.WmInput:
+                {
+                    // hRawInput (lParam) is only valid during synchronous processing;
+                    // read here, then still let DefWindowProc do the WM_INPUT cleanup.
+                    foreach (var monitor in monitors)
                     {
-                        // hRawInput (lParam) is only valid during synchronous processing;
-                        // read here, then still let DefWindowProc do the WM_INPUT cleanup.
-                        foreach (var monitor in monitors)
+                        if (!monitor._disposed)
                         {
-                            if (!monitor._disposed)
-                            {
-                                monitor.ProcessRawInput(lParam);
-                            }
+                            monitor.ProcessRawInput(lParam);
                         }
-                        break;
                     }
+
+                    break;
+                }
                 case NativeMethods.WmInputDeviceChange:
                     // With RIDEV_DEVNOTIFY, GIDC_ARRIVAL also fires at registration
                     // for devices already present — proves the WM_INPUT channel is
@@ -282,17 +356,19 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                             Log.Info($"Touch digitizer 0x{lParam:X} present.");
                             break;
                         case NativeMethods.GidcRemoval:
+                        {
+                            foreach (var monitor in monitors)
                             {
-                                foreach (var monitor in monitors)
+                                if (!monitor._disposed)
                                 {
-                                    if (!monitor._disposed)
-                                    {
-                                        monitor.EvictDevice(lParam);
-                                    }
+                                    monitor.EvictDevice(lParam);
                                 }
-                                break;
                             }
+
+                            break;
+                        }
                     }
+
                     break;
             }
         }
@@ -312,13 +388,15 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         fixed (byte* buffer = _inputBuffer)
         {
             var capacity = (uint)_inputBuffer.Length;
-            var read = NativeMethods.GetRawInputData(hRawInput, NativeMethods.RidInput, (nint)buffer, ref capacity, headerSize);
+            var read = NativeMethods.GetRawInputData(hRawInput, NativeMethods.RidInput, (nint)buffer, ref capacity,
+                headerSize);
             if (read != unchecked((uint)-1))
             {
                 if (read >= headerSize)
                 {
                     ProcessRawInputBuffer(buffer, read, headerSize);
                 }
+
                 return;
             }
         }
@@ -354,13 +432,16 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             var header = *(NativeMethods.RawInputHeader*)buffer;
             if (header.dwType == NativeMethods.RimTypeMouse)
             {
-                if (WatchTaps && IsMouseClick(new ReadOnlySpan<byte>(buffer + headerSize, checked((int)(size - headerSize))))
-                    && NativeMethods.GetCursorPos(out var point))
+                if (WatchTaps && IsMouseClick(new ReadOnlySpan<byte>(buffer + headerSize,
+                                  checked((int)(size - headerSize))))
+                              && NativeMethods.GetCursorPos(out var point))
                 {
                     DispatchTap(point.X, point.Y);
                 }
+
                 return;
             }
+
             if (header.dwType != NativeMethods.RimTypeHid)
             {
                 return;
@@ -388,6 +469,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             {
                 return;
             }
+
             var hid = buffer + sizeof(NativeMethods.RawInputHeader);
             var reportSize = *(uint*)hid;
             var reportCount = *(uint*)(hid + 4);
@@ -436,6 +518,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             Log.Warn($"Touch digitizer 0x{hDevice:X}: could not read preparsed HID data.");
             return caps;
         }
+
         caps.PreparsedData = preparsed;
 
         if (NativeMethods.HidP_GetCaps(preparsed, out var hidCaps) != NativeMethods.HidpStatusSuccess ||
@@ -477,6 +560,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             {
                 continue;
             }
+
             var coversX = vc.IsRange != 0
                 ? vc is { UsageMin: <= NativeMethods.HidUsageX, UsageMax: >= NativeMethods.HidUsageX }
                 : vc.UsageMin == NativeMethods.HidUsageX;
@@ -487,6 +571,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             {
                 xByCollection[vc.LinkCollection] = (vc.LogicalMin, vc.LogicalMax);
             }
+
             if (coversY && !yByCollection.ContainsKey(vc.LinkCollection))
             {
                 yByCollection[vc.LinkCollection] = (vc.LogicalMin, vc.LogicalMax);
@@ -501,9 +586,11 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             {
                 continue;
             }
+
             bestCollection = collection;
             found = true;
         }
+
         if (!found)
         {
             Log.Warn($"Touch digitizer 0x{hDevice:X}: no link collection with both X and Y.");
@@ -514,7 +601,8 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         var y = yByCollection[bestCollection];
         if (x.Max <= x.Min || y.Max <= y.Min)
         {
-            Log.Warn($"Touch digitizer 0x{hDevice:X}: degenerate logical ranges X {x.Min}..{x.Max}, Y {y.Min}..{y.Max}.");
+            Log.Warn(
+                $"Touch digitizer 0x{hDevice:X}: degenerate logical ranges X {x.Min}..{x.Max}, Y {y.Min}..{y.Max}.");
             return caps;
         }
 
@@ -543,6 +631,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         {
             _usageBuffer = new ushort[caps.UsageListLength];
         }
+
         var usageCount = (uint)_usageBuffer.Length;
         var status = NativeMethods.HidP_GetUsages(
             NativeMethods.HidpInput, NativeMethods.HidUsagePageDigitizer, caps.LinkCollection,
@@ -555,6 +644,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                 {
                     continue;
                 }
+
                 tipDown = true;
                 break;
             }
@@ -564,7 +654,8 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             // Once per device: a failure here silently reads as contact-up, which
             // would otherwise look like "touch dead" in a pasted log.
             caps.WarnedUsagesFailed = true;
-            Log.Warn($"HidP_GetUsages failed (status 0x{status:X8}, buffer {_usageBuffer.Length}) — reports treated as contact-up.");
+            Log.Warn(
+                $"HidP_GetUsages failed (status 0x{status:X8}, buffer {_usageBuffer.Length}) — reports treated as contact-up.");
         }
 
         if (!tipDown)
@@ -587,6 +678,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             {
                 return;
             }
+
             caps.WarnedBadReport = true;
             Log.Warn("Touch digitizer report without X/Y values, ignoring.");
             return;
@@ -655,6 +747,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         {
             return;
         }
+
         if (!_armed || (ulong)Environment.TickCount64 - _startedAt > TriggerTimeMs)
         {
             _tracking = false;
@@ -684,6 +777,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             {
                 return;
             }
+
             Log.Info($"{edge} touch edge swipe triggered.");
             Triggered?.Invoke(edge);
         });
@@ -696,18 +790,23 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     /// <param name="x">Current horizontal screen coordinate.</param>
     /// <param name="y">Current vertical screen coordinate.</param>
     /// <returns>The signed inward distance in physical pixels.</returns>
-    internal static int InwardDistance(ScreenEdge edge, int startX, int startY, int x, int y) => edge switch
+    internal static int InwardDistance(ScreenEdge edge, int startX, int startY, int x, int y)
     {
-        ScreenEdge.Bottom => startY - y,
-        ScreenEdge.Right => startX - x,
-        ScreenEdge.Left => x - startX,
-        ScreenEdge.Top => y - startY,
-        _ => throw new ArgumentOutOfRangeException(nameof(edge))
-    };
+        return edge switch
+        {
+            ScreenEdge.Bottom => startY - y,
+            ScreenEdge.Right => startX - x,
+            ScreenEdge.Left => x - startX,
+            ScreenEdge.Top => y - startY,
+            _ => throw new ArgumentOutOfRangeException(nameof(edge))
+        };
+    }
 
-    /// <summary>Selects the candidate edge whose inward movement has crossed the
-    /// trigger distance by the greatest amount. Tracking all candidates makes
-    /// corner-origin gestures follow their movement instead of an arbitrary edge priority.</summary>
+    /// <summary>
+    ///     Selects the candidate edge whose inward movement has crossed the
+    ///     trigger distance by the greatest amount. Tracking all candidates makes
+    ///     corner-origin gestures follow their movement instead of an arbitrary edge priority.
+    /// </summary>
     /// <param name="bottomCandidate">Whether the contact began inside the bottom band.</param>
     /// <param name="rightCandidate">Whether the contact began inside the right band.</param>
     /// <param name="leftCandidate">Whether the contact began inside the left band.</param>
@@ -736,11 +835,13 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             {
                 return;
             }
+
             var distance = InwardDistance(edge, startX, startY, x, y);
             if (distance <= bestDistance)
             {
                 return;
             }
+
             bestDistance = distance;
             bestEdge = edge;
         }
@@ -753,71 +854,23 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         return (x, y);
     }
 
-    /// <summary>Stops monitoring and removes shared raw-input registration when last disposed.</summary>
-    public void Dispose()
+    private sealed class DeviceCaps
     {
-        if (_disposed)
-        {
-            return;
-        }
-        _disposed = true;
+        public ushort LinkCollection;
+        public nint PreparsedData;
+        public bool Usable;
 
-        lock (Gate)
-        {
-            Instances.Remove(this);
-            Volatile.Write(ref _instanceSnapshot, [.. Instances]);
-            // The registration is process-wide: it may only go away with the LAST
-            // monitor, or disposing the Settings test monitor would kill the live
-            // shell's edge swipes and tap-dismiss until the shell restarts.
-            if (Instances.Count == 0)
-            {
-                var devices = new[]
-                {
-                    new NativeMethods.RawInputDevice
-                    {
-                        usUsagePage = NativeMethods.HidUsagePageDigitizer,
-                        usUsage = NativeMethods.HidUsageTouchScreen,
-                        dwFlags = NativeMethods.RidevRemove,
-                        hwndTarget = 0
-                    },
-                    new NativeMethods.RawInputDevice
-                    {
-                        usUsagePage = NativeMethods.HidUsagePageGenericDesktop,
-                        usUsage = NativeMethods.HidUsageMouse,
-                        dwFlags = NativeMethods.RidevRemove,
-                        hwndTarget = 0
-                    }
-                };
-                if (!NativeMethods.RegisterRawInputDevices(devices, (uint)devices.Length, (uint)Marshal.SizeOf<NativeMethods.RawInputDevice>()))
-                {
-                    Log.Warn($"Raw touch input de-registration failed (Win32 error {Marshal.GetLastWin32Error()}); last touch monitor disposed.");
-                }
-                else
-                {
-                    Log.Info("Raw touch input unregistered (last touch monitor disposed).");
-                }
+        /// <summary>
+        ///     Usage-list capacity for HidP_GetUsages, from HidP_GetCaps
+        ///     (NumberInputDataIndices bounds the usages one input report can carry).
+        /// </summary>
+        public int UsageListLength = 16;
 
-                if (_sharedHwnd != 0)
-                {
-                    // DestroyWindow fails from a thread other than the one that
-                    // created the window; the window then still exists, so the
-                    // handle must not be cleared as if it were gone.
-                    if (NativeMethods.DestroyWindow(_sharedHwnd))
-                    {
-                        _sharedHwnd = 0;
-                    }
-                    else
-                    {
-                        Log.Warn($"Failed to destroy the raw touch input window (Win32 error {Marshal.GetLastWin32Error()}); the handle survives this teardown.");
-                    }
-                }
-            }
-        }
-
-        foreach (var caps in _devices.Values.Where(device => device.PreparsedData != 0))
-        {
-            Marshal.FreeHGlobal(caps.PreparsedData);
-        }
-        _devices.Clear();
+        public bool WarnedBadReport;
+        public bool WarnedUsagesFailed;
+        public int XMax;
+        public int XMin;
+        public int YMax;
+        public int YMin;
     }
 }

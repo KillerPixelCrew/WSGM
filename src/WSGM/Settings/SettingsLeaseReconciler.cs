@@ -7,13 +7,15 @@ internal enum SettingsLeaseAction
     Release
 }
 
-/// <summary>Serializes the Settings window's desired Steam Input ownership against
-/// the owner claim registered by <c>SteamInputBlocker.AcquireFor</c>.</summary>
+/// <summary>
+///     Serializes the Settings window's desired Steam Input ownership against
+///     the owner claim registered by <c>SteamInputBlocker.AcquireFor</c>.
+/// </summary>
 internal sealed class SettingsLeaseReconciler
 {
-    private bool _desired;
-    private bool _claimed;
     private bool _busy;
+    private bool _claimed;
+    private bool _desired;
 
     internal static bool ShouldHold(
         bool leaseEnabled,
@@ -22,8 +24,10 @@ internal sealed class SettingsLeaseReconciler
         bool active,
         bool hasChildSurface,
         bool handoffPending)
-        => leaseEnabled && !closed && !minimized
-           && (handoffPending || active || hasChildSurface);
+    {
+        return leaseEnabled && !closed && !minimized
+               && (handoffPending || active || hasChildSurface);
+    }
 
     internal SettingsLeaseAction SetDesired(bool desired)
     {
@@ -39,6 +43,7 @@ internal sealed class SettingsLeaseReconciler
         {
             return Next();
         }
+
         _busy = true;
         return SettingsLeaseAction.Acquire;
     }

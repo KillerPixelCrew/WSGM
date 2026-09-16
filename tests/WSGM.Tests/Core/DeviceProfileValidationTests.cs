@@ -5,22 +5,30 @@ namespace WSGM.Tests.Core;
 
 public sealed class DeviceProfileValidationTests
 {
-    private static DeviceAuthoredProfile Profile(params (int Input, int Output)[] points) => new()
+    private static DeviceAuthoredProfile Profile(params (int Input, int Output)[] points)
     {
-        ProfileId = "quiet",
-        Name = "Quiet",
-        CapabilityId = "thermal.fan-curve",
-        Curve = [.. points.Select(point => new AuthoredCurvePoint
+        return new DeviceAuthoredProfile
         {
-            Input = point.Input,
-            Output = point.Output
-        })]
-    };
+            ProfileId = "quiet",
+            Name = "Quiet",
+            CapabilityId = "thermal.fan-curve",
+            Curve =
+            [
+                .. points.Select(point => new AuthoredCurvePoint
+                {
+                    Input = point.Input,
+                    Output = point.Output
+                })
+            ]
+        };
+    }
 
     private static CapabilityDescriptor Descriptor(
         CapabilityValueKind kind = CapabilityValueKind.Curve,
         int? minimum = 0,
-        int? maximum = 100) => new()
+        int? maximum = 100)
+    {
+        return new CapabilityDescriptor
         {
             CapabilityId = "thermal.fan-curve",
             Role = CapabilityRole.FanCurve,
@@ -31,6 +39,7 @@ public sealed class DeviceProfileValidationTests
             SupportsWrite = true,
             Persistence = CapabilityPersistence.Volatile
         };
+    }
 
     [Fact]
     public void AProfileMatchingTheLiveDescriptorIsAccepted()

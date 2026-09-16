@@ -16,12 +16,16 @@ internal static class DeviceLabEnvironment
 
     /// <summary>Whether CI or GITHUB_ACTIONS is set to 1, true or yes, in any letter case.</summary>
     /// <returns>True inside continuous integration.</returns>
-    internal static bool IsContinuousIntegration() =>
-        IsTruthy(Environment.GetEnvironmentVariable("CI"))
-        || IsTruthy(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"));
+    internal static bool IsContinuousIntegration()
+    {
+        return IsTruthy(Environment.GetEnvironmentVariable("CI"))
+               || IsTruthy(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"));
+    }
 
-    private static bool IsTruthy(string? value) =>
-        string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
+    private static bool IsTruthy(string? value)
+    {
+        return string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
+    }
 }

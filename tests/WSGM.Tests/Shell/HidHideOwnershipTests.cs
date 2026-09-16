@@ -5,12 +5,23 @@ namespace WSGM.Tests.Shell;
 
 public sealed class HidHideOwnershipTests
 {
+    // WSGM has to recognise its own HidHide entries in the notation HidHide stores them in.
+    // HidHide keeps application entries as NT device paths — \Device\HarddiskVolume3\… — while
+    // WSGM knows its executables by drive letter. A plain string compare therefore never matched, so
+    // WSGM added a second entry for a path that was already present: the allowlist grew on every
+    // activation, and cleanup, which matches what it wrote, would leave the other notation behind.
+    // Device-observed on the reference Claw, 2026-08-29.
+    private const string DosPath = @"C:\Program Files\WSGM\WSGM.exe";
+
+    private const string DevicePath =
+        @"\Device\HarddiskVolume3\Program Files\WSGM\WSGM.exe";
+
     [Fact]
     public async Task ApplyAndCleanupPreserveEveryExternalEntryAndItsOrdering()
     {
         DeterministicFakeHidHideAdapter adapter = new(
-            applications: ["HC.exe", "external.exe"],
-            devices: ["HID\\PRE-A", "HID\\PRE-B"]);
+            ["HC.exe", "external.exe"],
+            ["HID\\PRE-A", "HID\\PRE-B"]);
         InMemoryHidHideOwnershipStore store = new();
         HidHideOwnedDeltaManager manager = new(adapter, store);
 
@@ -21,8 +32,8 @@ public sealed class HidHideOwnershipTests
         Assert.True(activation.Activated);
 
         adapter.ExternalReplace(
-            applications: ["external-new.exe", "HC.exe", "external.exe", "WSGM.exe"],
-            devices: ["HID\\PRE-B", "HID\\NEW", "HID\\PRE-A", "HID\\OWN"]);
+            ["external-new.exe", "HC.exe", "external.exe", "WSGM.exe"],
+            ["HID\\PRE-B", "HID\\NEW", "HID\\PRE-A", "HID\\OWN"]);
 
         var cleanup = await manager.CleanupAsync(
             CancellationToken.None);
@@ -39,8 +50,8 @@ public sealed class HidHideOwnershipTests
     public async Task PreexistingEquivalentEntriesAreNeverClaimedOrRemoved()
     {
         DeterministicFakeHidHideAdapter adapter = new(
-            applications: ["wsgm.EXE"],
-            devices: ["hid\\own"]);
+            ["wsgm.EXE"],
+            ["hid\\own"]);
         InMemoryHidHideOwnershipStore store = new();
         HidHideOwnedDeltaManager manager = new(adapter, store);
 
@@ -70,8 +81,8 @@ public sealed class HidHideOwnershipTests
             [Physical("HID\\OWN")],
             CancellationToken.None);
         adapter.ExternalReplace(
-            applications: ["WSGM.exe", "WSGM.exe"],
-            devices: ["HID\\OWN"]);
+            ["WSGM.exe", "WSGM.exe"],
+            ["HID\\OWN"]);
 
         var cleanup = await manager.CleanupAsync(
             CancellationToken.None);
@@ -88,8 +99,8 @@ public sealed class HidHideOwnershipTests
     public async Task PartialActivationFailureRollsBackOnlyAppliedOwnedDeltas()
     {
         DeterministicFakeHidHideAdapter adapter = new(
-            applications: ["external.exe"],
-            devices: ["HID\\EXTERNAL"]);
+            ["external.exe"],
+            ["HID\\EXTERNAL"]);
         InMemoryHidHideOwnershipStore store = new();
         HidHideOwnedDeltaManager manager = new(adapter, store);
         adapter.FailMutationAttempt = 2;
@@ -131,8 +142,8 @@ public sealed class HidHideOwnershipTests
         // a previous run is the case it was written for. Refusing it instead would cost controller
         // management for good after one crash.
         DeterministicFakeHidHideAdapter adapter = new(
-            applications: ["HC.exe"],
-            devices: ["HID\\PRE"]);
+            ["HC.exe"],
+            ["HID\\PRE"]);
         InMemoryHidHideOwnershipStore store = new();
 
         // A first session hides a device and then vanishes, leaving its ledger behind.
@@ -165,12 +176,12 @@ public sealed class HidHideOwnershipTests
         // the plugin could not see the device it was being asked to discover, and the allowlisting
         // that would have fixed it only ran later as part of WSGM's own hiding transaction.
         DeterministicFakeHidHideAdapter adapter = new(
-            applications: ["HC.exe"],
-            devices: ["HID\\SOMEONE-ELSES-PAD"]);
+            ["HC.exe"],
+            ["HID\\SOMEONE-ELSES-PAD"]);
         HidHideOwnedDeltaManager manager = new(adapter, new InMemoryHidHideOwnershipStore());
 
         var detail = await manager.EnsureReadableAsync(
-            controllerManagementEnabled: true,
+            true,
             "WSGM.exe",
             CancellationToken.None);
 
@@ -207,22 +218,14 @@ public sealed class HidHideOwnershipTests
         Assert.Equal(0, adapter.MutationCount);
     }
 
-    private static PhysicalDeviceIdentity Physical(string path) => new()
+    private static PhysicalDeviceIdentity Physical(string path)
     {
-        InstancePath = path,
-        RequiresHiding = true
-    };
-
-    // WSGM has to recognise its own HidHide entries in the notation HidHide stores them in.
-    // HidHide keeps application entries as NT device paths — \Device\HarddiskVolume3\… — while
-    // WSGM knows its executables by drive letter. A plain string compare therefore never matched, so
-    // WSGM added a second entry for a path that was already present: the allowlist grew on every
-    // activation, and cleanup, which matches what it wrote, would leave the other notation behind.
-    // Device-observed on the reference Claw, 2026-08-29.
-    private const string DosPath = @"C:\Program Files\WSGM\WSGM.exe";
-
-    private const string DevicePath =
-        @"\Device\HarddiskVolume3\Program Files\WSGM\WSGM.exe";
+        return new PhysicalDeviceIdentity
+        {
+            InstancePath = path,
+            RequiresHiding = true
+        };
+    }
 
     [Fact]
     public void AnEntryStoredAsADevicePathIsRecognisedFromItsDriveLetterForm()
@@ -445,12 +448,15 @@ internal sealed class DeterministicFakeHidHideAdapter : IHidHideAdapter
         }
     }
 
-    private HidHideExactSnapshot SnapshotUnderGate() => new(
-        Health,
-        Active,
-        _applications,
-        _devices,
-        Health.ToString());
+    private HidHideExactSnapshot SnapshotUnderGate()
+    {
+        return new HidHideExactSnapshot(
+            Health,
+            Active,
+            _applications,
+            _devices,
+            Health.ToString());
+    }
 }
 
 internal sealed class InMemoryHidHideOwnershipStore : IHidHideOwnershipStore

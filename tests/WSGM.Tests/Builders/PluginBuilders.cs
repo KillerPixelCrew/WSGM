@@ -13,9 +13,12 @@ internal static class PluginBuilders
         PluginHost host,
         IPlugin plugin,
         string instance = "one",
-        string? category = null) =>
-        host.Admit(plugin, new PluginInstanceIdentity(plugin.Id, instance), category ?? PluginCategories.Infrared,
+        string? category = null)
+    {
+        return host.Admit(plugin, new PluginInstanceIdentity(plugin.Id, instance),
+            category ?? PluginCategories.Infrared,
             PluginCategoryPolicy.Multiple, false, 1, "fixture-state");
+    }
 
     internal static async Task Close(PluginRegistration registration)
     {
@@ -23,10 +26,13 @@ internal static class PluginBuilders
         await registration.DisposeAsync();
     }
 
-    internal static PluginActionStep Step(string id, int timeoutSeconds = 30) => new()
+    internal static PluginActionStep Step(string id, int timeoutSeconds = 30)
     {
-        Plugin = new PluginInstanceIdentity("wsgm.ir", "blaster"),
-        ActionId = id,
-        TimeoutSeconds = timeoutSeconds
-    };
+        return new PluginActionStep
+        {
+            Plugin = new PluginInstanceIdentity("wsgm.ir", "blaster"),
+            ActionId = id,
+            TimeoutSeconds = timeoutSeconds
+        };
+    }
 }

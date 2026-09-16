@@ -7,5 +7,8 @@ internal sealed class FakeButtonSource : IUiButtonSource
 {
     public event Action<GamepadButtons>? ButtonPressed;
 
-    internal void Press(GamepadButtons buttons) => ButtonPressed?.Invoke(buttons);
+    internal void Press(GamepadButtons buttons)
+    {
+        ButtonPressed?.Invoke(buttons);
+    }
 }

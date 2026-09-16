@@ -6,34 +6,18 @@ using static SDL.SDL3;
 
 namespace WSGM.Input;
 
-/// <summary>Process-wide owner of all SDL3 gamepad interop. A single event pump is
-/// mandatory: two GamepadService instances can exist at once (overlay + settings),
-/// and if each called SDL_PollEvent they would steal hotplug events from the other.
-/// All members must be called from the UI thread. SDL is initialized once and never
-/// quit: owners have independent lifecycles and SDL's reads are shared/non-exclusive,
-/// so a running game is unaffected.</summary>
+/// <summary>
+///     Process-wide owner of all SDL3 gamepad interop. A single event pump is
+///     mandatory: two GamepadService instances can exist at once (overlay + settings),
+///     and if each called SDL_PollEvent they would steal hotplug events from the other.
+///     All members must be called from the UI thread. SDL is initialized once and never
+///     quit: owners have independent lifecycles and SDL's reads are shared/non-exclusive,
+///     so a running game is unaffected.
+/// </summary>
 internal static unsafe class SdlGamepads
 {
-    /// <summary>One pad's folded button state, keyed by SDL joystick instance id.
-    /// Per-pad states let chord detection require a chord to complete on ONE
-    /// physical pad instead of being assembled from buttons across controllers.</summary>
-    public readonly record struct PadSnapshot
-    {
-        /// <summary>Creates a per-controller button snapshot.</summary>
-        /// <param name="id">SDL's stable controller identifier for the current connection.</param>
-        /// <param name="buttons">The normalized buttons currently held on that controller.</param>
-        public PadSnapshot(uint id, GamepadButtons buttons)
-        {
-            Id = id;
-            Buttons = buttons;
-        }
-
-        /// <summary>Gets SDL's stable identifier for the connected controller.</summary>
-        public uint Id { get; }
-
-        /// <summary>Gets the normalized buttons currently held on the controller.</summary>
-        public GamepadButtons Buttons { get; }
-    }
+    private const short StickDeadzone = 16000;
+    private const short TriggerThreshold = 8000; // axis range is 0..32767
 
     private static bool _initialized;
     private static bool _failed;
@@ -41,9 +25,6 @@ internal static unsafe class SdlGamepads
     private static bool _awaitNeutral;
     private static readonly Dictionary<SDL_JoystickID, nint> Pads = new();
     private static readonly List<PadSnapshot> Snapshot = [];
-
-    private const short StickDeadzone = 16000;
-    private const short TriggerThreshold = 8000; // axis range is 0..32767
 
     private static readonly (SDL_GamepadButton Sdl, GamepadButtons Flag)[] ButtonMap =
     [
@@ -115,24 +96,38 @@ internal static unsafe class SdlGamepads
         var v = SDL_GetVersion();
         Log.Info($"SDL {v / 1000000}.{v / 1000 % 1000}.{v % 1000} gamepad subsystem initialized.");
 
-        if (!_steamOwnsInput) { OpenConnectedPads(); }
+        if (!_steamOwnsInput)
+        {
+            OpenConnectedPads();
+        }
     }
 
     /// <summary>Closes WSGM's SDL readers during a Steam handoff; UI thread only.</summary>
     internal static void SetSteamOwnership(bool active)
     {
-        if (_steamOwnsInput == active) { return; }
+        if (_steamOwnsInput == active)
+        {
+            return;
+        }
+
         _steamOwnsInput = active;
         Snapshot.Clear();
         if (active)
         {
-            foreach (var handle in Pads.Values) { SDL_CloseGamepad((SDL_Gamepad*)handle); }
+            foreach (var handle in Pads.Values)
+            {
+                SDL_CloseGamepad((SDL_Gamepad*)handle);
+            }
+
             Pads.Clear();
         }
         else
         {
             _awaitNeutral = true;
-            if (_initialized) { OpenConnectedPads(); }
+            if (_initialized)
+            {
+                OpenConnectedPads();
+            }
         }
     }
 
@@ -149,12 +144,15 @@ internal static unsafe class SdlGamepads
         {
             OpenPad(ids[i]);
         }
+
         SDL_free(ids);
     }
 
-    /// <summary>Pumps SDL events (hotplug) and returns each pad's state, with the
-    /// left stick folded into the D-pad flags and triggers as buttons. The returned
-    /// list is reused across calls — consume it before the next Update().</summary>
+    /// <summary>
+    ///     Pumps SDL events (hotplug) and returns each pad's state, with the
+    ///     left stick folded into the D-pad flags and triggers as buttons. The returned
+    ///     list is reused across calls — consume it before the next Update().
+    /// </summary>
     public static IReadOnlyList<PadSnapshot> Update()
     {
         Snapshot.Clear();
@@ -217,6 +215,7 @@ internal static unsafe class SdlGamepads
             {
                 current |= GamepadButtons.LeftTrigger;
             }
+
             if (SDL_GetGamepadAxis(pad, SDL_GamepadAxis.SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > TriggerThreshold)
             {
                 current |= GamepadButtons.RightTrigger;
@@ -224,15 +223,27 @@ internal static unsafe class SdlGamepads
 
             Snapshot.Add(new PadSnapshot((uint)id, current));
         }
+
         if (!_awaitNeutral)
         {
             return Snapshot;
         }
 
         var held = false;
-        foreach (var pad in Snapshot) { held |= pad.Buttons != 0; }
-        if (held) { Snapshot.Clear(); }
-        else if (Snapshot.Count > 0) { _awaitNeutral = false; }
+        foreach (var pad in Snapshot)
+        {
+            held |= pad.Buttons != 0;
+        }
+
+        if (held)
+        {
+            Snapshot.Clear();
+        }
+        else if (Snapshot.Count > 0)
+        {
+            _awaitNeutral = false;
+        }
+
         return Snapshot;
     }
 
@@ -242,12 +253,14 @@ internal static unsafe class SdlGamepads
         {
             return;
         }
+
         var pad = SDL_OpenGamepad(id);
         if (pad == null)
         {
             Log.Warn($"SDL_OpenGamepad({id}) failed: {SDL_GetError()}");
             return;
         }
+
         Pads[id] = (nint)pad;
         var paddles = SDL_GamepadHasButton(pad, SDL_GamepadButton.SDL_GAMEPAD_BUTTON_LEFT_PADDLE1);
         Log.Info($"Gamepad added: '{SDL_GetGamepadName(pad)}' type={SDL_GetGamepadType(pad)} paddles={paddles}");
@@ -259,7 +272,31 @@ internal static unsafe class SdlGamepads
         {
             return;
         }
+
         Log.Info($"Gamepad removed: '{SDL_GetGamepadName((SDL_Gamepad*)pad)}'");
         SDL_CloseGamepad((SDL_Gamepad*)pad);
+    }
+
+    /// <summary>
+    ///     One pad's folded button state, keyed by SDL joystick instance id.
+    ///     Per-pad states let chord detection require a chord to complete on ONE
+    ///     physical pad instead of being assembled from buttons across controllers.
+    /// </summary>
+    public readonly record struct PadSnapshot
+    {
+        /// <summary>Creates a per-controller button snapshot.</summary>
+        /// <param name="id">SDL's stable controller identifier for the current connection.</param>
+        /// <param name="buttons">The normalized buttons currently held on that controller.</param>
+        public PadSnapshot(uint id, GamepadButtons buttons)
+        {
+            Id = id;
+            Buttons = buttons;
+        }
+
+        /// <summary>Gets SDL's stable identifier for the connected controller.</summary>
+        public uint Id { get; }
+
+        /// <summary>Gets the normalized buttons currently held on the controller.</summary>
+        public GamepadButtons Buttons { get; }
     }
 }

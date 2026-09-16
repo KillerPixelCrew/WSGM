@@ -41,7 +41,11 @@ public sealed class SettingsStartupTests
             Assert.False(window.IsVisible);
             Assert.Contains("input-stop", fixture.Calls);
         }
-        finally { release.TrySetResult(); }
+        finally
+        {
+            release.TrySetResult();
+        }
+
         await window.SteamAutostartScan.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.False(UiFixture.Named<Control>(window, "QuickSetupAutostartRow").IsVisible);
         Assert.DoesNotContain("save", fixture.Calls);
@@ -111,7 +115,10 @@ public sealed class SettingsStartupTests
         };
         model.TakeOverSteamAutostartCommand.CanExecuteChanged += (_, _) =>
         {
-            if (model.TakeOverSteamAutostartCommand.CanExecute(null)) { completed.TrySetResult(); }
+            if (model.TakeOverSteamAutostartCommand.CanExecute(null))
+            {
+                completed.TrySetResult();
+            }
         };
         model.TakeOverSteamAutostartCommand.Execute(null);
         await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -139,7 +146,10 @@ public sealed class SettingsStartupTests
         TaskCompletionSource completed = new();
         model.TakeOverSteamAutostartCommand.CanExecuteChanged += (_, _) =>
         {
-            if (model.TakeOverSteamAutostartCommand.CanExecute(null)) { completed.TrySetResult(); }
+            if (model.TakeOverSteamAutostartCommand.CanExecute(null))
+            {
+                completed.TrySetResult();
+            }
         };
         try
         {
@@ -150,7 +160,11 @@ public sealed class SettingsStartupTests
             UiFixture.Click(window, UiFixture.Tab(window, 1));
             Assert.True(UiFixture.Named<Control>(window, "PageSteam").IsVisible);
         }
-        finally { release.TrySetResult(); }
+        finally
+        {
+            release.TrySetResult();
+        }
+
         await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(1, scans);
         Assert.Contains("Windows has no Steam startup entry", model.SteamAutostartStatusText);

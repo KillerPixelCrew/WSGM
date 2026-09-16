@@ -48,6 +48,7 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
                     CapabilityReasonCode.ValueOutOfRange,
                     "The power pair must be 8-37 W.");
             }
+
             return await ApplyPairCoreAsync(command, before, watts, watts, cancellationToken).ConfigureAwait(false);
         }
 
@@ -96,6 +97,7 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
                 CapabilityReasonCode.Unsupported,
                 "Firmware does not support scenario selection.");
         }
+
         var target = scenario switch
         {
             "comfort" => 0xC0,
@@ -110,13 +112,16 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
         {
             return ClawResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange, "Unknown firmware scenario.");
         }
+
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
             if (before.Scenario != target)
             {
-                await WriteDataAsync(ClawHardwareFacts.ScenarioAddress, target, cancellationToken).ConfigureAwait(false);
+                await WriteDataAsync(ClawHardwareFacts.ScenarioAddress, target, cancellationToken)
+                    .ConfigureAwait(false);
             }
+
             var readback = await ReadAsync(cancellationToken).ConfigureAwait(false);
             if (readback.Scenario == target)
             {
@@ -127,16 +132,19 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
         {
             // The firmware may have changed both scenario and watt limits before reporting failure.
         }
+
         RollbackResult rollback;
         try
         {
             rollback = await RestoreAsync(before, CancellationToken.None).ConfigureAwait(false)
-                ? RollbackResult.RestoredVerified : RollbackResult.RestoredUnverified;
+                ? RollbackResult.RestoredVerified
+                : RollbackResult.RestoredUnverified;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             rollback = RollbackResult.RestoreFailed;
         }
+
         return ClawResults.Indeterminate(
             command,
             CapabilityReasonCode.TransportFaulted,
@@ -233,7 +241,7 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
                 .ConfigureAwait(false);
             var readback = await ReadAsync(cancellationToken).ConfigureAwait(false);
             return readback.SustainedWatts == snapshot.SustainedWatts
-                && readback.BoostWatts == snapshot.BoostWatts
+                   && readback.BoostWatts == snapshot.BoostWatts
                 ? RollbackResult.RestoredVerified
                 : RollbackResult.RestoredUnverified;
         }
@@ -327,7 +335,10 @@ internal sealed class ClawA2VmChargeLimitCapability(IMsiWmiTransport transport)
             rollback);
     }
 
-    private static byte Encode(int percent) => checked((byte)percent);
+    private static byte Encode(int percent)
+    {
+        return checked((byte)percent);
+    }
 
     private async ValueTask<RollbackResult> TryRestoreAsync(
         byte rawValue,
@@ -385,6 +396,7 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
         {
             throw new InvalidOperationException("The fan mode getter returned a truncated response.");
         }
+
         return new FanSnapshot(left, right, custom[1], full[1]);
     }
 
@@ -398,6 +410,7 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
         {
             throw new InvalidOperationException("The fan telemetry getter returned a truncated response.");
         }
+
         return new FanTelemetry(
             DecodeRpm(fan[1], fan[2]),
             DecodeRpm(fan[3], fan[4]),
@@ -413,6 +426,7 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
         {
             return ClawResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange, "Unknown fan mode.");
         }
+
         var (custom, full) = mode switch
         {
             "automatic" => (false, false),
@@ -458,12 +472,12 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns>Verified only when both channels read the curve back.</returns>
     /// <remarks>
-    /// The A2VM's two fans sit on one heatsink and the firmware ramps them together; a curve that
-    /// applied to one of them would describe a machine that does not exist. Both channels are
-    /// therefore written under ONE pre-write snapshot, so a failure on the second channel restores
-    /// the first as well. Two separate <c>ApplyCurveAsync</c> calls could not: the second call's
-    /// snapshot would already contain the first call's write and would happily "restore" to it,
-    /// leaving the fans running curves that disagree.
+    ///     The A2VM's two fans sit on one heatsink and the firmware ramps them together; a curve that
+    ///     applied to one of them would describe a machine that does not exist. Both channels are
+    ///     therefore written under ONE pre-write snapshot, so a failure on the second channel restores
+    ///     the first as well. Two separate <c>ApplyCurveAsync</c> calls could not: the second call's
+    ///     snapshot would already contain the first call's write and would happily "restore" to it,
+    ///     leaving the fans running curves that disagree.
     /// </remarks>
     public async ValueTask<CapabilityCommandResult> ApplyCurveAsync(
         CapabilityCommand command,
@@ -551,13 +565,16 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
         return true;
     }
 
-    internal static IReadOnlyList<CurvePoint> DecodeCurve(FanTable table) =>
-    [
-        .. Enumerable.Range(0, TemperatureOffsets.Length)
-            .Select(index => new CurvePoint(
-                table.TemperatureBuffer[TemperatureOffsets[index]],
-                table.DutyBuffer[DutyOffsets[index]]))
-    ];
+    internal static IReadOnlyList<CurvePoint> DecodeCurve(FanTable table)
+    {
+        return
+        [
+            .. Enumerable.Range(0, TemperatureOffsets.Length)
+                .Select(index => new CurvePoint(
+                    table.TemperatureBuffer[TemperatureOffsets[index]],
+                    table.DutyBuffer[DutyOffsets[index]]))
+        ];
+    }
 
     private async ValueTask<FanTable> ReadTableAsync(byte channel, CancellationToken cancellationToken)
     {
@@ -617,8 +634,10 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
         byte address,
         byte current,
         bool enabled,
-        CancellationToken cancellationToken) =>
-        WriteRawFlagAsync(address, enabled ? (byte)(current | 0x80) : (byte)(current & 0x7F), cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        return WriteRawFlagAsync(address, enabled ? (byte)(current | 0x80) : (byte)(current & 0x7F), cancellationToken);
+    }
 
     private ValueTask WriteRawFlagAsync(byte address, byte value, CancellationToken cancellationToken)
     {
@@ -628,16 +647,20 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
         return _transport.InvokeSetterAsync("Set_Data", package, cancellationToken);
     }
 
-    private static bool CurveEquals(FanTable readback, IReadOnlyList<CurvePoint> curve) =>
-        DecodeCurve(readback).SequenceEqual(curve);
+    private static bool CurveEquals(FanTable readback, IReadOnlyList<CurvePoint> curve)
+    {
+        return DecodeCurve(readback).SequenceEqual(curve);
+    }
 
-    private static bool SnapshotEquals(FanSnapshot left, FanSnapshot right) =>
-        left.Left.DutyBuffer.SequenceEqual(right.Left.DutyBuffer)
-        && left.Left.TemperatureBuffer.SequenceEqual(right.Left.TemperatureBuffer)
-        && left.Right.DutyBuffer.SequenceEqual(right.Right.DutyBuffer)
-        && left.Right.TemperatureBuffer.SequenceEqual(right.Right.TemperatureBuffer)
-        && left.CustomFlag == right.CustomFlag
-        && left.FullSpeedFlag == right.FullSpeedFlag;
+    private static bool SnapshotEquals(FanSnapshot left, FanSnapshot right)
+    {
+        return left.Left.DutyBuffer.SequenceEqual(right.Left.DutyBuffer)
+               && left.Left.TemperatureBuffer.SequenceEqual(right.Left.TemperatureBuffer)
+               && left.Right.DutyBuffer.SequenceEqual(right.Right.DutyBuffer)
+               && left.Right.TemperatureBuffer.SequenceEqual(right.Right.TemperatureBuffer)
+               && left.CustomFlag == right.CustomFlag
+               && left.FullSpeedFlag == right.FullSpeedFlag;
+    }
 
     private static int DecodeRpm(byte high, byte low)
     {
@@ -645,16 +668,19 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
         return divisor == 0 ? 0 : 480_000 / divisor;
     }
 
-    private static bool Flag(byte value) => (value & 0x80) != 0;
+    private static bool Flag(byte value)
+    {
+        return (value & 0x80) != 0;
+    }
 }
 
 internal sealed class ClawA2VmLightingCapability(IClawMcuTransport transport)
 {
     private static readonly TimeSpan MinimumPersistentWriteInterval = TimeSpan.FromSeconds(1);
     private readonly IClawMcuTransport _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+    private DateTimeOffset _lastPersistentWrite;
     private LightingState? _observed;
     private byte[]? _observedProfile;
-    private DateTimeOffset _lastPersistentWrite;
 
     public async ValueTask<LightingState> ReadAsync(CancellationToken cancellationToken)
     {
@@ -710,7 +736,7 @@ internal sealed class ClawA2VmLightingCapability(IClawMcuTransport transport)
                     new CapabilityReason(
                         CapabilityReasonCode.Quiescing,
                         "The lighting command deadline is too short for the persistent-write interval.",
-                        Retryable: true));
+                        true));
             }
 
             await Task.Delay(untilNextWrite, cancellationToken).ConfigureAwait(false);
@@ -795,10 +821,10 @@ internal sealed class ClawA2VmLightingCapability(IClawMcuTransport transport)
     /// <param name="cancellationToken">Cancels the restore.</param>
     /// <returns>What the rollback achieved, as the command result reports it.</returns>
     /// <remarks>
-    /// Verified by reading back, because an unverified rollback is the same problem one step later.
-    /// The rate limit is deliberately not consulted here: it exists to stop a user's slider from
-    /// hammering the MCU, and refusing to undo a bad write because the last one was recent is how
-    /// the unintended profile would become permanent.
+    ///     Verified by reading back, because an unverified rollback is the same problem one step later.
+    ///     The rate limit is deliberately not consulted here: it exists to stop a user's slider from
+    ///     hammering the MCU, and refusing to undo a bad write because the last one was recent is how
+    ///     the unintended profile would become permanent.
     /// </remarks>
     private async ValueTask<RollbackResult> RollbackAsync(
         LightingState before,
@@ -879,8 +905,10 @@ internal sealed class ClawA2VmLightingCapability(IClawMcuTransport transport)
         return ClawResults.Verified(command, currentValue);
     }
 
-    private static int ReadColor(byte[] payload, int offset) =>
-        (payload[offset] << 16) | (payload[offset + 1] << 8) | payload[offset + 2];
+    private static int ReadColor(byte[] payload, int offset)
+    {
+        return (payload[offset] << 16) | (payload[offset + 1] << 8) | payload[offset + 2];
+    }
 
     private static void WriteColor(byte[] payload, int offset, int color)
     {
@@ -889,7 +917,10 @@ internal sealed class ClawA2VmLightingCapability(IClawMcuTransport transport)
         payload[offset + 2] = checked((byte)(color & 0xFF));
     }
 
-    private static bool IsColor(int color) => color is >= 0 and <= 0xFFFFFF;
+    private static bool IsColor(int color)
+    {
+        return color is >= 0 and <= 0xFFFFFF;
+    }
 }
 
 internal static class CapabilityIds
@@ -942,10 +973,10 @@ internal static class SectionIds
 
     /// <summary>Read-only ownership and telemetry. Nothing here is a control.</summary>
     /// <remarks>
-    /// Was <c>input</c>, a page of three rows that only ever reported whether the plugin held the
-    /// pad, the gyro and the rumble sink. That is worth reading when something is wrong and worth
-    /// nothing the rest of the time, so it is no longer a Controller page competing with the one
-    /// that has the actual controller settings on it.
+    ///     Was <c>input</c>, a page of three rows that only ever reported whether the plugin held the
+    ///     pad, the gyro and the rumble sink. That is worth reading when something is wrong and worth
+    ///     nothing the rest of the time, so it is no longer a Controller page competing with the one
+    ///     that has the actual controller settings on it.
     /// </remarks>
     public const string Info = DeviceSections.InfoId;
 }

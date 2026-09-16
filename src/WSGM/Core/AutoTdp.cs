@@ -28,13 +28,16 @@ internal enum AutoTdpAction
 /// <param name="Step">Smallest change the device accepts.</param>
 internal sealed record AutoTdpLimits(int Minimum, int Maximum, int Step)
 {
+    /// <summary>Whether the bounds describe a usable control.</summary>
+    internal bool IsUsable => Step > 0 && Minimum > 0 && Maximum >= Minimum + Step;
+
     /// <summary>Clamps a candidate limit onto the device grid.</summary>
     /// <param name="value">The candidate limit.</param>
     /// <returns>A limit the device accepts.</returns>
-    internal int Clamp(int value) => Math.Clamp(value, Minimum, Maximum);
-
-    /// <summary>Whether the bounds describe a usable control.</summary>
-    internal bool IsUsable => Step > 0 && Minimum > 0 && Maximum >= Minimum + Step;
+    internal int Clamp(int value)
+    {
+        return Math.Clamp(value, Minimum, Maximum);
+    }
 }
 
 /// <summary>One observation window of frame delivery for the foreground application.</summary>
@@ -67,25 +70,25 @@ internal sealed record AutoTdpDecision(AutoTdpAction Action, int Watts, string R
 }
 
 /// <summary>
-/// The one deterministic AutoTDP control policy.
+///     The one deterministic AutoTDP control policy.
 /// </summary>
 /// <remarks>
-/// Frametime behaviour only. Utilization counters are deliberately not consulted: a game that is
-/// GPU-bound at 60% reported utilization and one that is CPU-bound both miss the same deadline, and
-/// the only thing AutoTDP can do about either is move the power limit and watch what happens.
-/// <para>
-/// Pure and single-threaded on purpose. Every input arrives as an argument, every decision is a
-/// return value, and the whole controller replays exactly from a recorded trace — which is how a
-/// reported oscillation gets reproduced without the hardware that produced it.
-/// </para>
+///     Frametime behaviour only. Utilization counters are deliberately not consulted: a game that is
+///     GPU-bound at 60% reported utilization and one that is CPU-bound both miss the same deadline, and
+///     the only thing AutoTDP can do about either is move the power limit and watch what happens.
+///     <para>
+///         Pure and single-threaded on purpose. Every input arrives as an argument, every decision is a
+///         return value, and the whole controller replays exactly from a recorded trace — which is how a
+///         reported oscillation gets reproduced without the hardware that produced it.
+///     </para>
 /// </remarks>
 internal sealed class AutoTdpController
 {
     /// <summary>How far past its deadline a window has to land before it counts as a miss.</summary>
     /// <remarks>
-    /// Not zero tolerance. A frametime mean sits a little above the deadline on a perfectly healthy
-    /// capped game simply because the cap is enforced by sleeping, and raising power at every such
-    /// window would walk straight to maximum and stay there.
+    ///     Not zero tolerance. A frametime mean sits a little above the deadline on a perfectly healthy
+    ///     capped game simply because the cap is enforced by sleeping, and raising power at every such
+    ///     window would walk straight to maximum and stay there.
     /// </remarks>
     internal const double MissRatio = 1.05;
 
@@ -97,9 +100,9 @@ internal sealed class AutoTdpController
 
     /// <summary>Consecutive comfortable windows before a downward probe.</summary>
     /// <remarks>
-    /// Deliberately much longer than <see cref="SustainedMisses"/>: raising power costs battery and
-    /// fixes stutter, lowering it saves battery and risks stutter, so the two directions are not
-    /// symmetric and must not share a threshold.
+    ///     Deliberately much longer than <see cref="SustainedMisses" />: raising power costs battery and
+    ///     fixes stutter, lowering it saves battery and risks stutter, so the two directions are not
+    ///     symmetric and must not share a threshold.
     /// </remarks>
     internal const int SettledWindows = 8;
 
@@ -109,13 +112,14 @@ internal sealed class AutoTdpController
     /// <summary>Windows a downward probe is judged over before it is accepted.</summary>
     internal const int ProbeWindows = 6;
 
-    private readonly Dictionary<string, int> _learnedFloor = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _failedProbeFloor = new(StringComparer.Ordinal);
-    private string _contextKey = string.Empty;
-    private int _settling;
-    private int _misses;
+
+    private readonly Dictionary<string, int> _learnedFloor = new(StringComparer.Ordinal);
     private int _comfortable;
+    private string _contextKey = string.Empty;
+    private int _misses;
     private int _probeElapsed;
+    private int _settling;
 
     /// <summary>The limit the controller believes is in effect.</summary>
     internal int Watts { get; private set; }
@@ -135,9 +139,9 @@ internal sealed class AutoTdpController
     /// <param name="contextKey">Application plus display context to start in.</param>
     /// <returns>The limit to begin at, which may be a learned floor for a known context.</returns>
     /// <remarks>
-    /// A remembered floor is a starting point, not a promise. The controller still raises from it the
-    /// moment the deadline is missed, so a game that got heavier since it was learned recovers on the
-    /// same three windows as an unknown one.
+    ///     A remembered floor is a starting point, not a promise. The controller still raises from it the
+    ///     moment the deadline is missed, so a game that got heavier since it was learned recovers on the
+    ///     same three windows as an unknown one.
     /// </remarks>
     internal int Start(int watts, AutoTdpLimits limits, string contextKey)
     {
@@ -162,9 +166,9 @@ internal sealed class AutoTdpController
     /// <summary>Suspends automatic control because the limit was changed by hand.</summary>
     /// <param name="watts">The limit the user or a profile just set.</param>
     /// <remarks>
-    /// The pause lasts until AutoTDP is switched off and on again. A user who moved the slider is
-    /// telling the controller its answer was wrong, and silently taking the limit back a few seconds
-    /// later is the single most confusing thing this feature could do.
+    ///     The pause lasts until AutoTDP is switched off and on again. A user who moved the slider is
+    ///     telling the controller its answer was wrong, and silently taking the limit back a few seconds
+    ///     later is the single most confusing thing this feature could do.
     /// </remarks>
     internal void PauseForManualChange(int watts)
     {
@@ -178,16 +182,16 @@ internal sealed class AutoTdpController
 
     /// <summary>Lifts a manual pause so automatic control judges the next window again.</summary>
     /// <remarks>
-    /// The counterpart to <see cref="PauseForManualChange"/> for a <em>scoped</em> override: a limit
-    /// set for one application pauses control while that application runs, and leaving the application
-    /// must return control rather than leave it paused forever. This does not itself pick a wattage —
-    /// the caller re-bases the controller on the value actually on the device next window, exactly as
-    /// it does after an unapplied write — so the pause simply ends.
-    /// <para>
-    /// It is deliberately distinct from a user's global manual change, which still pauses until
-    /// AutoTDP is switched off and on: that is the user overriding the controller, not a per-game
-    /// profile expiring.
-    /// </para>
+    ///     The counterpart to <see cref="PauseForManualChange" /> for a <em>scoped</em> override: a limit
+    ///     set for one application pauses control while that application runs, and leaving the application
+    ///     must return control rather than leave it paused forever. This does not itself pick a wattage —
+    ///     the caller re-bases the controller on the value actually on the device next window, exactly as
+    ///     it does after an unapplied write — so the pause simply ends.
+    ///     <para>
+    ///         It is deliberately distinct from a user's global manual change, which still pauses until
+    ///         AutoTDP is switched off and on: that is the user overriding the controller, not a per-game
+    ///         profile expiring.
+    ///     </para>
     /// </remarks>
     internal void ResumeAutomaticControl()
     {
@@ -288,8 +292,10 @@ internal sealed class AutoTdpController
     /// <summary>The limit remembered as sufficient for a context, when one is known.</summary>
     /// <param name="contextKey">The context to look up.</param>
     /// <returns>The learned floor, or null.</returns>
-    internal int? LearnedFloor(string contextKey) =>
-        _learnedFloor.TryGetValue(contextKey, out var watts) ? watts : null;
+    internal int? LearnedFloor(string contextKey)
+    {
+        return _learnedFloor.TryGetValue(contextKey, out var watts) ? watts : null;
+    }
 
     private AutoTdpDecision JudgeProbe(bool missed)
     {
@@ -361,7 +367,10 @@ internal sealed class AutoTdpController
         return new AutoTdpDecision(AutoTdpAction.Raise, Watts, "sustained-miss");
     }
 
-    private AutoTdpDecision Hold(string reason) => new(AutoTdpAction.Hold, Watts, reason);
+    private AutoTdpDecision Hold(string reason)
+    {
+        return new AutoTdpDecision(AutoTdpAction.Hold, Watts, reason);
+    }
 
     private void ResetWindows()
     {

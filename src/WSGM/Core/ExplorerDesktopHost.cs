@@ -6,21 +6,25 @@ using WSGM.Interop;
 
 namespace WSGM.Core;
 
-/// <summary>Session-owned normal Explorer launch path. It captures the canonical taskbar owner
-/// before each orderly exit and retains a medium, jobless fixed-purpose anchor across the exit.</summary>
+/// <summary>
+///     Session-owned normal Explorer launch path. It captures the canonical taskbar owner
+///     before each orderly exit and retains a medium, jobless fixed-purpose anchor across the exit.
+/// </summary>
 internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan ReadinessStability = TimeSpan.FromMilliseconds(500);
-    private readonly int _sessionId;
+
+    private readonly DesktopAppLifecycle _desktopApps = new(new DesktopAppProcessBackend(), Log.Warn);
+
     // Anchor replacement, Explorer dispatch, and disposal share one owner. Disposal closes
     // admission before waiting so no caller can pass a stale disposed check and publish an anchor
     // after teardown has already detached the previous one.
     private readonly SemaphoreSlim _operationGate = new(1, 1);
-    private readonly DesktopAppLifecycle _desktopApps = new(new DesktopAppProcessBackend(), Log.Warn);
-    private int _desktopAppsSuspended;
-    private int _desktopAppsGeneration;
+    private readonly int _sessionId;
     private ExplorerShellAnchor? _anchor;
+    private int _desktopAppsGeneration;
+    private int _desktopAppsSuspended;
     private int _disposeState;
 
     /// <summary>Creates a desktop-host owner for the current interactive session.</summary>
@@ -29,8 +33,43 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         _sessionId = WindowFinder.CurrentSessionId;
     }
 
-    /// <summary>Captures the current canonical taskbar owner and creates the replacement launch
-    /// anchor before the orderly Explorer exit becomes irreversible.</summary>
+    private static string ExplorerPath => ExplorerControl.ExplorerPath;
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.CompareExchange(ref _disposeState, 1, 0) != 0)
+        {
+            return;
+        }
+
+        await _operationGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var anchor = _anchor;
+            _anchor = null;
+            if (anchor is not null)
+            {
+                await anchor.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            Volatile.Write(ref _disposeState, 2);
+            _operationGate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    ///     Captures the current canonical taskbar owner and creates the replacement launch
+    ///     anchor before the orderly Explorer exit becomes irreversible.
+    /// </summary>
     internal async Task<ExplorerPreparationResult> PrepareForExplorerExitAsync(
         CancellationToken cancellationToken = default)
     {
@@ -63,13 +102,13 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
 
         // Capturing a launch parent needs the real shell owner and its token, not a fast UI
         // response. Display changes and desktop hooks can briefly occupy Explorer's UI thread.
-        var shell = ObserveCurrentDesktop(_sessionId, requireResponsive: false);
+        var shell = ObserveCurrentDesktop(_sessionId, false);
         LogObservation("Explorer capture", shell);
         if (!CanCaptureShell(shell))
         {
             var detail = $"current-shell-{shell.Acceptance.Rejection}";
             Log.Warn($"Explorer takeover refused before orderly exit: {shell.Acceptance.Rejection}. "
-                + "The current desktop was preserved.");
+                     + "The current desktop was preserved.");
             return new ExplorerPreparationResult(false, detail);
         }
 
@@ -80,7 +119,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         {
             var detail = $"parent-open-error-{openError}";
             Log.Warn($"Explorer takeover refused: taskbar owner pid {shell.Process.ProcessId} could not be retained "
-                + $"as a launch parent (error {openError}). Sign out or reboot once before retrying.");
+                     + $"as a launch parent (error {openError}). Sign out or reboot once before retrying.");
             return new ExplorerPreparationResult(false, detail);
         }
 
@@ -93,6 +132,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
                 _sessionId,
                 cancellationToken).ConfigureAwait(false);
         }
+
         if (started.Anchor is null)
         {
             var stale = _anchor;
@@ -101,6 +141,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             {
                 await stale.DisposeAsync().ConfigureAwait(false);
             }
+
             Log.Warn($"Explorer takeover refused: normal shell anchor creation failed: {started.Error}");
             return new ExplorerPreparationResult(false, started.Error);
         }
@@ -108,13 +149,14 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         var replacement = started.Anchor;
         var anchorInfo = NativeShellProcess.Inspect(replacement.ProcessId);
         var anchorExecutable = ExplorerShellAnchor.ExecutablePath
-                               ?? throw new InvalidOperationException("The shell-anchor executable path disappeared after launch.");
+                               ?? throw new InvalidOperationException(
+                                   "The shell-anchor executable path disappeared after launch.");
         var anchorAcceptance = ExplorerShellPolicy.Evaluate(
             anchorInfo,
             anchorExecutable,
             _sessionId,
-            ownsReadyTaskbar: false,
-            requireReadyTaskbar: false);
+            false,
+            false);
         LogObservation(
             "Explorer launch anchor",
             new ExplorerDesktopObservation(
@@ -128,7 +170,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         if (!anchorAcceptance.Accepted)
         {
             Log.Warn("Explorer takeover refused: launch anchor did not inherit normal process semantics "
-                + $"({anchorAcceptance.Rejection}).");
+                     + $"({anchorAcceptance.Rejection}).");
             await replacement.DisposeAsync().ConfigureAwait(false);
             return new ExplorerPreparationResult(false, $"anchor-{anchorAcceptance.Rejection}");
         }
@@ -146,27 +188,36 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             catch (Exception ex)
             {
                 Log.Warn($"Retiring the previous shell anchor failed, continuing with the new one "
-                    + $"(pid {replacement.ProcessId}): {ex.GetType().Name}: {ex.Message}");
+                         + $"(pid {replacement.ProcessId}): {ex.GetType().Name}: {ex.Message}");
             }
         }
+
         Log.Info($"Explorer launch anchor ready (pid {_anchor.ProcessId}, "
-            + $"parent pid {shell.Process.ProcessId}).");
+                 + $"parent pid {shell.Process.ProcessId}).");
         return new ExplorerPreparationResult(true, "ready");
     }
 
     // A job-bound shell may supply its verified medium token, but may not supply the new
     // anchor's job. The anchor still has to pass every normal acceptance check before exit.
-    private static bool CanCaptureShell(ExplorerDesktopObservation shell) =>
-        shell.Acceptance.Accepted || shell.Acceptance.Rejection is ExplorerShellRejection.JobBound;
+    private static bool CanCaptureShell(ExplorerDesktopObservation shell)
+    {
+        return shell.Acceptance.Accepted || shell.Acceptance.Rejection is ExplorerShellRejection.JobBound;
+    }
 
-    internal bool IsApplicationLaunchSuppressed(string path) =>
-        Volatile.Read(ref _desktopAppsSuspended) != 0 && DesktopAppLifecycle.MatchesPath(path);
+    internal bool IsApplicationLaunchSuppressed(string path)
+    {
+        return Volatile.Read(ref _desktopAppsSuspended) != 0 && DesktopAppLifecycle.MatchesPath(path);
+    }
 
-    internal int ApplicationLaunchGeneration(string path) =>
-        DesktopAppLifecycle.MatchesPath(path) ? Volatile.Read(ref _desktopAppsGeneration) : 0;
+    internal int ApplicationLaunchGeneration(string path)
+    {
+        return DesktopAppLifecycle.MatchesPath(path) ? Volatile.Read(ref _desktopAppsGeneration) : 0;
+    }
 
-    /// <summary>Stops captured desktop integrations before the irreversible Explorer exit.
-    /// A refused or partial app exit keeps Explorer and restores the affected applications.</summary>
+    /// <summary>
+    ///     Stops captured desktop integrations before the irreversible Explorer exit.
+    ///     A refused or partial app exit keeps Explorer and restores the affected applications.
+    /// </summary>
     internal async Task<bool> ExitExplorerAndWaitAsync(TimeSpan timeout)
     {
         ThrowIfDisposalRequested();
@@ -189,7 +240,11 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             {
                 exited = await Task.Run(() => ExplorerControl.ExitExplorerAndWait(timeout)).ConfigureAwait(false);
             }
-            catch (Exception ex) { Log.Error("Explorer exit failed", ex); }
+            catch (Exception ex)
+            {
+                Log.Error("Explorer exit failed", ex);
+            }
+
             return exited;
         }
         finally
@@ -198,8 +253,10 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         }
     }
 
-    /// <summary>Adopts an already-normal taskbar owner or restores Explorer through the captured
-    /// jobless anchor, waiting for the resulting taskbar owner rather than trusting the created PID.</summary>
+    /// <summary>
+    ///     Adopts an already-normal taskbar owner or restores Explorer through the captured
+    ///     jobless anchor, waiting for the resulting taskbar owner rather than trusting the created PID.
+    /// </summary>
     internal async Task<ExplorerDesktopResult> RestoreDesktopAsync(
         TimeSpan timeout,
         CancellationToken cancellationToken = default)
@@ -214,6 +271,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         {
             return CreateOperationGateTimeout(elapsed.Elapsed);
         }
+
         using var gateCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         gateCancellation.CancelAfter(gateRemaining);
         try
@@ -227,6 +285,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             // this boundary is therefore uncertain and must suppress any competing TrayHost.
             return CreateOperationGateTimeout(elapsed.Elapsed);
         }
+
         try
         {
             ThrowIfDisposalRequested();
@@ -235,6 +294,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             {
                 return CreateOperationGateTimeout(elapsed.Elapsed);
             }
+
             var result = await RestoreDesktopUnderGateAsync(deadline, elapsed, cancellationToken)
                 .ConfigureAwait(false);
             if (result.Outcome is not (ExplorerDesktopOutcome.Normal or ExplorerDesktopOutcome.Degraded))
@@ -263,8 +323,8 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             var adopted = await WaitForDesktopAsync(
                 deadline,
                 ExplorerDesktopRoute.ExistingShell,
-                createdProcessId: 0,
-                launchDispatched: false,
+                0,
+                false,
                 elapsed,
                 cancellationToken).ConfigureAwait(false);
             if (adopted.Outcome is ExplorerDesktopOutcome.Normal or ExplorerDesktopOutcome.Degraded
@@ -283,16 +343,16 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
                 cancellationToken).ConfigureAwait(false);
             anchorError = launch.Detail;
             Log.Info($"Explorer anchor request: anchor pid {_anchor.ProcessId}, "
-                + $"disposition={launch.Disposition}, created pid={launch.ProcessId}, detail={launch.Detail}.");
+                     + $"disposition={launch.Disposition}, created pid={launch.ProcessId}, detail={launch.Detail}.");
             if (!ExplorerShellPolicy.CanDispatchScheduler(
                     launch.Disposition,
-                    shellSurfacePresent: false))
+                    false))
             {
                 var result = await WaitForDesktopAsync(
                     deadline,
                     ExplorerDesktopRoute.ShellAnchor,
                     launch.ProcessId,
-                    launchDispatched: true,
+                    true,
                     elapsed,
                     cancellationToken).ConfigureAwait(false);
                 LogResult("anchor", result);
@@ -310,8 +370,8 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             var settling = await WaitForDesktopAsync(
                 deadline,
                 ExplorerDesktopRoute.ShellAnchor,
-                createdProcessId: 0,
-                launchDispatched: true,
+                0,
+                true,
                 elapsed,
                 cancellationToken).ConfigureAwait(false);
             LogResult("late-anchor", settling);
@@ -334,7 +394,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             var failed = CreateFailure(
                 ExplorerDesktopRoute.ScheduledTaskRecovery,
                 0,
-                launchDispatched: false,
+                false,
                 elapsed.Elapsed,
                 "scheduler-launch-failed");
             LogResult("scheduler", failed);
@@ -344,51 +404,25 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         if (schedulerDisposition is ScheduledTaskLaunchDisposition.Unknown)
         {
             Log.Warn("Explorer scheduler request crossed an uncertain dispatch boundary; "
-                + "waiting for the desktop without recreating game-mode shell surfaces.");
+                     + "waiting for the desktop without recreating game-mode shell surfaces.");
         }
 
         var scheduler = await WaitForDesktopAsync(
             deadline,
             ExplorerDesktopRoute.ScheduledTaskRecovery,
-            createdProcessId: 0,
-            launchDispatched: schedulerMayHaveDispatched,
+            0,
+            schedulerMayHaveDispatched,
             elapsed,
             cancellationToken).ConfigureAwait(false);
         LogResult("scheduler", scheduler);
         return scheduler;
     }
 
-    /// <inheritdoc />
-    public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
-
-    /// <inheritdoc />
-    public async ValueTask DisposeAsync()
-    {
-        if (Interlocked.CompareExchange(ref _disposeState, 1, 0) != 0)
-        {
-            return;
-        }
-
-        await _operationGate.WaitAsync().ConfigureAwait(false);
-        try
-        {
-            var anchor = _anchor;
-            _anchor = null;
-            if (anchor is not null)
-            {
-                await anchor.DisposeAsync().ConfigureAwait(false);
-            }
-        }
-        finally
-        {
-            Volatile.Write(ref _disposeState, 2);
-            _operationGate.Release();
-        }
-    }
-
-    /// <summary>Observes both shell surfaces and requires GetShellWindow and Shell_TrayWnd to have
-    /// the same owner. Restored desktops also require responsive windows; launch-parent capture
-    /// only needs the process identity and token.</summary>
+    /// <summary>
+    ///     Observes both shell surfaces and requires GetShellWindow and Shell_TrayWnd to have
+    ///     the same owner. Restored desktops also require responsive windows; launch-parent capture
+    ///     only needs the process identity and token.
+    /// </summary>
     internal static ExplorerDesktopObservation ObserveCurrentDesktop(
         int expectedSessionId, bool requireResponsive = true)
     {
@@ -417,14 +451,14 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             shellPresent,
             taskbarOwner,
             shellOwner,
-            responsive: !requireResponsive || (taskbarPresent && shellPresent
-                && IsResponsive(taskbar) && IsResponsive(shellWindow)));
+            !requireResponsive || (taskbarPresent && shellPresent
+                                                  && IsResponsive(taskbar) && IsResponsive(shellWindow)));
         var acceptance = ExplorerShellPolicy.Evaluate(
             process,
             ExplorerPath,
             expectedSessionId,
             ready,
-            requireReadyTaskbar: true);
+            true);
         var outcome = ExplorerShellPolicy.ClassifyDesktop(
             acceptance,
             ExplorerDesktopRoute.ExistingShell);
@@ -438,9 +472,11 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             outcome);
     }
 
-    private static bool IsResponsive(nint window) =>
-        NativeMethods.SendMessageTimeoutW(window, 0, 0, 0, NativeMethods.SmtoAbortIfHung,
+    private static bool IsResponsive(nint window)
+    {
+        return NativeMethods.SendMessageTimeoutW(window, 0, 0, 0, NativeMethods.SmtoAbortIfHung,
             500, out _) != 0;
+    }
 
     private async Task<ExplorerDesktopResult> WaitForDesktopAsync(
         DateTimeOffset deadline,
@@ -495,6 +531,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             {
                 break;
             }
+
             await Task.Delay(delay < PollInterval ? delay : PollInterval, cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -537,26 +574,28 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             elapsed);
     }
 
-    private static ExplorerDesktopResult CreateOperationGateTimeout(TimeSpan elapsed) =>
-        new(
+    private static ExplorerDesktopResult CreateOperationGateTimeout(TimeSpan elapsed)
+    {
+        return new ExplorerDesktopResult(
             ExplorerDesktopOutcome.Failed,
             ExplorerDesktopRoute.ShellAnchor,
             0,
             0,
             "operation-gate-timeout",
             // The preceding serialized operation may already have crossed a launch boundary.
-            launchDispatched: true,
-            shellSurfacePresent: false,
-            elapsed: elapsed);
+            true,
+            false,
+            elapsed);
+    }
 
     private static void LogObservation(string label, ExplorerDesktopObservation observation)
     {
         var process = observation.Process;
         Log.Info($"{label}: pid={process.ProcessId}, session={process.SessionId?.ToString() ?? "unknown"}, "
-            + $"integrity={process.Integrity}, job={process.JobMembership}, "
-            + $"taskbarOwner={observation.TaskbarOwnerProcessId}, "
-            + $"shellOwner={observation.ShellOwnerProcessId}, ready={observation.Initialized}, "
-            + $"image={process.ImagePath ?? "unknown"}, errors={process.Errors}.");
+                 + $"integrity={process.Integrity}, job={process.JobMembership}, "
+                 + $"taskbarOwner={observation.TaskbarOwnerProcessId}, "
+                 + $"shellOwner={observation.ShellOwnerProcessId}, ready={observation.Initialized}, "
+                 + $"image={process.ImagePath ?? "unknown"}, errors={process.Errors}.");
     }
 
     private void LogResult(string source, ExplorerDesktopResult result)
@@ -582,10 +621,10 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
     }
 
-    private void ThrowIfDisposalRequested() =>
+    private void ThrowIfDisposalRequested()
+    {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
-
-    private static string ExplorerPath => ExplorerControl.ExplorerPath;
+    }
 }
 
 /// <summary>Result of capturing a canonical Explorer and creating its replacement anchor.</summary>
@@ -608,8 +647,10 @@ internal enum ExplorerDesktopOutcome
 {
     /// <summary>The taskbar owner is canonical, medium-integrity, and jobless.</summary>
     Normal,
+
     /// <summary>A canonical current-session medium Explorer is usable through recovery only.</summary>
     Degraded,
+
     /// <summary>No verified usable taskbar was produced.</summary>
     Failed
 }
@@ -619,8 +660,10 @@ internal enum ExplorerDesktopRoute
 {
     /// <summary>An already-running valid shell was adopted.</summary>
     ExistingShell,
+
     /// <summary>The captured fixed-purpose jobless anchor started Explorer.</summary>
     ShellAnchor,
+
     /// <summary>The scheduled-task path restored a usable but recovery-only shell.</summary>
     ScheduledTaskRecovery
 }
@@ -628,8 +671,10 @@ internal enum ExplorerDesktopRoute
 /// <summary>Verified result of a desktop restoration attempt.</summary>
 internal readonly record struct ExplorerDesktopResult
 {
-    /// <summary>Creates a restoration result while enforcing that the scheduled-task route is
-    /// recovery-only even when its observed process happens to pass the normal shell checks.</summary>
+    /// <summary>
+    ///     Creates a restoration result while enforcing that the scheduled-task route is
+    ///     recovery-only even when its observed process happens to pass the normal shell checks.
+    /// </summary>
     internal ExplorerDesktopResult(
         ExplorerDesktopOutcome outcome,
         ExplorerDesktopRoute route,
@@ -641,9 +686,9 @@ internal readonly record struct ExplorerDesktopResult
         TimeSpan elapsed)
     {
         Outcome = route is ExplorerDesktopRoute.ScheduledTaskRecovery
-            && outcome is ExplorerDesktopOutcome.Normal
-                ? ExplorerDesktopOutcome.Degraded
-                : outcome;
+                  && outcome is ExplorerDesktopOutcome.Normal
+            ? ExplorerDesktopOutcome.Degraded
+            : outcome;
         Route = route;
         ProcessId = processId;
         CreatedProcessId = createdProcessId;
@@ -676,5 +721,4 @@ internal readonly record struct ExplorerDesktopResult
 
     /// <summary>Gets the elapsed restoration time.</summary>
     internal TimeSpan Elapsed { get; }
-
 }

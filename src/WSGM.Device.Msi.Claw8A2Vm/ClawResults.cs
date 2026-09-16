@@ -7,32 +7,43 @@ namespace WSGM.Device.Msi.Claw8A2Vm;
 /// <remarks>Each result is stamped with the time it is built, which is when the command finished.</remarks>
 internal static class ClawResults
 {
-    public static CapabilityCommandResult Verified(CapabilityCommand command, CapabilityValue readback) => new()
+    public static CapabilityCommandResult Verified(CapabilityCommand command, CapabilityValue readback)
     {
-        CommandId = command.CommandId,
-        Outcome = CommandOutcome.AppliedVerified,
-        ReadbackValue = readback,
-        CompletedAt = DateTimeOffset.UtcNow
-    };
+        return new CapabilityCommandResult
+        {
+            CommandId = command.CommandId,
+            Outcome = CommandOutcome.AppliedVerified,
+            ReadbackValue = readback,
+            CompletedAt = DateTimeOffset.UtcNow
+        };
+    }
 
     public static CapabilityCommandResult Rejected(
         CapabilityCommand command,
         CapabilityReasonCode code,
-        string detail) => Rejected(command, new CapabilityReason(code, detail));
-
-    public static CapabilityCommandResult Rejected(CapabilityCommand command, CapabilityReason reason) => new()
+        string detail)
     {
-        CommandId = command.CommandId,
-        Outcome = CommandOutcome.Rejected,
-        Reason = reason,
-        CompletedAt = DateTimeOffset.UtcNow
-    };
+        return Rejected(command, new CapabilityReason(code, detail));
+    }
+
+    public static CapabilityCommandResult Rejected(CapabilityCommand command, CapabilityReason reason)
+    {
+        return new CapabilityCommandResult
+        {
+            CommandId = command.CommandId,
+            Outcome = CommandOutcome.Rejected,
+            Reason = reason,
+            CompletedAt = DateTimeOffset.UtcNow
+        };
+    }
 
     public static CapabilityCommandResult Indeterminate(
         CapabilityCommand command,
         CapabilityReasonCode code,
         string detail,
-        RollbackResult rollback) => new()
+        RollbackResult rollback)
+    {
+        return new CapabilityCommandResult
         {
             CommandId = command.CommandId,
             Outcome = CommandOutcome.Indeterminate,
@@ -40,4 +51,5 @@ internal static class ClawResults
             Rollback = rollback,
             CompletedAt = DateTimeOffset.UtcNow
         };
+    }
 }

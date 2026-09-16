@@ -26,17 +26,17 @@ internal interface IDisplayChangeSignal
     Task WaitForChangeAsync(TimeSpan backstop, CancellationToken cancellationToken);
 }
 
-/// <summary>Waits until every requested monitor is connected and the picture has stopped moving.
-///
-/// The reference setup puts a TV behind an HDMI switch, so the target does not exist in Windows at
-/// all until the switch selects this PC, and how long that takes is up to a person and a piece of
-/// consumer hardware. There is therefore no deadline here, only cancellation: the splash offers
-/// Cancel and the user decides when to give up. A timeout would only ever fire on the honest case.
-///
-/// Arrival is not a single event. A monitor coming up behind a switch enumerates, disappears and
-/// re-enumerates while the sink negotiates, so the waiter requires two identical observations a
-/// settle apart before it reports the display present. The change hint is an optimisation; the
-/// backstop poll is what makes the wait correct when no hint is delivered.</summary>
+/// <summary>
+///     Waits until every requested monitor is connected and the picture has stopped moving.
+///     The reference setup puts a TV behind an HDMI switch, so the target does not exist in Windows at
+///     all until the switch selects this PC, and how long that takes is up to a person and a piece of
+///     consumer hardware. There is therefore no deadline here, only cancellation: the splash offers
+///     Cancel and the user decides when to give up. A timeout would only ever fire on the honest case.
+///     Arrival is not a single event. A monitor coming up behind a switch enumerates, disappears and
+///     re-enumerates while the sink negotiates, so the waiter requires two identical observations a
+///     settle apart before it reports the display present. The change hint is an optimisation; the
+///     backstop poll is what makes the wait correct when no hint is delivered.
+/// </summary>
 internal sealed class DisplayArrivalWaiter(
     IDisplayPresence presence,
     IDisplayChangeSignal signal,
@@ -45,9 +45,11 @@ internal sealed class DisplayArrivalWaiter(
     /// <summary>How long the observation must hold still before it is believed.</summary>
     private static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(500);
 
-    /// <summary>How long to wait for a hint before looking anyway. Not a deadline: the wait
-    /// continues afterwards. It exists because a display can appear without any broadcast
-    /// reaching this process.</summary>
+    /// <summary>
+    ///     How long to wait for a hint before looking anyway. Not a deadline: the wait
+    ///     continues afterwards. It exists because a display can appear without any broadcast
+    ///     reaching this process.
+    /// </summary>
     private static readonly TimeSpan Backstop = TimeSpan.FromSeconds(5);
 
     /// <summary>Waits until every target is connected and two observations agree.</summary>
@@ -65,13 +67,18 @@ internal sealed class DisplayArrivalWaiter(
             var observed = TryObserve();
             if (observed is not null && Present(observed, targets))
             {
-                if (stable == observed.Fingerprint) { return observed; }
+                if (stable == observed.Fingerprint)
+                {
+                    return observed;
+                }
+
                 // First sighting, or the topology moved since the last one. Look again after the
                 // settle rather than acting on a monitor that is still negotiating.
                 stable = observed.Fingerprint;
                 await delay(Settle, cancellationToken).ConfigureAwait(false);
                 continue;
             }
+
             stable = null;
             await signal.WaitForChangeAsync(Backstop, cancellationToken).ConfigureAwait(false);
         }
@@ -82,25 +89,43 @@ internal sealed class DisplayArrivalWaiter(
     /// <param name="targets">Monitors that must be present.</param>
     /// <returns>True when none are missing.</returns>
     internal static bool Present(
-        DisplayArrangement arrangement, IReadOnlyList<DisplayTargetIdentity> targets) =>
-        targets.All(target => arrangement.Targets.Any(
-            observed => observed.Available && observed.Target.Matches(target)));
+        DisplayArrangement arrangement, IReadOnlyList<DisplayTargetIdentity> targets)
+    {
+        return targets.All(target =>
+            arrangement.Targets.Any(observed => observed.Available && observed.Target.Matches(target)));
+    }
 
     /// <summary>Which of the requested monitors this observation cannot see.</summary>
     /// <param name="arrangement">An observation.</param>
     /// <param name="targets">Monitors that must be present.</param>
     /// <returns>The missing monitors, in the order they were requested.</returns>
     internal static IReadOnlyList<DisplayTargetIdentity> Missing(
-        DisplayArrangement arrangement, IReadOnlyList<DisplayTargetIdentity> targets) =>
-        [.. targets.Where(target => !arrangement.Targets.Any(
-            observed => observed.Available && observed.Target.Matches(target)))];
+        DisplayArrangement arrangement, IReadOnlyList<DisplayTargetIdentity> targets)
+    {
+        return
+        [
+            .. targets.Where(target =>
+                !arrangement.Targets.Any(observed => observed.Available && observed.Target.Matches(target)))
+        ];
+    }
 
-    /// <summary>A query that throws is a driver mid-change, which is the state this waiter exists
-    /// to sit through. It counts as "not settled", never as an error.</summary>
+    /// <summary>
+    ///     A query that throws is a driver mid-change, which is the state this waiter exists
+    ///     to sit through. It counts as "not settled", never as an error.
+    /// </summary>
     private DisplayArrangement? TryObserve()
     {
-        try { return presence.Observe(); }
-        catch (Win32Exception) { return null; }
-        catch (InvalidOperationException) { return null; }
+        try
+        {
+            return presence.Observe();
+        }
+        catch (Win32Exception)
+        {
+            return null;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
     }
 }

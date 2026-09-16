@@ -10,18 +10,23 @@ using Avalonia.Platform.Storage;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
+
 // Avalonia 12 moved SetTextAsync off IClipboard onto ClipboardExtensions.
 
 namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
-    /// <summary>The launch fix waiting on the user to pick a game, and the button
-    /// whose title reports the outcome.</summary>
+    /// <summary>
+    ///     The launch fix waiting on the user to pick a game, and the button
+    ///     whose title reports the outcome.
+    /// </summary>
     private (LaunchWrapperMode Mode, CardButton Button)? _pendingLaunchFix;
 
-    /// <summary>Re-labels the launch-fix rows for the current CEF state. Called when
-    /// a config reload flips live configuration on or off under an open panel.</summary>
+    /// <summary>
+    ///     Re-labels the launch-fix rows for the current CEF state. Called when
+    ///     a config reload flips live configuration on or off under an open panel.
+    /// </summary>
     internal void RefreshLaunchFixLabels()
     {
         if (DataContext is OverlayViewModel viewModel)
@@ -48,8 +53,10 @@ public partial class OverlayWindow
         RemoveFixesButton.Description = "Remove WSGM changes and restore the original";
     }
 
-    /// <summary>Starts the launch fix a row names in its CommandParameter. Pinned mirrors raise the
-    /// click on their source row, so the sender is always the row that owns the result text.</summary>
+    /// <summary>
+    ///     Starts the launch fix a row names in its CommandParameter. Pinned mirrors raise the
+    ///     click on their source row, so the sender is always the row that owns the result text.
+    /// </summary>
     private void OnApplyLaunchFix(object? sender, RoutedEventArgs e)
     {
         if (sender is CardButton { CommandParameter: LaunchWrapperMode mode } row)
@@ -86,21 +93,25 @@ public partial class OverlayWindow
             {
                 SystemDialogActive?.Invoke(false);
             }
+
             if (_closed || files.Count == 0 || !files[0].Path.IsFile)
             {
                 return;
             }
+
             var path = files[0].Path.LocalPath;
             if (!SteamCustomLaunchCommand.IsSupported(path))
             {
                 CustomLaunchButton.Title = "Unsupported file type";
                 return;
             }
+
             LaunchWrapperHost.OpenCustom(path, await ResolveCurrentGameAsync(CustomLaunchButton));
             if (_closed)
             {
                 return;
             }
+
             EnterSubView(OverlayPage.SteamLaunchConfiguration);
         }
         catch (Exception ex)
@@ -109,14 +120,17 @@ public partial class OverlayWindow
             {
                 CustomLaunchButton.Title = "Couldn't choose a file";
             }
+
             Log.Error("Could not pick a custom launch action", ex);
         }
     }
 
-    /// <summary>Resolves the game whose Steam page is on screen, so a custom action
-    /// applies to it directly. Answers <c>null</c> for the library root and for a
-    /// Steam that reported no current app — the caller then asks which game, exactly
-    /// as <see cref="ApplyLaunchFixAsync"/> does for the wrapper buttons.</summary>
+    /// <summary>
+    ///     Resolves the game whose Steam page is on screen, so a custom action
+    ///     applies to it directly. Answers <c>null</c> for the library root and for a
+    ///     Steam that reported no current app — the caller then asks which game, exactly
+    ///     as <see cref="ApplyLaunchFixAsync" /> does for the wrapper buttons.
+    /// </summary>
     private async Task<SteamCollections.AppInfo?> ResolveCurrentGameAsync(CardButton button)
     {
         button.Title = "Asking Steam…";
@@ -125,6 +139,7 @@ public partial class OverlayWindow
         {
             return null;
         }
+
         var match = (await SafeGameLookupAsync()).FirstOrDefault(g => g.AppId == appId);
         // A game Steam knows about but the collection store did not list still
         // resolves: the id came from the page, and the shortcut flag from its range.
@@ -134,7 +149,9 @@ public partial class OverlayWindow
 
     private void OnCustomLaunchGamePicked(
         string path, string arguments, SteamCollections.AppInfo game)
-        => _ = ApplyCustomLaunchToAsync(path, arguments, game, CustomLaunchButton);
+    {
+        _ = ApplyCustomLaunchToAsync(path, arguments, game, CustomLaunchButton);
+    }
 
     private async Task ApplyCustomLaunchToAsync(
         string path, string arguments, SteamCollections.AppInfo game, CardButton button)
@@ -146,12 +163,14 @@ public partial class OverlayWindow
                 button.Title = "File is no longer available";
                 return;
             }
+
             var details = await SteamLaunchConfig.ReadAsync(game.AppId);
             if (details is not { } current)
             {
                 button.Title = "Steam didn't answer";
                 return;
             }
+
             var existing = await LibraryTabManager.FindLaunchWrapperAsync(game.AppId);
             var originals = existing is null
                 ? (current.ShortcutTarget,
@@ -176,6 +195,7 @@ public partial class OverlayWindow
                 // Persist the only restoration copy before Steam destroys a shortcut Target.
                 await LibraryTabManager.RememberLaunchWrapperAsync(snapshot);
             }
+
             var result = await SteamLaunchConfig.ApplyCustomAsync(
                 game.AppId, game.Shortcut, path, arguments);
             switch (result.Ok)
@@ -187,6 +207,7 @@ public partial class OverlayWindow
                     await LibraryTabManager.RememberLaunchWrapperAsync(snapshot);
                     break;
             }
+
             button.Title = result.Ok ? $"Applied to {game.Name}" : result.Detail;
             if (result.Ok)
             {
@@ -223,6 +244,7 @@ public partial class OverlayWindow
             _ = CopyLaunchCommandAsync(mode, button, helperPath);
             return;
         }
+
         _ = ApplyLaunchFixAsync(mode, button);
     }
 
@@ -255,7 +277,9 @@ public partial class OverlayWindow
     // "Copied" confirmation briefly, then dismiss the panel (which restores Steam
     // to the foreground). Same rule as the actions that open a window.
     private static async Task FeedbackDelay()
-        => await Task.Delay(TimeSpan.FromMilliseconds(700));
+    {
+        await Task.Delay(TimeSpan.FromMilliseconds(700));
+    }
 
     private async Task DismissAfterCopyFeedback()
     {
@@ -268,6 +292,7 @@ public partial class OverlayWindow
             Log.Info("Launch-fix feedback dismissal skipped — its panel is already closed.");
             return;
         }
+
         Dismissed?.Invoke();
     }
 
@@ -316,6 +341,7 @@ public partial class OverlayWindow
                     button.Title = $"No fix applied to {name}";
                     return;
                 }
+
                 result = await SteamLaunchConfig.RestoreAsync(snapshot);
                 if (result.Ok)
                 {
@@ -342,9 +368,10 @@ public partial class OverlayWindow
                     // would strand it permanently.
                     button.Title = "Can't read the original program";
                     Log.Warn($"Launch fix refused for {name} ({appId}): the shortcut is already "
-                        + "wrapped and its original target could not be recovered.");
+                             + "wrapped and its original target could not be recovered.");
                     return;
                 }
+
                 var snapshot = existing ?? new LaunchWrapperConfig
                 {
                     AppId = appId,
@@ -388,7 +415,10 @@ public partial class OverlayWindow
     private static async Task<IReadOnlyList<SteamCollections.AppInfo>>
         SafeGameLookupAsync()
     {
-        try { return await SteamCollections.GetGamesAsync(); }
+        try
+        {
+            return await SteamCollections.GetGamesAsync();
+        }
         catch (Exception ex)
         {
             Log.Warn($"Could not list games while configuring a launch fix: {ex.Message}");
@@ -403,6 +433,7 @@ public partial class OverlayWindow
             LeaveSubView(OverlayPage.SteamLaunchConfiguration);
             return;
         }
+
         LeaveSubView(OverlayPage.SteamLaunchConfiguration);
         _ = ApplyLaunchFixToAsync(pending.Mode, pending.Button, game.AppId, game.Name, game.Shortcut);
     }

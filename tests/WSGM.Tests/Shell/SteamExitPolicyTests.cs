@@ -13,20 +13,26 @@ public sealed class SteamExitPolicyTests
     [InlineData(false, false, SteamExitReaction.Ignore)]
     public void TheReactionFollowsTheSessionMode(
         bool inGameMode, bool autoRelaunch, SteamExitReaction expected)
-        => Assert.Equal(expected, SteamExitPolicy.Decide(
-            inGameMode, autoRelaunch, monitorPaused: false, closedByUser: false));
+    {
+        Assert.Equal(expected, SteamExitPolicy.Decide(
+            inGameMode, autoRelaunch, false, false));
+    }
 
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public void AnExplicitCloseIsNeverUndone(bool inGameMode)
-        => Assert.Equal(SteamExitReaction.Ignore, SteamExitPolicy.Decide(
-            inGameMode, autoRelaunch: true, monitorPaused: false, closedByUser: true));
+    {
+        Assert.Equal(SteamExitReaction.Ignore, SteamExitPolicy.Decide(
+            inGameMode, true, false, true));
+    }
 
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public void ATransitionInFlightOwnsSteamItself(bool inGameMode)
-        => Assert.Equal(SteamExitReaction.Ignore, SteamExitPolicy.Decide(
-            inGameMode, autoRelaunch: true, monitorPaused: true, closedByUser: false));
+    {
+        Assert.Equal(SteamExitReaction.Ignore, SteamExitPolicy.Decide(
+            inGameMode, true, true, false));
+    }
 }

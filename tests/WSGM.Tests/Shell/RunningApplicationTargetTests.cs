@@ -9,7 +9,18 @@ public sealed class RunningApplicationTargetTests : IDisposable
         Path.GetTempPath(),
         $"wsgm-running-target-{Guid.NewGuid():N}");
 
-    public RunningApplicationTargetTests() => Directory.CreateDirectory(_tempDirectory);
+    public RunningApplicationTargetTests()
+    {
+        Directory.CreateDirectory(_tempDirectory);
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_tempDirectory))
+        {
+            Directory.Delete(_tempDirectory, true);
+        }
+    }
 
     [Fact]
     public void KnownSteamAppWithoutExecutableUsesIdentityButLeavesRtssGlobal()
@@ -481,14 +492,6 @@ public sealed class RunningApplicationTargetTests : IDisposable
         Assert.Equal("game.exe", target.RtssProfileName);
     }
 
-    public void Dispose()
-    {
-        if (Directory.Exists(_tempDirectory))
-        {
-            Directory.Delete(_tempDirectory, recursive: true);
-        }
-    }
-
     private sealed class DisabledTransport : ISteamUiTransport
     {
         public event EventHandler<SteamUiNotification>? NotificationReceived
@@ -505,28 +508,40 @@ public sealed class RunningApplicationTargetTests : IDisposable
 
         public ValueTask<IAsyncDisposable> SubscribeAsync(
             SteamUiTargetRole role,
-            CancellationToken cancellationToken = default) =>
+            CancellationToken cancellationToken = default)
+        {
             throw new NotSupportedException();
+        }
 
         public Task<SteamUiEvaluationResult> EvaluateAsync(
             SteamUiTargetRole role,
             string expression,
             TimeSpan timeout,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(SteamUiEvaluationResult.Unavailable(
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(SteamUiEvaluationResult.Unavailable(
                 "Steam CEF integration disabled in settings.",
                 default));
+        }
 
         public Task SetRuntimeBindingAsync(
             SteamUiTargetRole role,
             string bindingName,
             bool installed,
             TimeSpan timeout,
-            CancellationToken cancellationToken = default) =>
+            CancellationToken cancellationToken = default)
+        {
             throw new NotSupportedException();
+        }
 
-        public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots() => [];
+        public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots()
+        {
+            return [];
+        }
 
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask DisposeAsync()
+        {
+            return ValueTask.CompletedTask;
+        }
     }
 }

@@ -9,13 +9,13 @@ public sealed class HomeCarouselTests
     public void GamesOnADisconnectedLibraryAreListedUnlessAnAttachedLibraryAlsoHoldsThem()
     {
         SteamLibraryBadgeState libraries = new(
-        [
-            new SteamLibraryBadgeLibrary("Blue card", Connected: true, [1, 2]),
-            new SteamLibraryBadgeLibrary("Red card", Connected: false, [4, 3, 2, 4])
-        ],
+            [
+                new SteamLibraryBadgeLibrary("Blue card", true, [1, 2]),
+                new SteamLibraryBadgeLibrary("Red card", false, [4, 3, 2, 4])
+            ],
             Revision: 7);
 
-        var state = HomeCarousel.Build(libraries, includeUninstalled: false);
+        var state = HomeCarousel.Build(libraries, false);
 
         // Game 2 is on both cards and one of them is in the reader, so it stays.
         Assert.Equal([3, 4], state.DisconnectedAppIds);
@@ -26,7 +26,7 @@ public sealed class HomeCarouselTests
     [Fact]
     public void BeforeTheCardModelIsReadNothingIsDisconnected()
     {
-        var state = HomeCarousel.Build(null, includeUninstalled: true);
+        var state = HomeCarousel.Build(null, true);
 
         Assert.Empty(state.DisconnectedAppIds);
         Assert.True(state.IncludeUninstalled);
@@ -36,16 +36,16 @@ public sealed class HomeCarouselTests
     public void AReadingWithEveryCardAttachedExcludesNothing()
     {
         SteamLibraryBadgeState libraries = new(
-            [new SteamLibraryBadgeLibrary("Blue card", Connected: true, [1, 2])]);
+            [new SteamLibraryBadgeLibrary("Blue card", true, [1, 2])]);
 
-        Assert.Empty(HomeCarousel.Build(libraries, includeUninstalled: false).DisconnectedAppIds);
+        Assert.Empty(HomeCarousel.Build(libraries, false).DisconnectedAppIds);
     }
 
     [Fact]
     public async Task TheCarouselsReportIsAcceptedAndKept()
     {
         HomeCarouselBackend backend = new();
-        SteamHomeCarouselReport report = new(12, 1, 9, 2, 4, Tracking: true, Fallback: false);
+        SteamHomeCarouselReport report = new(12, 1, 9, 2, 4, true, false);
 
         Assert.Null(backend.Last);
         Assert.True((await backend.ReportAsync(report, CancellationToken.None)).Succeeded);

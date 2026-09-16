@@ -7,25 +7,12 @@ using WSGM.Interop;
 
 namespace WSGM.Core;
 
-/// <summary>Finds the home app's main window by process name(s) + window class and
-/// brings it to the foreground. Port of AnyFSE's window matching (MIT).</summary>
+/// <summary>
+///     Finds the home app's main window by process name(s) + window class and
+///     brings it to the foreground. Port of AnyFSE's window matching (MIT).
+/// </summary>
 public static class WindowFinder
 {
-    private sealed class SearchState
-    {
-        public required HashSet<uint> ProcessIds;
-        public string? WindowClass;
-        public nint Found;
-    }
-
-    private sealed class ListState
-    {
-        public required List<AppWindow> Result;
-        public uint OwnPid;
-        public nint ShellWindow;
-        public required HashSet<nint> IncludedWindows;
-    }
-
     // Own-process windows normally never appear in the switcher (overlay, taskbar,
     // tray host, splash — UI chrome). The settings window is the exception: in game
     // mode WSGM hosts the only taskbar, so a settings window that drops behind Big
@@ -33,8 +20,21 @@ public static class WindowFinder
     private static readonly Lock IncludeGate = new();
     private static readonly HashSet<nint> IncludedOwnWindows = [];
 
-    /// <summary>Adds an own-process top-level window to the switchable list despite
-    /// the own-process exclusion (the settings window). Safe to call repeatedly.</summary>
+    // Names whose session-id query has already been reported once. The callers are
+    // polls, so an unthrottled warning per pid per tick would flood the capped log.
+    private static readonly HashSet<string> WarnedSessionIdNames = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     This process's session id, read once: a process cannot change
+    ///     sessions, and the callers are polls that must not leak a Process handle
+    ///     per query.
+    /// </summary>
+    public static int CurrentSessionId { get; } = ReadCurrentSessionId();
+
+    /// <summary>
+    ///     Adds an own-process top-level window to the switchable list despite
+    ///     the own-process exclusion (the settings window). Safe to call repeatedly.
+    /// </summary>
     /// <param name="hwnd">The window handle to include; zero is ignored.</param>
     public static void IncludeOwnWindow(nint hwnd)
     {
@@ -42,13 +42,14 @@ public static class WindowFinder
         {
             return;
         }
+
         lock (IncludeGate)
         {
             IncludedOwnWindows.Add(hwnd);
         }
     }
 
-    /// <summary>Removes a window previously added by <see cref="IncludeOwnWindow"/>.</summary>
+    /// <summary>Removes a window previously added by <see cref="IncludeOwnWindow" />.</summary>
     /// <param name="hwnd">The window handle to stop including.</param>
     public static void ExcludeOwnWindow(nint hwnd)
     {
@@ -57,15 +58,6 @@ public static class WindowFinder
             IncludedOwnWindows.Remove(hwnd);
         }
     }
-
-    // Names whose session-id query has already been reported once. The callers are
-    // polls, so an unthrottled warning per pid per tick would flood the capped log.
-    private static readonly HashSet<string> WarnedSessionIdNames = new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>This process's session id, read once: a process cannot change
-    /// sessions, and the callers are polls that must not leak a Process handle
-    /// per query.</summary>
-    public static int CurrentSessionId { get; } = ReadCurrentSessionId();
 
     private static int ReadCurrentSessionId()
     {
@@ -84,7 +76,8 @@ public static class WindowFinder
         // call leaked a handle four times a second for the life of the session. Our
         // own session id cannot change while we run.
         var session = CurrentSessionId;
-        foreach (var name in semicolonNames.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var name in semicolonNames.Split(';',
+                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             var plain = name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? name[..^4] : name;
             foreach (var p in Process.GetProcessesByName(plain))
@@ -107,20 +100,26 @@ public static class WindowFinder
                     if (WarnedSessionIdNames.Add(plain))
                     {
                         Log.Warn($"Session id unreadable for {plain} (pid {p.Id}): {ex.Message}. "
-                            + "Further occurrences for this name are not logged.");
+                                 + "Further occurrences for this name are not logged.");
                     }
                 }
-                finally { p.Dispose(); }
+                finally
+                {
+                    p.Dispose();
+                }
             }
         }
+
         return result;
     }
 
     /// <summary>Returns which of the given process names have a process in this session.</summary>
     /// <param name="names">Executable names without ".exe".</param>
     /// <returns>The names with a process in this session, compared ignoring case.</returns>
-    /// <remarks>One process snapshot for every name, where <see cref="FindProcessIds"/> takes one
-    /// per name.</remarks>
+    /// <remarks>
+    ///     One process snapshot for every name, where <see cref="FindProcessIds" /> takes one
+    ///     per name.
+    /// </remarks>
     public static HashSet<string> FindRunningNames(IEnumerable<string> names)
     {
         var wanted = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
@@ -143,18 +142,24 @@ public static class WindowFinder
                 if (WarnedSessionIdNames.Add(name))
                 {
                     Log.Warn($"Session id unreadable for {name} (pid {p.Id}): {ex.Message}. "
-                        + "Further occurrences for this name are not logged.");
+                             + "Further occurrences for this name are not logged.");
                 }
             }
-            finally { p.Dispose(); }
+            finally
+            {
+                p.Dispose();
+            }
         }
+
         return running;
     }
 
-    /// <summary>Describes the current foreground window as "0x&lt;hwnd&gt; (process)" for
-    /// the log. <c>SendInput</c> has no window target — Windows delivers a synthetic
-    /// chord to whatever holds focus — so this is the only way a pasted log can show
-    /// where a "shortcut sent" line actually went.</summary>
+    /// <summary>
+    ///     Describes the current foreground window as "0x&lt;hwnd&gt; (process)" for
+    ///     the log. <c>SendInput</c> has no window target — Windows delivers a synthetic
+    ///     chord to whatever holds focus — so this is the only way a pasted log can show
+    ///     where a "shortcut sent" line actually went.
+    /// </summary>
     /// <returns>A short description, or "none" when there is no foreground window.</returns>
     public static string DescribeForeground()
     {
@@ -163,6 +168,7 @@ public static class WindowFinder
         {
             return "none";
         }
+
         NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
         try
         {
@@ -180,7 +186,9 @@ public static class WindowFinder
     /// <param name="windowClass">An optional exact Win32 window-class filter.</param>
     /// <returns>The native window handle, or zero when no qualifying window exists.</returns>
     public static nint FindWindow(string processNames, string? windowClass)
-        => FindWindow(FindProcessIds(processNames), windowClass);
+    {
+        return FindWindow(FindProcessIds(processNames), windowClass);
+    }
 
     /// <summary>Finds the first qualifying top-level window owned by one of the given processes.</summary>
     /// <param name="processIds">The process ids that may own the window.</param>
@@ -193,20 +201,25 @@ public static class WindowFinder
             return 0;
         }
 
-        var state = new SearchState { ProcessIds = processIds, WindowClass = string.IsNullOrWhiteSpace(windowClass) ? null : windowClass };
+        var state = new SearchState
+            { ProcessIds = processIds, WindowClass = string.IsNullOrWhiteSpace(windowClass) ? null : windowClass };
         RunEnumWindows(&EnumWindowsProc, state);
         return state.Found;
     }
 
-    /// <summary>Best-effort check that a process's image path equals the expected full
-    /// path. Unreadable processes count as matching (fail-open) so the caller's focus
-    /// poll cannot go blind when the image path cannot be queried.</summary>
+    /// <summary>
+    ///     Best-effort check that a process's image path equals the expected full
+    ///     path. Unreadable processes count as matching (fail-open) so the caller's focus
+    ///     poll cannot go blind when the image path cannot be queried.
+    /// </summary>
     /// <param name="pid">The process to inspect.</param>
     /// <param name="expectedFullPath">The full image path required.</param>
     /// <returns>Whether the image path matches (or could not be read).</returns>
     public static bool ProcessImagePathEquals(uint pid, string expectedFullPath)
-        => NativeShellProcess.TryGetImagePath(pid) is not { } path
-            || string.Equals(path, expectedFullPath, StringComparison.OrdinalIgnoreCase);
+    {
+        return NativeShellProcess.TryGetImagePath(pid) is not { } path
+               || string.Equals(path, expectedFullPath, StringComparison.OrdinalIgnoreCase);
+    }
 
     [UnmanagedCallersOnly]
     private static int EnumWindowsProc(nint hWnd, nint lParam)
@@ -242,19 +255,11 @@ public static class WindowFinder
         return 0; // stop enumeration
     }
 
-    /// <summary>A visible, switchable top-level window discovered during enumeration.</summary>
-    /// <param name="Hwnd">The native window handle.</param>
-    /// <param name="Title">The title presented in the switcher.</param>
-    /// <param name="ProcessId">The identifier of the owning process.</param>
-    public sealed record AppWindow(nint Hwnd, string Title, uint ProcessId)
-    {
-        /// <summary>Gets whether the window was minimized at enumeration time.</summary>
-        public bool IsMinimized { get; init; }
-    }
-
-    /// <summary>Alt-tab style enumeration: visible, titled, top-level windows that
-    /// are not tool windows, not DWM-cloaked (suspended UWP ghosts), not the shell's
-    /// desktop window ("Program Manager"), and not ours. Z-order top first.</summary>
+    /// <summary>
+    ///     Alt-tab style enumeration: visible, titled, top-level windows that
+    ///     are not tool windows, not DWM-cloaked (suspended UWP ghosts), not the shell's
+    ///     desktop window ("Program Manager"), and not ours. Z-order top first.
+    /// </summary>
     public static unsafe List<AppWindow> ListSwitchableWindows()
     {
         HashSet<nint> included;
@@ -262,6 +267,7 @@ public static class WindowFinder
         {
             included = [.. IncludedOwnWindows];
         }
+
         var state = new ListState
         {
             Result = [],
@@ -273,10 +279,12 @@ public static class WindowFinder
         return state.Result;
     }
 
-    /// <summary>The pure alt-tab filter decision, separated from the Win32 queries
-    /// that feed it so the specification is unit-testable: a window is switchable
-    /// when it is visible, titled, not the shell's desktop window, not a tool
-    /// window, not DWM-cloaked, and not owned by this process.</summary>
+    /// <summary>
+    ///     The pure alt-tab filter decision, separated from the Win32 queries
+    ///     that feed it so the specification is unit-testable: a window is switchable
+    ///     when it is visible, titled, not the shell's desktop window, not a tool
+    ///     window, not DWM-cloaked, and not owned by this process.
+    /// </summary>
     /// <param name="isVisible">Whether the window reports WS_VISIBLE (minimized windows still do).</param>
     /// <param name="isShellWindow">Whether the window is the shell's desktop window (Progman).</param>
     /// <param name="exStyle">The window's extended style bits.</param>
@@ -286,12 +294,14 @@ public static class WindowFinder
     /// <returns>Whether the window belongs in an alt-tab-style list.</returns>
     public static bool PassesSwitchableFilter(
         bool isVisible, bool isShellWindow, int exStyle, bool isOwnProcess, uint cloaked, int titleLength)
-        => isVisible
-            && !isShellWindow
-            && (exStyle & NativeMethods.WsExToolWindow) == 0
-            && !isOwnProcess
-            && cloaked == 0
-            && titleLength > 0;
+    {
+        return isVisible
+               && !isShellWindow
+               && (exStyle & NativeMethods.WsExToolWindow) == 0
+               && !isOwnProcess
+               && cloaked == 0
+               && titleLength > 0;
+    }
 
     [UnmanagedCallersOnly]
     private static int ListWindowsProc(nint hWnd, nint lParam)
@@ -300,6 +310,7 @@ public static class WindowFinder
         {
             return 0;
         }
+
         NativeMethods.GetWindowThreadProcessId(hWnd, out var pid);
         // Cloak query failure counts as not cloaked.
         var cloaked = NativeMethods.DwmGetWindowAttribute(hWnd, NativeMethods.DwmWaCloaked, out var value, 4) == 0
@@ -322,6 +333,7 @@ public static class WindowFinder
         {
             return 1;
         }
+
         state.Result.Add(new AppWindow(hWnd, new string(buffer, 0, length), pid)
         {
             IsMinimized = NativeMethods.IsIconic(hWnd)
@@ -329,9 +341,11 @@ public static class WindowFinder
         return 1;
     }
 
-    /// <summary>UnmanagedCallersOnly callbacks cannot capture state, so it travels
-    /// through EnumWindows' lParam as a GCHandle — one pattern for both callbacks,
-    /// no shared statics, no lock.</summary>
+    /// <summary>
+    ///     UnmanagedCallersOnly callbacks cannot capture state, so it travels
+    ///     through EnumWindows' lParam as a GCHandle — one pattern for both callbacks,
+    ///     no shared statics, no lock.
+    /// </summary>
     private static unsafe void RunEnumWindows(delegate* unmanaged<nint, nint, int> callback, object state)
     {
         var handle = GCHandle.Alloc(state);
@@ -345,20 +359,49 @@ public static class WindowFinder
         }
     }
 
-    /// <summary>Best-effort focus. Against an elevated window SetForegroundWindow may
-    /// fail silently under UIPI — callers should prefer protocol re-activation.</summary>
+    /// <summary>
+    ///     Best-effort focus. Against an elevated window SetForegroundWindow may
+    ///     fail silently under UIPI — callers should prefer protocol re-activation.
+    /// </summary>
     public static void BringToForeground(nint hWnd)
     {
         if (hWnd == 0)
         {
             return;
         }
+
         // SW_RESTORE on a MAXIMIZED window would drop it back to normal size —
         // only a minimized window needs restoring before it can take foreground.
         if (NativeMethods.IsIconic(hWnd))
         {
             NativeMethods.ShowWindow(hWnd, NativeMethods.SwRestore);
         }
+
         NativeMethods.SetForegroundWindow(hWnd);
+    }
+
+    private sealed class SearchState
+    {
+        public nint Found;
+        public required HashSet<uint> ProcessIds;
+        public string? WindowClass;
+    }
+
+    private sealed class ListState
+    {
+        public required HashSet<nint> IncludedWindows;
+        public uint OwnPid;
+        public required List<AppWindow> Result;
+        public nint ShellWindow;
+    }
+
+    /// <summary>A visible, switchable top-level window discovered during enumeration.</summary>
+    /// <param name="Hwnd">The native window handle.</param>
+    /// <param name="Title">The title presented in the switcher.</param>
+    /// <param name="ProcessId">The identifier of the owning process.</param>
+    public sealed record AppWindow(nint Hwnd, string Title, uint ProcessId)
+    {
+        /// <summary>Gets whether the window was minimized at enumeration time.</summary>
+        public bool IsMinimized { get; init; }
     }
 }

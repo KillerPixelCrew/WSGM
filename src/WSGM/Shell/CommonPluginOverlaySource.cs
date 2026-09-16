@@ -8,14 +8,25 @@ using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
 
-internal sealed record PluginOverlayControls(IReadOnlyList<PluginAction> Actions,
-    IReadOnlyList<PluginUiContribution> Contributions, IReadOnlyList<PluginWidget> Widgets);
+internal sealed record PluginOverlayControls(
+    IReadOnlyList<PluginAction> Actions,
+    IReadOnlyList<PluginUiContribution> Contributions,
+    IReadOnlyList<PluginWidget> Widgets);
 
-internal sealed record PluginOverlayInstance(PluginInstanceIdentity Identity, string Name, long Generation,
-    PluginOverlayControls? Controls, string Status, bool CanInvoke, string? Error);
+internal sealed record PluginOverlayInstance(
+    PluginInstanceIdentity Identity,
+    string Name,
+    long Generation,
+    PluginOverlayControls? Controls,
+    string Status,
+    bool CanInvoke,
+    string? Error);
 
-internal sealed record PluginWidgetPreferences(Func<Task<PluginWidgetPin[]>> Read,
-    Func<PluginWidgetPin, int, Task> Move, Func<PluginWidgetPin, Task> Remove, Func<Task> Reset)
+internal sealed record PluginWidgetPreferences(
+    Func<Task<PluginWidgetPin[]>> Read,
+    Func<PluginWidgetPin, int, Task> Move,
+    Func<PluginWidgetPin, Task> Remove,
+    Func<Task> Reset)
 {
     internal static PluginWidgetPreferences Default { get; } = new(
         () => Task.Run(() => ConfigStore.Load().PluginWidgetPins.ToArray()),
@@ -29,44 +40,70 @@ internal interface ICommonPluginOverlaySource
 {
     PluginOverlayInstance[] Snapshot();
     PluginStatePublication[] State(PluginInstanceIdentity identity);
+
     Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,
         string action, IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken);
 }
 
 /// <summary>Routes overlay intent to the resident common host without giving views lifecycle ownership.</summary>
-internal sealed class CommonPluginOverlaySource(CommonPluginManager? manager, PluginHost host,
+internal sealed class CommonPluginOverlaySource(
+    CommonPluginManager? manager,
+    PluginHost host,
     ICommonPluginOverlaySource? device = null) : ICommonPluginOverlaySource
 {
     internal ICommonPluginOverlaySource? Device => device;
 
-    internal static Task SetPinnedAsync(PluginWidgetPin pin, bool pinned) => Task.Run(() =>
-        ConfigStore.Mutate(config => PluginWidgetPins.Set(config.PluginWidgetPins, pin, pinned)));
+    public PluginOverlayInstance[] Snapshot()
+    {
+        return
+        [
+            .. (manager?.Snapshot() ?? []).Select(instance =>
+            {
+                var owner = instance.Registration;
+                var actions = owner?.Actions;
+                return new PluginOverlayInstance(instance.Identity, instance.Manifest.Name,
+                    owner?.Context.Generation ?? 0,
+                    actions is null
+                        ? null
+                        : new PluginOverlayControls(actions.Actions, actions.Contributions, actions.Widgets),
+                    owner is null ? "Starting" : $"{owner.Health.Health}: {owner.Health.Detail}",
+                    owner is { IsStopping: false, Quarantined: false }, instance.Error);
+            }),
+            .. device?.Snapshot() ?? []
+        ];
+    }
 
-    internal static Task MovePinAsync(PluginWidgetPin pin, int offset) => Task.Run(() =>
-        ConfigStore.Mutate(config => PluginWidgetPins.Move(config.PluginWidgetPins, pin, offset)));
+    public PluginStatePublication[] State(PluginInstanceIdentity identity)
+    {
+        return device?.Snapshot().Any(instance => instance.Identity == identity) == true
+            ? device.State(identity)
+            : host.StateSnapshot(identity);
+    }
 
-    internal static Task ResetPinOrderAsync() => Task.Run(() =>
-        ConfigStore.Mutate(config => PluginWidgetPins.ResetOrder(config.PluginWidgetPins)));
-
-    public PluginOverlayInstance[] Snapshot() =>
-    [
-        .. (manager?.Snapshot() ?? []).Select(instance =>
-        {
-            var owner = instance.Registration;
-            var actions = owner?.Actions;
-            return new PluginOverlayInstance(instance.Identity, instance.Manifest.Name, owner?.Context.Generation ?? 0,
-                actions is null ? null : new PluginOverlayControls(actions.Actions, actions.Contributions, actions.Widgets),
-                owner is null ? "Starting" : $"{owner.Health.Health}: {owner.Health.Detail}",
-                owner is { IsStopping: false, Quarantined: false }, instance.Error);
-        }),
-        .. device?.Snapshot() ?? []
-    ];
-    public PluginStatePublication[] State(PluginInstanceIdentity identity) =>
-        device?.Snapshot().Any(instance => instance.Identity == identity) == true ? device.State(identity) : host.StateSnapshot(identity);
     public Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,
         string action, IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken)
-        => device?.Snapshot().Any(instance => instance.Identity == identity) == true
+    {
+        return device?.Snapshot().Any(instance => instance.Identity == identity) == true
             ? device.InvokeAsync(identity, generation, action, arguments, cancellationToken)
             : host.InvokeActionAsync(identity, generation, action, arguments, PluginActionOrigin.User,
-            DateTimeOffset.UtcNow.AddSeconds(10), cancellationToken);
+                DateTimeOffset.UtcNow.AddSeconds(10), cancellationToken);
+    }
+
+    internal static Task SetPinnedAsync(PluginWidgetPin pin, bool pinned)
+    {
+        return Task.Run(() =>
+            ConfigStore.Mutate(config => PluginWidgetPins.Set(config.PluginWidgetPins, pin, pinned)));
+    }
+
+    internal static Task MovePinAsync(PluginWidgetPin pin, int offset)
+    {
+        return Task.Run(() =>
+            ConfigStore.Mutate(config => PluginWidgetPins.Move(config.PluginWidgetPins, pin, offset)));
+    }
+
+    internal static Task ResetPinOrderAsync()
+    {
+        return Task.Run(() =>
+            ConfigStore.Mutate(config => PluginWidgetPins.ResetOrder(config.PluginWidgetPins)));
+    }
 }

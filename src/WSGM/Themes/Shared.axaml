@@ -5,121 +5,121 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:c="clr-namespace:WSGM.Controls">
-    <Styles.Resources>
-        <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <ResourceInclude Source="/Themes/Palette.axaml" />
-            </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
-    </Styles.Resources>
+  <Styles.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="/Themes/Palette.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Styles.Resources>
 
-    <Style Selector="Window">
-        <Setter Property="FontFamily" Value="Inter, Segoe UI Symbol, Segoe UI" />
-        <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
-        <Setter Property="Background" Value="{StaticResource HcBackgroundBrush}" />
-    </Style>
+  <Style Selector="Window">
+    <Setter Property="FontFamily" Value="Inter, Segoe UI Symbol, Segoe UI" />
+    <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
+    <Setter Property="Background" Value="{StaticResource HcBackgroundBrush}" />
+  </Style>
 
-    <Style Selector="Border.hc-device-card">
-        <Setter Property="Background" Value="{StaticResource HcHeroCardBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource HcHeroCardBrush}" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="4" />
-        <Setter Property="Padding" Value="10,6" />
-    </Style>
-    <Style Selector="Border.hc-footer">
-        <Setter Property="Background" Value="{StaticResource HcFooterBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
-        <Setter Property="BorderThickness" Value="0,1,0,0" />
-    </Style>
+  <Style Selector="Border.hc-device-card">
+    <Setter Property="Background" Value="{StaticResource HcHeroCardBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource HcHeroCardBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Padding" Value="10,6" />
+  </Style>
+  <Style Selector="Border.hc-footer">
+    <Setter Property="Background" Value="{StaticResource HcFooterBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
+    <Setter Property="BorderThickness" Value="0,1,0,0" />
+  </Style>
 
-    <!-- Unified focus visual: no focus adorner anywhere; every button carries a
+  <!-- Unified focus visual: no focus adorner anywhere; every button carries a
          2 px border that flips to the accent color for keyboard/directional focus.
          Pointer focus deliberately stays visually quiet. -->
-    <Style Selector="Button">
-        <Setter Property="MinHeight" Value="26" />
-        <Setter Property="Padding" Value="7,2" />
-        <Setter Property="Background" Value="{StaticResource HcControlBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource HcControlBorderBrush}" />
-        <Setter Property="BorderThickness" Value="2" />
-        <Setter Property="CornerRadius" Value="4" />
-        <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
-        <Setter Property="FocusAdorner" Value="{x:Null}" />
-    </Style>
-    <Style Selector="Button:pointerover">
-        <Setter Property="Background" Value="{StaticResource HcControlHoverBrush}" />
-    </Style>
-    <Style Selector="Button:focus-visible">
-        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
-    </Style>
-    <Style Selector="Button.primary">
-        <Setter Property="Background" Value="{DynamicResource HcAccentBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
-        <Setter Property="Foreground" Value="{DynamicResource HcOnAccentBrush}" />
-        <Setter Property="FontWeight" Value="SemiBold" />
-    </Style>
-    <Style Selector="Button.danger">
-        <Setter Property="Foreground" Value="{StaticResource HcDangerBrush}" />
-    </Style>
-    <Style Selector="Button.icon">
-        <Setter Property="MinWidth" Value="34" />
-        <Setter Property="Padding" Value="5" />
-    </Style>
-    <!-- Buttons placed on near-black hero surfaces (device card, splash). -->
-    <Style Selector="Button.on-black">
-        <Setter Property="Background" Value="{StaticResource HcOnBlackButtonBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource HcOnBlackButtonBorderBrush}" />
-    </Style>
-    <Style Selector="Button.on-black:pointerover">
-        <Setter Property="Background" Value="{StaticResource HcOnBlackButtonHoverBrush}" />
-    </Style>
+  <Style Selector="Button">
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="Padding" Value="7,2" />
+    <Setter Property="Background" Value="{StaticResource HcControlBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource HcControlBorderBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
+    <Setter Property="FocusAdorner" Value="{x:Null}" />
+  </Style>
+  <Style Selector="Button:pointerover">
+    <Setter Property="Background" Value="{StaticResource HcControlHoverBrush}" />
+  </Style>
+  <Style Selector="Button:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{DynamicResource HcAccentBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource HcOnAccentBrush}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="Button.danger">
+    <Setter Property="Foreground" Value="{StaticResource HcDangerBrush}" />
+  </Style>
+  <Style Selector="Button.icon">
+    <Setter Property="MinWidth" Value="34" />
+    <Setter Property="Padding" Value="5" />
+  </Style>
+  <!-- Buttons placed on near-black hero surfaces (device card, splash). -->
+  <Style Selector="Button.on-black">
+    <Setter Property="Background" Value="{StaticResource HcOnBlackButtonBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource HcOnBlackButtonBorderBrush}" />
+  </Style>
+  <Style Selector="Button.on-black:pointerover">
+    <Setter Property="Background" Value="{StaticResource HcOnBlackButtonHoverBrush}" />
+  </Style>
 
-    <Style Selector="TextBox, ComboBox, NumericUpDown">
-        <Setter Property="Background" Value="{StaticResource HcControlBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource HcControlBrush}" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
-        <Setter Property="MinHeight" Value="28" />
-    </Style>
-    <Style Selector="TextBox:focus, ComboBox:focus-within, NumericUpDown:focus-within">
-        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
-    </Style>
-    <Style Selector="ToggleSwitch">
-        <Setter Property="OnContent" Value="On" />
-        <Setter Property="OffContent" Value="Off" />
-        <Setter Property="MinWidth" Value="72" />
-    </Style>
+  <Style Selector="TextBox, ComboBox, NumericUpDown">
+    <Setter Property="Background" Value="{StaticResource HcControlBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource HcControlBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
+    <Setter Property="MinHeight" Value="28" />
+  </Style>
+  <Style Selector="TextBox:focus, ComboBox:focus-within, NumericUpDown:focus-within">
+    <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
+  <Style Selector="ToggleSwitch">
+    <Setter Property="OnContent" Value="On" />
+    <Setter Property="OffContent" Value="Off" />
+    <Setter Property="MinWidth" Value="72" />
+  </Style>
 
-    <!-- Expandable list rows shared by the radio and eject panels. -->
-    <Style Selector="Border.radio-row">
-        <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
-        <Setter Property="CornerRadius" Value="6" />
-        <Setter Property="BorderThickness" Value="2" />
-        <Setter Property="BorderBrush" Value="Transparent" />
-    </Style>
-    <Style Selector="Border.radio-row.selected">
-        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
-    </Style>
-    <!-- The row header carries the unified focus visual itself: the row's own
+  <!-- Expandable list rows shared by the radio and eject panels. -->
+  <Style Selector="Border.radio-row">
+    <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+  <Style Selector="Border.radio-row.selected">
+    <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
+  <!-- The row header carries the unified focus visual itself: the row's own
          accent border only marks the EXPANDED row, so without this a controller
          cursor moving down the list would be invisible. -->
-    <Style Selector="Button.radio-row-header">
-        <Setter Property="Background" Value="Transparent" />
-        <Setter Property="BorderBrush" Value="Transparent" />
-        <Setter Property="BorderThickness" Value="2" />
-        <Setter Property="HorizontalAlignment" Value="Stretch" />
-        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-        <Setter Property="Padding" Value="8,6" />
-        <Setter Property="FocusAdorner" Value="{x:Null}" />
-    </Style>
-    <Style Selector="Button.radio-row-header:focus-visible">
-        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
-    </Style>
-    <Style Selector="StackPanel.radio-row-actions">
-        <Setter Property="Orientation" Value="Horizontal" />
-        <Setter Property="Spacing" Value="8" />
-        <Setter Property="Margin" Value="10,0,10,10" />
-    </Style>
-    <!-- The card a device VALUE row is drawn on: the slider, toggle, dropdown,
+  <Style Selector="Button.radio-row-header">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="Padding" Value="8,6" />
+    <Setter Property="FocusAdorner" Value="{x:Null}" />
+  </Style>
+  <Style Selector="Button.radio-row-header:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
+  <Style Selector="StackPanel.radio-row-actions">
+    <Setter Property="Orientation" Value="Horizontal" />
+    <Setter Property="Spacing" Value="8" />
+    <Setter Property="Margin" Value="10,0,10,10" />
+  </Style>
+  <!-- The card a device VALUE row is drawn on: the slider, toggle, dropdown,
          textbox and curve rows, which are Borders rather than CardButtons because
          their interactive control is the focus stop, not the row.
 
@@ -132,54 +132,54 @@
 
          `:is(Border)` and not `Border`: an Avalonia type selector is exact, and
          DeviceSliderRow and DeviceCurveRow derive from Border. -->
-    <Style Selector=":is(Border).tile">
-        <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
-        <Setter Property="BorderBrush" Value="Transparent" />
-        <Setter Property="BorderThickness" Value="2" />
-        <Setter Property="CornerRadius" Value="10" />
-        <Setter Property="MinHeight" Value="52" />
-        <Setter Property="Padding" Value="14,8" />
-        <Setter Property="HorizontalAlignment" Value="Stretch" />
-    </Style>
+  <Style Selector=":is(Border).tile">
+    <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="MinHeight" Value="52" />
+    <Setter Property="Padding" Value="14,8" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+  </Style>
 
-    <!-- Section headings group the same independent cards used throughout the overlay. -->
-    <Style Selector="Border.device-group">
-        <Setter Property="Padding" Value="0" />
-    </Style>
-    <Style Selector="Border.device-overview-card">
-        <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource HcControlBorderBrush}" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="8" />
-        <Setter Property="Padding" Value="16" />
-    </Style>
-    <Style Selector=":is(StackPanel).overlay-control">
-        <Setter Property="Margin" Value="0,8" />
-        <Setter Property="Spacing" Value="8" />
-    </Style>
+  <!-- Section headings group the same independent cards used throughout the overlay. -->
+  <Style Selector="Border.device-group">
+    <Setter Property="Padding" Value="0" />
+  </Style>
+  <Style Selector="Border.device-overview-card">
+    <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource HcControlBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="16" />
+  </Style>
+  <Style Selector=":is(StackPanel).overlay-control">
+    <Setter Property="Margin" Value="0,8" />
+    <Setter Property="Spacing" Value="8" />
+  </Style>
 
-    <!-- Glyph preview tiles. The lit state is the accent, matching every other
+  <!-- Glyph preview tiles. The lit state is the accent, matching every other
          "this is the one" signal on these surfaces, so the input test reads the
          same way as focus and selection do rather than inventing a third colour.
          The tiles are not focus stops, so the border is free to mean only that. -->
-    <Style Selector="Border.glyph-tile">
-        <Setter Property="Background" Value="{DynamicResource HcControlBrush}" />
-        <Setter Property="BorderBrush" Value="Transparent" />
-        <Setter Property="BorderThickness" Value="2" />
-    </Style>
-    <Style Selector="Border.glyph-tile > StackPanel > TextBlock">
-        <Setter Property="Foreground" Value="{DynamicResource HcTextMutedBrush}" />
-    </Style>
-    <Style Selector="Border.glyph-tile > StackPanel > c|PhysicalGlyphImage">
-        <Setter Property="Foreground" Value="{DynamicResource HcTextSecondaryBrush}" />
-    </Style>
-    <Style Selector="Border.glyph-tile.pressed">
-        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
-    </Style>
-    <Style Selector="Border.glyph-tile.pressed > StackPanel > TextBlock">
-        <Setter Property="Foreground" Value="{DynamicResource HcTextPrimaryBrush}" />
-    </Style>
-    <Style Selector="Border.glyph-tile.pressed > StackPanel > c|PhysicalGlyphImage">
-        <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />
-    </Style>
+  <Style Selector="Border.glyph-tile">
+    <Setter Property="Background" Value="{DynamicResource HcControlBrush}" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="Border.glyph-tile > StackPanel > TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource HcTextMutedBrush}" />
+  </Style>
+  <Style Selector="Border.glyph-tile > StackPanel > c|PhysicalGlyphImage">
+    <Setter Property="Foreground" Value="{DynamicResource HcTextSecondaryBrush}" />
+  </Style>
+  <Style Selector="Border.glyph-tile.pressed">
+    <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
+  <Style Selector="Border.glyph-tile.pressed > StackPanel > TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource HcTextPrimaryBrush}" />
+  </Style>
+  <Style Selector="Border.glyph-tile.pressed > StackPanel > c|PhysicalGlyphImage">
+    <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
 </Styles>

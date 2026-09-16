@@ -9,9 +9,9 @@ namespace WSGM.DeviceLab.Probes;
 
 /// <summary>Entry point for Device Lab's disposable compatibility-probe self-worker.</summary>
 /// <remarks>
-/// The request can select only a profile compiled into this assembly. It carries no method, report
-/// ID, address, native path, or arbitrary operation, so an imported file cannot turn the host into a
-/// generic device-access broker.
+///     The request can select only a profile compiled into this assembly. It carries no method, report
+///     ID, address, native path, or arbitrary operation, so an imported file cannot turn the host into a
+///     generic device-access broker.
 /// </remarks>
 internal static class ReadProbeWorker
 {
@@ -21,8 +21,10 @@ internal static class ReadProbeWorker
     private const string Worker = "read-probe worker";
     private static readonly string[] Options = ["--probe", "--request", "--result", "--authorization-handle"];
 
-    internal static int Run(IReadOnlyList<string> args) =>
-        SelfWorkerProtocol.Run(args, Worker, Options, RunAsync);
+    internal static int Run(IReadOnlyList<string> args)
+    {
+        return SelfWorkerProtocol.Run(args, Worker, Options, RunAsync);
+    }
 
     private static async Task<int> RunAsync(
         IReadOnlyDictionary<string, string> options,
@@ -40,10 +42,10 @@ internal static class ReadProbeWorker
                 DeviceLabJsonContext.Default.ReadProbeWorkerRequest,
                 token),
             request => request is null
-                || request.SchemaVersion != 1
-                || !string.Equals(request.ProbeId, probeId, StringComparison.Ordinal)
-                    ? "The read-probe request identity did not match its command envelope."
-                    : null,
+                       || request.SchemaVersion != 1
+                       || !string.Equals(request.ProbeId, probeId, StringComparison.Ordinal)
+                ? "The read-probe request identity did not match its command envelope."
+                : null,
             request => request.AuthorizationSha256,
             cancellationToken).ConfigureAwait(false);
         if (session is null)

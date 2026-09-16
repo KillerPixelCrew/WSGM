@@ -23,10 +23,10 @@ internal interface IPhysicalHapticSink
 internal sealed class ControllerOutputRouter : IAsyncDisposable
 {
     private static readonly TimeSpan MaxOutputAge = TimeSpan.FromMilliseconds(250);
-    private readonly Lock _gate = new();
     private readonly IHidBackend _backend;
-    private readonly IPhysicalHapticSink _sink;
-    private readonly TimeProvider _timeProvider;
+    private readonly Lock _gate = new();
+    private readonly CancellationTokenSource _lifetime = new();
+
     private readonly Channel<HidTargetOutput> _queue = Channel.CreateBounded<HidTargetOutput>(
         new BoundedChannelOptions(1)
         {
@@ -34,18 +34,20 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
             SingleReader = true,
             SingleWriter = false
         });
-    private readonly CancellationTokenSource _lifetime = new();
+
+    private readonly IPhysicalHapticSink _sink;
     private readonly SemaphoreSlim _sinkGate = new(1, 1);
+    private readonly TimeProvider _timeProvider;
     private readonly Task _worker;
-    private HidTargetHandle? _target;
-    private CancellationTokenSource? _pulseStopCancellation;
-    private long _sourceGeneration;
-    private long _routeGeneration;
-    private long _pulseSequence;
+    private bool _disposed;
     private long _lastDispatchTimestamp;
     private bool _outputFaulted;
     private bool _outputObserved;
-    private bool _disposed;
+    private long _pulseSequence;
+    private CancellationTokenSource? _pulseStopCancellation;
+    private long _routeGeneration;
+    private long _sourceGeneration;
+    private HidTargetHandle? _target;
 
     internal ControllerOutputRouter(
         IHidBackend backend,
@@ -60,6 +62,36 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
     }
 
     internal int DroppedFrames { get; private set; }
+
+    public async ValueTask DisposeAsync()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _backend.OutputReceived -= OnOutputReceived;
+            _target = null;
+            _routeGeneration++;
+            CancelPulseStopUnderGate();
+            DrainUnderGate();
+        }
+
+        _queue.Writer.TryComplete();
+        await _lifetime.CancelAsync().ConfigureAwait(false);
+        try
+        {
+            await _worker.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        _lifetime.Dispose();
+    }
 
     internal void Attach(HidTargetHandle target, long sourceGeneration)
     {
@@ -122,36 +154,6 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         }
     }
 
-    public async ValueTask DisposeAsync()
-    {
-        lock (_gate)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            _backend.OutputReceived -= OnOutputReceived;
-            _target = null;
-            _routeGeneration++;
-            CancelPulseStopUnderGate();
-            DrainUnderGate();
-        }
-
-        _queue.Writer.TryComplete();
-        await _lifetime.CancelAsync().ConfigureAwait(false);
-        try
-        {
-            await _worker.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-        }
-
-        _lifetime.Dispose();
-    }
-
     private void OnOutputReceived(object? sender, HidTargetOutput output)
     {
         lock (_gate)
@@ -174,7 +176,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         try
         {
             await foreach (var output in _queue.Reader.ReadAllAsync(_lifetime.Token)
-                .ConfigureAwait(false))
+                               .ConfigureAwait(false))
             {
                 HidTargetHandle? target;
                 long sourceGeneration;
@@ -212,6 +214,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
                         stopAfter = _sink.Capabilities.MinimumPulse;
                     }
                 }
+
                 var framesPerSecond = Math.Clamp(_sink.Capabilities.MaxFramesPerSecond, 1, 1000);
                 var minimumInterval = TimeSpan.FromSeconds(1d / framesPerSecond);
                 if (_lastDispatchTimestamp != 0)
@@ -262,7 +265,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
                     {
                         Log.Info(
                             $"Managed controller output active: target={target.Kind}, "
-                                + $"generation={target.Generation}, timed={output.StopAfter is not null}.");
+                            + $"generation={target.Generation}, timed={output.StopAfter is not null}.");
                     }
                 }
                 catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
@@ -293,14 +296,14 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
     {
         var now = _timeProvider.GetUtcNow();
         return !_outputFaulted
-            && MatchesRouteUnderGate(output)
-            && output.Frame.Timestamp <= now.AddSeconds(1)
-            && now - output.Frame.Timestamp <= MaxOutputAge
-            && ManagedControllerSampleValidator.FiniteUnit(output.Frame.LowFrequency)
-            && ManagedControllerSampleValidator.FiniteUnit(output.Frame.HighFrequency)
-            && ManagedControllerSampleValidator.FiniteUnit(output.Frame.LeftTrigger)
-            && ManagedControllerSampleValidator.FiniteUnit(output.Frame.RightTrigger)
-            && (output.StopAfter is null || output.StopAfter > TimeSpan.Zero);
+               && MatchesRouteUnderGate(output)
+               && output.Frame.Timestamp <= now.AddSeconds(1)
+               && now - output.Frame.Timestamp <= MaxOutputAge
+               && ManagedControllerSampleValidator.FiniteUnit(output.Frame.LowFrequency)
+               && ManagedControllerSampleValidator.FiniteUnit(output.Frame.HighFrequency)
+               && ManagedControllerSampleValidator.FiniteUnit(output.Frame.LeftTrigger)
+               && ManagedControllerSampleValidator.FiniteUnit(output.Frame.RightTrigger)
+               && (output.StopAfter is null || output.StopAfter > TimeSpan.Zero);
     }
 
     /// <summary>Maps a bounded event's nonzero channels onto the range the motors can start at.</summary>
@@ -326,13 +329,18 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
             RightTrigger = Map(frame.RightTrigger)
         };
 
-        float Map(float value) => value <= 0f ? 0f : floor + (1f - floor) * Math.Min(1f, value);
+        float Map(float value)
+        {
+            return value <= 0f ? 0f : floor + (1f - floor) * Math.Min(1f, value);
+        }
     }
 
-    private bool MatchesRouteUnderGate(HidTargetOutput output) =>
-        _target is { } target
-        && output.Frame.TargetGeneration == target.Generation
-        && output.SourceKind == target.Kind;
+    private bool MatchesRouteUnderGate(HidTargetOutput output)
+    {
+        return _target is { } target
+               && output.Frame.TargetGeneration == target.Generation
+               && output.SourceKind == target.Kind;
+    }
 
     private void DrainUnderGate()
     {
@@ -450,10 +458,10 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
     private readonly IHidBackend _backend;
     private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _transition = new(1, 1);
-    private long _sourceGeneration;
+    private bool _disposed;
     private long _lastSequence = long.MinValue;
     private bool _neutral = true;
-    private bool _disposed;
+    private long _sourceGeneration;
 
     internal ManagedControllerRouter(
         IHidBackend backend,
@@ -466,19 +474,57 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         _backend.TargetLost += OnTargetLost;
     }
 
-    /// <summary>Raised when the backend lost the target and this router faulted.</summary>
-    /// <remarks>
-    /// The owner needs this to stop reporting controller management as active: the target is gone,
-    /// output has been stopped and the handle detached, so every further sample would be written
-    /// into nothing while WSGM's surfaces waited on a source that had stopped delivering.
-    /// </remarks>
-    internal event Action<string>? TargetFaulted;
-
     internal ManagedTargetState State { get; private set; } = ManagedTargetState.Absent;
 
     internal HidTargetHandle? Target { get; private set; }
 
     internal ControllerOutputRouter Output { get; }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        await _transition.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _backend.TargetLost -= OnTargetLost;
+            using CancellationTokenSource cleanup = new(TimeSpan.FromSeconds(2));
+            try
+            {
+                await RemoveUnderGateAsync("router-dispose", cleanup.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                State = ManagedTargetState.Faulted;
+                Log.Error("Managed controller cleanup was not verified", ex);
+            }
+        }
+        finally
+        {
+            _transition.Release();
+        }
+
+        await Output.DisposeAsync().ConfigureAwait(false);
+        await _backend.DisposeAsync().ConfigureAwait(false);
+        _transition.Dispose();
+    }
+
+    /// <summary>Raised when the backend lost the target and this router faulted.</summary>
+    /// <remarks>
+    ///     The owner needs this to stop reporting controller management as active: the target is gone,
+    ///     output has been stopped and the handle detached, so every further sample would be written
+    ///     into nothing while WSGM's surfaces waited on a source that had stopped delivering.
+    /// </remarks>
+    internal event Action<string>? TargetFaulted;
 
     internal async Task<HidTargetHandle> CreateAsync(
         ManagedControllerTarget kind,
@@ -552,17 +598,17 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         }
 
         if (!ManagedControllerSampleValidator.TryValidate(
-            sample,
-            _sourceGeneration,
-            _lastSequence,
-            _timeProvider.GetUtcNow(),
-            out var refusal))
+                sample,
+                _sourceGeneration,
+                _lastSequence,
+                _timeProvider.GetUtcNow(),
+                out var refusal))
         {
             Log.Warn(
                 $"Managed controller input was neutralized: reason={refusal}, "
-                    + $"sampleGeneration={sample.CycleGeneration}, "
-                    + $"activeGeneration={_sourceGeneration}, sequence={sample.Sequence}, "
-                    + $"previousSequence={_lastSequence}, quality={sample.Quality}.");
+                + $"sampleGeneration={sample.CycleGeneration}, "
+                + $"activeGeneration={_sourceGeneration}, sequence={sample.Sequence}, "
+                + $"previousSequence={_lastSequence}, quality={sample.Quality}.");
             await NeutralizeAsync($"source-invalid:{refusal}", cancellationToken)
                 .ConfigureAwait(false);
             return false;
@@ -580,11 +626,15 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         return true;
     }
 
-    internal Task NeutralizeAsync(string reason, CancellationToken cancellationToken) =>
-        UnderGateAsync(() => NeutralizeUnderGateAsync(reason, cancellationToken), cancellationToken);
+    internal Task NeutralizeAsync(string reason, CancellationToken cancellationToken)
+    {
+        return UnderGateAsync(() => NeutralizeUnderGateAsync(reason, cancellationToken), cancellationToken);
+    }
 
-    internal Task RemoveAsync(string reason, CancellationToken cancellationToken) =>
-        UnderGateAsync(() => RemoveUnderGateAsync(reason, cancellationToken), cancellationToken);
+    internal Task RemoveAsync(string reason, CancellationToken cancellationToken)
+    {
+        return UnderGateAsync(() => RemoveUnderGateAsync(reason, cancellationToken), cancellationToken);
+    }
 
     internal async Task<HidTargetHandle> ReplaceAsync(
         ManagedControllerTarget kind,
@@ -640,44 +690,6 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         return target;
     }
 
-    public async ValueTask DisposeAsync()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        await _transition.WaitAsync().ConfigureAwait(false);
-        try
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            _backend.TargetLost -= OnTargetLost;
-            using CancellationTokenSource cleanup = new(TimeSpan.FromSeconds(2));
-            try
-            {
-                await RemoveUnderGateAsync("router-dispose", cleanup.Token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                State = ManagedTargetState.Faulted;
-                Log.Error("Managed controller cleanup was not verified", ex);
-            }
-        }
-        finally
-        {
-            _transition.Release();
-        }
-
-        await Output.DisposeAsync().ConfigureAwait(false);
-        await _backend.DisposeAsync().ConfigureAwait(false);
-        _transition.Dispose();
-    }
-
     private async Task NeutralizeUnderGateAsync(string reason, CancellationToken cancellationToken)
     {
         if (Target is not { } target)
@@ -722,11 +734,13 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         State = ManagedTargetState.Absent;
     }
 
-    private CanonicalControllerSample NewNeutral(long sourceGeneration) =>
-        CanonicalControllerSample.Neutral(
+    private CanonicalControllerSample NewNeutral(long sourceGeneration)
+    {
+        return CanonicalControllerSample.Neutral(
             _lastSequence == long.MaxValue ? long.MaxValue : Math.Max(0, _lastSequence + 1),
             sourceGeneration,
             _timeProvider.GetUtcNow());
+    }
 
     private void OnTargetLost(object? sender, long generation)
     {

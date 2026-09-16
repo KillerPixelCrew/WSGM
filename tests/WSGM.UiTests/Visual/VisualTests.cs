@@ -26,7 +26,8 @@ public sealed class VisualTests
     {
         using FakeDevice device = new();
         using UiFixture fixture = new();
-        using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()), _ => throw new InvalidOperationException("Unexpected power write"));
+        using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()),
+            _ => throw new InvalidOperationException("Unexpected power write"));
         await schemes.RefreshAsync();
         var window = fixture.Overlay(width, height);
         // The category menus each destination root now shows. No power schemes and no device
@@ -43,7 +44,11 @@ public sealed class VisualTests
         else if (page != "quick-access")
         {
             window.AttachPowerSchemes(schemes);
-            if (page == "plugin") { window.AttachDeviceBridge(device); }
+            if (page == "plugin")
+            {
+                window.AttachDeviceBridge(device);
+            }
+
             UiFixture.Click(window, UiFixture.Tab(window, 2));
             if (page == "plugin")
             {
@@ -51,6 +56,7 @@ public sealed class VisualTests
                     .Single(card => card is { IsEffectivelyVisible: true, Title: "Overview" }));
             }
         }
+
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(width, window.ClientSize.Width);
         Assert.Equal(Math.Round(height * OverlayWindow.SheetHeightFraction), window.ClientSize.Height);

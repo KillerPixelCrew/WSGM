@@ -4,39 +4,39 @@ using System.Text.Json.Serialization;
 namespace WSGM.Device.Sdk.Capabilities;
 
 /// <summary>
-/// How a capability is labelled in WSGM's own surfaces.
+///     How a capability is labelled in WSGM's own surfaces.
 /// </summary>
 /// <remarks>
-/// Presentation is WSGM-owned. A plugin selects a display key from a WSGM-defined set, which WSGM
-/// then localizes; it does not supply the words. That is what keeps every device speaking the same
-/// language in the overlay and the native QAM, and it is why a plugin cannot ship markup,
-/// formatting, localization resources, or anything executable through this path.
-/// <para>
-/// <see cref="CustomLabel"/> is the escape hatch for a genuinely device-specific control that no key
-/// covers — an unusual vendor toggle. It is bounded plugin-supplied text, never a format string,
-/// markup, or localization key.
-/// </para>
+///     Presentation is WSGM-owned. A plugin selects a display key from a WSGM-defined set, which WSGM
+///     then localizes; it does not supply the words. That is what keeps every device speaking the same
+///     language in the overlay and the native QAM, and it is why a plugin cannot ship markup,
+///     formatting, localization resources, or anything executable through this path.
+///     <para>
+///         <see cref="CustomLabel" /> is the escape hatch for a genuinely device-specific control that no key
+///         covers — an unusual vendor toggle. It is bounded plugin-supplied text, never a format string,
+///         markup, or localization key.
+///     </para>
 /// </remarks>
 public sealed record CapabilityDisplay
 {
-    /// <summary>Longest accepted <see cref="CustomLabel"/>.</summary>
+    /// <summary>Longest accepted <see cref="CustomLabel" />.</summary>
     public const int MaxCustomLabelLength = 48;
 
-    /// <summary>The WSGM-owned display key, or <see cref="DisplayKey.Custom"/>.</summary>
-    /// <remarks>Undefined numeric enum values are rejected by <see cref="TryValidate"/>.</remarks>
+    /// <summary>The WSGM-owned display key, or <see cref="DisplayKey.Custom" />.</summary>
+    /// <remarks>Undefined numeric enum values are rejected by <see cref="TryValidate" />.</remarks>
     public required DisplayKey Key { get; init; }
 
     /// <summary>
-    /// Bounded plugin-supplied label, used only when <see cref="Key"/> is
-    /// <see cref="DisplayKey.Custom"/>. Not localized: WSGM cannot translate text it did not author.
+    ///     Bounded plugin-supplied label, used only when <see cref="Key" /> is
+    ///     <see cref="DisplayKey.Custom" />. Not localized: WSGM cannot translate text it did not author.
     /// </summary>
     public string? CustomLabel { get; init; }
 
     /// <summary>
-    /// Whether this display metadata is usable.
+    ///     Whether this display metadata is usable.
     /// </summary>
-    /// <param name="error">The reason it is not, when the result is <see langword="false"/>.</param>
-    /// <returns><see langword="true"/> when the label is safe to render.</returns>
+    /// <param name="error">The reason it is not, when the result is <see langword="false" />.</param>
+    /// <returns><see langword="true" /> when the label is safe to render.</returns>
     public bool TryValidate(out string? error)
     {
         if (!Enum.IsDefined(Key))
@@ -70,15 +70,15 @@ public sealed record CapabilityDisplay
 }
 
 /// <summary>
-/// The WSGM-owned vocabulary of capability labels.
+///     The WSGM-owned vocabulary of capability labels.
 /// </summary>
 /// <remarks>
-/// Adding a key is a WSGM change with a localized string behind it, not something a package can do.
+///     Adding a key is a WSGM change with a localized string behind it, not something a package can do.
 /// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<DisplayKey>))]
 public enum DisplayKey
 {
-    /// <summary>Use <see cref="CapabilityDisplay.CustomLabel"/> as bounded plugin text.</summary>
+    /// <summary>Use <see cref="CapabilityDisplay.CustomLabel" /> as bounded plugin text.</summary>
     Custom,
 
     /// <summary>"TDP".</summary>

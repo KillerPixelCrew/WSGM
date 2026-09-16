@@ -8,20 +8,20 @@ public sealed class SteamUiTransportGateTests
     public void TransportShouldBeOpen_GameModeWithoutBigPictureWindow_HoldsTheTransportClosed()
     {
         Assert.False(SteamUiReadiness.TransportShouldBeOpen(
-            cefMasterEnabled: true,
-            inGameMode: true,
-            gameModeTransitionPending: false,
-            bigPictureReady: false));
+            true,
+            true,
+            false,
+            false));
     }
 
     [Fact]
     public void TransportShouldBeOpen_GameModeWithBigPictureWindow_Opens()
     {
         Assert.True(SteamUiReadiness.TransportShouldBeOpen(
-            cefMasterEnabled: true,
-            inGameMode: true,
-            gameModeTransitionPending: false,
-            bigPictureReady: true));
+            true,
+            true,
+            false,
+            true));
     }
 
     [Theory]
@@ -30,10 +30,10 @@ public sealed class SteamUiTransportGateTests
     public void TransportShouldBeOpen_DesktopMode_OpensOnTheMasterSwitchAlone(bool bigPictureReady)
     {
         Assert.True(SteamUiReadiness.TransportShouldBeOpen(
-            cefMasterEnabled: true,
-            inGameMode: false,
-            gameModeTransitionPending: false,
-            bigPictureReady: bigPictureReady));
+            true,
+            false,
+            false,
+            bigPictureReady));
     }
 
     [Fact]
@@ -43,20 +43,20 @@ public sealed class SteamUiTransportGateTests
         // fires: Steam rebuilds its front-end for that request, and injected state left behind
         // stalled the gamepad UI bootstrap (device-diagnosed 2026-09-01).
         Assert.False(SteamUiReadiness.TransportShouldBeOpen(
-            cefMasterEnabled: true,
-            inGameMode: false,
-            gameModeTransitionPending: true,
-            bigPictureReady: false));
+            true,
+            false,
+            true,
+            false));
     }
 
     [Fact]
     public void TransportShouldBeOpen_BigPictureRequestPendingAndWindowUp_Opens()
     {
         Assert.True(SteamUiReadiness.TransportShouldBeOpen(
-            cefMasterEnabled: true,
-            inGameMode: false,
-            gameModeTransitionPending: true,
-            bigPictureReady: true));
+            true,
+            false,
+            true,
+            true));
     }
 
     [Theory]
@@ -67,9 +67,9 @@ public sealed class SteamUiTransportGateTests
     public void TransportShouldBeOpen_MasterSwitchOff_NeverOpens(bool inGameMode, bool bigPictureReady)
     {
         Assert.False(SteamUiReadiness.TransportShouldBeOpen(
-            cefMasterEnabled: false,
-            inGameMode: inGameMode,
-            gameModeTransitionPending: false,
-            bigPictureReady: bigPictureReady));
+            false,
+            inGameMode,
+            false,
+            bigPictureReady));
     }
 }

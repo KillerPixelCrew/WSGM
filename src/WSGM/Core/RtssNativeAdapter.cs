@@ -11,7 +11,9 @@ namespace WSGM.Core;
 internal sealed class RtssNativeAdapter : IRtssAdapter
 {
     private const string FrameLimitProperty = "FramerateLimit";
+
     private const string OverlayEnabledProperty = "EnableOSD";
+
     // Steam's selector runs OFF plus 1..4, all rendered by WSGM's own OSD slot: 1..3 are the
     // fixed presets (HandheldCompanion's structure, fed from RTSS's LibreHardwareMonitor
     // provider) and 4 is the user-configured Custom layout from WSGM's Settings — HC's Custom
@@ -23,9 +25,9 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
     private readonly RtssDiscovery _discovery;
     private readonly RtssOsdRenderer _osd;
     private RtssProfileApi? _api;
-    private RtssProbe? _lastProbe;
-    private long _generation;
     private bool _disposed;
+    private long _generation;
+    private RtssProbe? _lastProbe;
 
     internal RtssNativeAdapter(RtssDiscovery? discovery = null)
     {
@@ -35,17 +37,23 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         _osd = new RtssOsdRenderer(() => _lastProbe?.ExecutablePath);
     }
 
-    /// <inheritdoc/>
-    public void ApplyOsdCustomization(RtssOsdCustomSettings settings) => _osd.ApplyCustom(settings);
+    /// <inheritdoc />
+    public void ApplyOsdCustomization(RtssOsdCustomSettings settings)
+    {
+        _osd.ApplyCustom(settings);
+    }
 
-    /// <inheritdoc/>
-    public void ApplyOsdPowerStatus(RtssOsdPowerStatus status) => _osd.ApplyPowerStatus(status);
+    /// <inheritdoc />
+    public void ApplyOsdPowerStatus(RtssOsdPowerStatus status)
+    {
+        _osd.ApplyPowerStatus(status);
+    }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     /// <remarks>
-    /// Answered from the installation's <c>Profiles</c> directory rather than the profile API,
-    /// because the API's LoadProfile cannot distinguish "absent" from "present with defaults" —
-    /// and SaveProfile on an absent name is precisely the creation this check exists to avoid.
+    ///     Answered from the installation's <c>Profiles</c> directory rather than the profile API,
+    ///     because the API's LoadProfile cannot distinguish "absent" from "present with defaults" —
+    ///     and SaveProfile on an absent name is precisely the creation this check exists to avoid.
     /// </remarks>
     public bool ProfileExists(string rtssProfileName)
     {
@@ -58,23 +66,64 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
             ? Path.GetDirectoryName(executable)
             : null;
         return directory is not null
-            && File.Exists(Path.Combine(directory, "Profiles", rtssProfileName + ".cfg"));
+               && File.Exists(Path.Combine(directory, "Profiles", rtssProfileName + ".cfg"));
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     /// <remarks>
-    /// Every entry point of this adapter runs on the thread pool. All of the work below is
-    /// synchronous — registry reads, filesystem and signature checks, PE-export inspection, process
-    /// enumeration, and the profile API's own blocking calls — and the callers reach it from a
-    /// completed semaphore wait on an overlay or QAM click handler, which is the Avalonia UI
-    /// thread. Without the hop, interacting with a performance control froze the UI for as long as
-    /// discovery took.
+    ///     Every entry point of this adapter runs on the thread pool. All of the work below is
+    ///     synchronous — registry reads, filesystem and signature checks, PE-export inspection, process
+    ///     enumeration, and the profile API's own blocking calls — and the callers reach it from a
+    ///     completed semaphore wait on an overlay or QAM click handler, which is the Avalonia UI
+    ///     thread. Without the hop, interacting with a performance control froze the UI for as long as
+    ///     discovery took.
     /// </remarks>
     public Task<RtssProbe> ProbeAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ObjectDisposedException.ThrowIf(_disposed, this);
         return Task.Run(() => ProbeCore(cancellationToken), cancellationToken);
+    }
+
+    public async Task<RtssReadback> ReadAsync(
+        string rtssProfileName,
+        long generation,
+        CancellationToken cancellationToken)
+    {
+        await RequireReadyAsync(generation, cancellationToken).ConfigureAwait(false);
+        return await Task.Run(
+            () => ReadCore(rtssProfileName),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<RtssApplyResult> ApplyAsync(
+        RtssApplyRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        switch (request.Control)
+        {
+            case PerformanceControl.FrameLimit when request.Value is < 0 or > 1000:
+                return new RtssApplyResult(false, "The frame-limit value is outside the verified RTSS range.");
+            case PerformanceControl.OverlayLevel when request.Value is < 0 or > MaximumOverlayLevel:
+                return new RtssApplyResult(false, "The overlay level is outside the supported range.");
+        }
+
+        await RequireReadyAsync(request.Generation, cancellationToken).ConfigureAwait(false);
+        return await Task.Run(() => ApplyCore(request), cancellationToken).ConfigureAwait(false);
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        _disposed = true;
+        _osd.Dispose();
+        ReleaseApi();
+        return ValueTask.CompletedTask;
     }
 
     private RtssProbe ProbeCore(CancellationToken cancellationToken)
@@ -99,8 +148,8 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
                     0,
                     1000,
                     new HashSet<int> { 0, 1, 2, 3, MaximumOverlayLevel },
-                    FrameLimitReadback: true,
-                    OverlayLevelReadback: true),
+                    true,
+                    true),
                 Diagnostic = "RTSS profile API is ready."
             };
             _lastProbe = ready;
@@ -117,17 +166,6 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
             _lastProbe = degraded;
             return degraded;
         }
-    }
-
-    public async Task<RtssReadback> ReadAsync(
-        string rtssProfileName,
-        long generation,
-        CancellationToken cancellationToken)
-    {
-        await RequireReadyAsync(generation, cancellationToken).ConfigureAwait(false);
-        return await Task.Run(
-            () => ReadCore(rtssProfileName),
-            cancellationToken).ConfigureAwait(false);
     }
 
     private RtssReadback ReadCore(string rtssProfileName)
@@ -148,23 +186,6 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
             PerformanceReadbackQuality.Verified,
             PerformanceReadbackQuality.Verified,
             DateTimeOffset.UtcNow);
-    }
-
-    public async Task<RtssApplyResult> ApplyAsync(
-        RtssApplyRequest request,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        switch (request.Control)
-        {
-            case PerformanceControl.FrameLimit when request.Value is < 0 or > 1000:
-                return new RtssApplyResult(false, "The frame-limit value is outside the verified RTSS range.");
-            case PerformanceControl.OverlayLevel when request.Value is < 0 or > MaximumOverlayLevel:
-                return new RtssApplyResult(false, "The overlay level is outside the supported range.");
-        }
-
-        await RequireReadyAsync(request.Generation, cancellationToken).ConfigureAwait(false);
-        return await Task.Run(() => ApplyCore(request), cancellationToken).ConfigureAwait(false);
     }
 
     private RtssApplyResult ApplyCore(RtssApplyRequest request)
@@ -242,15 +263,18 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
             changedProfiles.Count == 0
                 ? $"RTSS OSD presentation already enabled: profiles={requested}."
                 : $"RTSS OSD presentation enabled: profiles={requested}; "
-                    + $"changed={ProfileLabels(changedProfiles)}.");
+                  + $"changed={ProfileLabels(changedProfiles)}.");
 
         refusal = null;
         return true;
     }
 
-    private static string ProfileLabel(string profile) => profile.Length == 0
-        ? "<global>"
-        : profile;
+    private static string ProfileLabel(string profile)
+    {
+        return profile.Length == 0
+            ? "<global>"
+            : profile;
+    }
 
     private static string ProfileLabels(IReadOnlyList<string> profiles)
     {
@@ -265,29 +289,19 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
 
     /// <summary>Profiles whose RTSS presentation gate a nonzero WSGM overlay must open.</summary>
     /// <remarks>
-    /// Global covers applications without an explicit profile; the current executable is added
-    /// because an explicit per-app `EnableOSD=0` overrides global state. The service re-applies on
-    /// every application transition, so each profile is repaired when it becomes the active target.
+    ///     Global covers applications without an explicit profile; the current executable is added
+    ///     because an explicit per-app `EnableOSD=0` overrides global state. The service re-applies on
+    ///     every application transition, so each profile is repaired when it becomes the active target.
     /// </remarks>
     internal static IReadOnlyList<string> OverlayActivationProfiles(
         int overlayLevel,
-        string requestedProfile) => overlayLevel <= 0
+        string requestedProfile)
+    {
+        return overlayLevel <= 0
             ? []
             : string.IsNullOrEmpty(requestedProfile)
                 ? [string.Empty]
                 : [requestedProfile, string.Empty];
-
-    public ValueTask DisposeAsync()
-    {
-        if (_disposed)
-        {
-            return ValueTask.CompletedTask;
-        }
-
-        _disposed = true;
-        _osd.Dispose();
-        ReleaseApi();
-        return ValueTask.CompletedTask;
     }
 
     private async Task RequireReadyAsync(
@@ -338,34 +352,38 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
 /// <summary>In-memory RTSS adapter used only by the safe overlay-test mode.</summary>
 internal sealed class SimulatedRtssAdapter : IRtssAdapter
 {
-    /// <inheritdoc/>
-    public void ApplyOsdCustomization(RtssOsdCustomSettings settings)
-    {
-        // No renderer here; the simulated adapter never draws.
-    }
-
-    /// <inheritdoc/>
-    public void ApplyOsdPowerStatus(RtssOsdPowerStatus status)
-    {
-        // No renderer here; the simulated adapter never draws.
-    }
-
-    /// <inheritdoc/>
-    public bool ProfileExists(string rtssProfileName) =>
-        rtssProfileName.Length == 0 || _profiles.ContainsKey(rtssProfileName);
-
     private static readonly RtssCapabilities Capabilities = new(
         0,
         240,
         new HashSet<int> { 0, 1, 2, 3, 4 },
-        FrameLimitReadback: true,
-        OverlayLevelReadback: true);
+        true,
+        true);
+
     private readonly Dictionary<string, PerformanceValues> _profiles =
         new(StringComparer.OrdinalIgnoreCase)
         {
             [string.Empty] = new PerformanceValues(60, 2)
         };
+
     private bool _disposed;
+
+    /// <inheritdoc />
+    public void ApplyOsdCustomization(RtssOsdCustomSettings settings)
+    {
+        // No renderer here; the simulated adapter never draws.
+    }
+
+    /// <inheritdoc />
+    public void ApplyOsdPowerStatus(RtssOsdPowerStatus status)
+    {
+        // No renderer here; the simulated adapter never draws.
+    }
+
+    /// <inheritdoc />
+    public bool ProfileExists(string rtssProfileName)
+    {
+        return rtssProfileName.Length == 0 || _profiles.ContainsKey(rtssProfileName);
+    }
 
     public Task<RtssProbe> ProbeAsync(CancellationToken cancellationToken)
     {
@@ -414,8 +432,8 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
         }
 
         var current = _profiles.TryGetValue(
-                          request.RtssProfileName,
-                          out var profile)
+            request.RtssProfileName,
+            out var profile)
             ? profile
             : _profiles[string.Empty];
         _profiles[request.RtssProfileName] = current.With(request.Control, request.Value);

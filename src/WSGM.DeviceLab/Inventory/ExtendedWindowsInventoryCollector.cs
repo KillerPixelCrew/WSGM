@@ -99,7 +99,7 @@ internal static partial class WindowsInventoryCollector
             using var searcher = CreateSearcher(
                 "root\\CIMV2",
                 "SELECT DeviceID, PNPDeviceID, Name, Description, BaudRate, ByteSize, Parity, StopBits "
-                    + "FROM Win32_SerialPort");
+                + "FROM Win32_SerialPort");
             foreach (var item in searcher.Get())
             {
                 using (item)
@@ -158,7 +158,7 @@ internal static partial class WindowsInventoryCollector
             using var searcher = CreateSearcher(
                 "root\\CIMV2",
                 "SELECT DeviceID, Name, Manufacturer, Status FROM Win32_PnPEntity "
-                    + "WHERE PNPClass = 'Ports'");
+                + "WHERE PNPClass = 'Ports'");
             foreach (var item in searcher.Get())
             {
                 using (item)
@@ -226,7 +226,7 @@ internal static partial class WindowsInventoryCollector
             using var searcher = CreateSearcher(
                 "root\\CIMV2",
                 "SELECT DeviceID, Name, PNPClass, Status FROM Win32_PnPEntity "
-                    + "WHERE PNPClass = 'Sensor' OR PNPClass = 'HIDClass'");
+                + "WHERE PNPClass = 'Sensor' OR PNPClass = 'HIDClass'");
             foreach (var item in searcher.Get())
             {
                 using (item)
@@ -239,7 +239,7 @@ internal static partial class WindowsInventoryCollector
                                       || name?.Contains("gyroscope", StringComparison.OrdinalIgnoreCase) is true
                                       || name?.Contains("inclinometer", StringComparison.OrdinalIgnoreCase) is true;
                     if (instanceId is null || (!string.Equals(deviceClass, "Sensor", StringComparison.OrdinalIgnoreCase)
-                        && !namedSensor))
+                                               && !namedSensor))
                     {
                         continue;
                     }
@@ -287,8 +287,11 @@ internal static partial class WindowsInventoryCollector
         }
 
         sensors.AddRange(CollectWinRtSensors());
-        return [.. sensors.OrderBy(sensor => sensor.Api)
-            .ThenBy(sensor => sensor.InstanceId, StringComparer.Ordinal)];
+        return
+        [
+            .. sensors.OrderBy(sensor => sensor.Api)
+                .ThenBy(sensor => sensor.InstanceId, StringComparer.Ordinal)
+        ];
     }
 
     private static List<SensorEndpointInventory> CollectWinRtSensors()
@@ -311,13 +314,13 @@ internal static partial class WindowsInventoryCollector
                 // reads a sensor sample, sets ReportInterval, or subscribes to ReadingChanged.
                 var sensorType = Type.GetType(
                     $"{typeName}, Windows, ContentType=WindowsRuntime",
-                    throwOnError: false);
+                    false);
                 var getDefault = sensorType?.GetMethod(
                     "GetDefault",
                     BindingFlags.Public | BindingFlags.Static,
-                    binder: null,
-                    types: Type.EmptyTypes,
-                    modifiers: null);
+                    null,
+                    Type.EmptyTypes,
+                    null);
                 if (getDefault is null)
                 {
                     sensors.Add(new SensorEndpointInventory
@@ -398,12 +401,12 @@ internal static partial class WindowsInventoryCollector
                 });
             }
             catch (Exception exception) when (exception is PlatformNotSupportedException
-                or NotSupportedException
-                or TypeLoadException
-                or AmbiguousMatchException
-                or InvalidCastException
-                or FormatException
-                or OverflowException)
+                                                  or NotSupportedException
+                                                  or TypeLoadException
+                                                  or AmbiguousMatchException
+                                                  or InvalidCastException
+                                                  or FormatException
+                                                  or OverflowException)
             {
                 sensors.Add(new SensorEndpointInventory
                 {
@@ -483,16 +486,22 @@ internal static partial class WindowsInventoryCollector
         };
     }
 
-    private static InputBackendInventory CollectDirectInputView() => CollectPnpInputView(
-        InputBackendKind.DirectInput,
-        static (name, service) => ContainsAny(name, "joystick", "game controller", "gamepad")
-            || ContainsAny(service, "gameinput", "xusb"),
-        "This passive compatibility view does not instantiate DirectInput or acquire a device.");
+    private static InputBackendInventory CollectDirectInputView()
+    {
+        return CollectPnpInputView(
+            InputBackendKind.DirectInput,
+            static (name, service) => ContainsAny(name, "joystick", "game controller", "gamepad")
+                                      || ContainsAny(service, "gameinput", "xusb"),
+            "This passive compatibility view does not instantiate DirectInput or acquire a device.");
+    }
 
-    private static InputBackendInventory CollectRawHidView() => CollectPnpInputView(
-        InputBackendKind.RawHid,
-        static (_, service) => string.Equals(service, "HidUsb", StringComparison.OrdinalIgnoreCase),
-        "PnP HID presence does not prove a report descriptor or exclusive-open policy.");
+    private static InputBackendInventory CollectRawHidView()
+    {
+        return CollectPnpInputView(
+            InputBackendKind.RawHid,
+            static (_, service) => string.Equals(service, "HidUsb", StringComparison.OrdinalIgnoreCase),
+            "PnP HID presence does not prove a report descriptor or exclusive-open policy.");
+    }
 
     private static InputBackendInventory CollectPnpInputView(
         InputBackendKind backend,
@@ -593,6 +602,7 @@ internal static partial class WindowsInventoryCollector
         {
             return UnavailableBackend(InputBackendKind.RawInput, "Raw Input device count was unavailable.");
         }
+
         if (count > InventoryLimits.MaximumEndpointsPerLane)
         {
             return new InputBackendInventory
@@ -614,6 +624,7 @@ internal static partial class WindowsInventoryCollector
                 enumerationResult = GetRawInputDeviceList(devicesPointer, ref count, structureSize);
             }
         }
+
         if (enumerationResult == uint.MaxValue)
         {
             return UnavailableBackend(InputBackendKind.RawInput, "Raw Input device enumeration failed.");
@@ -636,6 +647,7 @@ internal static partial class WindowsInventoryCollector
                 });
                 continue;
             }
+
             var name = new char[Math.Max(characters, 1)];
             uint nameResult;
             fixed (char* namePointer = name)
@@ -698,20 +710,26 @@ internal static partial class WindowsInventoryCollector
         };
     }
 
-    private static InputBackendInventory UnavailableBackend(InputBackendKind backend, string limitation) => new()
+    private static InputBackendInventory UnavailableBackend(InputBackendKind backend, string limitation)
     {
-        Backend = backend,
-        Access = InventoryAccess.Unsupported,
-        View = InputBackendViewKind.LiveApi,
-        Limitation = limitation
-    };
+        return new InputBackendInventory
+        {
+            Backend = backend,
+            Access = InventoryAccess.Unsupported,
+            View = InputBackendViewKind.LiveApi,
+            Limitation = limitation
+        };
+    }
 
-    private static bool BackendRuntimeAvailable(InputBackendKind backend) => backend switch
+    private static bool BackendRuntimeAvailable(InputBackendKind backend)
     {
-        InputBackendKind.RawHid => true,
-        InputBackendKind.DirectInput => File.Exists(Path.Combine(Environment.SystemDirectory, "dinput8.dll")),
-        _ => false
-    };
+        return backend switch
+        {
+            InputBackendKind.RawHid => true,
+            InputBackendKind.DirectInput => File.Exists(Path.Combine(Environment.SystemDirectory, "dinput8.dll")),
+            _ => false
+        };
+    }
 
     private static string? CanonicalRawInputInstance(string? deviceName)
     {
@@ -776,7 +794,7 @@ internal static partial class WindowsInventoryCollector
                     }
                 }
                 catch (Exception exception) when (exception is InvalidOperationException
-                    or Win32Exception or NotSupportedException)
+                                                      or Win32Exception or NotSupportedException)
                 {
                     // Access is represented by missing optional fields; process presence remains useful.
                     access = InventoryAccess.AccessDenied;
@@ -789,8 +807,11 @@ internal static partial class WindowsInventoryCollector
                     Access = access,
                     Path = path,
                     CommandLine = commandLines.GetValueOrDefault(process.Id),
-                    LoadedModulePaths = [.. modules.Distinct(StringComparer.OrdinalIgnoreCase)
-                        .OrderBy(module => module, StringComparer.OrdinalIgnoreCase)]
+                    LoadedModulePaths =
+                    [
+                        .. modules.Distinct(StringComparer.OrdinalIgnoreCase)
+                            .OrderBy(module => module, StringComparer.OrdinalIgnoreCase)
+                    ]
                 });
                 if (observations.Count >= InventoryLimits.MaximumSystemEntriesPerLane)
                 {
@@ -799,8 +820,11 @@ internal static partial class WindowsInventoryCollector
             }
         }
 
-        return [.. observations.OrderBy(process => process.Name, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(process => process.ProcessId)];
+        return
+        [
+            .. observations.OrderBy(process => process.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(process => process.ProcessId)
+        ];
     }
 
     private static Dictionary<int, string?> QueryProcessCommandLines()
@@ -859,9 +883,9 @@ internal static partial class WindowsInventoryCollector
                         State = Text(item, "State"),
                         PathName = path,
                         ProcessId = int.TryParse(Text(item, "ProcessId"), CultureInfo.InvariantCulture, out var id)
-                            && id != 0
-                                ? id
-                                : null
+                                    && id != 0
+                            ? id
+                            : null
                     });
                     if (services.Count >= InventoryLimits.MaximumSystemEntriesPerLane)
                     {
@@ -1011,8 +1035,8 @@ internal static partial class WindowsInventoryCollector
                             Text(item, "HostProcessIdentifier"),
                             CultureInfo.InvariantCulture,
                             out var processId)
-                                ? processId
-                                : null,
+                            ? processId
+                            : null,
                         Loaded = true,
                         Access = InventoryAccess.Available
                     });
@@ -1040,7 +1064,7 @@ internal static partial class WindowsInventoryCollector
         foreach (var process in processes)
         {
             foreach (var module in process.LoadedModulePaths.Where(module =>
-                IsRelevant(Path.GetFileName(module))))
+                         IsRelevant(Path.GetFileName(module))))
             {
                 providers.Add(new ProviderInventory
                 {
@@ -1057,20 +1081,24 @@ internal static partial class WindowsInventoryCollector
                     break;
                 }
             }
+
             if (providers.Count >= InventoryLimits.MaximumSystemEntriesPerLane)
             {
                 break;
             }
         }
 
-        return [.. providers
-            .GroupBy(provider =>
-                $"{provider.Kind}\0{provider.Name}\0{provider.Context}\0{provider.HostProcessId}\0{provider.ModulePath}",
-                StringComparer.OrdinalIgnoreCase)
-            .Select(group => group.First())
-            .OrderBy(provider => provider.Kind, StringComparer.Ordinal)
-            .ThenBy(provider => provider.Name, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(provider => provider.Context, StringComparer.OrdinalIgnoreCase)];
+        return
+        [
+            .. providers
+                .GroupBy(provider =>
+                        $"{provider.Kind}\0{provider.Name}\0{provider.Context}\0{provider.HostProcessId}\0{provider.ModulePath}",
+                    StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .OrderBy(provider => provider.Kind, StringComparer.Ordinal)
+                .ThenBy(provider => provider.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(provider => provider.Context, StringComparer.OrdinalIgnoreCase)
+        ];
     }
 
     private static IReadOnlyList<ResourceConflictInventory> DeriveResourceConflicts(
@@ -1086,8 +1114,8 @@ internal static partial class WindowsInventoryCollector
                            || owner.Contains("hidmaestro", StringComparison.OrdinalIgnoreCase)
                 ? "controller-routing"
                 : owner.Contains("msi", StringComparison.OrdinalIgnoreCase)
-                    || owner.Contains("center", StringComparison.OrdinalIgnoreCase)
-                    || owner.Contains("handheld", StringComparison.OrdinalIgnoreCase)
+                  || owner.Contains("center", StringComparison.OrdinalIgnoreCase)
+                  || owner.Contains("handheld", StringComparison.OrdinalIgnoreCase)
                     ? "vendor-control"
                     : null
             where resource is not null
@@ -1106,21 +1134,35 @@ internal static partial class WindowsInventoryCollector
                 Signal = ConflictSignalKind.ExclusiveAccessDenied
             });
 
-        return [.. ownerConflicts.Concat(exclusiveConflicts).OrderBy(conflict => conflict.ResourceId, StringComparer.Ordinal)
-            .ThenBy(conflict => conflict.Owner, StringComparer.OrdinalIgnoreCase)];
+        return
+        [
+            .. ownerConflicts.Concat(exclusiveConflicts)
+                .OrderBy(conflict => conflict.ResourceId, StringComparer.Ordinal)
+                .ThenBy(conflict => conflict.Owner, StringComparer.OrdinalIgnoreCase)
+        ];
     }
 
-    private static bool IsRelevant(string? value) => value is not null
-        && RelevantNameFragments.Any(fragment => value.Contains(fragment, StringComparison.OrdinalIgnoreCase));
+    private static bool IsRelevant(string? value)
+    {
+        return value is not null
+               && RelevantNameFragments.Any(fragment => value.Contains(fragment, StringComparison.OrdinalIgnoreCase));
+    }
 
-    private static bool ContainsAny(string? value, params string[] fragments) => value is not null
-        && fragments.Any(fragment => value.Contains(fragment, StringComparison.OrdinalIgnoreCase));
+    private static bool ContainsAny(string? value, params string[] fragments)
+    {
+        return value is not null
+               && fragments.Any(fragment => value.Contains(fragment, StringComparison.OrdinalIgnoreCase));
+    }
 
-    private static uint? UInt32(ManagementBaseObject source, string property) =>
-        uint.TryParse(Text(source, property), CultureInfo.InvariantCulture, out var value) ? value : null;
+    private static uint? UInt32(ManagementBaseObject source, string property)
+    {
+        return uint.TryParse(Text(source, property), CultureInfo.InvariantCulture, out var value) ? value : null;
+    }
 
-    private static byte? Byte(ManagementBaseObject source, string property) =>
-        byte.TryParse(Text(source, property), CultureInfo.InvariantCulture, out var value) ? value : null;
+    private static byte? Byte(ManagementBaseObject source, string property)
+    {
+        return byte.TryParse(Text(source, property), CultureInfo.InvariantCulture, out var value) ? value : null;
+    }
 
     internal static string? ExtractExecutablePath(string? command)
     {
@@ -1150,6 +1192,25 @@ internal static partial class WindowsInventoryCollector
 
     [GeneratedRegex(@"\((?<port>COM\d+)\)", RegexOptions.IgnoreCase)]
     private static partial Regex SerialPortName();
+
+    [LibraryImport("xinput1_4.dll")]
+    private static partial uint XInputGetCapabilities(
+        uint userIndex,
+        uint flags,
+        out XInputCapabilities capabilities);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetRawInputDeviceList")]
+    private static unsafe partial uint GetRawInputDeviceList(
+        RawInputDeviceList* rawInputDeviceList,
+        ref uint numberOfDevices,
+        uint size);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetRawInputDeviceInfoW")]
+    private static unsafe partial uint GetRawInputDeviceInfo(
+        nint device,
+        uint command,
+        char* data,
+        ref uint size);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct XInputGamepad
@@ -1186,23 +1247,4 @@ internal static partial class WindowsInventoryCollector
         public nint Device;
         public uint Type;
     }
-
-    [LibraryImport("xinput1_4.dll")]
-    private static partial uint XInputGetCapabilities(
-        uint userIndex,
-        uint flags,
-        out XInputCapabilities capabilities);
-
-    [LibraryImport("user32.dll", EntryPoint = "GetRawInputDeviceList")]
-    private static unsafe partial uint GetRawInputDeviceList(
-        RawInputDeviceList* rawInputDeviceList,
-        ref uint numberOfDevices,
-        uint size);
-
-    [LibraryImport("user32.dll", EntryPoint = "GetRawInputDeviceInfoW")]
-    private static unsafe partial uint GetRawInputDeviceInfo(
-        nint device,
-        uint command,
-        char* data,
-        ref uint size);
 }

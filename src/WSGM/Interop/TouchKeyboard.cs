@@ -6,9 +6,9 @@ namespace WSGM.Interop;
 
 /// <summary>Shows or hides Windows' touch keyboard for the current foreground window.</summary>
 /// <remarks>
-/// Starting <c>TabTip.exe</c> does not toggle an already-running keyboard. Windows' own
-/// <c>ITipInvocation</c> object is the shell-facing operation used by hardware keyboard buttons;
-/// it is now called directly because the main process is a normal managed Windows application.
+///     Starting <c>TabTip.exe</c> does not toggle an already-running keyboard. Windows' own
+///     <c>ITipInvocation</c> object is the shell-facing operation used by hardware keyboard buttons;
+///     it is now called directly because the main process is a normal managed Windows application.
 /// </remarks>
 internal static class TouchKeyboard
 {
@@ -20,9 +20,9 @@ internal static class TouchKeyboard
         {
             var type = Type.GetTypeFromCLSID(
                 new Guid("4CE576FA-83DC-4F88-951C-9D0782B4E376"),
-                throwOnError: true)!;
+                true)!;
             instance = Activator.CreateInstance(type)
-                ?? throw new COMException("Windows did not create the touch-keyboard service.");
+                       ?? throw new COMException("Windows did not create the touch-keyboard service.");
             var invocation = (ITipInvocation)instance;
             invocation.Toggle(NativeMethods.GetForegroundWindow());
             return true;

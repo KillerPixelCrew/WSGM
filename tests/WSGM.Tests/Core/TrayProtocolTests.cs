@@ -5,9 +5,11 @@ using WSGM.Overlay;
 
 namespace WSGM.Tests.Core;
 
-/// <summary>The tray wire-format parser and icon-table semantics, exercised with
-/// synthetic TRAYNOTIFYDATA blobs shaped exactly like shell32's WM_COPYDATA
-/// payloads (32-bit handle fields, 956-byte v4 / 952-byte v3 NID).</summary>
+/// <summary>
+///     The tray wire-format parser and icon-table semantics, exercised with
+///     synthetic TRAYNOTIFYDATA blobs shaped exactly like shell32's WM_COPYDATA
+///     payloads (32-bit handle fields, 956-byte v4 / 952-byte v3 NID).
+/// </summary>
 public sealed class TrayProtocolTests
 {
     private static byte[] Blob(
@@ -78,18 +80,24 @@ public sealed class TrayProtocolTests
 
     [Fact]
     public void ParserAcceptsTheOlderNineFiftyTwoByteLayout()
-        => Assert.True(TrayProtocol.TryParse(Blob(TrayProtocol.NimAdd, cbSize: 952), out _));
+    {
+        Assert.True(TrayProtocol.TryParse(Blob(TrayProtocol.NimAdd, 952), out _));
+    }
 
     [Theory]
     [InlineData(0xDEADBEEFu, 956u)] // wrong signature
     [InlineData(TrayProtocol.Signature, 100u)] // impossible cbSize
     [InlineData(TrayProtocol.Signature, 5000u)] // larger than any known layout
     public void ParserRejectsUnknownShapes(uint signature, uint cbSize)
-        => Assert.False(TrayProtocol.TryParse(Blob(TrayProtocol.NimAdd, cbSize: cbSize, signature: signature), out _));
+    {
+        Assert.False(TrayProtocol.TryParse(Blob(TrayProtocol.NimAdd, cbSize, signature: signature), out _));
+    }
 
     [Fact]
     public void ParserRejectsTruncatedPayloads()
-        => Assert.False(TrayProtocol.TryParse(Blob(TrayProtocol.NimAdd).AsSpan(0, 200), out _));
+    {
+        Assert.False(TrayProtocol.TryParse(Blob(TrayProtocol.NimAdd).AsSpan(0, 200), out _));
+    }
 
     private static TrayIconTable.TrayIcon Added(TrayIconTable table, byte[] blob)
     {
@@ -144,7 +152,8 @@ public sealed class TrayProtocolTests
     {
         var guid = Guid.NewGuid();
         var table = new TrayIconTable();
-        var icon = Added(table, Blob(TrayProtocol.NimAdd, hwnd: 0x1111, uid: 1, flags: TrayProtocol.NifGuid, guid: guid));
+        var icon = Added(table,
+            Blob(TrayProtocol.NimAdd, hwnd: 0x1111, uid: 1, flags: TrayProtocol.NifGuid, guid: guid));
 
         // Restarted app: new hwnd/uid, same GUID — must resolve to the same icon.
         var change = table.Apply(Parse(Blob(
@@ -227,7 +236,9 @@ public sealed class TrayProtocolTests
     [InlineData(0x03FFu)] // one below WM_USER
     [InlineData(0x10000u)] // wider than a 16-bit message number
     public void IsRelayableCallback_MessageOutsideTheApplicationRange_ReturnsFalse(uint callback)
-        => Assert.False(TrayProtocol.IsRelayableCallback(callback));
+    {
+        Assert.False(TrayProtocol.IsRelayableCallback(callback));
+    }
 
     [Theory]
     [InlineData(0x0400u)] // WM_USER itself
@@ -237,7 +248,9 @@ public sealed class TrayProtocolTests
     [InlineData(0xC123u)] // RegisterWindowMessage range
     [InlineData(0xFFFFu)] // highest window message
     public void IsRelayableCallback_ApplicationDefinedMessage_ReturnsTrue(uint callback)
-        => Assert.True(TrayProtocol.IsRelayableCallback(callback));
+    {
+        Assert.True(TrayProtocol.IsRelayableCallback(callback));
+    }
 
     [Fact]
     public void Apply_AddWithNonRelayableCallback_StillRegistersTheIcon()

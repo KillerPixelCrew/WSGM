@@ -14,8 +14,8 @@ internal static class PerformancePolicyResolver
         PerformanceValues Values,
         PerformancePolicyLayer FrameLimitLayer,
         PerformancePolicyLayer OverlayLevelLayer) Resolve(
-        PerformancePolicy policy,
-        PerformanceApplicationTarget? target)
+            PerformancePolicy policy,
+            PerformanceApplicationTarget? target)
     {
         ArgumentNullException.ThrowIfNull(policy);
         if (!policy.Enabled)
@@ -40,9 +40,12 @@ internal static class PerformancePolicyResolver
 
     internal static PerformancePersistenceTarget ResolveEditTarget(
         PerformancePolicy policy,
-        PerformanceApplicationTarget? target) => Find(policy, target?.ApplicationId) is null
+        PerformanceApplicationTarget? target)
+    {
+        return Find(policy, target?.ApplicationId) is null
             ? PerformancePersistenceTarget.Global
             : PerformancePersistenceTarget.Application;
+    }
 
     internal static PerformancePolicy Write(
         PerformancePolicy policy,
@@ -77,23 +80,30 @@ internal static class PerformancePolicyResolver
 
     internal static PerformanceApplicationPolicy? Find(
         PerformancePolicy policy,
-        string? applicationId) => string.IsNullOrWhiteSpace(applicationId)
+        string? applicationId)
+    {
+        return string.IsNullOrWhiteSpace(applicationId)
             ? null
             : policy.Applications.FirstOrDefault(item => string.Equals(
                 item.ApplicationId,
                 applicationId,
                 StringComparison.Ordinal));
+    }
 
-    private static PerformancePolicyLayer LayerFor(int? application, int? global) =>
-        application is not null
+    private static PerformancePolicyLayer LayerFor(int? application, int? global)
+    {
+        return application is not null
             ? PerformancePolicyLayer.Application
-            : global is not null ? PerformancePolicyLayer.Global : PerformancePolicyLayer.None;
+            : global is not null
+                ? PerformancePolicyLayer.Global
+                : PerformancePolicyLayer.None;
+    }
 }
 
 /// <summary>
-/// One session-owned RTSS service shared by every UI projection. Adapter access and commands are
-/// serialized, polling runs only while a client holds an observation lease, and RTSS failures never
-/// escape into shell/session transitions.
+///     One session-owned RTSS service shared by every UI projection. Adapter access and commands are
+///     serialized, polling runs only while a client holds an observation lease, and RTSS failures never
+///     escape into shell/session transitions.
 /// </summary>
 internal sealed class PerformanceService : IAsyncDisposable
 {
@@ -101,12 +111,14 @@ internal sealed class PerformanceService : IAsyncDisposable
     // external-change/availability check, including while Steam keeps its observation lease.
     private static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultCommandTimeout = TimeSpan.FromSeconds(2);
+
     /// <summary>The controls a readback is checked against the desired state for.</summary>
     private static readonly PerformanceControl[] DriftCheckedControls =
     [
         PerformanceControl.FrameLimit,
         PerformanceControl.OverlayLevel
     ];
+
     private static readonly RtssProbe InitialProbe = new(
         RtssAvailability.Unknown,
         null,
@@ -116,23 +128,26 @@ internal sealed class PerformanceService : IAsyncDisposable
         "RTSS discovery has not run.");
 
     private readonly IRtssAdapter _adapter;
-    private readonly Func<PerformancePolicy, CancellationToken, Task> _persistPolicy;
-    private readonly TimeSpan _commandTimeout;
-    private readonly TimeProvider _timeProvider;
-    private readonly Lock _stateGate = new();
     private readonly SemaphoreSlim _adapterGate = new(1, 1);
-    private readonly ObservationGate _observers = new();
+    private readonly Dictionary<long, string> _commandProfiles = [];
+    private readonly TimeSpan _commandTimeout;
     private readonly CancellationTokenSource _disposeCts = new();
     private readonly RtssLauncher _launcher;
+    private readonly ObservationGate _observers = new();
+    private readonly Func<PerformancePolicy, CancellationToken, Task> _persistPolicy;
     private readonly Task _pollTask;
-    private readonly Dictionary<long, string> _commandProfiles = [];
+    private readonly Lock _stateGate = new();
+    private readonly TimeProvider _timeProvider;
+    private long _commandSequence;
+    private bool _disposed;
     private PerformancePolicy _policy;
-    private PerformanceState _state;
+
+    private PerformanceState? _raisedState;
 
     /// <summary>The desired values a drift repair has already been attempted for, or null.</summary>
     private PerformanceValues? _repairedDrift;
-    private long _commandSequence;
-    private bool _disposed;
+
+    private PerformanceState _state;
 
     internal PerformanceService(
         IRtssAdapter adapter,
@@ -167,8 +182,6 @@ internal sealed class PerformanceService : IAsyncDisposable
         _pollTask = Task.Run(PollAsync);
     }
 
-    internal event Action<PerformanceState>? StateChanged;
-
     internal PerformanceState Current
     {
         get
@@ -195,11 +208,57 @@ internal sealed class PerformanceService : IAsyncDisposable
 
     internal TimeSpan PollInterval { get; }
 
-    /// <summary>Hands the Custom overlay's configuration (selector level 4) to the adapter's
-    /// renderer.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        await _disposeCts.CancelAsync().ConfigureAwait(false);
+        _observers.Signal();
+        try
+        {
+            await _pollTask.WaitAsync(_commandTimeout).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal service shutdown.
+        }
+        catch (TimeoutException)
+        {
+            Log.Warn("RTSS poll did not stop within its disposal budget; process exit will reclaim it.");
+            return;
+        }
+
+        if (!await _adapterGate.WaitAsync(_commandTimeout).ConfigureAwait(false))
+        {
+            Log.Warn("RTSS adapter remained busy beyond its disposal budget; process exit will reclaim it.");
+            return;
+        }
+
+        try
+        {
+            await _adapter.DisposeAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _adapterGate.Release();
+        }
+    }
+
+    internal event Action<PerformanceState>? StateChanged;
+
+    /// <summary>
+    ///     Hands the Custom overlay's configuration (selector level 4) to the adapter's
+    ///     renderer.
+    /// </summary>
     /// <param name="settings">The widget order and per-widget detail.</param>
-    /// <remarks>Deliberately outside the adapter gate: it changes what the renderer draws on its
-    /// next tick, not RTSS state, and must stay applicable while a command is in flight.</remarks>
+    /// <remarks>
+    ///     Deliberately outside the adapter gate: it changes what the renderer draws on its
+    ///     next tick, not RTSS state, and must stay applicable while a command is in flight.
+    /// </remarks>
     internal void ApplyOsdCustomization(RtssOsdCustomSettings settings)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -224,14 +283,14 @@ internal sealed class PerformanceService : IAsyncDisposable
     /// <param name="cancellationToken">Cancels the apply that follows.</param>
     /// <returns>Whether anything changed.</returns>
     /// <remarks>
-    /// Resets whichever layer is actually in force, which is the only reading that matches what the
-    /// user sees: with a per-application profile active they are looking at that profile, and
-    /// clearing the global one underneath it would appear to do nothing.
-    /// <para>
-    /// The application's entry is kept and its values emptied, rather than the entry being removed.
-    /// Removing it is what the per-game toggle means; reset must not silently turn that toggle off
-    /// as a side effect.
-    /// </para>
+    ///     Resets whichever layer is actually in force, which is the only reading that matches what the
+    ///     user sees: with a per-application profile active they are looking at that profile, and
+    ///     clearing the global one underneath it would appear to do nothing.
+    ///     <para>
+    ///         The application's entry is kept and its values emptied, rather than the entry being removed.
+    ///         Removing it is what the per-game toggle means; reset must not silently turn that toggle off
+    ///         as a side effect.
+    ///     </para>
     /// </remarks>
     internal async Task<bool> ResetProfileAsync(CancellationToken cancellationToken = default)
     {
@@ -278,24 +337,24 @@ internal sealed class PerformanceService : IAsyncDisposable
     }
 
     /// <summary>
-    /// Gives the running application its own performance profile, or takes it away.
+    ///     Gives the running application its own performance profile, or takes it away.
     /// </summary>
     /// <param name="enabled">Whether the application should keep its own values.</param>
     /// <param name="cancellationToken">Cancels the apply that follows.</param>
     /// <returns>Whether the policy changed.</returns>
     /// <remarks>
-    /// Turning it on seeds the application's values from what is <em>currently in force</em> rather
-    /// than from nothing. A per-game profile that started empty would drop the user to the global
-    /// defaults the instant they created it, which reads as the toggle having reset their settings.
-    /// <para>
-    /// Turning it off removes the entry rather than blanking it, so the application falls back to
-    /// the global layer through the ordinary resolution path instead of carrying an empty override
-    /// that has to be special-cased everywhere it is read.
-    /// </para>
-    /// <para>
-    /// Refused when nothing identifiable is running: there is no application to attach a profile to,
-    /// and silently writing the global layer instead is the wrong reading of a per-game toggle.
-    /// </para>
+    ///     Turning it on seeds the application's values from what is <em>currently in force</em> rather
+    ///     than from nothing. A per-game profile that started empty would drop the user to the global
+    ///     defaults the instant they created it, which reads as the toggle having reset their settings.
+    ///     <para>
+    ///         Turning it off removes the entry rather than blanking it, so the application falls back to
+    ///         the global layer through the ordinary resolution path instead of carrying an empty override
+    ///         that has to be special-cased everywhere it is read.
+    ///     </para>
+    ///     <para>
+    ///         Refused when nothing identifiable is running: there is no application to attach a profile to,
+    ///         and silently writing the global layer instead is the wrong reading of a per-game toggle.
+    ///     </para>
     /// </remarks>
     internal async Task<bool> SetApplicationProfileEnabledAsync(
         bool enabled,
@@ -417,13 +476,16 @@ internal sealed class PerformanceService : IAsyncDisposable
         int value,
         string origin,
         string correlationId,
-        CancellationToken cancellationToken = default) => SetCoreAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return SetCoreAsync(
             control,
             value,
             origin,
             correlationId,
-            updateDesired: true,
+            true,
             cancellationToken);
+    }
 
     private async Task<PerformanceCommandState> SetCoreAsync(
         PerformanceControl control,
@@ -437,8 +499,11 @@ internal sealed class PerformanceService : IAsyncDisposable
         origin = SanitizeToken(origin, "unknown");
         correlationId = SanitizeToken(correlationId, Guid.NewGuid().ToString("N"));
         var sequence = Interlocked.Increment(ref _commandSequence);
-        PerformanceCommandState Command(PerformanceCommandPhase phase, string? diagnostic = null) =>
-            new(sequence, origin, correlationId, control, value, phase, diagnostic);
+
+        PerformanceCommandState Command(PerformanceCommandPhase phase, string? diagnostic = null)
+        {
+            return new PerformanceCommandState(sequence, origin, correlationId, control, value, phase, diagnostic);
+        }
 
         UpdateCommand(Command(PerformanceCommandPhase.Queued));
 
@@ -447,6 +512,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         {
             enabled = _policy.Enabled;
         }
+
         if (!enabled)
         {
             return UpdateCommand(Command(
@@ -551,21 +617,21 @@ internal sealed class PerformanceService : IAsyncDisposable
     /// <summary>Whether RTSS is holding something other than the values WSGM last asked for.</summary>
     /// <returns>True when the effective desired values should be written again.</returns>
     /// <remarks>
-    /// The readback is the only evidence that a profile still says what WSGM wrote into it. RTSS
-    /// profiles are ordinary files its own UI, another overlay tool or a game's own installer can
-    /// edit, and none of them announce it — the frame limit simply stops being the one the user
-    /// chose, with the overlay and the Quick Access row still showing the value they asked for.
-    /// Every poll therefore compares what was asked for against what came back.
-    /// <para>
-    /// The re-apply happens ONCE per disagreement. A writer that takes the profile back every two
-    /// seconds is a fight WSGM cannot win and must not join, so a second consecutive disagreement
-    /// about the same desired values is reported and then left alone until the values change or the
-    /// readback agrees again.
-    /// </para>
-    /// <para>
-    /// Only the poll loop reaches this, so <c>_repairedDrift</c> needs no lock of its own; the
-    /// state it compares is taken as one snapshot.
-    /// </para>
+    ///     The readback is the only evidence that a profile still says what WSGM wrote into it. RTSS
+    ///     profiles are ordinary files its own UI, another overlay tool or a game's own installer can
+    ///     edit, and none of them announce it — the frame limit simply stops being the one the user
+    ///     chose, with the overlay and the Quick Access row still showing the value they asked for.
+    ///     Every poll therefore compares what was asked for against what came back.
+    ///     <para>
+    ///         The re-apply happens ONCE per disagreement. A writer that takes the profile back every two
+    ///         seconds is a fight WSGM cannot win and must not join, so a second consecutive disagreement
+    ///         about the same desired values is reported and then left alone until the values change or the
+    ///         readback agrees again.
+    ///     </para>
+    ///     <para>
+    ///         Only the poll loop reaches this, so <c>_repairedDrift</c> needs no lock of its own; the
+    ///         state it compares is taken as one snapshot.
+    ///     </para>
     /// </remarks>
     private bool DriftNeedsRepair()
     {
@@ -614,7 +680,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             Log.Change(
                 "rtss.drift",
                 $"RTSS still disagrees after a repair ({detail}); another writer owns the profile "
-                    + "and WSGM will not keep overwriting it.",
+                + "and WSGM will not keep overwriting it.",
                 LogLevel.Warn);
             return false;
         }
@@ -629,48 +695,11 @@ internal sealed class PerformanceService : IAsyncDisposable
 
     private static PerformanceReadbackQuality QualityOf(
         PerformanceState state,
-        PerformanceControl control) => control is PerformanceControl.FrameLimit
-        ? state.FrameLimitQuality
-        : state.OverlayLevelQuality;
-
-    public async ValueTask DisposeAsync()
+        PerformanceControl control)
     {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        await _disposeCts.CancelAsync().ConfigureAwait(false);
-        _observers.Signal();
-        try
-        {
-            await _pollTask.WaitAsync(_commandTimeout).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // Normal service shutdown.
-        }
-        catch (TimeoutException)
-        {
-            Log.Warn("RTSS poll did not stop within its disposal budget; process exit will reclaim it.");
-            return;
-        }
-
-        if (!await _adapterGate.WaitAsync(_commandTimeout).ConfigureAwait(false))
-        {
-            Log.Warn("RTSS adapter remained busy beyond its disposal budget; process exit will reclaim it.");
-            return;
-        }
-
-        try
-        {
-            await _adapter.DisposeAsync().ConfigureAwait(false);
-        }
-        finally
-        {
-            _adapterGate.Release();
-        }
+        return control is PerformanceControl.FrameLimit
+            ? state.FrameLimitQuality
+            : state.OverlayLevelQuality;
     }
 
     private async Task<PerformanceCommandState> ApplyOneAsync(
@@ -683,8 +712,10 @@ internal sealed class PerformanceService : IAsyncDisposable
         CancellationToken boundedCancellation,
         CancellationToken callerCancellation)
     {
-        PerformanceCommandState Command(PerformanceCommandPhase phase, string? diagnostic = null) =>
-            new(sequence, origin, correlationId, control, value, phase, diagnostic);
+        PerformanceCommandState Command(PerformanceCommandPhase phase, string? diagnostic = null)
+        {
+            return new PerformanceCommandState(sequence, origin, correlationId, control, value, phase, diagnostic);
+        }
 
         UpdateCommand(Command(PerformanceCommandPhase.Applying));
 
@@ -776,7 +807,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                 return UpdateCommand(Command(
                     PerformanceCommandPhase.Deferred,
                     "The application preference was saved and will apply when its foreground "
-                        + "executable is known."));
+                    + "executable is known."));
             }
 
             var applied = await _adapter.ApplyAsync(
@@ -810,7 +841,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                 profile,
                 probe.Generation,
                 boundedCancellation).ConfigureAwait(false);
-            UpdateReadback(after, readback, detectExternalChange: false);
+            UpdateReadback(after, readback, false);
             if (readback.Values.ValueFor(control) != value)
             {
                 return UpdateCommand(Command(
@@ -850,7 +881,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                 frameLimit,
                 origin,
                 $"{origin}-frame-limit",
-                updateDesired: false,
+                false,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -862,7 +893,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                 overlayLevel,
                 origin,
                 $"{origin}-overlay-level",
-                updateDesired: false,
+                false,
                 cancellationToken).ConfigureAwait(false);
         }
     }
@@ -962,7 +993,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             EffectiveRtssProfile(target, applicationOptedIn),
             probe.Generation,
             cancellationToken).ConfigureAwait(false);
-        UpdateReadback(probe, readback, detectExternalChange: true);
+        UpdateReadback(probe, readback, true);
         return null;
     }
 
@@ -1077,8 +1108,8 @@ internal sealed class PerformanceService : IAsyncDisposable
     /// <param name="previous">The probe this replaces.</param>
     /// <param name="probe">The new probe.</param>
     /// <remarks>
-    /// The probe runs on every poll, so only transitions are logged. Each transition includes the
-    /// availability and diagnostic needed for remote RTSS diagnosis.
+    ///     The probe runs on every poll, so only transitions are logged. Each transition includes the
+    ///     availability and diagnostic needed for remote RTSS diagnosis.
     /// </remarks>
     private static void LogProbeChange(RtssProbe previous, RtssProbe probe)
     {
@@ -1148,11 +1179,11 @@ internal sealed class PerformanceService : IAsyncDisposable
     /// <param name="state">The state it left behind, for the profile it was written to.</param>
     /// <param name="appliedProfile">RTSS profile the command targeted.</param>
     /// <remarks>
-    /// Every terminal outcome is recorded through <see cref="Log.Change"/> keyed per control. The
-    /// profile is included because global and per-application writes target different RTSS files,
-    /// and the origin because a value nobody meant to set is otherwise unattributable — a stray
-    /// 12 FPS cap took a whole evening to place, and the log could not say whether the overlay
-    /// slider, the Quick Access row or a profile reload had written it.
+    ///     Every terminal outcome is recorded through <see cref="Log.Change" /> keyed per control. The
+    ///     profile is included because global and per-application writes target different RTSS files,
+    ///     and the origin because a value nobody meant to set is otherwise unattributable — a stray
+    ///     12 FPS cap took a whole evening to place, and the log could not say whether the overlay
+    ///     slider, the Quick Access row or a profile reload had written it.
     /// </remarks>
     private static void LogCommandOutcome(
         PerformanceCommandState command,
@@ -1182,7 +1213,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         Log.Change(
             $"rtss.command.{command.Control}",
             $"RTSS {command.Control}={command.RequestedValue?.ToString() ?? "none"} on {profile} "
-                + $"from {command.Origin}: {command.Phase}{detail}",
+            + $"from {command.Origin}: {command.Phase}{detail}",
             succeeded ? LogLevel.Info : LogLevel.Warn);
     }
 
@@ -1212,8 +1243,6 @@ internal sealed class PerformanceService : IAsyncDisposable
         };
     }
 
-    private PerformanceState? _raisedState;
-
     private void RaiseStateChanged(PerformanceState state)
     {
         // A poll that reads back the same values only moves RefreshedAt, which no subscriber shows.
@@ -1235,9 +1264,11 @@ internal sealed class PerformanceService : IAsyncDisposable
     }
 
     private static PerformanceControl ChangedControl(PerformanceValues old, PerformanceValues current)
-        => old.FrameLimit != current.FrameLimit
+    {
+        return old.FrameLimit != current.FrameLimit
             ? PerformanceControl.FrameLimit
             : PerformanceControl.OverlayLevel;
+    }
 
     private static PerformancePolicy NormalizePolicy(PerformancePolicy policy)
     {
@@ -1252,9 +1283,11 @@ internal sealed class PerformanceService : IAsyncDisposable
                 Log.Warn("RTSS policy entry dropped: the application identity was empty.");
                 continue;
             }
+
             if (!identities.Add(applicationId))
             {
-                Log.Warn($"RTSS policy entry dropped: duplicate application identity '{SanitizeToken(applicationId, "unknown")}'.");
+                Log.Warn(
+                    $"RTSS policy entry dropped: duplicate application identity '{SanitizeToken(applicationId, "unknown")}'.");
                 continue;
             }
 
@@ -1282,17 +1315,21 @@ internal sealed class PerformanceService : IAsyncDisposable
         return left.Applications.SequenceEqual(right.Applications);
     }
 
-    private static bool ValidTarget(PerformanceApplicationTarget target) =>
-        !string.IsNullOrWhiteSpace(target.ApplicationId)
-        && target.ApplicationId.Length <= 1024
-        && (target.RtssProfileName is null || ValidProfileName(target.RtssProfileName))
-        && target.ProcessId is null or > 0;
+    private static bool ValidTarget(PerformanceApplicationTarget target)
+    {
+        return !string.IsNullOrWhiteSpace(target.ApplicationId)
+               && target.ApplicationId.Length <= 1024
+               && (target.RtssProfileName is null || ValidProfileName(target.RtssProfileName))
+               && target.ProcessId is null or > 0;
+    }
 
-    private static bool ValidProfileName(string value) =>
-        !string.IsNullOrWhiteSpace(value)
-        && value.Length <= 128
-        && string.Equals(Path.GetFileName(value), value, StringComparison.Ordinal)
-        && value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
+    private static bool ValidProfileName(string value)
+    {
+        return !string.IsNullOrWhiteSpace(value)
+               && value.Length <= 128
+               && string.Equals(Path.GetFileName(value), value, StringComparison.Ordinal)
+               && value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static string SanitizeToken(string value, string fallback)
     {
@@ -1305,9 +1342,15 @@ internal sealed class PerformanceService : IAsyncDisposable
         return string.IsNullOrWhiteSpace(sanitized) ? fallback : sanitized;
     }
 
-    private static TimeSpan BoundInterval(TimeSpan interval) =>
-        TimeSpan.FromTicks(Math.Clamp(interval.Ticks, TimeSpan.TicksPerMillisecond * 250, TimeSpan.TicksPerSecond * 30));
+    private static TimeSpan BoundInterval(TimeSpan interval)
+    {
+        return TimeSpan.FromTicks(Math.Clamp(interval.Ticks, TimeSpan.TicksPerMillisecond * 250,
+            TimeSpan.TicksPerSecond * 30));
+    }
 
-    private static TimeSpan BoundTimeout(TimeSpan timeout) =>
-        TimeSpan.FromTicks(Math.Clamp(timeout.Ticks, TimeSpan.TicksPerMillisecond * 100, TimeSpan.TicksPerSecond * 10));
+    private static TimeSpan BoundTimeout(TimeSpan timeout)
+    {
+        return TimeSpan.FromTicks(Math.Clamp(timeout.Ticks, TimeSpan.TicksPerMillisecond * 100,
+            TimeSpan.TicksPerSecond * 10));
+    }
 }

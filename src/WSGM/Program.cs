@@ -17,8 +17,10 @@ namespace WSGM;
 /// <summary>The intentionally narrow operating modes accepted by the executable.</summary>
 public enum RunMode
 {
-    /// <summary>Runs the game-mode shell session (service boot or --shell). Explorer
-    /// stays the registered Windows shell; this session ends it and takes the screen.</summary>
+    /// <summary>
+    ///     Runs the game-mode shell session (service boot or --shell). Explorer
+    ///     stays the registered Windows shell; this session ends it and takes the screen.
+    /// </summary>
     Shell,
 
     /// <summary>Runs the settings or welcome UI without changing shell state.</summary>
@@ -39,17 +41,20 @@ internal enum DevicePluginMaintenanceMode
 /// <summary>Defines the safe command-line entry points and application bootstrap.</summary>
 public static class Program
 {
+    private static Mutex? _shellMutex;
+
     /// <summary>Gets the mode selected from the current command line.</summary>
     public static RunMode Mode { get; private set; } = RunMode.Settings;
 
-    /// <summary>Gets whether this shell process was launched by the logon service
-    /// (--boot): the session boots over a live, still-initializing explorer that
-    /// the takeover flow waits out and then cleanly shuts down.</summary>
+    /// <summary>
+    ///     Gets whether this shell process was launched by the logon service
+    ///     (--boot): the session boots over a live, still-initializing explorer that
+    ///     the takeover flow waits out and then cleanly shuts down.
+    /// </summary>
     public static bool ServiceBoot { get; private set; }
+
     /// <summary>Gets whether startup must remain resident on Desktop, even before Explorer appears.</summary>
     public static bool DesktopResident { get; private set; }
-
-    private static Mutex? _shellMutex;
 
     /// <summary>Starts the selected supported application mode.</summary>
     /// <param name="args">The command-line arguments passed to the executable.</param>
@@ -90,8 +95,24 @@ public static class Program
             // a read-modify-write and goes through the strict mutation path, which
             // aborts rather than replacing the registry recovery snapshots with
             // defaults.
-            try { BootManifestWriter.WriteSignInDisabled(ConfigStore.Load()); } catch (Exception) { /* Best effort: logging is not up yet. */ }
-            try { ConfigStore.Mutate(static c => c.StartAtSignIn = false); } catch (Exception) { /* Best effort: logging is not up yet. */ }
+            try
+            {
+                BootManifestWriter.WriteSignInDisabled(ConfigStore.Load());
+            }
+            catch (Exception)
+            {
+                /* Best effort: logging is not up yet. */
+            }
+
+            try
+            {
+                ConfigStore.Mutate(static c => c.StartAtSignIn = false);
+            }
+            catch (Exception)
+            {
+                /* Best effort: logging is not up yet. */
+            }
+
             // A resident WSGM shell still owns its Shell_TrayWnd and would keep running with its
             // registration and sign-in start changed underneath it. Ask it to shut down normally,
             // which restores Explorer itself; the start below then finds the desktop running.
@@ -137,29 +158,34 @@ public static class Program
         // Elevated one-shots for the UAC prompt-level toggle (see UacSettings).
         if (flags.Contains("--set-uac-silent"))
         {
-            return UacSettings.ApplyDirect(disablePrompts: true) ? 0 : 1;
+            return UacSettings.ApplyDirect(true) ? 0 : 1;
         }
+
         if (flags.Contains("--restore-uac"))
         {
-            return UacSettings.ApplyDirect(disablePrompts: false) ? 0 : 1;
+            return UacSettings.ApplyDirect(false) ? 0 : 1;
         }
+
         // Elevated one-shots for the Steam autostart takeover (see SteamAutostartService). Neither
         // takes a source name from the command line: the elevated instance rescans and decides.
         if (flags.Contains(SteamAutostartService.DisableArgument))
         {
             return SteamAutostartService.RunElevatedDisable();
         }
+
         if (flags.Contains(SteamAutostartService.RestoreArgument))
         {
             return SteamAutostartService.RestoreAll();
         }
+
         if (flags.Contains("--disable-lock-on-wake"))
         {
-            return LockScreenSettings.ApplyDirect(disableSignInOnWake: true) ? 0 : 1;
+            return LockScreenSettings.ApplyDirect(true) ? 0 : 1;
         }
+
         if (flags.Contains("--restore-lock-on-wake"))
         {
-            return LockScreenSettings.ApplyDirect(disableSignInOnWake: false) ? 0 : 1;
+            return LockScreenSettings.ApplyDirect(false) ? 0 : 1;
         }
 
         // Elevated one-shots for the Steam Input shim. Steam normally lives under
@@ -214,17 +240,20 @@ public static class Program
             }
             catch (Exception ex)
             {
-                Log.Error("Setup: config.json is unreadable — skipping the gaming-home guard and the boot manifest", ex);
+                Log.Error("Setup: config.json is unreadable — skipping the gaming-home guard and the boot manifest",
+                    ex);
             }
+
             if (config is not null
                 && InstallProfile.TryParse(InstallProfile.Read(args), out var profile)
                 && InstallProfile.Apply(config, profile, freshInstall))
             {
                 ConfigStore.Save(config);
                 Log.Info($"Setup: seeded a fresh install from the {profile} mode "
-                    + $"(start at sign-in in {config.StartMode} mode, device integration "
-                    + $"{(config.DeviceIntegration.Enabled ? "on" : "off")}).");
+                         + $"(start at sign-in in {config.StartMode} mode, device integration "
+                         + $"{(config.DeviceIntegration.Enabled ? "on" : "off")}).");
             }
+
             Installer.InstallApp();
             // Deploy the Steam Input shim only after the payload exists in the
             // install directory. Default-on when config.json is unreadable, because
@@ -258,21 +287,22 @@ public static class Program
                 Log.Error("Device plugin startup inventory failed", ex);
                 ShowDevicePackageStartupRefusal(
                     "WSGM could not inspect the protected Device Plugin slot. "
-                        + "Use setup or --remove-device-plugin to repair it.\n\n"
-                        + ex.Message);
+                    + "Use setup or --remove-device-plugin to repair it.\n\n"
+                    + ex.Message);
                 return 2;
             }
+
             if (inventory is null)
             {
                 const string detail = "The protected Device Plugin slot remained busy during "
-                    + "startup. Close Device Plugin maintenance and start WSGM again.";
+                                      + "startup. Close Device Plugin maintenance and start WSGM again.";
                 Log.Error(detail);
                 ShowDevicePackageStartupRefusal(detail);
                 return 2;
             }
 
             Log.Info($"Device plugin startup inventory: {inventory.Cardinality}, "
-                + $"roots={inventory.PackageRoots.Count}.");
+                     + $"roots={inventory.PackageRoots.Count}.");
             if (inventory.Cardinality is DevicePackageCardinality.Multiple)
             {
                 var packages = string.Join(
@@ -296,6 +326,7 @@ public static class Program
             Log.Info("Settings launch handed to the resident WSGM input owner.");
             return 0;
         }
+
         if (ServiceBoot)
         {
             Log.Info($"Run mode: {Mode} (service boot, elevated={ElevationCheck.IsCurrentProcessElevated()}, " +
@@ -320,15 +351,21 @@ public static class Program
         }
 
         using var activation = Mode == RunMode.Shell
-            ? new EventWaitHandle(false, EventResetMode.AutoReset, SessionActivation.EventName) : null;
+            ? new EventWaitHandle(false, EventResetMode.AutoReset, SessionActivation.EventName)
+            : null;
         if (Mode == RunMode.Shell)
         {
-            if (flags.Contains("--activate")) { activation!.Set(); }
+            if (flags.Contains("--activate"))
+            {
+                activation!.Set();
+            }
+
             if (!AcquireShellMutex())
             {
                 Log.Warn("Another WSGM shell instance is running; exiting.");
                 return 0;
             }
+
             // Record this start BEFORE deciding, so the breaker fires on the
             // 3rd start within 2 minutes (this one included) as documented.
             CrashLoopBreaker.RecordStart();
@@ -346,6 +383,7 @@ public static class Program
                 {
                     Log.Warn($"Crash-loop disarm: boot manifest write failed: {ex.Message}");
                 }
+
                 try
                 {
                     // Read-modify-write, so the strict mutation load: an unreadable
@@ -358,6 +396,7 @@ public static class Program
                 {
                     Log.Warn($"Crash-loop disarm: could not clear the sign-in start flag: {ex.Message}");
                 }
+
                 ShellRegistration.Uninstall();
                 if (!ExplorerControl.IsRunningInSession())
                 {
@@ -365,6 +404,7 @@ public static class Program
                     // this, so the elevation repair has to complete before we return.
                     ExplorerControl.StartExplorerAndVerify();
                 }
+
                 // Lease release first (invariant: fires on EVERY recovery path,
                 // ahead of cosmetic restores) — same ordering as --restore-shell.
                 SteamInputBlocker.ReleaseBestEffort("crash-loop");
@@ -397,6 +437,7 @@ public static class Program
             {
                 SteamInputBlocker.ReleaseBestEffort("shutdown");
             }
+
             if (Mode != RunMode.Shell)
             {
                 return exitCode;
@@ -419,28 +460,34 @@ public static class Program
 
     // A --restore-shell run from another process: the normal shutdown path restores Explorer and
     // retires this shell's taskbar before that process touches the desktop.
-    private static void RequestRestoreShellExit() =>
+    private static void RequestRestoreShellExit()
+    {
         Dispatcher.UIThread.Post(() =>
         {
             ApplicationShutdownRequest.Request(ApplicationShutdownReason.Normal);
             ApplicationShutdownRequest.ShutdownLifetime();
         });
+    }
 
-    private static void RequestInstallerExit(ApplicationShutdownReason reason) =>
+    private static void RequestInstallerExit(ApplicationShutdownReason reason)
+    {
         // Posted jobs only run once StartWithClassicDesktopLifetime pumps the dispatcher.
         Dispatcher.UIThread.Post(() => RunInstallerExitRequest(
             reason,
             Steam.StopForUpdate,
             ApplicationShutdownRequest.Request,
             ApplicationShutdownRequest.ShutdownLifetime));
+    }
 
-    /// <summary>The installer-exit ordering, separated from the dispatcher and from Steam so it
-    /// can be proven without either.</summary>
+    /// <summary>
+    ///     The installer-exit ordering, separated from the dispatcher and from Steam so it
+    ///     can be proven without either.
+    /// </summary>
     /// <remarks>
-    /// Update reserves one bounded Steam/wrapper pre-stop window before the application's own
-    /// cleanup deadline; the installer waits for both windows plus handoff margin before its force
-    /// fallback. The try/finally is the contract: a failed pre-stop can never prevent WSGM cleanup
-    /// from starting. Uninstall deliberately does not stop Steam.
+    ///     Update reserves one bounded Steam/wrapper pre-stop window before the application's own
+    ///     cleanup deadline; the installer waits for both windows plus handoff margin before its force
+    ///     fallback. The try/finally is the contract: a failed pre-stop can never prevent WSGM cleanup
+    ///     from starting. Uninstall deliberately does not stop Steam.
     /// </remarks>
     internal static void RunInstallerExitRequest(
         ApplicationShutdownReason reason,
@@ -466,8 +513,10 @@ public static class Program
         }
     }
 
-    /// <summary>Resolves the requested mode from explicit flags. No flag means the
-    /// safe Settings surface; shell mode is only ever explicit (--shell/--boot).</summary>
+    /// <summary>
+    ///     Resolves the requested mode from explicit flags. No flag means the
+    ///     safe Settings surface; shell mode is only ever explicit (--shell/--boot).
+    /// </summary>
     internal static RunMode DecideMode(string[] args)
     {
         if (args.Contains("--shell", StringComparer.OrdinalIgnoreCase) || IsServiceBoot(args))
@@ -485,10 +534,14 @@ public static class Program
             : RunMode.Settings;
     }
 
-    /// <summary>True when the command line carries the logon service's --boot flag
-    /// (kept pure so mode precedence stays testable without a live session).</summary>
+    /// <summary>
+    ///     True when the command line carries the logon service's --boot flag
+    ///     (kept pure so mode precedence stays testable without a live session).
+    /// </summary>
     internal static bool IsServiceBoot(string[] args)
-        => args.Contains("--boot", StringComparer.OrdinalIgnoreCase);
+    {
+        return args.Contains("--boot", StringComparer.OrdinalIgnoreCase);
+    }
 
     private static async Task<int> RunDevicePluginMaintenanceAsync(
         DevicePluginMaintenanceMode mode,
@@ -497,8 +550,8 @@ public static class Program
         if (mode is DevicePluginMaintenanceMode.Invalid)
         {
             Log.Error("Device plugin maintenance: use exactly "
-                + "--install-device-plugin <expanded-package-directory> or "
-                + "--remove-device-plugin, without other arguments.");
+                      + "--install-device-plugin <expanded-package-directory> or "
+                      + "--remove-device-plugin, without other arguments.");
             return 1;
         }
 
@@ -518,7 +571,7 @@ public static class Program
             }
 
             elevatedArguments = "--install-device-plugin "
-                + SelfElevation.Quote(sourceDirectory);
+                                + SelfElevation.Quote(sourceDirectory);
             operation = "installation";
         }
 
@@ -545,9 +598,11 @@ public static class Program
         }
         catch (Exception ex) when (IsDevicePackageSlotGateFailure(ex))
         {
-            Log.Error($"Device plugin maintenance: package-slot ownership could not be verified; {operation} refused.", ex);
+            Log.Error($"Device plugin maintenance: package-slot ownership could not be verified; {operation} refused.",
+                ex);
             return 1;
         }
+
         if (slotGate is null)
         {
             Log.Error($"Device plugin maintenance: package-slot startup activity did not settle; {operation} refused.");
@@ -566,19 +621,23 @@ public static class Program
     private static Task<int> RunDevicePluginMaintenanceUnderGateAsync(
         DevicePluginMaintenanceMode mode,
         string? sourceDirectory,
-        string operation) =>
-        RunDevicePluginMaintenanceWithOwnerReservationAsync(
+        string operation)
+    {
+        return RunDevicePluginMaintenanceWithOwnerReservationAsync(
             DeviceCoordinator.ProductionOwnerName,
             operation,
             () => RunDevicePluginMaintenanceUnderOwnerAsync(mode, sourceDirectory, operation));
+    }
 
-    /// <summary>Runs one package-slot mutation while holding the machine-wide device-owner
-    /// marker, so plugin code can never load beside a slot that is being replaced.</summary>
+    /// <summary>
+    ///     Runs one package-slot mutation while holding the machine-wide device-owner
+    ///     marker, so plugin code can never load beside a slot that is being replaced.
+    /// </summary>
     /// <remarks>
-    /// The reservation is held for the WHOLE operation rather than taken per step: a stage that
-    /// released it between validation and the swap would let a coordinator start against a slot
-    /// that is halfway replaced. Separated from the maintenance body so that "held throughout"
-    /// can be proven against a private marker name instead of the production one.
+    ///     The reservation is held for the WHOLE operation rather than taken per step: a stage that
+    ///     released it between validation and the swap would let a coordinator start against a slot
+    ///     that is halfway replaced. Separated from the maintenance body so that "held throughout"
+    ///     can be proven against a private marker name instead of the production one.
     /// </remarks>
     internal static async Task<int> RunDevicePluginMaintenanceWithOwnerReservationAsync(
         string ownerName,
@@ -593,7 +652,7 @@ public static class Program
         }
 
         Log.Error($"Device plugin maintenance: machine-wide device ownership is active or "
-            + $"could not be reserved; {operation} refused.");
+                  + $"could not be reserved; {operation} refused.");
         return 1;
     }
 
@@ -616,12 +675,12 @@ public static class Program
                 sourceDirectory!,
                 DeviceInstallationPaths.InstalledPackageRoot).ConfigureAwait(false);
             Log.Info("Device plugin maintenance: installed "
-                + $"{installed.Manifest?.Id ?? Path.GetFileName(installed.PackagePath)} "
-                + $"into the protected slot at {installed.PackagePath}.");
+                     + $"{installed.Manifest?.Id ?? Path.GetFileName(installed.PackagePath)} "
+                     + $"into the protected slot at {installed.PackagePath}.");
             return 0;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-            or InvalidDataException)
+                                       or InvalidDataException)
         {
             Log.Error($"Device plugin maintenance: {operation} failed", ex);
             return 1;
@@ -640,8 +699,8 @@ public static class Program
     /// <summary>Resolves this run's log verbosity from the command line, else configuration.</summary>
     /// <param name="args">Process arguments.</param>
     /// <remarks>
-    /// Configuration is read defensively: a damaged config.json must not decide whether the log
-    /// that would explain the damage exists. Any failure keeps the default.
+    ///     Configuration is read defensively: a damaged config.json must not decide whether the log
+    ///     that would explain the damage exists. Any failure keeps the default.
     /// </remarks>
     private static void ApplyLogVerbosity(string[] args)
     {
@@ -657,7 +716,7 @@ public static class Program
                 verbosity = ConfigStore.Load().LogVerbosity;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                or InvalidDataException or JsonException)
+                                           or InvalidDataException or JsonException)
             {
                 Log.Warn($"Log verbosity fell back to {verbosity}: {ex.Message}");
             }
@@ -690,13 +749,17 @@ public static class Program
 
     private static DevicePackageInventory? InventoryDevicePackagesForStartup(
         string packageRoot,
-        TimeSpan timeout) =>
-        DevicePackageSlotGate.TryRunSynchronously(
+        TimeSpan timeout)
+    {
+        return DevicePackageSlotGate.TryRunSynchronously(
             timeout,
             () => DevicePackageStager.InventoryEffectiveInstalledPackage(packageRoot));
+    }
 
-    /// <summary>Returns whether startup must fail closed for a named-object, filesystem, or
-    /// ambiguous/unsafe recovery-slot inspection error.</summary>
+    /// <summary>
+    ///     Returns whether startup must fail closed for a named-object, filesystem, or
+    ///     ambiguous/unsafe recovery-slot inspection error.
+    /// </summary>
     internal static bool IsDevicePackageSlotGateFailure(Exception exception)
     {
         ArgumentNullException.ThrowIfNull(exception);
@@ -707,9 +770,9 @@ public static class Program
     }
 
     /// <summary>
-    /// Returns whether this invocation is a normal startup that must enforce the one-plugin slot.
-    /// Recovery, setup, update/uninstall helpers, and the simulated overlay test never start device
-    /// code and therefore bypass the refusal.
+    ///     Returns whether this invocation is a normal startup that must enforce the one-plugin slot.
+    ///     Recovery, setup, update/uninstall helpers, and the simulated overlay test never start device
+    ///     code and therefore bypass the refusal.
     /// </summary>
     internal static bool ShouldEnforceDevicePackageCardinality(string[] args)
     {
@@ -762,11 +825,12 @@ public static class Program
 
     private static bool AcquireShellMutex()
     {
-        _shellMutex = new Mutex(initiallyOwned: true, @"Local\WSGM.Shell", out var createdNew);
+        _shellMutex = new Mutex(true, @"Local\WSGM.Shell", out var createdNew);
         if (createdNew)
         {
             return true;
         }
+
         // The named object survives while ANY handle to it is open (installer
         // probe, diagnostic tool), so createdNew=false only proves it existed —
         // try to actually take ownership before concluding a shell is running.
@@ -781,9 +845,11 @@ public static class Program
         }
     }
 
-    /// <summary>Fatal-error handler for shell mode: make sure the session has a
-    /// desktop again, then die. The logon service watchdog is the robust outer
-    /// recovery layer; this is in-process best effort.</summary>
+    /// <summary>
+    ///     Fatal-error handler for shell mode: make sure the session has a
+    ///     desktop again, then die. The logon service watchdog is the robust outer
+    ///     recovery layer; this is in-process best effort.
+    /// </summary>
     private static void Panic(string context, Exception? ex)
     {
         Log.Error($"PANIC ({context})", ex ?? new Exception("unknown"));
@@ -797,7 +863,11 @@ public static class Program
             {
                 TrayHost.DestroyActive();
             }
-            catch { /* recovery must not throw */ }
+            catch
+            {
+                /* recovery must not throw */
+            }
+
             if (!ExplorerControl.IsRunningInSession())
             {
                 if (ExplorerShellAnchor.HasRecoveryOwner(WindowFinder.CurrentSessionId))
@@ -812,8 +882,10 @@ public static class Program
                     ExplorerControl.StartExplorer();
                 }
             }
+
             RestoreDisplayScalesBestEffort();
         }
+
         // Same guard as normal shutdown: a crashing settings process must not
         // release a still-running shell's lease.
         if (Mode is RunMode.Shell or RunMode.OverlayTest || SteamInputBlocker.IsApplied)
@@ -822,8 +894,10 @@ public static class Program
         }
     }
 
-    /// <summary>Game mode forces 100% scaling and that persists in the registry —
-    /// every way out of shell mode must put the captured values back.</summary>
+    /// <summary>
+    ///     Game mode forces 100% scaling and that persists in the registry —
+    ///     every way out of shell mode must put the captured values back.
+    /// </summary>
     private static void RestoreDisplayScalesBestEffort()
     {
         try
@@ -839,17 +913,21 @@ public static class Program
     /// <summary>Builds the Avalonia application configuration used by all UI modes.</summary>
     /// <returns>The configured Avalonia application builder.</returns>
     public static AppBuilder BuildAvaloniaApp()
-        => AppBuilder.Configure<App>()
+    {
+        return AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .WithInterFont()
             .LogToTrace();
+    }
 }
 
-/// <summary>Disarms WSGM if the shell process keeps dying at logon: 3 or more
-/// shell-mode starts within 2 minutes disarm the service boot automatically
-/// (boot.json disabled plus the config flag cleared), so the next sign-in is a plain
-/// Explorer desktop. Dropping a legacy shell registration is a migration remnant of
-/// the same disarm, not its primary action.</summary>
+/// <summary>
+///     Disarms WSGM if the shell process keeps dying at logon: 3 or more
+///     shell-mode starts within 2 minutes disarm the service boot automatically
+///     (boot.json disabled plus the config flag cleared), so the next sign-in is a plain
+///     Explorer desktop. Dropping a legacy shell registration is a migration remnant of
+///     the same disarm, not its primary action.
+/// </summary>
 internal static class CrashLoopBreaker
 {
     private static string MarkerPath => Path.Combine(Log.Directory, "shell-starts.txt");
@@ -878,7 +956,8 @@ internal static class CrashLoopBreaker
 
             var cutoff = DateTime.UtcNow - TimeSpan.FromMinutes(2);
             var all = File.ReadAllLines(MarkerPath)
-                .Select(l => DateTime.TryParse(l, null, DateTimeStyles.RoundtripKind, out var t) ? t : DateTime.MinValue)
+                .Select(l =>
+                    DateTime.TryParse(l, null, DateTimeStyles.RoundtripKind, out var t) ? t : DateTime.MinValue)
                 .Where(t => t != DateTime.MinValue)
                 .ToArray();
             var recent = all.Count(t => t > cutoff);
@@ -886,11 +965,13 @@ internal static class CrashLoopBreaker
             {
                 return true;
             }
+
             // Trim stale entries so the file doesn't grow forever.
             if (recent < all.Length)
             {
                 File.WriteAllLines(MarkerPath, all.Where(t => t > cutoff).Select(t => t.ToString("O")));
             }
+
             return false;
         }
         catch
@@ -899,8 +980,10 @@ internal static class CrashLoopBreaker
         }
     }
 
-    /// <summary>Clears the marker after the breaker fired, so the next manual
-    /// shell start begins with a clean slate instead of being disarmed again.</summary>
+    /// <summary>
+    ///     Clears the marker after the breaker fired, so the next manual
+    ///     shell start begins with a clean slate instead of being disarmed again.
+    /// </summary>
     public static void Reset()
     {
         try

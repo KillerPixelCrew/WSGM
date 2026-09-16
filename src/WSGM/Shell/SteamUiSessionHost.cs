@@ -10,96 +10,104 @@ using WSGM.Device.Sdk.Glyphs;
 namespace WSGM.Shell;
 
 /// <summary>
-/// Owns the narrow bridge and registered patches over the injected process-long Steam UI transport.
+///     Owns the narrow bridge and registered patches over the injected process-long Steam UI transport.
 /// </summary>
 /// <remarks>
-/// Session lifetime only: which patches are applied when, generation changes, synchronization, and
-/// publication gating. The surfaces themselves — what each gate installs, which rows mount, how a
-/// payload is read — are the toolkit's; this host feeds them WSGM's data through the backend
-/// services and decides which are on.
+///     Session lifetime only: which patches are applied when, generation changes, synchronization, and
+///     publication gating. The surfaces themselves — what each gate installs, which rows mount, how a
+///     payload is read — are the toolkit's; this host feeds them WSGM's data through the backend
+///     services and decides which are on.
 /// </remarks>
 internal sealed class SteamUiSessionHost : IAsyncDisposable
 {
     private const string ShellPatchId = "wsgm.native-qam.shell";
-    private readonly ISteamUiTransport _transport;
-    private readonly CancellationTokenSource _shutdown = new();
-    private readonly SemaphoreSlim _synchronizeSignal = new(0, 1);
-    private readonly Lock _observationGate = new();
-    private readonly SteamUiModuleRuntime _runtime;
-    private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
-    private readonly DeviceCoordinatorNativeQamTdpService _tdp;
-    private readonly DeviceCoordinatorNativeQamDeviceControlsService _deviceControls;
-    private readonly DeviceCoordinatorNativeQamAutoTdpService _autoTdp;
-    private readonly DeviceCoordinatorNativeQamControllerTargetService _controllerTarget;
-    private readonly NativeQamBrightnessService _brightness;
-    private readonly bool _ownsBrightness;
-    private readonly NativeQamPowerPresetService _powerPresets;
-    private readonly NativeQamPowerProfileService _powerProfiles = new(PowerSchemes.Windows,
-        id => ConfigStore.Mutate(config => config.LastSelectedPowerSchemeId = id));
-    private readonly NativeQamHybridCoreService _hybridCores = new(HybridCores.Windows);
 
     /// <summary>
-    /// Null when no audio manager exists for this session, which is the overlay-test case.
+    ///     Null when no audio manager exists for this session, which is the overlay-test case.
     /// </summary>
     /// <remarks>
-    /// Unlike the semantic services above there is no "unavailable" stand-in, because audio is
-    /// supplied as a namespace rather than drawn as a row: with nothing to supply, the right
-    /// behaviour is to leave the namespace absent so Steam's own store stays unavailable, not to
-    /// install one that answers with nothing.
+    ///     Unlike the semantic services above there is no "unavailable" stand-in, because audio is
+    ///     supplied as a namespace rather than drawn as a row: with nothing to supply, the right
+    ///     behaviour is to leave the namespace absent so Steam's own store stays unavailable, not to
+    ///     install one that answers with nothing.
     /// </remarks>
     private readonly AudioManagerNativeQamAudioService? _audio;
 
-    /// <summary>The Wi-Fi surface, or null when this session has no radio manager.</summary>
-    private readonly NativeQamNetworkService? _network;
+    private readonly DeviceCoordinatorNativeQamAutoTdpService _autoTdp;
 
     /// <summary>The Bluetooth surface, riding the same radio-manager condition.</summary>
     private readonly NativeQamBluetoothService? _bluetooth;
 
-    /// <summary>
-    /// Steam's revived storage pages over WSGM's own eject, format and library registration, or
-    /// null when this session has no storage managers to answer with.
-    /// </summary>
-    private readonly SteamStorageBridge? _storage;
-
-    /// <summary>Hears the library badge's Home layout report.</summary>
-    private readonly LibraryBadgeBackend _libraryBadge = new();
-
-    /// <summary>Hears what Big Picture Home's carousel holds.</summary>
-    private readonly HomeCarouselBackend _homeCarousel = new();
+    private readonly SteamUiBridgeHost _bridge;
+    private readonly NativeQamBrightnessService _brightness;
+    private readonly DeviceCoordinatorNativeQamControllerTargetService _controllerTarget;
+    private readonly DeviceCoordinatorNativeQamDeviceControlsService _deviceControls;
 
     /// <summary>The session's display-off timeouts, shared with the overlay, or null without one.</summary>
     private readonly DisplayTimeouts? _displayTimeouts;
 
-    private readonly PerformanceService _performanceService;
-    private readonly PerformanceServiceNativeQamAdapter _performance;
+    private readonly SteamInputGlyphDeliveryState _glyphDeliveryState = new();
+
+    /// <summary>Hears what Big Picture Home's carousel holds.</summary>
+    private readonly HomeCarouselBackend _homeCarousel = new();
+
+    private readonly NativeQamHybridCoreService _hybridCores = new(HybridCores.Windows);
+
+    /// <summary>Hears the library badge's Home layout report.</summary>
+    private readonly LibraryBadgeBackend _libraryBadge = new();
+
+    /// <summary>The Wi-Fi surface, or null when this session has no radio manager.</summary>
+    private readonly NativeQamNetworkService? _network;
+
+    private readonly Lock _observationGate = new();
     private readonly Action<PerformanceState> _onPerformanceStateChanged;
+    private readonly SteamOverlayActivationPatch _overlayActivation = new();
+    private readonly bool _ownsBrightness;
+    private readonly SteamUiPatchManager _patches;
+    private readonly PerformanceServiceNativeQamAdapter _performance;
+
+    private readonly PerformanceService _performanceService;
+    private readonly NativeQamPowerPresetService _powerPresets;
+
+    private readonly NativeQamPowerProfileService _powerProfiles = new(PowerSchemes.Windows,
+        id => ConfigStore.Mutate(config => config.LastSelectedPowerSchemeId = id));
 
     /// <summary>
-    /// The display-resolution row's backend, or null when this session must not move the display.
+    ///     The display-resolution row's backend, or null when this session must not move the display.
     /// </summary>
     /// <remarks>
-    /// Null in overlay-test, which runs without a real display to change. The patch is not
-    /// registered at all in that case, so the row cannot appear and offer a control with nothing
-    /// behind it.
+    ///     Null in overlay-test, which runs without a real display to change. The patch is not
+    ///     registered at all in that case, so the row cannot appear and offer a control with nothing
+    ///     behind it.
     /// </remarks>
     private readonly NativeQamResolutionService? _resolution;
-    private readonly SteamInputGlyphDeliveryState _glyphDeliveryState = new();
-    private readonly SteamUiBridgeHost _bridge;
-    private readonly SteamUiPatchManager _patches;
-    private readonly SteamOverlayActivationPatch _overlayActivation = new();
+
+    private readonly SteamUiModuleRuntime _runtime;
+    private readonly CancellationTokenSource _shutdown = new();
+
+    /// <summary>
+    ///     Steam's revived storage pages over WSGM's own eject, format and library registration, or
+    ///     null when this session has no storage managers to answer with.
+    /// </summary>
+    private readonly SteamStorageBridge? _storage;
+
     private readonly Task _synchronization;
-    private int _signalPending;
-    private IDisposable? _performanceObservation;
-    private volatile bool _enabled;
-    private volatile bool _networkIndicatorEnabled;
-    private volatile bool _downloadSortEnabled;
-    private volatile bool _libraryBadgeEnabled;
-    private volatile bool _homeCarouselEnabled;
+    private readonly SemaphoreSlim _synchronizeSignal = new(0, 1);
+    private readonly DeviceCoordinatorNativeQamTdpService _tdp;
+    private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
+    private readonly ISteamUiTransport _transport;
     private volatile bool _carouselShowUninstalled;
-    private volatile bool _screensaverEnabled;
-    private volatile bool _glyphsEnabled;
-    private volatile bool _glyphDeliveryEnabled;
     private volatile bool _disposed;
+    private volatile bool _downloadSortEnabled;
+    private volatile bool _enabled;
+    private volatile bool _glyphDeliveryEnabled;
+    private volatile bool _glyphsEnabled;
+    private volatile bool _homeCarouselEnabled;
+    private volatile bool _libraryBadgeEnabled;
+    private volatile bool _networkIndicatorEnabled;
+    private IDisposable? _performanceObservation;
+    private volatile bool _screensaverEnabled;
+    private int _signalPending;
     private volatile bool _surfaceObservationEnabled;
 
     /// <summary>Creates the host and its surface services.</summary>
@@ -112,24 +120,24 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <param name="resolution">The display-resolution backend, or null.</param>
     /// <param name="autoTdp">The session's AutoTDP service, or null when it is not running.</param>
     /// <param name="perfSupport">
-    /// What the device can back, for the reactivated performance panel. Supplied by the session
-    /// because the frame-limit options come from display-mode discovery and the VRR flag from the
-    /// device plugin, and this host owns neither. Null hides every performance control, which is
-    /// the correct state for a session that cannot yet say what it can honour.
+    ///     What the device can back, for the reactivated performance panel. Supplied by the session
+    ///     because the frame-limit options come from display-mode discovery and the VRR flag from the
+    ///     device plugin, and this host owns neither. Null hides every performance control, which is
+    ///     the correct state for a session that cannot yet say what it can honour.
     /// </param>
     /// <param name="applyRefreshRate">Applies a manually chosen refresh rate, or null.</param>
     /// <param name="applyVariableRefreshRate">Applies the VRR flag, or null.</param>
     /// <param name="showBluetoothPanel">Opens the session's Bluetooth prompt and status surface.</param>
     /// <param name="brightness">Session-owned brightness, or null for a standalone host.</param>
     /// <param name="storage">
-    /// The bridge over the session's own storage managers, or null when this session has none —
-    /// overlay-test, which owns no drive or format manager to answer with. The surface is then not
-    /// declared at all, so Steam's storage pages stay as inert as they are without WSGM rather than
-    /// opening onto controls with nothing behind them.
+    ///     The bridge over the session's own storage managers, or null when this session has none —
+    ///     overlay-test, which owns no drive or format manager to answer with. The surface is then not
+    ///     declared at all, so Steam's storage pages stay as inert as they are without WSGM rather than
+    ///     opening onto controls with nothing behind them.
     /// </param>
     /// <param name="displayTimeouts">
-    /// The session's display-off timeouts, shared with the overlay, or null when this session has
-    /// none. Steam's Screensaver settings get no rows then.
+    ///     The session's display-off timeouts, shared with the overlay, or null when this session has
+    ///     none. Steam's Screensaver settings get no rows then.
     /// </param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
@@ -155,7 +163,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(toggleQuickAccess);
         _toggleQuickAccess = toggleQuickAccess;
         _tdp = new DeviceCoordinatorNativeQamTdpService(deviceCoordinator);
-        _powerPresets = new NativeQamPowerPresetService(deviceCoordinator?.PowerPresets, deviceCoordinator?.PowerAssignments);
+        _powerPresets =
+            new NativeQamPowerPresetService(deviceCoordinator?.PowerPresets, deviceCoordinator?.PowerAssignments);
         _deviceControls = new DeviceCoordinatorNativeQamDeviceControlsService(deviceCoordinator);
         _performanceService = performance;
         _performance = new PerformanceServiceNativeQamAdapter(performance)
@@ -193,7 +202,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.Register(_overlayActivation);
         _patches.SetPatchEnabled(_overlayActivation.Id, false);
         modules.RegisterPatches(_patches);
-        SetPatchStates(bootstrap: false, components: false);
+        SetPatchStates(false, false);
         SetGlyphDeliveryPatchStates();
         _patches.SetGlobalEnabled(false);
         // Traffic in both directions is the runtime's; which patches are applied when stays here,
@@ -203,15 +212,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _runtime = new SteamUiModuleRuntime(
             _bridge,
             modules,
-            commandsEnabled: () =>
+            () =>
                 _enabled || _libraryBadgeEnabled || _homeCarouselEnabled || _screensaverEnabled,
-            publishEnabled: BootstrapWanted);
+            BootstrapWanted);
         _transport.GenerationChanged += OnGenerationChanged;
         LibraryBadges.Changed += OnSemanticStateChanged;
         if (_displayTimeouts is not null)
         {
             _displayTimeouts.Changed += OnSemanticStateChanged;
         }
+
         _tdp.StateChanged += OnSemanticStateChanged;
         _deviceControls.StateChanged += OnSemanticStateChanged;
         _autoTdp.StateChanged += OnSemanticStateChanged;
@@ -226,6 +236,76 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _synchronization = Task.Run(SynchronizeLoopAsync);
     }
 
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        await DisableAsync().ConfigureAwait(false);
+        _disposed = true;
+        _brightness.Changed -= QueueStatePublication;
+        if (_ownsBrightness)
+        {
+            _brightness.Dispose();
+        }
+
+        if (_bluetooth is not null)
+        {
+            await _bluetooth.StopDiscoveryAsync().ConfigureAwait(false);
+        }
+
+        // A session that ends while Steam's network page is open would otherwise leave the radio
+        // sweeping and this host subscribed to a collection it no longer publishes.
+        if (_network is not null)
+        {
+            await _network.DisposeAsync().ConfigureAwait(false);
+        }
+
+        _transport.GenerationChanged -= OnGenerationChanged;
+        LibraryBadges.Changed -= OnSemanticStateChanged;
+        if (_displayTimeouts is not null)
+        {
+            _displayTimeouts.Changed -= OnSemanticStateChanged;
+        }
+
+        _tdp.StateChanged -= OnSemanticStateChanged;
+        _deviceControls.StateChanged -= OnSemanticStateChanged;
+        _performanceService.StateChanged -= _onPerformanceStateChanged;
+        _autoTdp.StateChanged -= OnSemanticStateChanged;
+        _controllerTarget.StateChanged -= OnSemanticStateChanged;
+        if (_audio is not null)
+        {
+            _audio.StateChanged -= OnSemanticStateChanged;
+        }
+
+        _enabled = false;
+        ReleasePerformanceObservation();
+        // The runtime first: it stops answering, cancels what is in flight and drains its own
+        // request tasks, so nothing is still writing to the bridge when that is disposed below.
+        await _runtime.DisposeAsync().ConfigureAwait(false);
+        _shutdown.Cancel();
+        try
+        {
+            await _synchronization.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        await _patches.DisposeAsync().ConfigureAwait(false);
+        await _bridge.DisposeAsync().ConfigureAwait(false);
+        _autoTdp.Dispose();
+        _audio?.Dispose();
+        _controllerTarget.Dispose();
+        _deviceControls.Dispose();
+        _tdp.Dispose();
+        _synchronizeSignal.Dispose();
+        _shutdown.Dispose();
+    }
+
     /// <summary>Observes native surface lifetime independently of custom QAM rows.</summary>
     internal void ApplySurfaceObservation(bool enabled)
     {
@@ -233,12 +313,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             return;
         }
+
         _surfaceObservationEnabled = enabled;
         _patches.SetPatchEnabled(_overlayActivation.Id, enabled);
         if (enabled)
         {
             _patches.SetGlobalEnabled(true);
         }
+
         QueueSynchronization();
     }
 
@@ -253,14 +335,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (enabled)
         {
             _patches.SetGlobalEnabled(true);
-            SetPatchStates(bootstrap: true, components: true);
+            SetPatchStates(true, true);
         }
         else
         {
             CancelAllInflightRequests();
             ReleasePerformanceObservation();
-            SetPatchStates(bootstrap: IndependentSurfacesEnabled(), components: false);
+            SetPatchStates(IndependentSurfacesEnabled(), false);
         }
+
         QueueSynchronization();
     }
 
@@ -282,7 +365,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _network.PostStopScanning();
         }
-        SetPatchStates(bootstrap: BootstrapWanted(), components: _enabled);
+
+        SetPatchStates(BootstrapWanted(), _enabled);
         QueueSynchronization();
         QueueStatePublication();
     }
@@ -301,15 +385,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _patches.SetGlobalEnabled(true);
         }
-        SetPatchStates(bootstrap: BootstrapWanted(), components: _enabled);
+
+        SetPatchStates(BootstrapWanted(), _enabled);
         QueueSynchronization();
     }
 
     /// <summary>Shows or retracts the library badge on Steam's library tiles.</summary>
     /// <param name="enabled">Whether the badge surface should be claimed and fed.</param>
     /// <remarks>
-    /// Independent of native Quick Access, like download sorting: the badge belongs to the card
-    /// manager feature, and a session with Quick Access off still names the card a game is on.
+    ///     Independent of native Quick Access, like download sorting: the badge belongs to the card
+    ///     manager feature, and a session with Quick Access off still names the card a game is on.
     /// </remarks>
     internal void ApplyLibraryBadge(bool enabled)
     {
@@ -323,7 +408,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _patches.SetGlobalEnabled(true);
         }
-        SetPatchStates(bootstrap: BootstrapWanted(), components: _enabled);
+
+        SetPatchStates(BootstrapWanted(), _enabled);
         QueueSynchronization();
         QueueStatePublication();
     }
@@ -332,8 +418,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <param name="enabled">Whether Home's carousel lists the libraries attached right now.</param>
     /// <param name="includeUninstalled">Whether it also lists owned games that are not installed.</param>
     /// <remarks>
-    /// Independent of native Quick Access, like the library badge. The preference alone changing is
-    /// a publication, not a patch change, so the carousel re-orders without being retracted.
+    ///     Independent of native Quick Access, like the library badge. The preference alone changing is
+    ///     a publication, not a patch change, so the carousel re-orders without being retracted.
     /// </remarks>
     internal void ApplyHomeCarousel(bool enabled, bool includeUninstalled)
     {
@@ -350,6 +436,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             {
                 QueueStatePublication();
             }
+
             return;
         }
 
@@ -358,7 +445,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _patches.SetGlobalEnabled(true);
         }
-        SetPatchStates(bootstrap: BootstrapWanted(), components: _enabled);
+
+        SetPatchStates(BootstrapWanted(), _enabled);
         QueueSynchronization();
         QueueStatePublication();
     }
@@ -366,9 +454,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>Adds or retracts WSGM's display-off rows in Steam's Screensaver settings.</summary>
     /// <param name="enabled">Whether the rows should be drawn and Steam's screensaver timeouts heard.</param>
     /// <remarks>
-    /// Independent of native Quick Access: the rows edit the same display-off timeouts as the overlay's
-    /// Power page, and hearing Steam's screensaver timeout is what keeps the display from turning off
-    /// before the screensaver can start. Not declared at all without a session timeout owner.
+    ///     Independent of native Quick Access: the rows edit the same display-off timeouts as the overlay's
+    ///     Power page, and hearing Steam's screensaver timeout is what keeps the display from turning off
+    ///     before the screensaver can start. Not declared at all without a session timeout owner.
     /// </remarks>
     internal void ApplyScreensaverTimeouts(bool enabled)
     {
@@ -386,40 +474,49 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _displayTimeouts.ForgetSteam();
         }
-        SetPatchStates(bootstrap: BootstrapWanted(), components: _enabled);
+
+        SetPatchStates(BootstrapWanted(), _enabled);
         QueueSynchronization();
         QueueStatePublication();
     }
 
     /// <summary>Whether any surface that runs without native Quick Access is on.</summary>
     /// <remarks>
-    /// Download sort counts: it registers its transform on the toolkit's shared JSX-runtime claim,
-    /// which the bridge serves.
+    ///     Download sort counts: it registers its transform on the toolkit's shared JSX-runtime claim,
+    ///     which the bridge serves.
     /// </remarks>
-    private bool IndependentSurfacesEnabled() =>
-        _networkIndicatorEnabled
-        || _libraryBadgeEnabled
-        || _homeCarouselEnabled
-        || _screensaverEnabled
-        || _downloadSortEnabled;
+    private bool IndependentSurfacesEnabled()
+    {
+        return _networkIndicatorEnabled
+               || _libraryBadgeEnabled
+               || _homeCarouselEnabled
+               || _screensaverEnabled
+               || _downloadSortEnabled;
+    }
 
     /// <summary>Whether the bridge bootstrap is needed: native QAM, or a surface that works without it.</summary>
-    private bool BootstrapWanted() => _enabled || IndependentSurfacesEnabled();
+    private bool BootstrapWanted()
+    {
+        return _enabled || IndependentSurfacesEnabled();
+    }
 
     /// <summary>Returns the immutable patch-registry view used by diagnostics and isolated tests.</summary>
-    internal IReadOnlyList<SteamUiPatchSnapshot> GetPatchSnapshots() => _patches.GetSnapshots();
+    internal IReadOnlyList<SteamUiPatchSnapshot> GetPatchSnapshots()
+    {
+        return _patches.GetSnapshots();
+    }
 
     /// <summary>
-    /// Applies handheld glyph presentation: whether it is on, and what to draw.
+    ///     Applies handheld glyph presentation: whether it is on, and what to draw.
     /// </summary>
     /// <param name="enabled">Whether WSGM presents handheld glyphs at all.</param>
     /// <param name="profile">The resolved plugin profile, including its control availability.</param>
     /// <param name="nativeArtwork">Keeps Valve artwork while still hiding absent controls.</param>
     /// <remarks>
-    /// One call because there is one thing to install. The profile is the plugin's and is the only
-    /// source of artwork; WSGM turns it into a stylesheet. Either switch off, or a profile that
-    /// supplies no artwork or absent controls, removes WSGM's stylesheet. Native artwork selection
-    /// retains the active plugin's control filtering.
+    ///     One call because there is one thing to install. The profile is the plugin's and is the only
+    ///     source of artwork; WSGM turns it into a stylesheet. Either switch off, or a profile that
+    ///     supplies no artwork or absent controls, removes WSGM's stylesheet. Native artwork selection
+    ///     retains the active plugin's control filtering.
     /// </remarks>
     internal void ApplyGlyphs(bool enabled, ImportedGlyphProfile? profile, bool nativeArtwork = false)
     {
@@ -461,11 +558,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             await _network.StopScanningAsync().ConfigureAwait(false);
         }
-        SetPatchStates(bootstrap: true, components: false);
+
+        SetPatchStates(true, false);
         SetGlyphDeliveryPatchStates();
         await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
         _glyphDeliveryState.Update(null);
-        SetPatchStates(bootstrap: false, components: false);
+        SetPatchStates(false, false);
         await _patches.SetGlobalEnabledAsync(false, _shutdown.Token).ConfigureAwait(false);
     }
 
@@ -532,14 +630,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     {
                         ReleasePerformanceObservation();
                     }
+
                     QueueStatePublication();
                 }
                 else
                 {
                     ReleasePerformanceObservation();
-                    SetPatchStates(bootstrap: false, components: false);
+                    SetPatchStates(false, false);
                     await _patches.SetGlobalEnabledAsync(
-                            _downloadSortEnabled || _glyphsEnabled || _glyphDeliveryEnabled || _surfaceObservationEnabled,
+                            _downloadSortEnabled || _glyphsEnabled || _glyphDeliveryEnabled ||
+                            _surfaceObservationEnabled,
                             _shutdown.Token)
                         .ConfigureAwait(false);
                 }
@@ -557,9 +657,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     /// <summary>Forgets Steam's screensaver timeouts whenever the surface that reports them does not hold.</summary>
     /// <remarks>
-    /// The bound they set belongs to the client that reported it. Switching to a Steam build without
-    /// the screensaver, or turning the rows off, otherwise leaves the overlay refusing short display
-    /// timeouts for a screensaver that no longer exists. A holding surface reports again on install.
+    ///     The bound they set belongs to the client that reported it. Switching to a Steam build without
+    ///     the screensaver, or turning the rows off, otherwise leaves the overlay refusing short display
+    ///     timeouts for a screensaver that no longer exists. A holding surface reports again on install.
     /// </remarks>
     private void ReconcileScreensaverReport()
     {
@@ -579,22 +679,24 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>Whether a Screensaver settings patch in this state still vouches for Steam's report.</summary>
     /// <param name="surface">The patch's snapshot, or null when it is not registered.</param>
     /// <returns>True while it is enabled and applying, applied or verified.</returns>
-    internal static bool ScreensaverReportHolds(SteamUiPatchSnapshot? surface) =>
-        surface is
+    internal static bool ScreensaverReportHolds(SteamUiPatchSnapshot? surface)
+    {
+        return surface is
         {
             Enabled: true,
             State: SteamUiPatchState.Applying or SteamUiPatchState.Applied or SteamUiPatchState.Verified
         };
+    }
 
     /// <summary>
-    /// Every Steam UI surface this session offers, one declaration each: which toolkit surface it
-    /// is, the state WSGM feeds it, and the backend that answers it.
+    ///     Every Steam UI surface this session offers, one declaration each: which toolkit surface it
+    ///     is, the state WSGM feeds it, and the backend that answers it.
     /// </summary>
     /// <remarks>
-    /// The toolkit owns each surface's patches, wire shapes and payload readers, so a module here is
-    /// exactly "this is our data, and it maps to that feature". A surface whose backend is absent
-    /// in this session is simply not declared. WSGM's own features — download sorting and glyph
-    /// delivery — are patches of WSGM's own and are declared beside them.
+    ///     The toolkit owns each surface's patches, wire shapes and payload readers, so a module here is
+    ///     exactly "this is our data, and it maps to that feature". A surface whose backend is absent
+    ///     in this session is simply not declared. WSGM's own features — download sorting and glyph
+    ///     delivery — are patches of WSGM's own and are declared beside them.
     /// </remarks>
     private List<ISteamUiModule> CreateModules()
     {
@@ -610,13 +712,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 Enabled,
                 () => new ValueTask<SteamPowerLimitState?>(_tdp.PowerLimit),
                 _tdp,
-                id: "tdp"),
+                "tdp"),
 
             SteamAutoTdpRow.Module(Enabled, () => new ValueTask<SteamAutoTdpState?>(_autoTdp.Current), _autoTdp),
 
             // The frame limit is the toolkit's unified row rather than Valve's notch slider, and
             // the Q12 retirement does not apply: a free 30-120 range made Valve's unusable.
-            SteamFrameLimitRow.Module(Enabled, () => new ValueTask<SteamFrameLimitState?>(_performance.FrameLimit), _performance),
+            SteamFrameLimitRow.Module(Enabled, () => new ValueTask<SteamFrameLimitState?>(_performance.FrameLimit),
+                _performance),
             SteamPowerProfileRow.Module(Enabled, _powerProfiles.ReadAsync, _powerProfiles),
             SteamHybridCoreRow.Module(Enabled, _hybridCores.ReadAsync, _hybridCores),
             SteamPowerPresetRow.Module(Enabled, _powerPresets.ReadAsync, _powerPresets),
@@ -628,7 +731,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
             // Declared unconditionally — whether the switch appears is decided by whether the
             // device publishes a variable-refresh capability, which the state carries.
-            SteamVariableRefreshRow.Module(Enabled, () => new ValueTask<SteamVariableRefreshState?>(_performance.Vrr), _performance),
+            SteamVariableRefreshRow.Module(Enabled, () => new ValueTask<SteamVariableRefreshState?>(_performance.Vrr),
+                _performance),
 
             // The backend behind Valve's own Performance tab and the Valve rows that read it.
             // Declared unconditionally because the performance service always exists; what the
@@ -637,7 +741,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 Enabled,
                 () => new ValueTask<SteamPerformanceState?>(_performance.PerfState),
                 _performance,
-                id: "perf"),
+                "perf"),
 
             // Declared unconditionally: the panel backlight depends on nothing WSGM has to supply.
             SteamBrightnessSurface.Module(Enabled, _brightness.ReadAsync, _brightness),
@@ -647,11 +751,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 () => new ValueTask<SteamDeviceControlsState?>(_deviceControls.Current),
                 _deviceControls),
 
-            new SteamUiModule("download-sort", patches: [new SteamDownloadSortPatch()]),
+            new SteamUiModule("download-sort", [new SteamDownloadSortPatch()]),
 
             new SteamUiModule(
                 "glyph-style",
-                patches: [new SteamInputGlyphStylePatch(_glyphDeliveryState)]),
+                [new SteamInputGlyphStylePatch(_glyphDeliveryState)]),
 
             // The library badge on every library tile, fed from the card model. Declared
             // unconditionally: which cards exist is the reading's business, and a session with
@@ -665,7 +769,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             // disagree about which card is in the reader. Rides LibraryBadges.Changed for card moves.
             SteamHomeCarouselSurface.Module(
                 () => _homeCarouselEnabled,
-                () => new ValueTask<SteamHomeCarouselState?>(HomeCarousel.Build(LibraryBadges.Current, _carouselShowUninstalled)),
+                () => new ValueTask<SteamHomeCarouselState?>(HomeCarousel.Build(LibraryBadges.Current,
+                    _carouselShowUninstalled)),
                 _homeCarousel)
         ];
 
@@ -717,14 +822,18 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // so there is nothing to await and no reason to hop threads to answer Steam.
         if (_storage is { } storage)
         {
-            modules.Add(SteamStorageSurface.Module(Enabled, () => new ValueTask<SteamStorageState?>(storage.ReadState()), storage));
+            modules.Add(SteamStorageSurface.Module(Enabled,
+                () => new ValueTask<SteamStorageState?>(storage.ReadState()), storage));
         }
 
         return modules;
     }
 
     /// <summary>The publication gate every surface shares: on while native Quick Access is.</summary>
-    private bool Enabled() => _enabled;
+    private bool Enabled()
+    {
+        return _enabled;
+    }
 
     private async Task<SteamUiCommandResult> HandleToggleQuickAccessAsync(
         SteamUiBridgeRequest request,
@@ -736,9 +845,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             : new SteamUiCommandResult(false, "Quick access is not currently available.");
     }
 
-    private void OnSemanticStateChanged() => QueueStatePublication();
+    private void OnSemanticStateChanged()
+    {
+        QueueStatePublication();
+    }
 
-    private void QueueStatePublication() => _runtime?.QueuePublication();
+    private void QueueStatePublication()
+    {
+        _runtime?.QueuePublication();
+    }
 
     private void SetPatchStates(bool bootstrap, bool components)
     {
@@ -767,12 +882,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// Enables the one glyph stylesheet when the active plugin profile supplies something to draw.
+    ///     Enables the one glyph stylesheet when the active plugin profile supplies something to draw.
     /// </summary>
     /// <remarks>
-    /// One switch, because there is one stylesheet. The previous four independent tier switches
-    /// existed to gate four separate mapping namespaces; a single stylesheet either has rules or it
-    /// does not, and the patch itself refuses to apply an empty one.
+    ///     One switch, because there is one stylesheet. The previous four independent tier switches
+    ///     existed to gate four separate mapping namespaces; a single stylesheet either has rules or it
+    ///     does not, and the patch itself refuses to apply an empty one.
     /// </remarks>
     private void SetGlyphDeliveryPatchStates()
     {
@@ -795,10 +910,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         Log.Change(
             "steam.ui.glyphs",
             $"Steam Input glyph delivery {(deliver ? "enabled" : "disabled")}: "
-                + $"setting={_glyphsEnabled}, profile={presentation is not null}, "
-                + $"stableResources={presentation?.StableResources.Count ?? 0}, "
-                + $"controllerImages={presentation?.ControllerImages.Count ?? 0}, "
-                + $"absentControls={presentation?.AbsentControls.Count ?? 0}",
+            + $"setting={_glyphsEnabled}, profile={presentation is not null}, "
+            + $"stableResources={presentation?.StableResources.Count ?? 0}, "
+            + $"controllerImages={presentation?.ControllerImages.Count ?? 0}, "
+            + $"absentControls={presentation?.AbsentControls.Count ?? 0}",
             deliver ? LogLevel.Info : LogLevel.Warn);
         _patches.SetPatchEnabled(SteamInputGlyphStylePatch.PatchId, deliver);
         _glyphDeliveryEnabled = deliver;
@@ -839,68 +954,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             observation = _performanceObservation;
             _performanceObservation = null;
         }
+
         observation?.Dispose();
     }
 
-    private void CancelAllInflightRequests() => _runtime.CancelAllInflight();
-
-    /// <inheritdoc />
-    public async ValueTask DisposeAsync()
+    private void CancelAllInflightRequests()
     {
-        if (_disposed)
-        {
-            return;
-        }
-
-        await DisableAsync().ConfigureAwait(false);
-        _disposed = true;
-        _brightness.Changed -= QueueStatePublication;
-        if (_ownsBrightness) { _brightness.Dispose(); }
-        if (_bluetooth is not null) { await _bluetooth.StopDiscoveryAsync().ConfigureAwait(false); }
-        // A session that ends while Steam's network page is open would otherwise leave the radio
-        // sweeping and this host subscribed to a collection it no longer publishes.
-        if (_network is not null)
-        {
-            await _network.DisposeAsync().ConfigureAwait(false);
-        }
-        _transport.GenerationChanged -= OnGenerationChanged;
-        LibraryBadges.Changed -= OnSemanticStateChanged;
-        if (_displayTimeouts is not null)
-        {
-            _displayTimeouts.Changed -= OnSemanticStateChanged;
-        }
-        _tdp.StateChanged -= OnSemanticStateChanged;
-        _deviceControls.StateChanged -= OnSemanticStateChanged;
-        _performanceService.StateChanged -= _onPerformanceStateChanged;
-        _autoTdp.StateChanged -= OnSemanticStateChanged;
-        _controllerTarget.StateChanged -= OnSemanticStateChanged;
-        if (_audio is not null)
-        {
-            _audio.StateChanged -= OnSemanticStateChanged;
-        }
-
-        _enabled = false;
-        ReleasePerformanceObservation();
-        // The runtime first: it stops answering, cancels what is in flight and drains its own
-        // request tasks, so nothing is still writing to the bridge when that is disposed below.
-        await _runtime.DisposeAsync().ConfigureAwait(false);
-        _shutdown.Cancel();
-        try
-        {
-            await _synchronization.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-        }
-
-        await _patches.DisposeAsync().ConfigureAwait(false);
-        await _bridge.DisposeAsync().ConfigureAwait(false);
-        _autoTdp.Dispose();
-        _audio?.Dispose();
-        _controllerTarget.Dispose();
-        _deviceControls.Dispose();
-        _tdp.Dispose();
-        _synchronizeSignal.Dispose();
-        _shutdown.Dispose();
+        _runtime.CancelAllInflight();
     }
 }

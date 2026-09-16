@@ -159,8 +159,8 @@ internal static partial class ScaffoldFromCaptureWorkflow
                 cancellationToken.ThrowIfCancellationRequested();
                 var path = Path.GetFullPath(Path.Combine(temporary, relative));
                 if (!path.StartsWith(
-                    temporary + Path.DirectorySeparatorChar,
-                    StringComparison.OrdinalIgnoreCase))
+                        temporary + Path.DirectorySeparatorChar,
+                        StringComparison.OrdinalIgnoreCase))
                 {
                     throw new IOException("A template output escaped the scaffold directory.");
                 }
@@ -173,6 +173,7 @@ internal static partial class ScaffoldFromCaptureWorkflow
             {
                 throw new IOException("Scaffold output was created before publication.");
             }
+
             Directory.Move(temporary, output.FullPath);
         }
         catch
@@ -195,18 +196,21 @@ internal static partial class ScaffoldFromCaptureWorkflow
         SanitizedCaptureBundle bundle,
         string? usbInstanceId)
     {
-        UsbInterfaceInventory[] endpoints = [.. bundle.Inventory.UsbInterfaces
-            .Where(candidate => candidate is
-            {
-                Present: true,
-                VendorId.Length: 4,
-                ProductId.Length: 4,
-                DeviceRelease.Length: 4
-            })
-            .OrderBy(candidate => candidate.VendorId, StringComparer.Ordinal)
-            .ThenBy(candidate => candidate.ProductId, StringComparer.Ordinal)
-            .ThenBy(candidate => candidate.DeviceRelease, StringComparer.Ordinal)
-            .ThenBy(candidate => candidate.InstanceId, StringComparer.Ordinal)];
+        UsbInterfaceInventory[] endpoints =
+        [
+            .. bundle.Inventory.UsbInterfaces
+                .Where(candidate => candidate is
+                {
+                    Present: true,
+                    VendorId.Length: 4,
+                    ProductId.Length: 4,
+                    DeviceRelease.Length: 4
+                })
+                .OrderBy(candidate => candidate.VendorId, StringComparer.Ordinal)
+                .ThenBy(candidate => candidate.ProductId, StringComparer.Ordinal)
+                .ThenBy(candidate => candidate.DeviceRelease, StringComparer.Ordinal)
+                .ThenBy(candidate => candidate.InstanceId, StringComparer.Ordinal)
+        ];
         if (endpoints.Length == 0)
         {
             throw new InvalidDataException("Capture has no present exact USB VID/PID/release endpoint.");
@@ -228,10 +232,13 @@ internal static partial class ScaffoldFromCaptureWorkflow
         }
         else
         {
-            UsbInterfaceInventory[] matches = [.. endpoints.Where(candidate => string.Equals(
-                candidate.InstanceId,
-                usbInstanceId,
-                StringComparison.Ordinal))];
+            UsbInterfaceInventory[] matches =
+            [
+                .. endpoints.Where(candidate => string.Equals(
+                    candidate.InstanceId,
+                    usbInstanceId,
+                    StringComparison.Ordinal))
+            ];
             if (matches.Length != 1)
             {
                 throw new InvalidDataException(
@@ -244,13 +251,13 @@ internal static partial class ScaffoldFromCaptureWorkflow
         return new PluginScaffoldIdentity
         {
             SystemManufacturer = bundle.Inventory.Firmware.SystemManufacturer
-                ?? throw new InvalidDataException("Capture has no exact SMBIOS system manufacturer."),
+                                 ?? throw new InvalidDataException("Capture has no exact SMBIOS system manufacturer."),
             BaseboardProduct = bundle.Inventory.Firmware.BaseboardProduct
-                ?? throw new InvalidDataException("Capture has no exact baseboard product."),
+                               ?? throw new InvalidDataException("Capture has no exact baseboard product."),
             SystemSku = bundle.Inventory.Firmware.SystemSku
-                ?? throw new InvalidDataException("Capture has no exact SMBIOS system SKU."),
+                        ?? throw new InvalidDataException("Capture has no exact SMBIOS system SKU."),
             BiosVersion = bundle.Inventory.Firmware.BiosVersion
-                ?? throw new InvalidDataException("Capture has no exact BIOS version."),
+                          ?? throw new InvalidDataException("Capture has no exact BIOS version."),
             UsbVendorId = endpoint.VendorId!,
             UsbProductId = endpoint.ProductId!,
             UsbDeviceRelease = endpoint.DeviceRelease!
@@ -268,9 +275,9 @@ internal static partial class ScaffoldFromCaptureWorkflow
         return new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["ROOT_NAMESPACE"] = rootNamespace,
-            ["PACKAGE_ID_JSON"] = Json(identity: packageId),
+            ["PACKAGE_ID_JSON"] = Json(packageId),
             ["PACKAGE_ID_CS"] = CSharp(packageId),
-            ["DISPLAY_NAME_JSON"] = Json(identity: displayName),
+            ["DISPLAY_NAME_JSON"] = Json(displayName),
             ["DISPLAY_NAME_MD"] = Markdown(displayName),
             ["DEVICE_ID_CS"] = CSharp(deviceDefinitionId),
             ["API_VERSION"] = DeviceApi.Version.ToString(CultureInfo.InvariantCulture),
@@ -292,9 +299,9 @@ internal static partial class ScaffoldFromCaptureWorkflow
 
     /// <summary>Returns a buildable reference to the exact SDK used by this Device Lab process.</summary>
     /// <remarks>
-    /// A checkout gets a project reference for normal source development. The installed tool is not
-    /// inside a checkout, so its scaffold instead records the absolute path of the exact SDK assembly
-    /// shipped beside it. An unresolved MSBuild property is never emitted.
+    ///     A checkout gets a project reference for normal source development. The installed tool is not
+    ///     inside a checkout, so its scaffold instead records the absolute path of the exact SDK assembly
+    ///     shipped beside it. An unresolved MSBuild property is never emitted.
     /// </remarks>
     internal static string SdkReferenceXml(DeviceLabPathBoundaries boundaries)
     {
@@ -325,9 +332,9 @@ internal static partial class ScaffoldFromCaptureWorkflow
 
         var resolved = Path.GetFullPath(sdkAssembly);
         return "<Reference Include=\"WSGM.Device.Sdk\">\n"
-            + $"      <HintPath>{Xml(resolved)}</HintPath>\n"
-            + "      <Private>false</Private>\n"
-            + "    </Reference>";
+               + $"      <HintPath>{Xml(resolved)}</HintPath>\n"
+               + "      <Private>false</Private>\n"
+               + "    </Reference>";
     }
 
     private static string ReadTemplate(string name)
@@ -335,7 +342,7 @@ internal static partial class ScaffoldFromCaptureWorkflow
         var assembly = typeof(ScaffoldFromCaptureWorkflow).Assembly;
         using var stream = assembly.GetManifestResourceStream(ResourcePrefix + name)
                            ?? throw new InvalidDataException($"Checked-in plugin template '{name}' is missing.");
-        using StreamReader reader = new(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        using StreamReader reader = new(stream, Encoding.UTF8, true);
         return reader.ReadToEnd();
     }
 
@@ -369,29 +376,44 @@ internal static partial class ScaffoldFromCaptureWorkflow
         return builder.Length == 0 ? "UnknownDevice" : builder.ToString();
     }
 
-    private static string CSharp(string value) => value
-        .Replace(@"\", @"\\", StringComparison.Ordinal)
-        .Replace("\"", "\\\"", StringComparison.Ordinal)
-        .Replace("\r", "", StringComparison.Ordinal)
-        .Replace("\n", " ", StringComparison.Ordinal);
+    private static string CSharp(string value)
+    {
+        return value
+            .Replace(@"\", @"\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal)
+            .Replace("\r", "", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal);
+    }
 
-    private static string Json(string identity) => JsonEncodedText.Encode(identity).ToString();
+    private static string Json(string identity)
+    {
+        return JsonEncodedText.Encode(identity).ToString();
+    }
 
-    private static string Xml(string value) => value
-        .Replace("&", "&amp;", StringComparison.Ordinal)
-        .Replace("\"", "&quot;", StringComparison.Ordinal)
-        .Replace("<", "&lt;", StringComparison.Ordinal)
-        .Replace(">", "&gt;", StringComparison.Ordinal);
+    private static string Xml(string value)
+    {
+        return value
+            .Replace("&", "&amp;", StringComparison.Ordinal)
+            .Replace("\"", "&quot;", StringComparison.Ordinal)
+            .Replace("<", "&lt;", StringComparison.Ordinal)
+            .Replace(">", "&gt;", StringComparison.Ordinal);
+    }
 
-    private static string Markdown(string value) => value
-        .Replace('`', '\'')
-        .Replace("\r", "", StringComparison.Ordinal)
-        .Replace("\n", " ", StringComparison.Ordinal);
+    private static string Markdown(string value)
+    {
+        return value
+            .Replace('`', '\'')
+            .Replace("\r", "", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal);
+    }
 
-    private static string Normalize(string content) => content
-        .Replace("\r\n", "\n", StringComparison.Ordinal)
-        .Replace('\r', '\n')
-        .TrimEnd() + "\n";
+    private static string Normalize(string content)
+    {
+        return content
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .TrimEnd() + "\n";
+    }
 
     [GeneratedRegex("[^a-z0-9]+")]
     private static partial Regex NonIdentifier();

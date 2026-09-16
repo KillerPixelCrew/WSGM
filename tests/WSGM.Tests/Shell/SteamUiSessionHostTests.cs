@@ -27,7 +27,7 @@ public sealed class SteamUiSessionHostTests
 
         Assert.Contains(
             "\"steam-ui.device-controls\":[\"setChargeLimit\","
-                + "\"setLightingBrightness\",\"setLightingColor\"]",
+            + "\"setLightingBrightness\",\"setLightingColor\"]",
             transport.BridgeConfiguration,
             StringComparison.Ordinal);
     }
@@ -82,8 +82,7 @@ public sealed class SteamUiSessionHostTests
             transport,
             async cancellationToken =>
             {
-                await using var registration = cancellationToken.Register(
-                    () => requestCancelled.TrySetResult());
+                await using var registration = cancellationToken.Register(() => requestCancelled.TrySetResult());
                 requestStarted.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
                 return true;
@@ -128,8 +127,8 @@ public sealed class SteamUiSessionHostTests
         Assert.True(
             ReferenceEquals(completed, transport.SecondDownloadInstall.Task),
             $"Download install count was {transport.DownloadInstallations}; states: "
-                + string.Join(", ", host.GetPatchSnapshots().Select(snapshot =>
-                    $"{snapshot.Id}={snapshot.State}/{snapshot.Generations}")));
+            + string.Join(", ", host.GetPatchSnapshots().Select(snapshot =>
+                $"{snapshot.Id}={snapshot.State}/{snapshot.Generations}")));
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
             snapshot is { Id: "wsgm.download-sort", State: SteamUiPatchState.Verified }));
     }
@@ -204,8 +203,8 @@ public sealed class SteamUiSessionHostTests
         Assert.True(snapshots.Single(snapshot => snapshot.Id == SteamUiBridgePatch.PatchId).Enabled);
         Assert.All(
             snapshots.Where(snapshot => snapshot.Id != "wsgm.download-sort"
-                && snapshot.Id != SteamUiBridgePatch.PatchId
-                && snapshot.Id != SteamInputGlyphStylePatch.PatchId),
+                                        && snapshot.Id != SteamUiBridgePatch.PatchId
+                                        && snapshot.Id != SteamInputGlyphStylePatch.PatchId),
             snapshot => Assert.False(snapshot.Enabled));
     }
 
@@ -220,11 +219,9 @@ public sealed class SteamUiSessionHostTests
         host.ApplySurfaceObservation(true);
         host.Apply(true);
         host.Apply(false);
-        Assert.True(host.GetPatchSnapshots().Single(
-            snapshot => snapshot.Id == "steam-ui.overlay-activation").Enabled);
+        Assert.True(host.GetPatchSnapshots().Single(snapshot => snapshot.Id == "steam-ui.overlay-activation").Enabled);
         await host.DisableAsync();
-        Assert.False(host.GetPatchSnapshots().Single(
-            snapshot => snapshot.Id == "steam-ui.overlay-activation").Enabled);
+        Assert.False(host.GetPatchSnapshots().Single(snapshot => snapshot.Id == "steam-ui.overlay-activation").Enabled);
     }
 
     [Fact]
@@ -309,7 +306,7 @@ public sealed class SteamUiSessionHostTests
 
         // The carousel is its own switch, independent of native Quick Access, and its report is in
         // the vocabulary the bridge allows.
-        host.ApplyHomeCarousel(enabled: true, includeUninstalled: false);
+        host.ApplyHomeCarousel(true, false);
         await transport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await WaitForAsync(() => transport.BridgeConfiguration is not null);
 
@@ -322,6 +319,139 @@ public sealed class SteamUiSessionHostTests
         Assert.NotEqual(SteamUiPatchState.Disabled, carousel.State);
     }
 
+    [Fact]
+    public async Task RouterReturnsExplicitSuccessAndMalformedPayloadRefusal()
+    {
+        await using var transport = new RoutingTransport();
+        await using var performance = new PerformanceService(
+            new SimulatedRtssAdapter(),
+            (_, _) => Task.CompletedTask);
+        var toggles = 0;
+        await using var host = new SteamUiSessionHost(
+            transport,
+            _ =>
+            {
+                toggles++;
+                return Task.FromResult(true);
+            },
+            null,
+            performance);
+        host.Apply(true);
+        await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
+            snapshot is { Id: "steam-ui.bridge", State: SteamUiPatchState.Verified }), 3);
+
+        transport.EmitRequest(
+            "wsgm.native-qam.shell",
+            "toggleQuickAccess",
+            1,
+            1,
+            null);
+        await WaitForAsync(() => transport.Responses.Count >= 1, 3);
+        transport.EmitRequest(
+            "steam-ui.power-limit",
+            "setPrimaryLimit",
+            2,
+            1,
+            new { watts = "not-a-number" });
+        await WaitForAsync(() => transport.Responses.Count >= 2, 3);
+
+        Assert.Equal(1, toggles);
+        Assert.True(transport.Responses[0].GetProperty("ok").GetBoolean());
+        Assert.False(transport.Responses[1].GetProperty("ok").GetBoolean());
+        Assert.Equal(
+            "The sustained power-limit payload is invalid.",
+            transport.Responses[1].GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task CancelStopsInflightWorkAndTheNextRequestStillCompletes()
+    {
+        await using var transport = new RoutingTransport();
+        await using var performance = new PerformanceService(
+            new SimulatedRtssAdapter(),
+            (_, _) => Task.CompletedTask);
+        var firstStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstCancelled = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        var routeDeadline = TimeSpan.FromSeconds(2);
+        await using var host = new SteamUiSessionHost(
+            transport,
+            async cancellationToken =>
+            {
+                if (Interlocked.Increment(ref calls) > 1)
+                {
+                    return true;
+                }
+
+                await using var registration = cancellationToken.Register(() => firstCancelled.TrySetResult());
+                firstStarted.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return false;
+            },
+            null,
+            performance);
+        host.Apply(true);
+        await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
+            snapshot is { Id: "steam-ui.bridge", State: SteamUiPatchState.Verified }), 3);
+
+        transport.EmitRequest(
+            "wsgm.native-qam.shell",
+            "toggleQuickAccess",
+            1,
+            1,
+            null);
+        await firstStarted.Task.WaitAsync(routeDeadline);
+        transport.EmitRequest(
+            "wsgm.native-qam.shell",
+            "toggleQuickAccess",
+            1,
+            1,
+            null,
+            "cancel");
+        await firstCancelled.Task.WaitAsync(routeDeadline);
+
+        transport.EmitRequest(
+            "wsgm.native-qam.shell",
+            "toggleQuickAccess",
+            2,
+            2,
+            null);
+        await WaitForAsync(() => transport.Responses.Any(response =>
+            response.GetProperty("sequence").GetInt64() == 2), 3);
+
+        Assert.Equal(2, calls);
+        Assert.DoesNotContain(
+            transport.Responses,
+            response => response.GetProperty("sequence").GetInt64() == 1);
+    }
+
+    [Fact]
+    public async Task PerformanceObservationExistsOnlyWhileRowsAndBridgeAreCurrent()
+    {
+        await using var transport = new RoutingTransport();
+        await using var performance = new PerformanceService(
+            new SimulatedRtssAdapter(),
+            (_, _) => Task.CompletedTask);
+        await using var host = new SteamUiSessionHost(
+            transport,
+            _ => Task.FromResult(true),
+            null,
+            performance);
+        host.Apply(true);
+
+        await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
+            snapshot is { Id: "steam-ui.frame-limit", State: SteamUiPatchState.Verified }), 3);
+        await WaitForAsync(() => performance.ObserverCount == 1, 3);
+
+        transport.BridgeHandshakeSucceeds = false;
+        transport.AdvanceSharedGeneration();
+        await WaitForAsync(() => performance.ObserverCount == 0, 3);
+
+        Assert.Equal(0, performance.ObserverCount);
+    }
+
     private sealed class SessionHostTransport : ISteamUiTransport
     {
         private readonly Dictionary<SteamUiTargetRole, SteamUiGenerations> _generations = new()
@@ -329,13 +459,10 @@ public sealed class SteamUiSessionHostTests
             [SteamUiTargetRole.SharedJsContext] = new SteamUiGenerations(1, 1, 1, 1, 1, 1),
             [SteamUiTargetRole.MainWindow] = new SteamUiGenerations(1, 1, 1, 1, 1, 1)
         };
+
+        private string? _bridgeConfiguration;
         private int _downloadInstallations;
         private int _glyphInstallations;
-        private string? _bridgeConfiguration;
-
-        public event EventHandler<SteamUiNotification>? NotificationReceived;
-
-        public event EventHandler<SteamUiTransportSnapshot>? GenerationChanged;
 
         internal TaskCompletionSource BridgeInstalled { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -356,10 +483,16 @@ public sealed class SteamUiSessionHostTests
 
         internal int DownloadInstallations => Volatile.Read(ref _downloadInstallations);
 
+        public event EventHandler<SteamUiNotification>? NotificationReceived;
+
+        public event EventHandler<SteamUiTransportSnapshot>? GenerationChanged;
+
         public ValueTask<IAsyncDisposable> SubscribeAsync(
             SteamUiTargetRole role,
-            CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult<IAsyncDisposable>(new Lease());
+            CancellationToken cancellationToken = default)
+        {
+            return ValueTask.FromResult<IAsyncDisposable>(new Lease());
+        }
 
         public Task<SteamUiEvaluationResult> EvaluateAsync(
             SteamUiTargetRole role,
@@ -372,11 +505,12 @@ public sealed class SteamUiSessionHostTests
             {
                 Volatile.Write(ref _bridgeConfiguration, expression);
             }
+
             string value;
             if (expression.Contains("steam_ui_bridge_probe_", StringComparison.Ordinal))
             {
                 value = "{\"tdpAvailability\":1,\"tdpComponent\":1,"
-                    + "\"performanceActions\":1,\"profileProjection\":1}";
+                        + "\"performanceActions\":1,\"profileProjection\":1}";
             }
             else if (expression.Contains("version:b&&b.version", StringComparison.Ordinal))
             {
@@ -387,13 +521,13 @@ public sealed class SteamUiSessionHostTests
                 value = "{\"absent\":true}";
             }
             else if (expression.Contains("generation replaced", StringComparison.Ordinal)
-                && expression.Contains("nativeComponents", StringComparison.Ordinal))
+                     && expression.Contains("nativeComponents", StringComparison.Ordinal))
             {
                 value = "{\"ok\":true}";
             }
             else if (expression.Contains(
-                "runtime:!!window.webpackChunksteamui",
-                StringComparison.Ordinal))
+                         "runtime:!!window.webpackChunksteamui",
+                         StringComparison.Ordinal))
             {
                 value = "{\"ok\":true,\"runtime\":true,\"owned\":false}";
             }
@@ -404,13 +538,13 @@ public sealed class SteamUiSessionHostTests
                 value = "{\"ok\":true}";
             }
             else if (expression.Contains("dlSortPatched", StringComparison.Ordinal)
-                || expression.Contains("dlSortRemove", StringComparison.Ordinal))
+                     || expression.Contains("dlSortRemove", StringComparison.Ordinal))
             {
                 value = "{\"ok\":true}";
             }
             else if (expression.Contains("styleSheets", StringComparison.Ordinal)
-                && expression.Contains("rowClass", StringComparison.Ordinal)
-                && expression.Contains("logoClass", StringComparison.Ordinal))
+                     && expression.Contains("rowClass", StringComparison.Ordinal)
+                     && expression.Contains("logoClass", StringComparison.Ordinal))
             {
                 value = "{\"ok\":true,\"rowClass\":true,\"logoClass\":true}";
             }
@@ -421,7 +555,7 @@ public sealed class SteamUiSessionHostTests
                 value = "{\"ok\":true}";
             }
             else if (expression.Contains("ruleCount", StringComparison.Ordinal)
-                || expression.Contains("style.'+owned", StringComparison.Ordinal))
+                     || expression.Contains("style.'+owned", StringComparison.Ordinal))
             {
                 value = "{\"ok\":true}";
             }
@@ -449,10 +583,13 @@ public sealed class SteamUiSessionHostTests
             {
                 BridgeInstalled.TrySetResult();
             }
+
             return Task.CompletedTask;
         }
 
-        public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots() =>
+        public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots()
+        {
+            return
             [
                 .. _generations.Select(pair => new SteamUiTransportSnapshot(
                     pair.Key,
@@ -463,6 +600,12 @@ public sealed class SteamUiSessionHostTests
                     0,
                     1))
             ];
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            return ValueTask.CompletedTask;
+        }
 
         internal void AdvanceGeneration(SteamUiTargetRole role)
         {
@@ -502,170 +645,37 @@ public sealed class SteamUiSessionHostTests
                 generation));
         }
 
-        private SteamUiTransportSnapshot Snapshot(SteamUiTargetRole role) => new(
-            role,
-            SteamUiTransportHealth.Ready,
-            _generations[role],
-            "fixture-" + role,
-            null,
-            0,
-            1);
-
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        private SteamUiTransportSnapshot Snapshot(SteamUiTargetRole role)
+        {
+            return new SteamUiTransportSnapshot(
+                role,
+                SteamUiTransportHealth.Ready,
+                _generations[role],
+                "fixture-" + role,
+                null,
+                0,
+                1);
+        }
 
         private sealed class Lease : IAsyncDisposable
         {
-            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+            public ValueTask DisposeAsync()
+            {
+                return ValueTask.CompletedTask;
+            }
         }
-    }
-
-    [Fact]
-    public async Task RouterReturnsExplicitSuccessAndMalformedPayloadRefusal()
-    {
-        await using var transport = new RoutingTransport();
-        await using var performance = new PerformanceService(
-            new SimulatedRtssAdapter(),
-            (_, _) => Task.CompletedTask);
-        var toggles = 0;
-        await using var host = new SteamUiSessionHost(
-            transport,
-            _ =>
-            {
-                toggles++;
-                return Task.FromResult(true);
-            },
-            null,
-            performance);
-        host.Apply(true);
-        await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot is { Id: "steam-ui.bridge", State: SteamUiPatchState.Verified }), timeoutSeconds: 3);
-
-        transport.EmitRequest(
-            "wsgm.native-qam.shell",
-            "toggleQuickAccess",
-            sequence: 1,
-            actionGeneration: 1,
-            payload: null);
-        await WaitForAsync(() => transport.Responses.Count >= 1, timeoutSeconds: 3);
-        transport.EmitRequest(
-            "steam-ui.power-limit",
-            "setPrimaryLimit",
-            sequence: 2,
-            actionGeneration: 1,
-            payload: new { watts = "not-a-number" });
-        await WaitForAsync(() => transport.Responses.Count >= 2, timeoutSeconds: 3);
-
-        Assert.Equal(1, toggles);
-        Assert.True(transport.Responses[0].GetProperty("ok").GetBoolean());
-        Assert.False(transport.Responses[1].GetProperty("ok").GetBoolean());
-        Assert.Equal(
-            "The sustained power-limit payload is invalid.",
-            transport.Responses[1].GetProperty("error").GetString());
-    }
-
-    [Fact]
-    public async Task CancelStopsInflightWorkAndTheNextRequestStillCompletes()
-    {
-        await using var transport = new RoutingTransport();
-        await using var performance = new PerformanceService(
-            new SimulatedRtssAdapter(),
-            (_, _) => Task.CompletedTask);
-        var firstStarted = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var firstCancelled = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var calls = 0;
-        var routeDeadline = TimeSpan.FromSeconds(2);
-        await using var host = new SteamUiSessionHost(
-            transport,
-            async cancellationToken =>
-            {
-                if (Interlocked.Increment(ref calls) > 1)
-                {
-                    return true;
-                }
-
-                await using var registration = cancellationToken.Register(
-                    () => firstCancelled.TrySetResult());
-                firstStarted.TrySetResult();
-                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-                return false;
-            },
-            null,
-            performance);
-        host.Apply(true);
-        await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot is { Id: "steam-ui.bridge", State: SteamUiPatchState.Verified }), timeoutSeconds: 3);
-
-        transport.EmitRequest(
-            "wsgm.native-qam.shell",
-            "toggleQuickAccess",
-            sequence: 1,
-            actionGeneration: 1,
-            payload: null);
-        await firstStarted.Task.WaitAsync(routeDeadline);
-        transport.EmitRequest(
-            "wsgm.native-qam.shell",
-            "toggleQuickAccess",
-            sequence: 1,
-            actionGeneration: 1,
-            payload: null,
-            type: "cancel");
-        await firstCancelled.Task.WaitAsync(routeDeadline);
-
-        transport.EmitRequest(
-            "wsgm.native-qam.shell",
-            "toggleQuickAccess",
-            sequence: 2,
-            actionGeneration: 2,
-            payload: null);
-        await WaitForAsync(() => transport.Responses.Any(response =>
-            response.GetProperty("sequence").GetInt64() == 2), timeoutSeconds: 3);
-
-        Assert.Equal(2, calls);
-        Assert.DoesNotContain(
-            transport.Responses,
-            response => response.GetProperty("sequence").GetInt64() == 1);
-    }
-
-    [Fact]
-    public async Task PerformanceObservationExistsOnlyWhileRowsAndBridgeAreCurrent()
-    {
-        await using var transport = new RoutingTransport();
-        await using var performance = new PerformanceService(
-            new SimulatedRtssAdapter(),
-            (_, _) => Task.CompletedTask);
-        await using var host = new SteamUiSessionHost(
-            transport,
-            _ => Task.FromResult(true),
-            null,
-            performance);
-        host.Apply(true);
-
-        await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot is { Id: "steam-ui.frame-limit", State: SteamUiPatchState.Verified }), timeoutSeconds: 3);
-        await WaitForAsync(() => performance.ObserverCount == 1, timeoutSeconds: 3);
-
-        transport.BridgeHandshakeSucceeds = false;
-        transport.AdvanceSharedGeneration();
-        await WaitForAsync(() => performance.ObserverCount == 0, timeoutSeconds: 3);
-
-        Assert.Equal(0, performance.ObserverCount);
     }
 
     private sealed class RoutingTransport : ISteamUiTransport
     {
-        private readonly Lock _responseGate = new();
         private readonly Dictionary<SteamUiTargetRole, SteamUiGenerations> _generations = new()
         {
             [SteamUiTargetRole.SharedJsContext] = new SteamUiGenerations(1, 1, 1, 1, 1, 1),
             [SteamUiTargetRole.MainWindow] = new SteamUiGenerations(1, 1, 1, 1, 1, 1)
         };
+
+        private readonly Lock _responseGate = new();
         private readonly List<JsonElement> _responses = [];
-
-        public event EventHandler<SteamUiNotification>? NotificationReceived;
-
-        public event EventHandler<SteamUiTransportSnapshot>? GenerationChanged;
 
         internal bool BridgeHandshakeSucceeds { get; set; } = true;
 
@@ -679,6 +689,10 @@ public sealed class SteamUiSessionHostTests
                 }
             }
         }
+
+        public event EventHandler<SteamUiNotification>? NotificationReceived;
+
+        public event EventHandler<SteamUiTransportSnapshot>? GenerationChanged;
 
         public ValueTask<IAsyncDisposable> SubscribeAsync(
             SteamUiTargetRole role,
@@ -705,14 +719,14 @@ public sealed class SteamUiSessionHostTests
             else if (expression.Contains("steam_ui_bridge_probe_", StringComparison.Ordinal))
             {
                 value = "{\"tdpAvailability\":1,\"tdpComponent\":1,"
-                    + "\"performanceActions\":1,\"profileProjection\":1}";
+                        + "\"performanceActions\":1,\"profileProjection\":1}";
             }
             else if (expression.Contains("steam_ui_", StringComparison.Ordinal)
-                && expression.Contains("_probe_", StringComparison.Ordinal))
+                     && expression.Contains("_probe_", StringComparison.Ordinal))
             {
                 value = "{\"performanceActions\":1,\"controllerPresentation\":1,"
-                    + "\"tdpPresentation\":1,\"performanceRoot\":1,\"nativeFields\":1,"
-                    + "\"nativeLayout\":1,\"localization\":1,\"react\":1}";
+                        + "\"tdpPresentation\":1,\"performanceRoot\":1,\"nativeFields\":1,"
+                        + "\"nativeLayout\":1,\"localization\":1,\"react\":1}";
             }
             else if (expression.Contains("version:b&&b.version", StringComparison.Ordinal))
             {
@@ -723,13 +737,13 @@ public sealed class SteamUiSessionHostTests
                 value = "{\"absent\":true}";
             }
             else if (expression.Contains("generation replaced", StringComparison.Ordinal)
-                && expression.Contains("nativeComponents", StringComparison.Ordinal))
+                     && expression.Contains("nativeComponents", StringComparison.Ordinal))
             {
                 value = "{\"ok\":true}";
             }
             else if (expression.Contains(
-                "runtime:!!window.webpackChunksteamui",
-                StringComparison.Ordinal))
+                         "runtime:!!window.webpackChunksteamui",
+                         StringComparison.Ordinal))
             {
                 value = "{\"ok\":true,\"runtime\":true,\"owned\":false}";
             }
@@ -756,7 +770,9 @@ public sealed class SteamUiSessionHostTests
             return Task.CompletedTask;
         }
 
-        public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots() =>
+        public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots()
+        {
+            return
             [
                 .. _generations.Select(pair => new SteamUiTransportSnapshot(
                     pair.Key,
@@ -767,6 +783,12 @@ public sealed class SteamUiSessionHostTests
                     0,
                     1))
             ];
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            return ValueTask.CompletedTask;
+        }
 
         internal void EmitRequest(
             string patchId,
@@ -858,6 +880,7 @@ public sealed class SteamUiSessionHostTests
                     {
                         _responses.Add(document.RootElement.Clone());
                     }
+
                     return;
                 }
 
@@ -865,11 +888,12 @@ public sealed class SteamUiSessionHostTests
             }
         }
 
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-
         private sealed class Lease : IAsyncDisposable
         {
-            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+            public ValueTask DisposeAsync()
+            {
+                return ValueTask.CompletedTask;
+            }
         }
     }
 }

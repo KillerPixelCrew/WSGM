@@ -10,19 +10,19 @@ using WSGM.Core;
 namespace WSGM.Controls;
 
 /// <summary>
-/// Draws one resolved physical glyph: the plugin's own artwork, scaled to fit.
+///     Draws one resolved physical glyph: the plugin's own artwork, scaled to fit.
 /// </summary>
 /// <remarks>
-/// A drawing rather than an image control, because there is nothing to load. The SDK's package
-/// loader has already turned the plugin's SVG into a normalized path model, and
-/// <see cref="PhysicalGlyphService"/> has already turned that into Avalonia geometry — so rendering
-/// is a transform and a fill, with no parser, decoder, or external SVG library in the resident
-/// application.
-/// <para>
-/// Nothing here reaches for a profile, a package or a file. The plan is supplied, and a plan that
-/// carries no artwork draws nothing, which is how a device with no glyph profile renders as blank
-/// space rather than as a broken image.
-/// </para>
+///     A drawing rather than an image control, because there is nothing to load. The SDK's package
+///     loader has already turned the plugin's SVG into a normalized path model, and
+///     <see cref="PhysicalGlyphService" /> has already turned that into Avalonia geometry — so rendering
+///     is a transform and a fill, with no parser, decoder, or external SVG library in the resident
+///     application.
+///     <para>
+///         Nothing here reaches for a profile, a package or a file. The plan is supplied, and a plan that
+///         carries no artwork draws nothing, which is how a device with no glyph profile renders as blank
+///         space rather than as a broken image.
+///     </para>
 /// </remarks>
 internal sealed class PhysicalGlyphImage : Control
 {
@@ -57,10 +57,10 @@ internal sealed class PhysicalGlyphImage : Control
         set => SetValue(ForegroundProperty, value);
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     /// <remarks>
-    /// Raster plans own native bitmap memory. Glyph-preview rebuilds replace controls, so detach is
-    /// the deterministic release boundary.
+    ///     Raster plans own native bitmap memory. Glyph-preview rebuilds replace controls, so detach is
+    ///     the deterministic release boundary.
     /// </remarks>
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
@@ -68,7 +68,7 @@ internal sealed class PhysicalGlyphImage : Control
         ReleaseRaster();
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
@@ -87,7 +87,7 @@ internal sealed class PhysicalGlyphImage : Control
         _rasterSource = default;
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public override void Render(DrawingContext context)
     {
         var plan = Plan;
@@ -148,21 +148,27 @@ internal sealed class PhysicalGlyphImage : Control
         }
     }
 
-    private static PenLineCap LineCapFor(string token) => token switch
+    private static PenLineCap LineCapFor(string token)
     {
-        "round" => PenLineCap.Round,
-        "square" => PenLineCap.Square,
-        _ => PenLineCap.Flat
-    };
+        return token switch
+        {
+            "round" => PenLineCap.Round,
+            "square" => PenLineCap.Square,
+            _ => PenLineCap.Flat
+        };
+    }
 
-    private static PenLineJoin LineJoinFor(string token) => token switch
+    private static PenLineJoin LineJoinFor(string token)
     {
-        "round" => PenLineJoin.Round,
-        "bevel" => PenLineJoin.Bevel,
-        _ => PenLineJoin.Miter
-    };
+        return token switch
+        {
+            "round" => PenLineJoin.Round,
+            "bevel" => PenLineJoin.Bevel,
+            _ => PenLineJoin.Miter
+        };
+    }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     protected override Size MeasureOverride(Size availableSize)
     {
         var plan = Plan;
@@ -213,11 +219,11 @@ internal sealed class PhysicalGlyphImage : Control
     /// <param name="png">The exact bytes from the plan.</param>
     /// <returns>The decoded bitmap, or null when the bytes are absent or undecodable.</returns>
     /// <remarks>
-    /// Keyed on the memory itself rather than on a hash: a plan's bytes are a slice of the imported
-    /// asset and never change in place, so equality of the slice is equality of the image. A failed
-    /// decode is remembered as a null bitmap for those bytes so the failure costs one attempt rather
-    /// than one per frame — the asset was validated at import, so a failure here means a corrupt
-    /// package, not something a retry can fix.
+    ///     Keyed on the memory itself rather than on a hash: a plan's bytes are a slice of the imported
+    ///     asset and never change in place, so equality of the slice is equality of the image. A failed
+    ///     decode is remembered as a null bitmap for those bytes so the failure costs one attempt rather
+    ///     than one per frame — the asset was validated at import, so a failure here means a corrupt
+    ///     package, not something a retry can fix.
     /// </remarks>
     private Bitmap? RasterFor(ReadOnlyMemory<byte> png)
     {
@@ -236,7 +242,7 @@ internal sealed class PhysicalGlyphImage : Control
         _rasterSource = png;
         try
         {
-            using MemoryStream stream = new(png.ToArray(), writable: false);
+            using MemoryStream stream = new(png.ToArray(), false);
             _raster = new Bitmap(stream);
         }
         catch (Exception ex)
@@ -252,8 +258,8 @@ internal sealed class PhysicalGlyphImage : Control
     /// <param name="foreground">The brush <c>currentColor</c> resolves to.</param>
     /// <returns>The brush, or null for no paint.</returns>
     /// <remarks>
-    /// The normalizer guarantees the token is one of those three, so an unparseable colour here is a
-    /// contract break rather than untrusted input — it draws nothing instead of guessing a colour.
+    ///     The normalizer guarantees the token is one of those three, so an unparseable colour here is a
+    ///     contract break rather than untrusted input — it draws nothing instead of guessing a colour.
     /// </remarks>
     private static IBrush? Resolve(string token, IBrush? foreground)
     {

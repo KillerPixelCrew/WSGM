@@ -27,9 +27,11 @@ public partial class OverlayWindow
             {
                 vm.ConfirmingCloseLauncher = true;
             }
+
             ArmConfirmReset();
             return;
         }
+
         ResetConfirms();
         CloseLauncherRequested?.Invoke();
     }
@@ -49,21 +51,27 @@ public partial class OverlayWindow
     // Deliberately no dismiss: the row is a toggle, and the updated description/badge
     // are the immediate feedback the user is looking at.
     private void OnKeepAwakeToggle(object? sender, RoutedEventArgs e)
-        => KeepAwakeToggleRequested?.Invoke();
+    {
+        KeepAwakeToggleRequested?.Invoke();
+    }
 
-    /// <summary>Paints the Keep Awake row's status dot in the WakeWatch color
-    /// vocabulary: green free, yellow standby-blocked, red display-pinned, grey
-    /// unknown. Brushes come from the palette tokens; set from the controller's
-    /// indicator poll.</summary>
+    /// <summary>
+    ///     Paints the Keep Awake row's status dot in the WakeWatch color
+    ///     vocabulary: green free, yellow standby-blocked, red display-pinned, grey
+    ///     unknown. Brushes come from the palette tokens; set from the controller's
+    ///     indicator poll.
+    /// </summary>
     /// <param name="state">The system-wide wake-lock state.</param>
     internal void SetKeepAwakeStatus(WakeLockState state)
-        => KeepAwakeButton.StatusBrush = this.FindResource(state switch
+    {
+        KeepAwakeButton.StatusBrush = this.FindResource(state switch
         {
             WakeLockState.DisplayHeld => "HcDangerBrush",
             WakeLockState.SystemHeld => "HcWarningBrush",
             WakeLockState.Free => "HcSuccessBrush",
             _ => "HcTextMutedBrush"
         }) as IBrush;
+    }
 
     /// <summary>Cycles the idle timeout a row names in its CommandParameter.</summary>
     private void OnCyclePowerTimeout(object? sender, RoutedEventArgs e)
@@ -83,6 +91,7 @@ public partial class OverlayWindow
             ArmConfirmReset();
             return;
         }
+
         PowerActions.Restart();
     }
 
@@ -95,12 +104,15 @@ public partial class OverlayWindow
             ArmConfirmReset();
             return;
         }
+
         PowerActions.Shutdown();
     }
 
-    /// <summary>Armed "Really?" confirms revert on their own — after ~5 s and when
-    /// the panel closes — so a stray second press minutes later cannot restart or
-    /// shut down the device.</summary>
+    /// <summary>
+    ///     Armed "Really?" confirms revert on their own — after ~5 s and when
+    ///     the panel closes — so a stray second press minutes later cannot restart or
+    ///     shut down the device.
+    /// </summary>
     private void ArmConfirmReset()
     {
         if (_confirmResetTimer is null)
@@ -111,6 +123,7 @@ public partial class OverlayWindow
             _confirmResetTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
             _confirmResetTimer.Tick += (_, _) => ResetConfirms();
         }
+
         _confirmResetTimer.Stop();
         _confirmResetTimer.Start();
     }
@@ -125,6 +138,7 @@ public partial class OverlayWindow
         {
             vm.ConfirmingCloseLauncher = false;
         }
+
         RestartButton.Title = "Restart";
         ShutdownButton.Title = "Shut down";
     }

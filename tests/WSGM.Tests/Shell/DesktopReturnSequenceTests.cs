@@ -56,16 +56,44 @@ public sealed class DesktopReturnSequenceTests
         internal bool DesktopReady { get; init; } = true;
         internal bool LayoutReady { get; init; } = true;
         internal Task LeaveGate { get; init; } = Task.CompletedTask;
+
+        public Task ExitBigPictureAsync()
+        {
+            return Call("steam");
+        }
+
+        public async Task<bool> RestoreLayoutAsync()
+        {
+            await Call("layout");
+            return LayoutReady;
+        }
+
+        public Task RetireGameModeAsync()
+        {
+            return Call("retire");
+        }
+
+        public async Task<bool> RestoreExplorerAsync()
+        {
+            await Call("explorer");
+            return DesktopReady;
+        }
+
+        public async Task RunLeaveActionsAsync()
+        {
+            await Call("leave");
+            await LeaveGate;
+        }
+
+        public Task ClearPendingReturnAsync()
+        {
+            return Call("clear");
+        }
+
         private Task Call(string name)
         {
             Calls.Add(name);
             return name == Fail ? Task.FromException(new InvalidOperationException(name)) : Task.CompletedTask;
         }
-        public Task ExitBigPictureAsync() => Call("steam");
-        public async Task<bool> RestoreLayoutAsync() { await Call("layout"); return LayoutReady; }
-        public Task RetireGameModeAsync() => Call("retire");
-        public async Task<bool> RestoreExplorerAsync() { await Call("explorer"); return DesktopReady; }
-        public async Task RunLeaveActionsAsync() { await Call("leave"); await LeaveGate; }
-        public Task ClearPendingReturnAsync() => Call("clear");
     }
 }

@@ -16,27 +16,56 @@ internal sealed class PluginWidgetPinControls : CardButton
         ShowState();
         AttachedToVisualTree += async (_, _) =>
         {
-            if (read is null) { return; }
+            if (read is null)
+            {
+                return;
+            }
+
             IsEnabled = false;
-            try { pinned = await read(); ShowState(); }
-            catch (Exception ex) { Description = "Could not read pin: " + ex.Message; }
-            finally { IsEnabled = true; }
+            try
+            {
+                pinned = await read();
+                ShowState();
+            }
+            catch (Exception ex)
+            {
+                Description = "Could not read pin: " + ex.Message;
+            }
+            finally
+            {
+                IsEnabled = true;
+            }
         };
         Click += async (_, _) =>
         {
-            if (busy) { return; }
+            if (busy)
+            {
+                return;
+            }
+
             busy = true;
             IsEnabled = false;
             try
             {
-                if (read is not null) { pinned = await read(); }
+                if (read is not null)
+                {
+                    pinned = await read();
+                }
+
                 var next = !pinned;
                 await save(next);
                 pinned = next;
                 ShowState();
             }
-            catch (Exception ex) { Description = "Pin change failed: " + ex.Message; }
-            finally { busy = false; IsEnabled = true; }
+            catch (Exception ex)
+            {
+                Description = "Pin change failed: " + ex.Message;
+            }
+            finally
+            {
+                busy = false;
+                IsEnabled = true;
+            }
         };
         return;
 

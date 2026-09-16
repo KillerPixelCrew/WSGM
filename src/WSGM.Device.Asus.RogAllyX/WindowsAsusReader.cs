@@ -15,8 +15,10 @@ internal interface IAsusReader : IDisposable
 }
 
 /// <summary>Serialized DSTS-only transport. Not activated by the production plugin yet.</summary>
-/// <remarks>Invoke from a bounded diagnostic worker, never the UI thread. Cancellation cannot undo
-/// or interrupt a synchronous driver call. No DEVS, INIT, watchdog or arbitrary IOCTL is exposed.</remarks>
+/// <remarks>
+///     Invoke from a bounded diagnostic worker, never the UI thread. Cancellation cannot undo
+///     or interrupt a synchronous driver call. No DEVS, INIT, watchdog or arbitrary IOCTL is exposed.
+/// </remarks>
 internal sealed partial class WindowsAsusReader : IAsusReader
 {
     private const uint GenericReadWrite = 0xC0000000;
@@ -27,7 +29,10 @@ internal sealed partial class WindowsAsusReader : IAsusReader
     private readonly SafeFileHandle _handle;
     private bool _disposed;
 
-    private WindowsAsusReader(SafeFileHandle handle) => _handle = handle;
+    private WindowsAsusReader(SafeFileHandle handle)
+    {
+        _handle = handle;
+    }
 
     public byte[] Read(AsusReadControl control, int profile, CancellationToken cancellationToken)
     {
@@ -84,7 +89,8 @@ internal sealed partial class WindowsAsusReader : IAsusReader
     internal static WindowsAsusReader Open()
     {
         // ATKACPI requires a read/write handle even though this type only issues status queries.
-        var handle = CreateFile(@"\\.\ATKACPI", GenericReadWrite, ShareReadWrite, IntPtr.Zero, OpenExisting, 0, IntPtr.Zero);
+        var handle = CreateFile(@"\\.\ATKACPI", GenericReadWrite, ShareReadWrite, IntPtr.Zero, OpenExisting, 0,
+            IntPtr.Zero);
         if (!handle.IsInvalid)
         {
             return new WindowsAsusReader(handle);
@@ -95,7 +101,8 @@ internal sealed partial class WindowsAsusReader : IAsusReader
         throw new Win32Exception(error, "ASUS System Control Interface is unavailable.");
     }
 
-    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true,
+        StringMarshalling = StringMarshalling.Utf16)]
     private static partial SafeFileHandle CreateFile(
         string path,
         uint access,

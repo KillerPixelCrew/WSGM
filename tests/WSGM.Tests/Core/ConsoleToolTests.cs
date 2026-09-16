@@ -48,12 +48,20 @@ public sealed class ConsoleToolTests
         Assert.True(process.Disposed);
     }
 
+    [Theory]
+    [InlineData("", "")]
+    [InlineData("/run", "/run")]
+    [InlineData("/run /quiet", "/run")]
+    [InlineData("  /run", "")]
+    public void FirstTokenReturnsTheLeadingSpaceDelimitedToken(string arguments, string expected)
+    {
+        Assert.Equal(expected, ConsoleTool.FirstToken(arguments));
+    }
+
     private sealed class FaultingConsoleToolProcess : IConsoleToolProcess
     {
         private readonly TaskCompletionSource _exit = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public int ExitCode => throw new InvalidOperationException("No exit code is available.");
 
         internal int KillCalls { get; private set; }
 
@@ -63,6 +71,8 @@ public sealed class ConsoleToolTests
 
         internal TaskCompletionSource KillRequested { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int ExitCode => throw new InvalidOperationException("No exit code is available.");
 
         public Task WaitForExitAsync(CancellationToken cancellationToken)
         {
@@ -78,16 +88,14 @@ public sealed class ConsoleToolTests
             KillRequested.TrySetResult();
         }
 
-        internal void CompleteExit() => _exit.TrySetResult();
+        public void Dispose()
+        {
+            Disposed = true;
+        }
 
-        public void Dispose() => Disposed = true;
+        internal void CompleteExit()
+        {
+            _exit.TrySetResult();
+        }
     }
-
-    [Theory]
-    [InlineData("", "")]
-    [InlineData("/run", "/run")]
-    [InlineData("/run /quiet", "/run")]
-    [InlineData("  /run", "")]
-    public void FirstTokenReturnsTheLeadingSpaceDelimitedToken(string arguments, string expected)
-        => Assert.Equal(expected, ConsoleTool.FirstToken(arguments));
 }

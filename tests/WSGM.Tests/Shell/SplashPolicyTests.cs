@@ -9,14 +9,14 @@ public sealed class SplashPolicyTests
     {
         // The wait for a TV behind an HDMI switch is open-ended by design. A timeout measured from
         // the cover would fire in the middle of exactly the wait the cover exists for.
-        Assert.False(SplashPolicy.ShouldTimeout(armed: false, TimeSpan.FromHours(2)));
+        Assert.False(SplashPolicy.ShouldTimeout(false, TimeSpan.FromHours(2)));
     }
 
     [Fact]
     public void AnArmedSplashTimesOutOnlyAfterItsWindow()
     {
-        Assert.False(SplashPolicy.ShouldTimeout(armed: true, SplashPolicy.SteamTimeout));
+        Assert.False(SplashPolicy.ShouldTimeout(true, SplashPolicy.SteamTimeout));
         Assert.True(SplashPolicy.ShouldTimeout(
-            armed: true, SplashPolicy.SteamTimeout + TimeSpan.FromSeconds(1)));
+            true, SplashPolicy.SteamTimeout + TimeSpan.FromSeconds(1)));
     }
 }

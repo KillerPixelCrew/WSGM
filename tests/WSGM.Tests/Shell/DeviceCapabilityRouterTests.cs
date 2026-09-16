@@ -13,7 +13,7 @@ public sealed class DeviceCapabilityRouterTests
 
         var result = await router.ExecuteAsync(
             "power.sustained",
-            instanceId: null,
+            null,
             new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 18 },
             TimeSpan.FromSeconds(1));
 
@@ -32,15 +32,15 @@ public sealed class DeviceCapabilityRouterTests
 
         // Changes that arrive before the posted build runs join it; the build reads the state
         // when it runs on the UI thread, so it carries all of them.
-        router.UpdateDesiredContext(null, onAcPower: true, hardwareProfileId: null, applicationId: null);
-        router.UpdateDesiredContext(null, onAcPower: false, hardwareProfileId: null, applicationId: null);
+        router.UpdateDesiredContext(null, true, null, null);
+        router.UpdateDesiredContext(null, false, null, null);
 
         Assert.Single(posted);
         posted[0]();
         Assert.Equal(1, notifications);
 
         // Once it has run, the next change needs a build of its own.
-        router.UpdateDesiredContext(null, onAcPower: true, hardwareProfileId: null, applicationId: null);
+        router.UpdateDesiredContext(null, true, null, null);
 
         Assert.Equal(2, posted.Count);
         posted[1]();
@@ -55,48 +55,55 @@ public sealed class DeviceCapabilityRouterTests
 
         await Assert.ThrowsAsync<ObjectDisposedException>(() => router.ExecuteAsync(
             "power.sustained",
-            instanceId: null,
+            null,
             new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 18 },
             TimeSpan.FromSeconds(1)));
     }
 
     /// <remarks>
-    /// Two shapes, because a descriptor's role and value kind have to agree for the router to reach
-    /// the section check at all. Sharing one shape across both made the refusal test pass for the
-    /// wrong reason: an invalid power limit is refused whether or not it names a section.
+    ///     Two shapes, because a descriptor's role and value kind have to agree for the router to reach
+    ///     the section check at all. Sharing one shape across both made the refusal test pass for the
+    ///     wrong reason: an invalid power limit is refused whether or not it names a section.
     /// </remarks>
-    private static CapabilityDescriptor Generic(string? sectionId = null) => new()
+    private static CapabilityDescriptor Generic(string? sectionId = null)
     {
-        CapabilityId = "vendor.control",
-        Role = CapabilityRole.GenericToggle,
-        ValueKind = CapabilityValueKind.Boolean,
-        Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Control" },
-        SectionId = sectionId,
-        SupportsRead = true,
-        SupportsWrite = true,
-        Persistence = CapabilityPersistence.Volatile
-    };
+        return new CapabilityDescriptor
+        {
+            CapabilityId = "vendor.control",
+            Role = CapabilityRole.GenericToggle,
+            ValueKind = CapabilityValueKind.Boolean,
+            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Control" },
+            SectionId = sectionId,
+            SupportsRead = true,
+            SupportsWrite = true,
+            Persistence = CapabilityPersistence.Volatile
+        };
+    }
 
-    private static CapabilityDescriptor Semantic(string? sectionId = null) => new()
+    private static CapabilityDescriptor Semantic(string? sectionId = null)
     {
-        CapabilityId = "power.primary-limit",
-        Role = CapabilityRole.PowerSustainedLimit,
-        ValueKind = CapabilityValueKind.Integer,
-        Display = new CapabilityDisplay { Key = DisplayKey.Tdp },
-        SectionId = sectionId,
-        SupportsRead = true,
-        SupportsWrite = true,
-        Minimum = 8,
-        Maximum = 30,
-        Step = 1,
-        Persistence = CapabilityPersistence.Volatile
-    };
+        return new CapabilityDescriptor
+        {
+            CapabilityId = "power.primary-limit",
+            Role = CapabilityRole.PowerSustainedLimit,
+            ValueKind = CapabilityValueKind.Integer,
+            Display = new CapabilityDisplay { Key = DisplayKey.Tdp },
+            SectionId = sectionId,
+            SupportsRead = true,
+            SupportsWrite = true,
+            Minimum = 8,
+            Maximum = 30,
+            Step = 1,
+            Persistence = CapabilityPersistence.Volatile
+        };
+    }
 
     private static bool Validates(
         CapabilityDescriptor descriptor,
         out string? error,
-        params CapabilitySection[] sections) =>
-        DeviceCapabilityValidation.TryValidateDescriptorSet(
+        params CapabilitySection[] sections)
+    {
+        return DeviceCapabilityValidation.TryValidateDescriptorSet(
             new CapabilityDescriptorSet
             {
                 Generation = 1,
@@ -107,20 +114,24 @@ public sealed class DeviceCapabilityRouterTests
             1,
             0,
             out error);
+    }
 
-    private static CapabilitySection Declared(string id = "vendor.tuning") => new()
+    private static CapabilitySection Declared(string id = "vendor.tuning")
     {
-        SectionId = id,
-        Key = SettingSectionKey.Power,
-        Categories =
-        [
-            new CapabilityCategory
-            {
-                CategoryId = "general",
-                Key = SettingSectionKey.General
-            }
-        ]
-    };
+        return new CapabilitySection
+        {
+            SectionId = id,
+            Key = SettingSectionKey.Power,
+            Categories =
+            [
+                new CapabilityCategory
+                {
+                    CategoryId = "general",
+                    Key = SettingSectionKey.General
+                }
+            ]
+        };
+    }
 
     [Theory]
     [InlineData(CapabilityRole.GenericToggle)]
@@ -270,20 +281,25 @@ public sealed class DeviceCapabilityRouterTests
         Assert.True(DeviceCapabilityValidation.ValueMatches(Curve(-500, 5000), unbounded, out _));
     }
 
-    private static CapabilityValue Curve(int firstOutput, int secondOutput) =>
-        CapabilityValue.Curve([new CurvePoint(0, firstOutput), new CurvePoint(100, secondOutput)]);
-
-    private static CapabilityDescriptor Descriptor() => new()
+    private static CapabilityValue Curve(int firstOutput, int secondOutput)
     {
-        CapabilityId = "power.primary-limit",
-        Role = CapabilityRole.PowerSustainedLimit,
-        ValueKind = CapabilityValueKind.Integer,
-        Display = new CapabilityDisplay { Key = DisplayKey.Tdp },
-        SupportsRead = true,
-        SupportsWrite = true,
-        Minimum = 8,
-        Maximum = 30,
-        Step = 1,
-        Persistence = CapabilityPersistence.Volatile
-    };
+        return CapabilityValue.Curve([new CurvePoint(0, firstOutput), new CurvePoint(100, secondOutput)]);
+    }
+
+    private static CapabilityDescriptor Descriptor()
+    {
+        return new CapabilityDescriptor
+        {
+            CapabilityId = "power.primary-limit",
+            Role = CapabilityRole.PowerSustainedLimit,
+            ValueKind = CapabilityValueKind.Integer,
+            Display = new CapabilityDisplay { Key = DisplayKey.Tdp },
+            SupportsRead = true,
+            SupportsWrite = true,
+            Minimum = 8,
+            Maximum = 30,
+            Step = 1,
+            Persistence = CapabilityPersistence.Volatile
+        };
+    }
 }

@@ -26,11 +26,11 @@ public enum DeviceProfileRejection
 }
 
 /// <summary>
-/// Checks an authored profile against the descriptor the device publishes right now.
+///     Checks an authored profile against the descriptor the device publishes right now.
 /// </summary>
 /// <remarks>
-/// Pure, and deliberately not redundant with storage normalization; why it runs immediately before
-/// apply is stated in <c>docs\device-integration.md</c> §Authored profiles.
+///     Pure, and deliberately not redundant with storage normalization; why it runs immediately before
+///     apply is stated in <c>docs\device-integration.md</c> §Authored profiles.
 /// </remarks>
 public static class DeviceProfileValidation
 {
@@ -40,11 +40,11 @@ public static class DeviceProfileValidation
     /// <summary>Checks a profile against the live descriptor.</summary>
     /// <param name="profile">The authored profile.</param>
     /// <param name="descriptor">The descriptor the device publishes now, or null when absent.</param>
-    /// <param name="reason">What is wrong, when the result is not <see cref="DeviceProfileRejection.None"/>.</param>
-    /// <returns>Why the profile cannot be applied, or <see cref="DeviceProfileRejection.None"/>.</returns>
+    /// <param name="reason">What is wrong, when the result is not <see cref="DeviceProfileRejection.None" />.</param>
+    /// <returns>Why the profile cannot be applied, or <see cref="DeviceProfileRejection.None" />.</returns>
     /// <remarks>
-    /// Returns the reason rather than a bare false so the caller can log which bound was missed. A
-    /// refusal without the value and the bound beside it cannot be diagnosed from a user's log.
+    ///     Returns the reason rather than a bare false so the caller can log which bound was missed. A
+    ///     refusal without the value and the bound beside it cannot be diagnosed from a user's log.
     /// </remarks>
     public static DeviceProfileRejection Validate(
         DeviceAuthoredProfile profile,

@@ -47,60 +47,63 @@ internal sealed record ControllerManagerStatus(
     string Detail);
 
 /// <summary>
-/// The one owner of WSGM's controller management for a session.
+///     The one owner of WSGM's controller management for a session.
 /// </summary>
 /// <remarks>
-/// Everything WSGM does to the controller happens here: the virtual target and its replacement, the
-/// haptic return path, WSGM's owned HidHide delta, the local UI capture, the source WSGM's own
-/// surfaces navigate from, and the make-safe handoff. There is deliberately no second policy layer
-/// between a setting and this object: the overlay, Settings, and the shared running-application
-/// monitor all call it directly.
-/// <para>
-/// <see cref="DeviceCoordinator"/> owns the plugin lifecycle; this object owns WSGM's virtual
-/// controller half and orders the two through
-/// <see cref="ControllerMakeSafeSequence"/>.
-/// </para>
+///     Everything WSGM does to the controller happens here: the virtual target and its replacement, the
+///     haptic return path, WSGM's owned HidHide delta, the local UI capture, the source WSGM's own
+///     surfaces navigate from, and the make-safe handoff. There is deliberately no second policy layer
+///     between a setting and this object: the overlay, Settings, and the shared running-application
+///     monitor all call it directly.
+///     <para>
+///         <see cref="DeviceCoordinator" /> owns the plugin lifecycle; this object owns WSGM's virtual
+///         controller half and orders the two through
+///         <see cref="ControllerMakeSafeSequence" />.
+///     </para>
 /// </remarks>
 internal sealed class ControllerManager : IAsyncDisposable
 {
     private readonly IHidBackend _backend;
-    private readonly HidHideOwnedDeltaManager _hidHide;
-    private readonly ManagedControllerRouter _router;
-    private readonly ControllerProcessPriority _processPriority;
-    private readonly UiCaptureState _uiCapture = new();
-    private readonly SemaphoreSlim _transition = new(1, 1);
     private readonly string _controllerReaderApplication;
-    private readonly object _stateGate = new();
-    private readonly Lock _sampleGate = new();
+    private readonly HidHideOwnedDeltaManager _hidHide;
+    private readonly ControllerProcessPriority _processPriority;
 
     /// <summary>Serializes routing a sample against the neutralizations that must precede it.</summary>
     /// <remarks>
-    /// A lock cannot do this: the publication it protects is asynchronous, and a route decided
-    /// under <see cref="_stateGate"/> but published outside it can land a stale live sample on top
-    /// of the neutral packet a capture claim just wrote.
+    ///     A lock cannot do this: the publication it protects is asynchronous, and a route decided
+    ///     under <see cref="_stateGate" /> but published outside it can land a stale live sample on top
+    ///     of the neutral packet a capture claim just wrote.
     /// </remarks>
     private readonly SemaphoreSlim _routeGate = new(1, 1);
 
+    private readonly ManagedControllerRouter _router;
+    private readonly Lock _sampleGate = new();
+    private readonly object _stateGate = new();
+    private readonly SemaphoreSlim _transition = new(1, 1);
+    private readonly UiCaptureState _uiCapture = new();
+
+    // Written under the transition gate but read from the sample path, which must not take it.
+    private volatile bool _disposed;
+    private bool _forwardingBlocked;
+
+    private CanonicalButtons _lastButtons;
+    private CanonicalControllerSample? _lastSample;
+    private CanonicalControllerSample? _pendingSample;
+
     private IReadOnlyList<PhysicalDeviceIdentity> _physicalDevices = [];
+    private Task _sampleDrain = Task.CompletedTask;
+    private bool _sampleDrainRunning;
+
     private ControllerSelection _selection = new(
-        Enabled: false,
+        false,
         ManagedControllerTarget.SteamDeckComposite,
         [],
         "Controller management has not started.");
 
-    private CanonicalButtons _lastButtons;
-    private CanonicalControllerSample? _lastSample;
-    private CanonicalButtons _syntheticButtons;
     private long _sourceGeneration;
-    private bool _forwardingBlocked;
     private bool _steamCapture;
     private bool _steamOwnershipPaused;
-    private CanonicalControllerSample? _pendingSample;
-    private bool _sampleDrainRunning;
-    private Task _sampleDrain = Task.CompletedTask;
-
-    // Written under the transition gate but read from the sample path, which must not take it.
-    private volatile bool _disposed;
+    private CanonicalButtons _syntheticButtons;
 
     internal ControllerManager(
         IHidBackend backend,
@@ -122,11 +125,82 @@ internal sealed class ControllerManager : IAsyncDisposable
         _router.TargetFaulted += OnRouterTargetFaulted;
     }
 
+    /// <summary>Current state of controller management.</summary>
+    internal ControllerManagementState State { get; private set; } = ControllerManagementState.Off;
+
+    /// <summary>Why the current state holds, for logs and the overlay.</summary>
+    private string Detail { get; set; } = "Controller management has not started.";
+
+    /// <summary>Where WSGM's own surfaces are reading controller input from.</summary>
+    /// <remarks>
+    ///     The managed source is used only while a healthy target is actually being driven. Every other
+    ///     state falls back to SDL with the Steam Input lease, which is why that path stays a permanent
+    ///     capability rather than a transitional one.
+    /// </remarks>
+    private UiInputSource UiSource => State is ControllerManagementState.Active
+        ? UiInputSource.ManagedCanonical
+        : UiInputSource.SdlWithSteamLease;
+
+    /// <summary>The target in effect and the layer that chose it.</summary>
+    private ResolvedControllerTarget? Effective { get; set; }
+
+    /// <summary>Targets the backend on this machine can create, once it has been discovered.</summary>
+    /// <remarks>
+    ///     Empty until controller management starts, which is also the only time a surface offers the
+    ///     choice. Advertising a target the backend cannot build is worse than offering fewer: the
+    ///     selection persists, the target creation fails, and management reports itself unavailable.
+    /// </remarks>
+    internal IReadOnlyList<ManagedControllerTarget> SupportedTargets { get; private set; } = [];
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        await _transition.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            lock (_stateGate)
+            {
+                _disposed = true;
+                _processPriority.SetActive(false);
+            }
+        }
+        finally
+        {
+            _transition.Release();
+        }
+
+        _router.TargetFaulted -= OnRouterTargetFaulted;
+        Task sampleDrain;
+        lock (_sampleGate)
+        {
+            _pendingSample = null;
+            sampleDrain = _sampleDrain;
+        }
+
+        await sampleDrain.ConfigureAwait(false);
+        // Order matters here exactly as it does in the make-safe sequence: the router removes the
+        // virtual target first, and only then are WSGM's HidHide entries dropped.
+        await _router.DisposeAsync().ConfigureAwait(false);
+        await CleanupHidHideUnderGateAsync(CancellationToken.None).ConfigureAwait(false);
+        _transition.Dispose();
+        _routeGate.Dispose();
+    }
+
     /// <summary>Reports the projection change a lost target must produce.</summary>
     /// <param name="detail">Why the router faulted.</param>
     /// <remarks>
-    /// The manager must stop reporting Active once the backend stops accepting frames, or WSGM's
-    /// surfaces stay on a managed source that has gone silent.
+    ///     The manager must stop reporting Active once the backend stops accepting frames, or WSGM's
+    ///     surfaces stay on a managed source that has gone silent.
     /// </remarks>
     private void OnRouterTargetFaulted(string detail)
     {
@@ -144,51 +218,27 @@ internal sealed class ControllerManager : IAsyncDisposable
 
     /// <summary>Every physical sample, unfiltered, for diagnostics only.</summary>
     /// <remarks>
-    /// Raised before routing and never used to drive input. It exists so a surface can show what
-    /// the plugin actually reports — which is not what <see cref="UiSampleReceived"/> carries, since
-    /// that one has the controls the UI is using filtered out.
+    ///     Raised before routing and never used to drive input. It exists so a surface can show what
+    ///     the plugin actually reports — which is not what <see cref="UiSampleReceived" /> carries, since
+    ///     that one has the controls the UI is using filtered out.
     /// </remarks>
     internal event Action<CanonicalControllerSample>? PhysicalSampleObserved;
 
-    /// <summary>Current state of controller management.</summary>
-    internal ControllerManagementState State { get; private set; } = ControllerManagementState.Off;
-
-    /// <summary>Why the current state holds, for logs and the overlay.</summary>
-    private string Detail { get; set; } = "Controller management has not started.";
-
-    /// <summary>Where WSGM's own surfaces are reading controller input from.</summary>
-    /// <remarks>
-    /// The managed source is used only while a healthy target is actually being driven. Every other
-    /// state falls back to SDL with the Steam Input lease, which is why that path stays a permanent
-    /// capability rather than a transitional one.
-    /// </remarks>
-    private UiInputSource UiSource => State is ControllerManagementState.Active
-        ? UiInputSource.ManagedCanonical
-        : UiInputSource.SdlWithSteamLease;
-
-    /// <summary>The target in effect and the layer that chose it.</summary>
-    private ResolvedControllerTarget? Effective { get; set; }
-
-    /// <summary>Targets the backend on this machine can create, once it has been discovered.</summary>
-    /// <remarks>
-    /// Empty until controller management starts, which is also the only time a surface offers the
-    /// choice. Advertising a target the backend cannot build is worse than offering fewer: the
-    /// selection persists, the target creation fails, and management reports itself unavailable.
-    /// </remarks>
-    internal IReadOnlyList<ManagedControllerTarget> SupportedTargets { get; private set; } = [];
-
     /// <summary>Returns the current projection.</summary>
     /// <returns>The controller-management projection.</returns>
-    internal ControllerManagerStatus Snapshot() => new(
-        State,
-        Effective?.Target,
-        Effective?.Source ?? ControllerTargetSource.GlobalDefault,
-        Effective?.ApplicationId,
-        UiSource,
-        Detail);
+    internal ControllerManagerStatus Snapshot()
+    {
+        return new ControllerManagerStatus(
+            State,
+            Effective?.Target,
+            Effective?.Source ?? ControllerTargetSource.GlobalDefault,
+            Effective?.ApplicationId,
+            UiSource,
+            Detail);
+    }
 
     /// <summary>
-    /// Starts controller management for the current plugin cycle.
+    ///     Starts controller management for the current plugin cycle.
     /// </summary>
     /// <param name="selection">The controller selection in effect.</param>
     /// <param name="physicalDevices">Physical devices the plugin owns and WSGM must hide.</param>
@@ -197,9 +247,9 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <param name="cancellationToken">Cancels the start.</param>
     /// <returns>The resulting projection.</returns>
     /// <remarks>
-    /// Fails open in every unavailable case. A missing backend, unhealthy HidHide, or a target that
-    /// does not enumerate leaves the shell, the SDL path, and the Steam Input lease exactly as they
-    /// were; it never changes global HidHide state and never removes an external owner's entries.
+    ///     Fails open in every unavailable case. A missing backend, unhealthy HidHide, or a target that
+    ///     does not enumerate leaves the shell, the SDL path, and the Steam Input lease exactly as they
+    ///     were; it never changes global HidHide state and never removes an external owner's entries.
     /// </remarks>
     internal async Task<ControllerManagerStatus> StartAsync(
         ControllerSelection selection,
@@ -218,6 +268,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             {
                 return Snapshot();
             }
+
             _physicalDevices = physicalDevices;
             _selection = selection;
             Interlocked.Exchange(ref _sourceGeneration, sourceGeneration);
@@ -275,7 +326,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             {
                 await ApplyTargetUnderGateAsync(
                     resolved,
-                    replace: _router.Target is not null,
+                    _router.Target is not null,
                     cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -296,16 +347,16 @@ internal sealed class ControllerManager : IAsyncDisposable
     }
 
     /// <summary>
-    /// Applies a changed selection, replacing the target when the effective target changed.
+    ///     Applies a changed selection, replacing the target when the effective target changed.
     /// </summary>
     /// <param name="selection">The new controller selection.</param>
     /// <param name="applicationId">Canonical identity of the running application, when known.</param>
     /// <param name="cancellationToken">Cancels the apply.</param>
     /// <returns>The resulting projection.</returns>
     /// <remarks>
-    /// Turning management off here is not the same as a make-safe handoff and deliberately does not
-    /// perform one: the caller that owns the plugin conversation runs
-    /// <see cref="MakeSafeAsync"/> so the physical release is ordered against WSGM's own removal.
+    ///     Turning management off here is not the same as a make-safe handoff and deliberately does not
+    ///     perform one: the caller that owns the plugin conversation runs
+    ///     <see cref="MakeSafeAsync" /> so the physical release is ordered against WSGM's own removal.
     /// </remarks>
     internal async Task<ControllerManagerStatus> ApplySelectionAsync(
         ControllerSelection selection,
@@ -328,14 +379,14 @@ internal sealed class ControllerManager : IAsyncDisposable
     }
 
     /// <summary>
-    /// Applies a running-application change from the one shared monitor.
+    ///     Applies a running-application change from the one shared monitor.
     /// </summary>
     /// <param name="snapshot">The canonical running-application snapshot.</param>
     /// <param name="cancellationToken">Cancels the apply.</param>
     /// <returns>The resulting projection.</returns>
     /// <remarks>
-    /// The same monitor resolves the RTSS profile, so the controller target and the performance
-    /// profile can never disagree about which application is running.
+    ///     The same monitor resolves the RTSS profile, so the controller target and the performance
+    ///     profile can never disagree about which application is running.
     /// </remarks>
     internal async Task<ControllerManagerStatus> ApplyRunningApplicationAsync(
         RunningApplicationTargetSnapshot snapshot,
@@ -360,10 +411,10 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <param name="cancellationToken">Cancels the check.</param>
     /// <returns>A task completing once the check has run.</returns>
     /// <remarks>
-    /// Called before the plugin's cycle starts, which is the only point that helps: once discovery
-    /// has run against a device it could not see, allowlisting WSGM afterwards changes nothing for
-    /// that cycle. Never fatal — the result is logged and the cycle continues, because a machine
-    /// with no HidHide at all is the normal one.
+    ///     Called before the plugin's cycle starts, which is the only point that helps: once discovery
+    ///     has run against a device it could not see, allowlisting WSGM afterwards changes nothing for
+    ///     that cycle. Never fatal — the result is logged and the cycle continues, because a machine
+    ///     with no HidHide at all is the normal one.
     /// </remarks>
     internal async Task EnsureHidHideReadableAsync(
         bool controllerManagementEnabled,
@@ -384,13 +435,13 @@ internal sealed class ControllerManager : IAsyncDisposable
     }
 
     /// <summary>
-    /// Forwards one canonical sample published by the plugin.
+    ///     Forwards one canonical sample published by the plugin.
     /// </summary>
     /// <param name="sample">The sample the plugin published.</param>
     /// <remarks>
-    /// A captured sample never reaches the virtual target. It reaches WSGM's own surfaces with the
-    /// controls held at capture filtered out, so the chord that opened the overlay cannot activate
-    /// whatever now has focus underneath it.
+    ///     A captured sample never reaches the virtual target. It reaches WSGM's own surfaces with the
+    ///     controls held at capture filtered out, so the chord that opened the overlay cannot activate
+    ///     whatever now has focus underneath it.
     /// </remarks>
     internal void Submit(CanonicalControllerSample sample)
     {
@@ -470,7 +521,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <summary>Routes one canonical sample and reports whether it reached the virtual target.</summary>
     /// <param name="sample">The sample the plugin published.</param>
     /// <param name="cancellationToken">Cancels the route.</param>
-    /// <returns><see langword="true"/> when the sample reached the virtual target.</returns>
+    /// <returns><see langword="true" /> when the sample reached the virtual target.</returns>
     internal async Task<bool> RouteAsync(
         CanonicalControllerSample sample,
         CancellationToken cancellationToken)
@@ -508,8 +559,8 @@ internal sealed class ControllerManager : IAsyncDisposable
                 // Forwarding resumes only on a clean boundary: every control the UI used has to be
                 // released first, or the game sees a press whose start it never saw.
                 toUi = _uiCapture.IsCaptured
-                    || _forwardingBlocked
-                    || !_uiCapture.CanResumeForwarding(sample.Buttons);
+                       || _forwardingBlocked
+                       || !_uiCapture.CanResumeForwarding(sample.Buttons);
                 uiButtons = toUi ? _uiCapture.FilterForUi(sample.Buttons) : sample.Buttons;
             }
 
@@ -517,8 +568,11 @@ internal sealed class ControllerManager : IAsyncDisposable
             {
                 if (!toSteam)
                 {
-                    UiSampleReceived?.Invoke(uiButtons == sample.Buttons ? sample : sample with { Buttons = uiButtons });
+                    UiSampleReceived?.Invoke(uiButtons == sample.Buttons
+                        ? sample
+                        : sample with { Buttons = uiButtons });
                 }
+
                 return false;
             }
 
@@ -537,6 +591,7 @@ internal sealed class ControllerManager : IAsyncDisposable
                     ? sample
                     : sample with { Buttons = sample.Buttons | _syntheticButtons };
             }
+
             return await _router.RouteAsync(routed, cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -566,9 +621,9 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <summary>Releases one surface's claim on controller input.</summary>
     /// <param name="surfaceId">Identifier of the releasing surface.</param>
     /// <remarks>
-    /// Releasing the last claim does not resume forwarding by itself. Forwarding resumes on the
-    /// first sample in which every control the UI used is up, so the press that closed the surface
-    /// never arrives in the game as a fresh input.
+    ///     Releasing the last claim does not resume forwarding by itself. Forwarding resumes on the
+    ///     first sample in which every control the UI used is up, so the press that closed the surface
+    ///     never arrives in the game as a fresh input.
     /// </remarks>
     internal void ReleaseUi(string surfaceId)
     {
@@ -595,6 +650,7 @@ internal sealed class ControllerManager : IAsyncDisposable
                 {
                     return;
                 }
+
                 _steamCapture = active;
                 if (active)
                 {
@@ -605,6 +661,7 @@ internal sealed class ControllerManager : IAsyncDisposable
                     _uiCapture.Release("steam-native-surface");
                 }
             }
+
             if (active)
             {
                 // Capture remains closed if neutralization fails. The handoff owner must
@@ -622,8 +679,10 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <param name="reason">Diagnostic reason recorded with the neutral report.</param>
     /// <param name="cancellationToken">Cancels the neutralization.</param>
     /// <returns>A task completing once the target has been left neutral.</returns>
-    internal Task BlockForwardingAsync(string reason, CancellationToken cancellationToken) =>
-        NeutralizeRoutingAsync(reason, blockForwarding: true, cancellationToken);
+    internal Task BlockForwardingAsync(string reason, CancellationToken cancellationToken)
+    {
+        return NeutralizeRoutingAsync(reason, true, cancellationToken);
+    }
 
     /// <summary>Freezes target reconciliation before the plugin releases physical acquisition.</summary>
     /// <param name="cancellationToken">Cancels waiting or neutralization.</param>
@@ -638,6 +697,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             {
                 throw new InvalidOperationException("Controller ownership is not available for a Steam handoff.");
             }
+
             _steamOwnershipPaused = true;
             await SetSteamCaptureAsync(true, cancellationToken).ConfigureAwait(false);
             return Interlocked.Read(ref _sourceGeneration);
@@ -660,6 +720,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             {
                 return false;
             }
+
             return await CleanupHidHideUnderGateAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -683,12 +744,14 @@ internal sealed class ControllerManager : IAsyncDisposable
             {
                 return false;
             }
+
             var visibility = await _hidHide.StartAsync(_controllerReaderApplication,
                 _physicalDevices, cancellationToken).ConfigureAwait(false);
             if (!visibility.Activated)
             {
                 return false;
             }
+
             await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
@@ -699,6 +762,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             {
                 _routeGate.Release();
             }
+
             _steamOwnershipPaused = false;
             await SetSteamCaptureAsync(false, cancellationToken).ConfigureAwait(false);
             return true;
@@ -709,8 +773,10 @@ internal sealed class ControllerManager : IAsyncDisposable
         }
     }
 
-    private Task NeutralizeForUiCaptureAsync(CancellationToken cancellationToken) =>
-        NeutralizeRoutingAsync("ui-capture", blockForwarding: false, cancellationToken);
+    private Task NeutralizeForUiCaptureAsync(CancellationToken cancellationToken)
+    {
+        return NeutralizeRoutingAsync("ui-capture", false, cancellationToken);
+    }
 
     private async Task NeutralizeRoutingAsync(
         string reason,
@@ -729,7 +795,7 @@ internal sealed class ControllerManager : IAsyncDisposable
                 var newlyBlocked = blockForwarding && !_forwardingBlocked;
                 _forwardingBlocked |= blockForwarding;
                 neutralize = State is ControllerManagementState.Active
-                    && (newlyBlocked || !blockForwarding);
+                             && (newlyBlocked || !blockForwarding);
             }
 
             if (neutralize)
@@ -763,7 +829,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             return false;
         }
 
-        if (!await SetSyntheticButtonAsync(pressed, enabled: true, cancellationToken)
+        if (!await SetSyntheticButtonAsync(pressed, true, cancellationToken)
                 .ConfigureAwait(false))
         {
             return false;
@@ -778,7 +844,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         {
             // A cancelled OEM action must still publish the release; otherwise the virtual target
             // retains a rear paddle until the next physical sample happens to arrive.
-            await SetSyntheticButtonAsync(pressed, enabled: false, CancellationToken.None)
+            await SetSyntheticButtonAsync(pressed, false, CancellationToken.None)
                 .ConfigureAwait(false);
         }
     }
@@ -820,6 +886,7 @@ internal sealed class ControllerManager : IAsyncDisposable
                 {
                     _syntheticButtons |= button;
                 }
+
                 sample = sample with { Buttons = sample.Buttons | _syntheticButtons };
             }
 
@@ -832,16 +899,16 @@ internal sealed class ControllerManager : IAsyncDisposable
     }
 
     /// <summary>
-    /// Runs the complete make-safe handoff and returns its combined result.
+    ///     Runs the complete make-safe handoff and returns its combined result.
     /// </summary>
     /// <param name="scope">Whether only the controller or the whole cycle is being released.</param>
     /// <param name="releasePhysicalAsync">Asks the plugin to stop reading and restore its mode.</param>
     /// <param name="cancellationToken">Cancels the handoff.</param>
     /// <returns>The handoff response describing both halves of the sequence.</returns>
     /// <remarks>
-    /// The returned response is WSGM's, not the plugin's: it reports how far the whole sequence got,
-    /// including the WSGM-owned removal that runs after an unverified or failed plugin answer. The
-    /// user's stop request is always honoured; the result records whether it could be verified.
+    ///     The returned response is WSGM's, not the plugin's: it reports how far the whole sequence got,
+    ///     including the WSGM-owned removal that runs after an unverified or failed plugin answer. The
+    ///     user's stop request is always honoured; the result records whether it could be verified.
     /// </remarks>
     internal async Task<ControllerHandoff> MakeSafeAsync(
         HandoffScope scope,
@@ -859,49 +926,6 @@ internal sealed class ControllerManager : IAsyncDisposable
         {
             _transition.Release();
         }
-    }
-
-    /// <inheritdoc/>
-    public async ValueTask DisposeAsync()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        await _transition.WaitAsync().ConfigureAwait(false);
-        try
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            lock (_stateGate)
-            {
-                _disposed = true;
-                _processPriority.SetActive(false);
-            }
-        }
-        finally
-        {
-            _transition.Release();
-        }
-
-        _router.TargetFaulted -= OnRouterTargetFaulted;
-        Task sampleDrain;
-        lock (_sampleGate)
-        {
-            _pendingSample = null;
-            sampleDrain = _sampleDrain;
-        }
-        await sampleDrain.ConfigureAwait(false);
-        // Order matters here exactly as it does in the make-safe sequence: the router removes the
-        // virtual target first, and only then are WSGM's HidHide entries dropped.
-        await _router.DisposeAsync().ConfigureAwait(false);
-        await CleanupHidHideUnderGateAsync(CancellationToken.None).ConfigureAwait(false);
-        _transition.Dispose();
-        _routeGate.Dispose();
     }
 
     private async Task<ControllerHandoff> MakeSafeUnderGateAsync(
@@ -1042,7 +1066,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         {
             // Replacement is one operation on purpose: the old target is neutralized and removed
             // before the new one is created, so no window exists in which both are enumerated.
-            await ApplyTargetUnderGateAsync(resolved, replace: true, cancellationToken)
+            await ApplyTargetUnderGateAsync(resolved, true, cancellationToken)
                 .ConfigureAwait(false);
             return SetState(
                 ControllerManagementState.Active,
@@ -1097,9 +1121,9 @@ internal sealed class ControllerManager : IAsyncDisposable
 
             Log.Info(replace
                 ? $"Managed controller target replaced: {resolved.Target} ({resolved.Source}), "
-                    + $"generation={target.Generation}."
+                  + $"generation={target.Generation}."
                 : $"Managed controller target created: {resolved.Target} ({resolved.Source}), "
-                    + $"generation={target.Generation}, devices={_physicalDevices.Count}.");
+                  + $"generation={target.Generation}, devices={_physicalDevices.Count}.");
         }
         finally
         {
@@ -1137,7 +1161,7 @@ internal sealed class UiCaptureState
     internal bool IsCaptured => _surfaces.Count > 0;
 
     /// <summary>Claims capture and remembers controls held before the first surface opened.</summary>
-    /// <returns><see langword="true"/> when this claim started capture.</returns>
+    /// <returns><see langword="true" /> when this claim started capture.</returns>
     internal bool Claim(string surfaceId, CanonicalButtons heldAtOpen)
     {
         var wasCaptured = IsCaptured;

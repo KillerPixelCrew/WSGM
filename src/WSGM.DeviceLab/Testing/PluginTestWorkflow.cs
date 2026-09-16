@@ -128,7 +128,9 @@ internal sealed record AttendedPluginSafetyEnvironment
     /// <returns>One fail-closed preflight snapshot.</returns>
     public DeviceLabSafetySnapshot Capture(
         DeviceOwnerDiscoveryState ownerDiscovery,
-        bool confirmed) => new()
+        bool confirmed)
+    {
+        return new DeviceLabSafetySnapshot
         {
             OwnerDiscovery = ownerDiscovery,
             IsElevated = IsElevated,
@@ -136,6 +138,7 @@ internal sealed record AttendedPluginSafetyEnvironment
             IsContinuousIntegration = IsContinuousIntegration,
             AttendedActionConfirmed = confirmed
         };
+    }
 }
 
 /// <summary>Loads local plugin code and runs either detection or one attended lifecycle.</summary>
@@ -151,10 +154,13 @@ internal static class PluginTestWorkflow
     public static Task<PluginTestReport> TestDetectionAsync(
         string packageDirectory,
         DeviceIdentitySnapshot identity,
-        CancellationToken cancellationToken) => PluginTestWorkerSupervisor.TestDetectionAsync(
+        CancellationToken cancellationToken)
+    {
+        return PluginTestWorkerSupervisor.TestDetectionAsync(
             packageDirectory,
             identity,
             cancellationToken);
+    }
 
     /// <summary>Worker-only detector implementation; community code must not call this in the UI process.</summary>
     internal static async Task<PluginTestReport> TestDetectionInProcessAsync(
@@ -198,7 +204,9 @@ internal static class PluginTestWorkflow
         AttendedPluginActionRequest action,
         bool confirmed,
         DeviceLabPathBoundaries boundaries,
-        CancellationToken cancellationToken) => PluginTestWorkerSupervisor.RunAttendedAsync(
+        CancellationToken cancellationToken)
+    {
+        return PluginTestWorkerSupervisor.RunAttendedAsync(
             packageDirectory,
             identity,
             stateDirectory,
@@ -206,6 +214,7 @@ internal static class PluginTestWorkflow
             confirmed,
             boundaries,
             cancellationToken);
+    }
 
     internal static async Task<PluginTestReport> RunAttendedAsync(
         string packageDirectory,
@@ -351,7 +360,7 @@ internal static class PluginTestWorkflow
 
         var statePath = output.FullPath!;
         Directory.CreateDirectory(statePath);
-        TestPluginHostAdapter host = new(cycleGeneration: 1);
+        TestPluginHostAdapter host = new(1);
         var startAttempted = false;
         var started = false;
         var cleanedUp = false;
@@ -396,7 +405,7 @@ internal static class PluginTestWorkflow
                 .ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException
-            || !cancellationToken.IsCancellationRequested)
+                                          || !cancellationToken.IsCancellationRequested)
         {
             error = $"Activation failed: {exception.Message}";
         }
@@ -448,10 +457,12 @@ internal static class PluginTestWorkflow
         };
     }
 
-    private static bool IsNewStateDirectory(DeviceLabOutputPathDecision output) =>
-        output is { IsAllowed: true, FullPath: not null }
-        && !Directory.Exists(output.FullPath)
-        && !File.Exists(output.FullPath);
+    private static bool IsNewStateDirectory(DeviceLabOutputPathDecision output)
+    {
+        return output is { IsAllowed: true, FullPath: not null }
+               && !Directory.Exists(output.FullPath)
+               && !File.Exists(output.FullPath);
+    }
 
     private static CancellationTokenSource Deadline(CancellationToken cancellationToken)
     {
@@ -464,7 +475,9 @@ internal static class PluginTestWorkflow
         PluginTestMode mode,
         string? packageId,
         string error,
-        AttendedPluginActionRequest? action = null) => new()
+        AttendedPluginActionRequest? action = null)
+    {
+        return new PluginTestReport
         {
             Mode = mode,
             Passed = false,
@@ -472,6 +485,7 @@ internal static class PluginTestWorkflow
             Action = action,
             Error = error
         };
+    }
 }
 
 internal sealed class LocalPluginPackage : IAsyncDisposable
@@ -494,6 +508,14 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
     public PluginManifest Manifest { get; }
 
     public IDevicePlugin Plugin { get; }
+
+    public ValueTask DisposeAsync()
+    {
+        return DisposePluginAndUnloadAsync(
+            Plugin.DisposeAsync,
+            _loadContext.Unload,
+            _ownerReservation);
+    }
 
     public static LocalPluginPackage Load(
         string packageDirectory,
@@ -525,7 +547,7 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
             Type entryType;
             try
             {
-                entryType = assembly.GetType(manifest.EntryType, throwOnError: true, ignoreCase: false)!;
+                entryType = assembly.GetType(manifest.EntryType, true, false)!;
             }
             catch (TypeLoadException exception)
             {
@@ -549,8 +571,8 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
             // property getter fails before an instance can be returned to Device Lab.
             activationAttempted = true;
             plugin = Activator.CreateInstance(entryType) as IDevicePlugin
-                ?? throw new InvalidDataException(
-                    "The entry type did not create an IDevicePlugin instance.");
+                     ?? throw new InvalidDataException(
+                         "The entry type did not create an IDevicePlugin instance.");
             return !string.Equals(plugin.PackageId, manifest.Id, StringComparison.Ordinal)
                 ? throw new InvalidDataException("The plugin code and manifest package IDs differ.")
                 : new LocalPluginPackage(manifest, plugin, context, ownerReservation);
@@ -564,6 +586,7 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
                 // Disposal may release managed resources, but cannot verify hardware restoration.
                 ownerReservation?.RetainForProcessLifetime();
             }
+
             if (plugin is not null)
             {
                 try
@@ -595,11 +618,6 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
             throw;
         }
     }
-
-    public ValueTask DisposeAsync() => DisposePluginAndUnloadAsync(
-        Plugin.DisposeAsync,
-        _loadContext.Unload,
-        _ownerReservation);
 
     internal static async ValueTask DisposePluginAndUnloadAsync(
         Func<ValueTask> disposePluginAsync,
@@ -643,9 +661,12 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
     private static Exception CombineFailures(
         string message,
         Exception? first,
-        Exception next) => first is null
+        Exception next)
+    {
+        return first is null
             ? next
             : new AggregateException(message, first, next);
+    }
 
     private static string Constrain(string root, string relative)
     {
@@ -662,7 +683,7 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
     }
 
     private sealed class PluginLoadContext(string root, string entryPath)
-        : AssemblyLoadContext($"WSGM.DeviceLab:{Path.GetFileName(root)}", isCollectible: true)
+        : AssemblyLoadContext($"WSGM.DeviceLab:{Path.GetFileName(root)}", true)
     {
         private static readonly string SdkName = typeof(IDevicePlugin).Assembly.GetName().Name!;
         private readonly AssemblyDependencyResolver _resolver = new(entryPath);

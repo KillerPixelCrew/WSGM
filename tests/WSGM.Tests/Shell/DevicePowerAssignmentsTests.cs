@@ -7,32 +7,9 @@ namespace WSGM.Tests.Shell;
 
 public sealed class DevicePowerAssignmentsTests
 {
-    private static DevicePowerPresetReference Reference(string preset) => new() { PluginId = "fixture", PresetId = preset };
-
-    private sealed class Rig
+    private static DevicePowerPresetReference Reference(string preset)
     {
-        internal readonly DevicePowerPresetsTests.Rig Device = new();
-        internal PerformanceConfig Config = new() { AcPowerPreset = Reference("extreme"), BatteryPowerPreset = Reference("battery") };
-        internal string? Application;
-        internal bool Enabled = true;
-        internal string Plugin = "fixture";
-        internal int Saves;
-        internal long Cycle = 1;
-        internal DevicePowerAssignments Create() => new(Device.Create(),
-            () => new DevicePowerAssignmentContext(Config, Application, Plugin, Cycle, Enabled, Device.OnAc),
-            (context, ac, reference) =>
-            {
-                Saves++;
-                var application = DevicePowerAssignments.Application(context);
-                if (application is not null)
-                {
-                    if (ac) { application.AcPowerPreset = reference; }
-                    else { application.BatteryPowerPreset = reference; }
-                }
-                else if (ac) { Config.AcPowerPreset = reference; }
-                else { Config.BatteryPowerPreset = reference; }
-                return Task.CompletedTask;
-            });
+        return new DevicePowerPresetReference { PluginId = "fixture", PresetId = preset };
     }
 
     [Theory]
@@ -54,19 +31,26 @@ public sealed class DevicePowerAssignmentsTests
         switch (change)
         {
             case "pl1":
-                ChangeValue(rig, 0, new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = ac ? 29 : 9 });
+                ChangeValue(rig, 0,
+                    new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = ac ? 29 : 9 });
                 break;
-            case "pl2": ChangeValue(rig, 1, new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = ac ? 32 : 10 }); break;
+            case "pl2":
+                ChangeValue(rig, 1,
+                    new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = ac ? 32 : 10 }); break;
             case "mode": rig.Device.Api.Mode = WindowsPowerModes.Id(DevicePowerMode.Balanced); break;
-            case "scenario": ChangeValue(rig, 2, new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = "green" }); break;
+            case "scenario":
+                ChangeValue(rig, 2,
+                    new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = "green" }); break;
         }
+
         var expected = (await presets.ReadAsync()).Values;
         var writes = rig.Device.Calls.Count;
         await assignments.ReconcileAsync(CancellationToken.None);
         var saved = ac ? rig.Config.AcPowerPreset : rig.Config.BatteryPowerPreset;
         Assert.Equal("custom", saved!.PresetId);
         Assert.Equal(expected, saved.CustomValues);
-        Assert.Equal(ac ? "battery" : "extreme", (ac ? rig.Config.BatteryPowerPreset : rig.Config.AcPowerPreset)!.PresetId);
+        Assert.Equal(ac ? "battery" : "extreme",
+            (ac ? rig.Config.BatteryPowerPreset : rig.Config.AcPowerPreset)!.PresetId);
         Assert.Equal(writes, rig.Device.Calls.Count);
         await assignments.ReconcileAsync(CancellationToken.None);
         Assert.Equal(1, rig.Saves);
@@ -87,14 +71,17 @@ public sealed class DevicePowerAssignmentsTests
     {
         var view = rig.Device.Views[index];
         rig.Device.Views[index] = view with
-        { Projection = view.Projection with { State = view.Projection.State with { ObservedValue = value } } };
+        {
+            Projection = view.Projection with { State = view.Projection.State with { ObservedValue = value } }
+        };
     }
 
     [Fact]
     public async Task CustomInheritedFromGlobalBecomesALocalOverrideWithoutChangingGlobalOrOtherGames()
     {
         Rig rig = new() { Application = "steam:42" };
-        rig.Config.Applications.Add(new PerformanceApplicationConfig { ApplicationId = rig.Application, UsePerGameProfile = true });
+        rig.Config.Applications.Add(new PerformanceApplicationConfig
+            { ApplicationId = rig.Application, UsePerGameProfile = true });
         var assignments = rig.Create();
         await assignments.ReconcileAsync(CancellationToken.None);
         ChangeValue(rig, 0, new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 29 });
@@ -172,9 +159,28 @@ public sealed class DevicePowerAssignmentsTests
         {
             var view = rig.Device.Views[0];
             rig.Device.Views[0] = view with
-            { Projection = view.Projection with { State = view.Projection.State with { Quality = HardwareStateQuality.Stale } } };
+            {
+                Projection = view.Projection with
+                {
+                    State = view.Projection.State with { Quality = HardwareStateQuality.Stale }
+                }
+            };
         }
-        else { rig.Device.Api.AfterRead = () => { if (change == "source") { rig.Device.OnAc = false; } else { rig.Application = "steam:42"; } }; }
+        else
+        {
+            rig.Device.Api.AfterRead = () =>
+            {
+                if (change == "source")
+                {
+                    rig.Device.OnAc = false;
+                }
+                else
+                {
+                    rig.Application = "steam:42";
+                }
+            };
+        }
+
         await assignments.ReconcileAsync(CancellationToken.None);
         Assert.Equal(0, rig.Saves);
         Assert.Equal("extreme", rig.Config.AcPowerPreset!.PresetId);
@@ -189,7 +195,8 @@ public sealed class DevicePowerAssignmentsTests
             {
                 AcPowerPreset = Reference("custom") with
                 {
-                    CustomValues = new DevicePowerCustomValues { SustainedWatts = 38, SlowWatts = 38, WindowsMode = DevicePowerMode.Balanced }
+                    CustomValues = new DevicePowerCustomValues
+                        { SustainedWatts = 38, SlowWatts = 38, WindowsMode = DevicePowerMode.Balanced }
                 }
             }
         };
@@ -219,7 +226,9 @@ public sealed class DevicePowerAssignmentsTests
         Assert.Null(config.Performance.AcPowerPreset);
         Assert.Null(config.Performance.BatteryPowerPreset!.CustomValues);
         config.Performance.AcPowerPreset = Reference("custom") with
-        { CustomValues = new DevicePowerCustomValues { SustainedWatts = 18, SlowWatts = 17 } };
+        {
+            CustomValues = new DevicePowerCustomValues { SustainedWatts = 18, SlowWatts = 17 }
+        };
         ConfigStore.Normalize(config);
         Assert.Null(config.Performance.AcPowerPreset);
     }
@@ -244,7 +253,8 @@ public sealed class DevicePowerAssignmentsTests
                 case "source": rig.Device.OnAc = false; break;
             }
         };
-        await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Create().AssignAsync(true, "balanced", CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            rig.Create().AssignAsync(true, "balanced", CancellationToken.None));
         Assert.Equal(0, rig.Saves);
         Assert.Empty(rig.Device.Calls);
         Assert.Equal("extreme", rig.Config.AcPowerPreset!.PresetId);
@@ -259,7 +269,8 @@ public sealed class DevicePowerAssignmentsTests
         Assert.True(assignments.Snapshot().IsGlobal);
         Assert.Equal("Manual selection", (await qam.ReadAsync())!.UnsetLabel);
         rig.Application = "steam:42";
-        rig.Config.Applications.Add(new PerformanceApplicationConfig { ApplicationId = rig.Application, UsePerGameProfile = true });
+        rig.Config.Applications.Add(new PerformanceApplicationConfig
+            { ApplicationId = rig.Application, UsePerGameProfile = true });
         Assert.False(assignments.Snapshot().IsGlobal);
         Assert.Equal("Use global assignment", (await qam.ReadAsync())!.UnsetLabel);
     }
@@ -275,7 +286,12 @@ public sealed class DevicePowerAssignmentsTests
             Performance = { AcPowerPreset = new DevicePowerPresetReference { PluginId = plugin, PresetId = preset } }
         };
         ConfigStore.Normalize(config);
-        if (!valid) { Assert.Null(config.Performance.AcPowerPreset); return; }
+        if (!valid)
+        {
+            Assert.Null(config.Performance.AcPowerPreset);
+            return;
+        }
+
         Assert.Equal("fixture", config.Performance.AcPowerPreset!.PluginId);
         Assert.Equal("balanced", config.Performance.AcPowerPreset.PresetId);
     }
@@ -291,7 +307,11 @@ public sealed class DevicePowerAssignmentsTests
         {
             ApplicationId = "steam:42",
             UsePerGameProfile = true,
-            BatteryPowerPreset = new DevicePowerPresetReference { PluginId = " " + new string('p', pluginLength) + " ", PresetId = " " + new string('b', presetLength) + " " }
+            BatteryPowerPreset = new DevicePowerPresetReference
+            {
+                PluginId = " " + new string('p', pluginLength) + " ",
+                PresetId = " " + new string('b', presetLength) + " "
+            }
         });
         ConfigStore.Normalize(config);
         var reference = Assert.Single(config.Performance.Applications).BatteryPowerPreset;
@@ -329,10 +349,12 @@ public sealed class DevicePowerAssignmentsTests
     public async Task ReplacedPerGameConfigurationCannotSaveIntoTheGlobalFallback()
     {
         Rig rig = new() { Application = "steam:42" };
-        rig.Config.Applications.Add(new PerformanceApplicationConfig { ApplicationId = "steam:42", UsePerGameProfile = true });
+        rig.Config.Applications.Add(new PerformanceApplicationConfig
+            { ApplicationId = "steam:42", UsePerGameProfile = true });
         rig.Device.Api.AfterRead = () => rig.Config = new PerformanceConfig { AcPowerPreset = Reference("extreme") };
         var assignments = rig.Create();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => assignments.AssignAsync(true, "balanced", CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            assignments.AssignAsync(true, "balanced", CancellationToken.None));
         Assert.Equal(0, rig.Saves);
         Assert.Equal("extreme", rig.Config.AcPowerPreset?.PresetId);
         Assert.Empty(rig.Device.Calls);
@@ -357,11 +379,14 @@ public sealed class DevicePowerAssignmentsTests
         using CancellationTokenSource cancellation = new();
         TaskCompletionSource laterWrite = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        rig.Device.OnWriteEntered = count => { if (count == 2) { entered.TrySetResult(); } };
-        rig.Device.AfterDeviceWrite = _ =>
+        rig.Device.OnWriteEntered = count =>
         {
-            rig.Device.WaitForWrite = laterWrite;
+            if (count == 2)
+            {
+                entered.TrySetResult();
+            }
         };
+        rig.Device.AfterDeviceWrite = _ => { rig.Device.WaitForWrite = laterWrite; };
         var assignments = rig.Create();
         var applying = assignments.ReconcileAsync(cancellation.Token);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -409,7 +434,8 @@ public sealed class DevicePowerAssignmentsTests
     public async Task PerGameAssignmentsOverrideAndInheritIndependently()
     {
         Rig rig = new() { Application = "steam:42" };
-        rig.Config.Applications.Add(new PerformanceApplicationConfig { ApplicationId = "steam:42", UsePerGameProfile = true, AcPowerPreset = Reference("balanced") });
+        rig.Config.Applications.Add(new PerformanceApplicationConfig
+            { ApplicationId = "steam:42", UsePerGameProfile = true, AcPowerPreset = Reference("balanced") });
         var assignments = rig.Create();
         await assignments.ReconcileAsync(CancellationToken.None);
         Assert.Equal(17, rig.Device.Views[0].Projection.State.ObservedValue!.IntegerValue);
@@ -444,11 +470,58 @@ public sealed class DevicePowerAssignmentsTests
     public void SavedAssignmentsSurviveJsonAndRtssPolicyMerges()
     {
         Rig rig = new();
-        rig.Config.Applications.Add(new PerformanceApplicationConfig { ApplicationId = "steam:42", UsePerGameProfile = true, AcPowerPreset = Reference("balanced") });
+        rig.Config.Applications.Add(new PerformanceApplicationConfig
+            { ApplicationId = "steam:42", UsePerGameProfile = true, AcPowerPreset = Reference("balanced") });
         var json = JsonSerializer.Serialize(rig.Config, ConfigJsonContext.Default.PerformanceConfig);
         var restored = JsonSerializer.Deserialize(json, ConfigJsonContext.Default.PerformanceConfig)!;
         ShellSession.MergePerformancePolicy(restored, new PerformancePolicy(new PerformanceValues(60, 1), []));
         Assert.Equal("extreme", restored.AcPowerPreset!.PresetId);
         Assert.Equal("balanced", Assert.Single(restored.Applications).AcPowerPreset!.PresetId);
+    }
+
+    private sealed class Rig
+    {
+        internal readonly DevicePowerPresetsTests.Rig Device = new();
+        internal string? Application;
+
+        internal PerformanceConfig Config = new()
+            { AcPowerPreset = Reference("extreme"), BatteryPowerPreset = Reference("battery") };
+
+        internal long Cycle = 1;
+        internal bool Enabled = true;
+        internal string Plugin = "fixture";
+        internal int Saves;
+
+        internal DevicePowerAssignments Create()
+        {
+            return new DevicePowerAssignments(Device.Create(),
+                () => new DevicePowerAssignmentContext(Config, Application, Plugin, Cycle, Enabled, Device.OnAc),
+                (context, ac, reference) =>
+                {
+                    Saves++;
+                    var application = DevicePowerAssignments.Application(context);
+                    if (application is not null)
+                    {
+                        if (ac)
+                        {
+                            application.AcPowerPreset = reference;
+                        }
+                        else
+                        {
+                            application.BatteryPowerPreset = reference;
+                        }
+                    }
+                    else if (ac)
+                    {
+                        Config.AcPowerPreset = reference;
+                    }
+                    else
+                    {
+                        Config.BatteryPowerPreset = reference;
+                    }
+
+                    return Task.CompletedTask;
+                });
+        }
     }
 }

@@ -5,17 +5,17 @@ using WSGM.Device.Sdk.Capabilities;
 namespace WSGM.Device.Sdk.Settings;
 
 /// <summary>
-/// How a settings section is titled on WSGM's own surfaces.
+///     How a settings section is titled on WSGM's own surfaces.
 /// </summary>
 /// <remarks>
-/// The same ownership split as <see cref="DisplayKey"/>, one level up: a plugin selects a key WSGM
-/// localizes, or supplies bounded plain text through <see cref="Custom"/>. Sections use the same
-/// text contract as the labels inside them.
+///     The same ownership split as <see cref="DisplayKey" />, one level up: a plugin selects a key WSGM
+///     localizes, or supplies bounded plain text through <see cref="Custom" />. Sections use the same
+///     text contract as the labels inside them.
 /// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<SettingSectionKey>))]
 public enum SettingSectionKey
 {
-    /// <summary>Use <see cref="PluginSettingSection.CustomTitle"/> as bounded plugin text.</summary>
+    /// <summary>Use <see cref="PluginSettingSection.CustomTitle" /> as bounded plugin text.</summary>
     Custom,
 
     /// <summary>"General".</summary>
@@ -44,42 +44,42 @@ public enum SettingSectionKey
 }
 
 /// <summary>
-/// One declared group of plugin settings. A plugin chooses placement among WSGM's sections and the
-/// order within them; it never supplies layout.
+///     One declared group of plugin settings. A plugin chooses placement among WSGM's sections and the
+///     order within them; it never supplies layout.
 /// </summary>
 public sealed record PluginSettingSection
 {
-    /// <summary>Longest accepted <see cref="CustomTitle"/>.</summary>
+    /// <summary>Longest accepted <see cref="CustomTitle" />.</summary>
     public const int MaxCustomTitleLength = 48;
 
-    /// <summary>Longest accepted <see cref="SectionId"/>.</summary>
+    /// <summary>Longest accepted <see cref="SectionId" />.</summary>
     public const int MaxSectionIdLength = 64;
 
     /// <summary>Stable identifier settings reference, for example <c>power.advanced</c>.</summary>
     public required string SectionId { get; init; }
 
-    /// <summary>The WSGM-owned title key, or <see cref="SettingSectionKey.Custom"/>.</summary>
-    /// <remarks>Undefined numeric enum values are rejected by <see cref="TryValidate"/>.</remarks>
+    /// <summary>The WSGM-owned title key, or <see cref="SettingSectionKey.Custom" />.</summary>
+    /// <remarks>Undefined numeric enum values are rejected by <see cref="TryValidate" />.</remarks>
     public required SettingSectionKey Key { get; init; }
 
     /// <summary>
-    /// Bounded plugin-supplied title, used only when <see cref="Key"/> is
-    /// <see cref="SettingSectionKey.Custom"/>. Not localized: WSGM cannot translate text it did not
-    /// author.
+    ///     Bounded plugin-supplied title, used only when <see cref="Key" /> is
+    ///     <see cref="SettingSectionKey.Custom" />. Not localized: WSGM cannot translate text it did not
+    ///     author.
     /// </summary>
     public string? CustomTitle { get; init; }
 
     /// <summary>
-    /// Placement among the other sections. Ties break on declaration order, so a manifest that
-    /// orders nothing still renders deterministically.
+    ///     Placement among the other sections. Ties break on declaration order, so a manifest that
+    ///     orders nothing still renders deterministically.
     /// </summary>
     public int SortOrder { get; init; }
 
     /// <summary>
-    /// Whether this section is usable.
+    ///     Whether this section is usable.
     /// </summary>
-    /// <param name="error">The reason it is not, when the result is <see langword="false"/>.</param>
-    /// <returns><see langword="true"/> when the section is safe to render.</returns>
+    /// <param name="error">The reason it is not, when the result is <see langword="false" />.</param>
+    /// <returns><see langword="true" /> when the section is safe to render.</returns>
     public bool TryValidate(out string? error)
     {
         if (!PlainText.IsIdentifier(SectionId, MaxSectionIdLength))

@@ -8,13 +8,13 @@ using WSGM.Core;
 namespace WSGM.Shell;
 
 /// <summary>
-/// Projects display resolutions into the native quick-access menu and applies a chosen one.
+///     Projects display resolutions into the native quick-access menu and applies a chosen one.
 /// </summary>
 /// <remarks>
-/// A thin adapter over <see cref="DisplayResolutionService"/>, which owns discovery, apply, and
-/// restore. This layer exists only to speak the row's shapes — strings the row can render and a
-/// command result it can report — so the display policy stays in one place and is testable without
-/// a menu.
+///     A thin adapter over <see cref="DisplayResolutionService" />, which owns discovery, apply, and
+///     restore. This layer exists only to speak the row's shapes — strings the row can render and a
+///     command result it can report — so the display policy stays in one place and is testable without
+///     a menu.
 /// </remarks>
 internal sealed class NativeQamResolutionService : ISteamResolutionBackend
 {
@@ -23,7 +23,9 @@ internal sealed class NativeQamResolutionService : ISteamResolutionBackend
     /// <summary>Creates the adapter.</summary>
     /// <param name="display">The service that owns the display.</param>
     internal NativeQamResolutionService(DisplayResolutionService display)
-        => _display = display ?? throw new ArgumentNullException(nameof(display));
+    {
+        _display = display ?? throw new ArgumentNullException(nameof(display));
+    }
 
     /// <summary>The row's current state.</summary>
     internal SteamResolutionState Current => Project(
@@ -32,9 +34,9 @@ internal sealed class NativeQamResolutionService : ISteamResolutionBackend
 
     /// <inheritdoc />
     /// <remarks>
-    /// Parsed rather than trusted: the value arrives from injected JavaScript, so an unparseable or
-    /// unoffered string is refused here rather than reaching the driver. Applied off the calling
-    /// thread because a mode change blocks.
+    ///     Parsed rather than trusted: the value arrives from injected JavaScript, so an unparseable or
+    ///     unoffered string is refused here rather than reaching the driver. Applied off the calling
+    ///     thread because a mode change blocks.
     /// </remarks>
     public async Task<SteamUiCommandResult> SetResolutionAsync(
         string option,
@@ -59,9 +61,9 @@ internal sealed class NativeQamResolutionService : ISteamResolutionBackend
     /// <param name="current">The resolution in force, or null when unreadable.</param>
     /// <returns>The state the row renders.</returns>
     /// <remarks>
-    /// Internal and pure so the row's availability rules are testable without a display. A single
-    /// option is still no choice, so the row hides: offering a picker that cannot change anything
-    /// reads as a broken control rather than an absent feature.
+    ///     Internal and pure so the row's availability rules are testable without a display. A single
+    ///     option is still no choice, so the row hides: offering a picker that cannot change anything
+    ///     reads as a broken control rather than an absent feature.
     /// </remarks>
     internal static SteamResolutionState Project(
         IReadOnlyList<DisplayResolution> options,

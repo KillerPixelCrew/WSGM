@@ -8,11 +8,11 @@ namespace WSGM.Device.Msi.Claw8A2Vm;
 
 /// <summary>Owns the A2VM physical IMU exposed through the legacy Sensor API.</summary>
 /// <remarks>
-/// Intel's sensor stack classifies both LSM6DSO physical sensors as
-/// <c>SENSOR_TYPE_CUSTOM</c>. WinRT therefore does not expose the accelerometer and suppresses
-/// unchanged gyroscope readings. This package-local COM edge reads the two physical collections
-/// directly and uses their hardware report counter to distinguish a new sample from a repeated
-/// <c>GetData</c> result.
+///     Intel's sensor stack classifies both LSM6DSO physical sensors as
+///     <c>SENSOR_TYPE_CUSTOM</c>. WinRT therefore does not expose the accelerometer and suppresses
+///     unchanged gyroscope readings. This package-local COM edge reads the two physical collections
+///     directly and uses their hardware report counter to distinguish a new sample from a repeated
+///     <c>GetData</c> result.
 /// </remarks>
 internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
 {
@@ -38,8 +38,8 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
 
     private readonly Lock _gate = new();
     private ISensor? _accelerometer;
-    private ISensor? _gyrometer;
     private IntervalState _accelerometerInterval;
+    private ISensor? _gyrometer;
     private IntervalState _gyrometerInterval;
     private uint? _lastCounter;
 
@@ -60,6 +60,20 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
 
     /// <summary>The Sensor API path for the Intel ISS physical gyrometer.</summary>
     private string GyrometerPath { get; }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            RestoreInterval(_gyrometer, ExpectedGyrometerName, _gyrometerInterval);
+            RestoreInterval(_accelerometer, ExpectedAccelerometerName, _accelerometerInterval);
+            Release(_gyrometer);
+            Release(_accelerometer);
+            _gyrometer = null;
+            _accelerometer = null;
+        }
+    }
 
     /// <summary>Finds, validates, and configures the exact physical LSM6DSO collections.</summary>
     /// <returns>An owned sensor pair, or null when either reviewed collection is unavailable.</returns>
@@ -105,7 +119,7 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
                     }
 
                     if (accelerometer is null
-                        && IsExpectedSensor(sensor, ExpectedAccelerometerName, requireCounter: false, out var path))
+                        && IsExpectedSensor(sensor, ExpectedAccelerometerName, false, out var path))
                     {
                         accelerometer = sensor;
                         accelerometerPath = path;
@@ -114,7 +128,7 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
                     }
 
                     if (gyrometer is null
-                        && IsExpectedSensor(sensor, ExpectedGyrometerName, requireCounter: true, out path))
+                        && IsExpectedSensor(sensor, ExpectedGyrometerName, true, out path))
                     {
                         gyrometer = sensor;
                         gyrometerPath = path;
@@ -183,9 +197,9 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
     /// <param name="reading">The sensor-space values and timestamp; meaningful only when fresh.</param>
     /// <param name="error">The decisive COM or value failure when the read failed.</param>
     /// <returns>
-    /// Whether this poll produced a new hardware report. Repeat reports are this transport's
-    /// concern, not the caller's: the gyrometer's opaque report counter is the only way to tell
-    /// them apart, and it is read here before the values it would otherwise qualify.
+    ///     Whether this poll produced a new hardware report. Repeat reports are this transport's
+    ///     concern, not the caller's: the gyrometer's opaque report counter is the only way to tell
+    ///     them apart, and it is read here before the values it would otherwise qualify.
     /// </returns>
     public PhysicalMotionReadResult TryRead(out PhysicalMotionReading reading, out string? error)
     {
@@ -224,28 +238,16 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
         }
     }
 
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        lock (_gate)
-        {
-            RestoreInterval(_gyrometer, ExpectedGyrometerName, _gyrometerInterval);
-            RestoreInterval(_accelerometer, ExpectedAccelerometerName, _accelerometerInterval);
-            Release(_gyrometer);
-            Release(_accelerometer);
-            _gyrometer = null;
-            _accelerometer = null;
-        }
-    }
-
     internal static bool MatchesExpectedIdentity(
         string? friendlyName,
         Guid type,
         string? devicePath,
-        string expectedFriendlyName) =>
-        string.Equals(friendlyName, expectedFriendlyName, StringComparison.OrdinalIgnoreCase)
-        && type == CustomSensorType
-        && devicePath?.Contains("VID_8087&PID_0AC2", StringComparison.OrdinalIgnoreCase) is true;
+        string expectedFriendlyName)
+    {
+        return string.Equals(friendlyName, expectedFriendlyName, StringComparison.OrdinalIgnoreCase)
+               && type == CustomSensorType
+               && devicePath?.Contains("VID_8087&PID_0AC2", StringComparison.OrdinalIgnoreCase) is true;
+    }
 
     private void ConfigureFastestIntervals()
     {
@@ -270,7 +272,7 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
         if (original == requested)
         {
             PluginTrace.Info("motion", $"{name} report interval is {requested} ms.");
-            return new IntervalState(original, requested, Changed: false);
+            return new IntervalState(original, requested, false);
         }
 
         if (!TrySetUnsignedProperty(sensor, CurrentReportInterval, requested, out var error))
@@ -278,7 +280,7 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
             PluginTrace.Warn(
                 "motion",
                 $"{name} could not request its fastest {requested} ms report interval: {error}.");
-            return new IntervalState(original, requested, Changed: false);
+            return new IntervalState(original, requested, false);
         }
 
         if (!TryReadUnsignedProperty(sensor, CurrentReportInterval, out var effective)
@@ -289,13 +291,13 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
                 $"{name} did not confirm its requested {requested} ms report interval.");
             // SetProperties succeeded, so retain ownership state even when readback did not. On
             // release, restoration occurs only if the current value still equals our request.
-            return new IntervalState(original, requested, Changed: true);
+            return new IntervalState(original, requested, true);
         }
 
         PluginTrace.Info(
             "motion",
             $"{name} report interval changed from {original} ms to the driver minimum {effective} ms.");
-        return new IntervalState(original, effective, Changed: true);
+        return new IntervalState(original, effective, true);
     }
 
     private static void RestoreInterval(ISensor? sensor, string name, IntervalState state)
@@ -345,14 +347,16 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
 
         devicePath = ReadStringProperty(sensor, DevicePathProperty);
         return MatchesExpectedIdentity(friendlyName, type, devicePath, expectedFriendlyName)
-            && Supports(sensor, AxisX)
-            && Supports(sensor, AxisY)
-            && Supports(sensor, AxisZ)
-            && (!requireCounter || Supports(sensor, HardwareReportCounter));
+               && Supports(sensor, AxisX)
+               && Supports(sensor, AxisY)
+               && Supports(sensor, AxisZ)
+               && (!requireCounter || Supports(sensor, HardwareReportCounter));
     }
 
-    private static bool Supports(ISensor sensor, PropertyKey key) =>
-        sensor.SupportsDataField(ref key, out var supported) >= 0 && supported != 0;
+    private static bool Supports(ISensor sensor, PropertyKey key)
+    {
+        return sensor.SupportsDataField(ref key, out var supported) >= 0 && supported != 0;
+    }
 
     private PhysicalMotionReadResult TryReadGyrometer(
         ISensor sensor,
@@ -692,11 +696,20 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface ISensorManager
     {
-        [PreserveSig] int GetSensorsByCategory([In] ref Guid category, out ISensorCollection? sensors);
-        [PreserveSig] int GetSensorsByType([In] ref Guid type, out ISensorCollection? sensors);
-        [PreserveSig] int GetSensorByID([In] ref Guid id, out ISensor? sensor);
-        [PreserveSig] int SetEventSink(nint events);
-        [PreserveSig] int RequestPermissions(nint window, ISensorCollection sensors, [MarshalAs(UnmanagedType.Bool)] bool modal);
+        [PreserveSig]
+        int GetSensorsByCategory([In] ref Guid category, out ISensorCollection? sensors);
+
+        [PreserveSig]
+        int GetSensorsByType([In] ref Guid type, out ISensorCollection? sensors);
+
+        [PreserveSig]
+        int GetSensorByID([In] ref Guid id, out ISensor? sensor);
+
+        [PreserveSig]
+        int SetEventSink(nint events);
+
+        [PreserveSig]
+        int RequestPermissions(nint window, ISensorCollection sensors, [MarshalAs(UnmanagedType.Bool)] bool modal);
     }
 
     [ComImport]
@@ -704,12 +717,23 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface ISensorCollection
     {
-        [PreserveSig] int GetAt(uint index, out ISensor? sensor);
-        [PreserveSig] int GetCount(out uint count);
-        [PreserveSig] int Add(ISensor sensor);
-        [PreserveSig] int Remove(ISensor sensor);
-        [PreserveSig] int RemoveByID([In] ref Guid id);
-        [PreserveSig] int Clear();
+        [PreserveSig]
+        int GetAt(uint index, out ISensor? sensor);
+
+        [PreserveSig]
+        int GetCount(out uint count);
+
+        [PreserveSig]
+        int Add(ISensor sensor);
+
+        [PreserveSig]
+        int Remove(ISensor sensor);
+
+        [PreserveSig]
+        int RemoveByID([In] ref Guid id);
+
+        [PreserveSig]
+        int Clear();
     }
 
     [ComImport]
@@ -717,21 +741,50 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface ISensor
     {
-        [PreserveSig] int GetID(out Guid id);
-        [PreserveSig] int GetCategory(out Guid category);
-        [PreserveSig] int GetType(out Guid type);
-        [PreserveSig] int GetFriendlyName([MarshalAs(UnmanagedType.BStr)] out string? name);
-        [PreserveSig] int GetProperty([In] ref PropertyKey key, out PropVariant value);
-        [PreserveSig] int GetProperties(nint keys, out nint values);
-        [PreserveSig] int GetSupportedDataFields(out nint keys);
-        [PreserveSig] int SetProperties(IPortableDeviceValues properties, out IPortableDeviceValues? results);
-        [PreserveSig] int SupportsDataField([In] ref PropertyKey key, out short supported);
-        [PreserveSig] int GetState(out int state);
-        [PreserveSig] int GetData(out ISensorDataReport? report);
-        [PreserveSig] int SupportsEvent([In] ref Guid eventGuid, out short supported);
-        [PreserveSig] int GetEventInterest(out nint values, out uint count);
-        [PreserveSig] int SetEventInterest(nint values, uint count);
-        [PreserveSig] int SetEventSink(nint events);
+        [PreserveSig]
+        int GetID(out Guid id);
+
+        [PreserveSig]
+        int GetCategory(out Guid category);
+
+        [PreserveSig]
+        int GetType(out Guid type);
+
+        [PreserveSig]
+        int GetFriendlyName([MarshalAs(UnmanagedType.BStr)] out string? name);
+
+        [PreserveSig]
+        int GetProperty([In] ref PropertyKey key, out PropVariant value);
+
+        [PreserveSig]
+        int GetProperties(nint keys, out nint values);
+
+        [PreserveSig]
+        int GetSupportedDataFields(out nint keys);
+
+        [PreserveSig]
+        int SetProperties(IPortableDeviceValues properties, out IPortableDeviceValues? results);
+
+        [PreserveSig]
+        int SupportsDataField([In] ref PropertyKey key, out short supported);
+
+        [PreserveSig]
+        int GetState(out int state);
+
+        [PreserveSig]
+        int GetData(out ISensorDataReport? report);
+
+        [PreserveSig]
+        int SupportsEvent([In] ref Guid eventGuid, out short supported);
+
+        [PreserveSig]
+        int GetEventInterest(out nint values, out uint count);
+
+        [PreserveSig]
+        int SetEventInterest(nint values, uint count);
+
+        [PreserveSig]
+        int SetEventSink(nint events);
     }
 
     [ComImport]
@@ -739,9 +792,14 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface ISensorDataReport
     {
-        [PreserveSig] int GetTimestamp(out SystemTime time);
-        [PreserveSig] int GetSensorValue([In] ref PropertyKey key, out PropVariant value);
-        [PreserveSig] int GetSensorValues(nint keys, out nint values);
+        [PreserveSig]
+        int GetTimestamp(out SystemTime time);
+
+        [PreserveSig]
+        int GetSensorValue([In] ref PropertyKey key, out PropVariant value);
+
+        [PreserveSig]
+        int GetSensorValues(nint keys, out nint values);
     }
 
     [ComImport]
@@ -749,13 +807,26 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IPortableDeviceValues
     {
-        [PreserveSig] int GetCount(out uint count);
-        [PreserveSig] int GetAt(uint index, ref PropertyKey key, ref PropVariant value);
-        [PreserveSig] int SetValue([In] ref PropertyKey key, [In] ref PropVariant value);
-        [PreserveSig] int GetValue([In] ref PropertyKey key, out PropVariant value);
-        [PreserveSig] int SetStringValue([In] ref PropertyKey key, [MarshalAs(UnmanagedType.LPWStr)] string value);
-        [PreserveSig] int GetStringValue([In] ref PropertyKey key, out nint value);
-        [PreserveSig] int SetUnsignedIntegerValue([In] ref PropertyKey key, uint value);
+        [PreserveSig]
+        int GetCount(out uint count);
+
+        [PreserveSig]
+        int GetAt(uint index, ref PropertyKey key, ref PropVariant value);
+
+        [PreserveSig]
+        int SetValue([In] ref PropertyKey key, [In] ref PropVariant value);
+
+        [PreserveSig]
+        int GetValue([In] ref PropertyKey key, out PropVariant value);
+
+        [PreserveSig]
+        int SetStringValue([In] ref PropertyKey key, [MarshalAs(UnmanagedType.LPWStr)] string value);
+
+        [PreserveSig]
+        int GetStringValue([In] ref PropertyKey key, out nint value);
+
+        [PreserveSig]
+        int SetUnsignedIntegerValue([In] ref PropertyKey key, uint value);
     }
 
     [ComImport]

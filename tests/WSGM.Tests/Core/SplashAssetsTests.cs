@@ -8,43 +8,52 @@ public sealed class SplashAssetsTests : IDisposable
         .CreateTempSubdirectory("wsgm-splash-assets-")
         .FullName;
 
-    private string SourceDir => Path.Combine(_root, "source");
-    private string TargetDir => Path.Combine(_root, "target");
-
-    /// <summary>Prepare plus an immediate commit. Production never does this — the save path
-    /// commits only after the config write succeeds — so the convenience belongs here rather
-    /// than on <see cref="SplashAssets"/>.</summary>
-    private static void Materialize(SplashConfig splash, string targetDirectory)
-    {
-        using var staged = SplashAssets.Prepare(splash, targetDirectory);
-        staged.Commit();
-    }
-
     public SplashAssetsTests()
     {
         Directory.CreateDirectory(SourceDir);
         Directory.CreateDirectory(TargetDir);
     }
 
+    private string SourceDir => Path.Combine(_root, "source");
+    private string TargetDir => Path.Combine(_root, "target");
+
     public void Dispose()
     {
         try
         {
-            Directory.Delete(_root, recursive: true);
+            Directory.Delete(_root, true);
         }
-        catch (IOException) { }
+        catch (IOException)
+        {
+        }
     }
 
-    private string[] FileNames() =>
-    [
-        .. Directory
-            .GetFiles(TargetDir)
-            .Select(f => Path.GetFileName(f))
-            .OrderBy(f => f, StringComparer.Ordinal)
-    ];
+    /// <summary>
+    ///     Prepare plus an immediate commit. Production never does this — the save path
+    ///     commits only after the config write succeeds — so the convenience belongs here rather
+    ///     than on <see cref="SplashAssets" />.
+    /// </summary>
+    private static void Materialize(SplashConfig splash, string targetDirectory)
+    {
+        using var staged = SplashAssets.Prepare(splash, targetDirectory);
+        staged.Commit();
+    }
 
-    private string[] SidecarNames() =>
-        [.. FileNames().Where(f => f.EndsWith(".wsgmnew", StringComparison.OrdinalIgnoreCase))];
+    private string[] FileNames()
+    {
+        return
+        [
+            .. Directory
+                .GetFiles(TargetDir)
+                .Select(f => Path.GetFileName(f))
+                .OrderBy(f => f, StringComparer.Ordinal)
+        ];
+    }
+
+    private string[] SidecarNames()
+    {
+        return [.. FileNames().Where(f => f.EndsWith(".wsgmnew", StringComparison.OrdinalIgnoreCase))];
+    }
 
     private string WriteSource(string name, string content = "image-bytes")
     {
@@ -250,7 +259,9 @@ public sealed class SplashAssetsTests : IDisposable
         File.WriteAllText(Path.Combine(TargetDir, "logo.png"), "live-logo");
         var splash = new SplashConfig { LogoImagePath = WriteSource("picked.png", "new-logo") };
 
-        using (SplashAssets.Prepare(splash, TargetDir)) { }
+        using (SplashAssets.Prepare(splash, TargetDir))
+        {
+        }
 
         Assert.Equal(["logo.png"], FileNames());
         Assert.Equal("live-logo", File.ReadAllText(Path.Combine(TargetDir, "logo.png")));

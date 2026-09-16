@@ -12,8 +12,8 @@ namespace WSGM.Device.Sdk.Plugin;
 
 /// <summary>The entry point of the sole installed device package.</summary>
 /// <remarks>
-/// The interface is semantic at the host boundary. Implementations own their hardware transports
-/// internally; none of those transports or handles can be returned through this API.
+///     The interface is semantic at the host boundary. Implementations own their hardware transports
+///     internally; none of those transports or handles can be returned through this API.
 /// </remarks>
 public interface IDevicePlugin : IAsyncDisposable
 {
@@ -49,18 +49,21 @@ public interface IDevicePlugin : IAsyncDisposable
     /// <param name="cancellationToken">Cancels application.</param>
     /// <returns>A task completing when the plugin has taken the values into account.</returns>
     /// <remarks>
-    /// Called once after start and again on every change, always as a complete set. A plugin that
-    /// declares no settings never sees this, so the default implementation does nothing rather than
-    /// forcing every plugin to carry an empty override.
-    /// <para>
-    /// These are preferences, not hardware commands: applying one may change how the plugin behaves
-    /// but must not become a hidden path for writing device state that WSGM cannot see.
-    /// </para>
+    ///     Called once after start and again on every change, always as a complete set. A plugin that
+    ///     declares no settings never sees this, so the default implementation does nothing rather than
+    ///     forcing every plugin to carry an empty override.
+    ///     <para>
+    ///         These are preferences, not hardware commands: applying one may change how the plugin behaves
+    ///         but must not become a hidden path for writing device state that WSGM cannot see.
+    ///     </para>
     /// </remarks>
     ValueTask ApplySettingsAsync(
         IReadOnlyList<DeviceSettingValue> values,
         CancellationToken cancellationToken
-    ) => ValueTask.CompletedTask;
+    )
+    {
+        return ValueTask.CompletedTask;
+    }
 
     /// <summary>Quiesces volatile work for suspend or session lock.</summary>
     /// <param name="context">Bounded quiescence deadline.</param>
@@ -119,7 +122,6 @@ public sealed record PluginDetectionContext
 {
     /// <summary>Normalized machine and device identity.</summary>
     public required DeviceIdentitySnapshot Identity { get; init; }
-
 }
 
 /// <summary>Outcome of exact plugin detection.</summary>
@@ -128,7 +130,7 @@ public sealed record PluginDetectionResult
     /// <summary>Whether an exact device definition matched.</summary>
     public required bool Matched { get; init; }
 
-    /// <summary>Matched device definition, present only when <see cref="Matched"/> is true.</summary>
+    /// <summary>Matched device definition, present only when <see cref="Matched" /> is true.</summary>
     public string? DeviceDefinitionId { get; init; }
 
     /// <summary>Why detection failed or stayed passive.</summary>
@@ -149,8 +151,8 @@ public sealed record PluginStartContext
 
     /// <summary>Private writable directory for package-owned durable state.</summary>
     /// <remarks>
-    /// The plugin owns the schema and atomicity of every file below this directory. The host does
-    /// not interpret or merge those files, and the plugin must keep them bounded.
+    ///     The plugin owns the schema and atomicity of every file below this directory. The host does
+    ///     not interpret or merge those files, and the plugin must keep them bounded.
     /// </remarks>
     public required string StateDirectory { get; init; }
 

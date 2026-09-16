@@ -5,20 +5,20 @@ using System.Text.Json.Serialization;
 namespace WSGM.Device.Sdk.Capabilities;
 
 /// <summary>
-/// The immutable description of one capability instance: what it is, what values it accepts, and
-/// what applying it costs.
+///     The immutable description of one capability instance: what it is, what values it accepts, and
+///     what applying it costs.
 /// </summary>
 /// <remarks>
-/// A descriptor never changes. When firmware, the endpoint set, or dependency health changes what a
-/// capability can do, the plugin publishes a complete replacement set under a new
-/// <see cref="CapabilityDescriptorSet.Generation"/> and consumers discard everything they cached.
-/// Mutating a descriptor in place would let a stale range validate a command the hardware will
-/// reject.
-/// <para>
-/// A descriptor is a description, not a promise. WSGM validates a request against it for UI
-/// consistency; the plugin revalidates authoritatively against current firmware and state on every
-/// command, because a value that was legal when the descriptor was published may not be legal now.
-/// </para>
+///     A descriptor never changes. When firmware, the endpoint set, or dependency health changes what a
+///     capability can do, the plugin publishes a complete replacement set under a new
+///     <see cref="CapabilityDescriptorSet.Generation" /> and consumers discard everything they cached.
+///     Mutating a descriptor in place would let a stale range validate a command the hardware will
+///     reject.
+///     <para>
+///         A descriptor is a description, not a promise. WSGM validates a request against it for UI
+///         consistency; the plugin revalidates authoritatively against current firmware and state on every
+///         command, because a value that was legal when the descriptor was published may not be legal now.
+///     </para>
 /// </remarks>
 public sealed record CapabilityDescriptor
 {
@@ -26,7 +26,7 @@ public sealed record CapabilityDescriptor
     public required string CapabilityId { get; init; }
 
     /// <summary>
-    /// Instance discriminator when a device has several of the same capability, such as two fans.
+    ///     Instance discriminator when a device has several of the same capability, such as two fans.
     /// </summary>
     public string? InstanceId { get; init; }
 
@@ -40,33 +40,33 @@ public sealed record CapabilityDescriptor
     public required CapabilityDisplay Display { get; init; }
 
     /// <summary>
-    /// Which declared section this belongs to: an overlay section declared in the same
-    /// <see cref="CapabilityDescriptorSet.Sections"/>, or — for a <c>Generic*</c> role — a
-    /// settings-manifest section.
+    ///     Which declared section this belongs to: an overlay section declared in the same
+    ///     <see cref="CapabilityDescriptorSet.Sections" />, or — for a <c>Generic*</c> role — a
+    ///     settings-manifest section.
     /// </summary>
     /// <remarks>
-    /// A section declared in the descriptor set is the plugin authoring its own Device overlay
-    /// surface, and any role may be placed there: the layout ships atomically with the
-    /// capabilities it lays out, and every title and icon in it comes from a WSGM-owned
-    /// vocabulary, so the cross-device consistency <see cref="DisplayKey"/> protects survives the
-    /// placement. A semantic role naming a section the set does not declare is still refused —
-    /// outside a declared layout, a power limit belongs under Power on every device.
-    /// <para>
-    /// A generic role keeps its old latitude: an unknown section falls back to a WSGM-owned group
-    /// rather than dropping the control, because WSGM has nothing better to do with a control it
-    /// has no semantics for than put it where the plugin says.
-    /// </para>
+    ///     A section declared in the descriptor set is the plugin authoring its own Device overlay
+    ///     surface, and any role may be placed there: the layout ships atomically with the
+    ///     capabilities it lays out, and every title and icon in it comes from a WSGM-owned
+    ///     vocabulary, so the cross-device consistency <see cref="DisplayKey" /> protects survives the
+    ///     placement. A semantic role naming a section the set does not declare is still refused —
+    ///     outside a declared layout, a power limit belongs under Power on every device.
+    ///     <para>
+    ///         A generic role keeps its old latitude: an unknown section falls back to a WSGM-owned group
+    ///         rather than dropping the control, because WSGM has nothing better to do with a control it
+    ///         has no semantics for than put it where the plugin says.
+    ///     </para>
     /// </remarks>
     public string? SectionId { get; init; }
 
     /// <summary>
-    /// Which category of the declared section this belongs to, or null for the section's
-    /// uncategorised lead group.
+    ///     Which category of the declared section this belongs to, or null for the section's
+    ///     uncategorised lead group.
     /// </summary>
     /// <remarks>
-    /// Legal only when <see cref="SectionId"/> names a section declared in the same set and that
-    /// section declares the category: a category is a heading on a section's page, so referencing
-    /// one without the page it belongs to would name nothing.
+    ///     Legal only when <see cref="SectionId" /> names a section declared in the same set and that
+    ///     section declares the category: a category is a heading on a section's page, so referencing
+    ///     one without the page it belongs to would name nothing.
     /// </remarks>
     public string? CategoryId { get; init; }
 
@@ -95,23 +95,27 @@ public sealed record CapabilityDescriptor
     public CapabilityUnit Unit { get; init; } = CapabilityUnit.None;
 
     /// <summary>Optional single-instance boost-limit capability coordinated with this sustained limit.</summary>
-    /// <remarks>When present, an integer command with <see cref="CapabilityCommand.ApplyPowerPair"/>
-    /// asks the plugin to apply and verify both limits using its device-specific relationship.
-    /// Ordinary commands retain their independent-limit behavior. The host snapshots both observed
-    /// limits before taking ownership and restores the sustained pair followed by the original boost
-    /// value. Both descriptors must be readable, writable watt limits with valid bounds and step.
-    /// The primary range describes valid coordinated targets. The plugin maps each target to its
-    /// companion limit within that companion's independently declared range and step, and verifies
-    /// both values. Hosts must not assume that the two limits are equal.</remarks>
+    /// <remarks>
+    ///     When present, an integer command with <see cref="CapabilityCommand.ApplyPowerPair" />
+    ///     asks the plugin to apply and verify both limits using its device-specific relationship.
+    ///     Ordinary commands retain their independent-limit behavior. The host snapshots both observed
+    ///     limits before taking ownership and restores the sustained pair followed by the original boost
+    ///     value. Both descriptors must be readable, writable watt limits with valid bounds and step.
+    ///     The primary range describes valid coordinated targets. The plugin maps each target to its
+    ///     companion limit within that companion's independently declared range and step, and verifies
+    ///     both values. Hosts must not assume that the two limits are equal.
+    /// </remarks>
     public string? PairedPowerLimitId { get; init; }
 
     /// <summary>Legal options for a choice capability.</summary>
     public IReadOnlyList<CapabilityChoice> Choices { get; init; } = [];
 
-    /// <summary>Optional device-authored shortcuts on the single-instance sustained power limit.
-    /// Empty by default. Assignment takes a read-only snapshot so later edits to the supplied
-    /// collection cannot change this descriptor. See <see cref="DevicePowerPreset"/> for bounds
-    /// and host behavior.</summary>
+    /// <summary>
+    ///     Optional device-authored shortcuts on the single-instance sustained power limit.
+    ///     Empty by default. Assignment takes a read-only snapshot so later edits to the supplied
+    ///     collection cannot change this descriptor. See <see cref="DevicePowerPreset" /> for bounds
+    ///     and host behavior.
+    /// </summary>
     public IReadOnlyList<DevicePowerPreset> PowerPresets
     {
         get;
@@ -123,12 +127,12 @@ public sealed record CapabilityDescriptor
     } = [];
 
     /// <summary>
-    /// Longest accepted value for a <see cref="CapabilityValueKind.Text"/> capability.
+    ///     Longest accepted value for a <see cref="CapabilityValueKind.Text" /> capability.
     /// </summary>
     /// <remarks>
-    /// Required for text, ignored otherwise. There is no default: a text capability that declared no
-    /// bound would be the one value shape with no limit at all, which is exactly what
-    /// <see cref="PlainText"/> exists to prevent.
+    ///     Required for text, ignored otherwise. There is no default: a text capability that declared no
+    ///     bound would be the one value shape with no limit at all, which is exactly what
+    ///     <see cref="PlainText" /> exists to prevent.
     /// </remarks>
     public int? MaximumLength { get; init; }
 
@@ -136,12 +140,12 @@ public sealed record CapabilityDescriptor
     public bool AvailableOnAc { get; init; } = true;
 
     /// <summary>
-    /// Whether the capability is available while running on battery.
+    ///     Whether the capability is available while running on battery.
     /// </summary>
     /// <remarks>
-    /// AC/DC is a descriptor field, not a descriptor generation: the power source changes constantly
-    /// and republishing every descriptor on each transition would invalidate caches for no reason.
-    /// The live condition is reported through capability state instead.
+    ///     AC/DC is a descriptor field, not a descriptor generation: the power source changes constantly
+    ///     and republishing every descriptor on each transition would invalidate caches for no reason.
+    ///     The live condition is reported through capability state instead.
     /// </remarks>
     public bool AvailableOnDc { get; init; } = true;
 
@@ -152,8 +156,8 @@ public sealed record CapabilityDescriptor
 /// <summary>One legal option of a choice capability.</summary>
 /// <param name="Value">Stable machine value, used in commands and persisted state.</param>
 /// <param name="Display">
-/// How WSGM labels the option. It must be non-null and satisfy
-/// <see cref="CapabilityDisplay.TryValidate"/> wherever the choice is accepted.
+///     How WSGM labels the option. It must be non-null and satisfy
+///     <see cref="CapabilityDisplay.TryValidate" /> wherever the choice is accepted.
 /// </param>
 public sealed record CapabilityChoice(string Value, CapabilityDisplay Display);
 
@@ -172,16 +176,16 @@ public enum CapabilityPersistence
 }
 
 /// <summary>
-/// A complete, versioned set of descriptors for one device generation.
+///     A complete, versioned set of descriptors for one device generation.
 /// </summary>
 /// <remarks>
-/// Descriptors are always published as a whole set. A capability missing from a new set has gone
-/// away and its control disappears, rather than lingering as permanently unavailable.
+///     Descriptors are always published as a whole set. A capability missing from a new set has gone
+///     away and its control disappears, rather than lingering as permanently unavailable.
 /// </remarks>
 public sealed record CapabilityDescriptorSet
 {
     /// <summary>
-    /// Monotonic generation. Increments whenever any descriptor changes.
+    ///     Monotonic generation. Increments whenever any descriptor changes.
     /// </summary>
     public required long Generation { get; init; }
 
@@ -189,12 +193,12 @@ public sealed record CapabilityDescriptorSet
     public required long CycleGeneration { get; init; }
 
     /// <summary>
-    /// The overlay sections this set's descriptors may reference, in declaration order.
+    ///     The overlay sections this set's descriptors may reference, in declaration order.
     /// </summary>
     /// <remarks>
-    /// Published inside the set so layout and content replace atomically: a capability can never
-    /// reference a section from another generation. An empty list declares no layout, and every
-    /// capability keeps the semantic home WSGM gives its role.
+    ///     Published inside the set so layout and content replace atomically: a capability can never
+    ///     reference a section from another generation. An empty list declares no layout, and every
+    ///     capability keeps the semantic home WSGM gives its role.
     /// </remarks>
     public IReadOnlyList<CapabilitySection> Sections { get; init; } = [];
 

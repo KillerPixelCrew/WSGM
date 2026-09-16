@@ -11,6 +11,11 @@ namespace WSGM.Interop;
 /// <summary>Locks every source path component against replacement while package files are copied.</summary>
 internal sealed class NativePackageSource : IDisposable
 {
+    private const uint FileReadAttributes = 0x00000080;
+    private const uint FileAttributeDirectory = 0x00000010;
+    private const uint FileAttributeReparsePoint = 0x00000400;
+    private const uint FileFlagSequentialScan = 0x08000000;
+    private const uint FileFlagOpenReparsePoint = 0x00200000;
     private readonly List<SafeFileHandle> _directoryHandles = [];
     private bool _disposed;
 
@@ -25,6 +30,23 @@ internal sealed class NativePackageSource : IDisposable
 
     /// <summary>Filesystem identity observed from the secured source-root handle.</summary>
     internal NativePathIdentity RootIdentity { get; }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        for (var index = _directoryHandles.Count - 1; index >= 0; index--)
+        {
+            _directoryHandles[index].Dispose();
+        }
+
+        _directoryHandles.Clear();
+    }
 
     /// <summary>Secures an existing directory tree root, or returns null when the path is absent.</summary>
     internal static NativePackageSource? TryOpen(string path)
@@ -50,12 +72,14 @@ internal sealed class NativePackageSource : IDisposable
                     DisposeHandles(handles);
                     return null;
                 }
+
                 if (entry.IsReparsePoint)
                 {
                     entry.Dispose();
                     throw new InvalidDataException(
                         "Package source may not traverse a link or reparse point.");
                 }
+
                 if (!entry.IsDirectory)
                 {
                     entry.Dispose();
@@ -108,22 +132,6 @@ internal sealed class NativePackageSource : IDisposable
         _directoryHandles.Add(entry.TakeHandle());
     }
 
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        for (var index = _directoryHandles.Count - 1; index >= 0; index--)
-        {
-            _directoryHandles[index].Dispose();
-        }
-        _directoryHandles.Clear();
-    }
-
     private static NativePackageSourceEntry? TryOpenEntry(string path)
     {
         var probe = OpenPath(
@@ -152,7 +160,7 @@ internal sealed class NativePackageSource : IDisposable
                     probeInformation.Identity,
                     isDirectory,
                     isReparsePoint,
-                    length: 0);
+                    0);
                 probe = null;
                 return result;
             }
@@ -180,8 +188,8 @@ internal sealed class NativePackageSource : IDisposable
                 NativePackageSourceEntry result = new(
                     readHandle,
                     readInformation.Identity,
-                    isDirectory: false,
-                    isReparsePoint: false,
+                    false,
+                    false,
                     readInformation.Length);
                 readHandle = null;
                 return result;
@@ -203,15 +211,16 @@ internal sealed class NativePackageSource : IDisposable
         {
             handles[index].Dispose();
         }
+
         handles.Clear();
     }
 
     private static NativeEntryInformation ReadInformation(SafeFileHandle handle, string path)
     {
         if (!NativePathIdentityReader.TryRead(
-            handle,
-            out var information,
-            out var error))
+                handle,
+                out var information,
+                out var error))
         {
             throw NativeIoException("inspect", path, error);
         }
@@ -222,21 +231,12 @@ internal sealed class NativePackageSource : IDisposable
             information.Length);
     }
 
-    private static IOException NativeIoException(string operation, string path, int error) =>
-        new(
+    private static IOException NativeIoException(string operation, string path, int error)
+    {
+        return new IOException(
             $"Could not {operation} package source path '{path}'.",
             new Win32Exception(error));
-
-    private readonly record struct NativeEntryInformation(
-        uint Attributes,
-        NativePathIdentity Identity,
-        long Length);
-
-    private const uint FileReadAttributes = 0x00000080;
-    private const uint FileAttributeDirectory = 0x00000010;
-    private const uint FileAttributeReparsePoint = 0x00000400;
-    private const uint FileFlagSequentialScan = 0x08000000;
-    private const uint FileFlagOpenReparsePoint = 0x00200000;
+    }
 
     private static SafeFileHandle OpenPath(
         string path,
@@ -252,8 +252,13 @@ internal sealed class NativePackageSource : IDisposable
             OpenExisting,
             flags,
             0);
-        return new SafeFileHandle(handle, ownsHandle: true);
+        return new SafeFileHandle(handle, true);
     }
+
+    private readonly record struct NativeEntryInformation(
+        uint Attributes,
+        NativePathIdentity Identity,
+        long Length);
 }
 
 /// <summary>One no-follow package source entry held against replacement.</summary>
@@ -287,6 +292,13 @@ internal sealed class NativePackageSourceEntry : IDisposable
     /// <summary>File length observed after the read handle blocked writers and replacement.</summary>
     internal long Length { get; }
 
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _handle?.Dispose();
+        _handle = null;
+    }
+
     /// <summary>Transfers the secured file handle into a read-only stream.</summary>
     internal FileStream OpenReadStream()
     {
@@ -295,7 +307,7 @@ internal sealed class NativePackageSourceEntry : IDisposable
             throw new InvalidOperationException("Only ordinary package files can be read.");
         }
 
-        return new FileStream(TakeHandle(), FileAccess.Read, 64 * 1024, isAsync: false);
+        return new FileStream(TakeHandle(), FileAccess.Read, 64 * 1024, false);
     }
 
     /// <summary>Transfers ownership of the underlying no-follow handle.</summary>
@@ -305,12 +317,5 @@ internal sealed class NativePackageSourceEntry : IDisposable
                      ?? throw new ObjectDisposedException(nameof(NativePackageSourceEntry));
         _handle = null;
         return handle;
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        _handle?.Dispose();
-        _handle = null;
     }
 }

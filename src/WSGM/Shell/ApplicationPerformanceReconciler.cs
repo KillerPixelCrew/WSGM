@@ -7,10 +7,14 @@ using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
 
-/// <summary>Carries the running application's per-game power limit and variable refresh preference
-/// to the device, and saves values set by hand to the profile layer in force.</summary>
-/// <remarks>The session decides when this runs; this remembers what it imposed, so a value one
-/// application set is undone when the next application does not ask for it.</remarks>
+/// <summary>
+///     Carries the running application's per-game power limit and variable refresh preference
+///     to the device, and saves values set by hand to the profile layer in force.
+/// </summary>
+/// <remarks>
+///     The session decides when this runs; this remembers what it imposed, so a value one
+///     application set is undone when the next application does not ask for it.
+/// </remarks>
 /// <param name="readConfig">Reads the current configuration, which a reload replaces.</param>
 /// <param name="readCoordinator">Reads the device coordinator, or null without device integration.</param>
 /// <param name="readPerformance">Reads the RTSS performance service, or null before it starts.</param>
@@ -21,27 +25,27 @@ internal sealed class ApplicationPerformanceReconciler(
     Func<PerformanceService?> readPerformance,
     Func<AutoTdpService?> readAutoTdp)
 {
+    private string _lastReconciledApplicationId = "(uninitialised)";
     private bool _profilePowerImposed;
     private bool _profilePowerPaired;
     private bool _profileVrrImposed;
-    private string _lastReconciledApplicationId = "(uninitialised)";
 
     /// <summary>
-    /// Restores the power limit and variable-refresh state the incoming application prefers, and takes
-    /// back the ones the outgoing application imposed.
+    ///     Restores the power limit and variable-refresh state the incoming application prefers, and takes
+    ///     back the ones the outgoing application imposed.
     /// </summary>
     /// <param name="applicationId">The canonical identity of the application now in front, or null.</param>
     /// <param name="cancellationToken">Cancels the device writes.</param>
     /// <remarks>
-    /// The fix for a power limit or refresh mode set in a game leaking onto the desktop after the game
-    /// closes. The per-game switch governs every performance value, so an application's own value
-    /// applies only while its profile is enabled; otherwise it inherits the global one. When neither
-    /// layer prefers a value, the outgoing application's is undone rather than left running — for
-    /// power, automatic control resumes if it is on and the limit is otherwise released to the device
-    /// ceiling; for variable refresh, it returns to off — but only when WSGM actually imposed the
-    /// current one, so a session that never used the feature is never touched. Both decisions are pure
-    /// and tested (<see cref="PerApplicationPowerPolicy"/>, <see cref="PerApplicationVrrPolicy"/>);
-    /// this only reads the layers and carries them out.
+    ///     The fix for a power limit or refresh mode set in a game leaking onto the desktop after the game
+    ///     closes. The per-game switch governs every performance value, so an application's own value
+    ///     applies only while its profile is enabled; otherwise it inherits the global one. When neither
+    ///     layer prefers a value, the outgoing application's is undone rather than left running — for
+    ///     power, automatic control resumes if it is on and the limit is otherwise released to the device
+    ///     ceiling; for variable refresh, it returns to off — but only when WSGM actually imposed the
+    ///     current one, so a session that never used the feature is never touched. Both decisions are pure
+    ///     and tested (<see cref="PerApplicationPowerPolicy" />, <see cref="PerApplicationVrrPolicy" />);
+    ///     this only reads the layers and carries them out.
     /// </remarks>
     internal async Task ReconcileApplicationProfileAsync(
         string? applicationId,
@@ -122,7 +126,8 @@ internal sealed class ApplicationPerformanceReconciler(
                 var applied = splitPair
                     ? await coordinator.RestoreSplitPowerAsync(power, decision.Watts, manualProfile!.BoostWatts!.Value,
                         cancellationToken).ConfigureAwait(false)
-                    : await ApplyProfilePowerLimitAsync(power, decision.Watts, cancellationToken, paired).ConfigureAwait(false);
+                    : await ApplyProfilePowerLimitAsync(power, decision.Watts, cancellationToken, paired)
+                        .ConfigureAwait(false);
                 if (applied)
                 {
                     // An explicit limit overrides automatic control exactly as moving the slider
@@ -206,17 +211,20 @@ internal sealed class ApplicationPerformanceReconciler(
     /// <summary>Persists a hand-set power limit to whichever profile layer is in force.</summary>
     /// <param name="watts">The limit the user just set, already applied to the device.</param>
     /// <remarks>
-    /// Runs from the manual-power funnel, so the value has already reached the device and paused
-    /// AutoTDP. This only records it as the user's preference for the running application's layer —
-    /// its own when a per-game profile is enabled, the global layer otherwise — so the next launch
-    /// restores it instead of the value leaking onto whatever runs next.
+    ///     Runs from the manual-power funnel, so the value has already reached the device and paused
+    ///     AutoTDP. This only records it as the user's preference for the running application's layer —
+    ///     its own when a per-game profile is enabled, the global layer otherwise — so the next launch
+    ///     restores it instead of the value leaking onto whatever runs next.
     /// </remarks>
     internal void PersistManualPowerLimit(int watts)
     {
         var (applicationId, entry, applicationLayer) = ActivePerformanceLayer();
         var current = applicationLayer ? entry!.TdpWatts : readConfig().Performance.TdpWatts;
         var manual = ManualTdpPolicy.Resolve(readConfig().Performance, entry, applicationLayer);
-        if (manual is not null) { current = manual.Unified ? manual.UnifiedWatts : manual.SustainedWatts; }
+        if (manual is not null)
+        {
+            current = manual.Unified ? manual.UnifiedWatts : manual.SustainedWatts;
+        }
 
         // The manual funnel fires on the value WSGM's own restore just wrote as well — its origin
         // keeps it out of here, but a value that already matches the layer is skipped regardless so
@@ -233,13 +241,25 @@ internal sealed class ApplicationPerformanceReconciler(
             applicationLayer,
             target =>
             {
-                if (manual is null) { target.TdpWatts = watts; }
-                else { target.ManualTdp = ManualTdpPolicy.WithTarget(manual, watts); }
+                if (manual is null)
+                {
+                    target.TdpWatts = watts;
+                }
+                else
+                {
+                    target.ManualTdp = ManualTdpPolicy.WithTarget(manual, watts);
+                }
             },
             global =>
             {
-                if (manual is null) { global.TdpWatts = watts; }
-                else { global.ManualTdp = ManualTdpPolicy.WithTarget(manual, watts); }
+                if (manual is null)
+                {
+                    global.TdpWatts = watts;
+                }
+                else
+                {
+                    global.ManualTdp = ManualTdpPolicy.WithTarget(manual, watts);
+                }
             },
             $"Power limit {watts} W");
     }
@@ -249,26 +269,29 @@ internal sealed class ApplicationPerformanceReconciler(
     /// <param name="cancellationToken">Cancels the device write.</param>
     /// <returns>Whether the display is now in that state.</returns>
     /// <remarks>
-    /// The user-facing counterpart to <see cref="ApplyVariableRefreshRateAsync"/>, which stays the
-    /// bare device write the profile restore uses. This is what the native QAM's VRR control calls.
-    /// Saving is not done here: the write carries the user origin, so the coordinator's manual hook
-    /// runs <see cref="PersistManualVariableRefresh"/> for this path and for the overlay's Device
-    /// row alike, and one owner cannot save what the other does not.
+    ///     The user-facing counterpart to <see cref="ApplyVariableRefreshRateAsync" />, which stays the
+    ///     bare device write the profile restore uses. This is what the native QAM's VRR control calls.
+    ///     Saving is not done here: the write carries the user origin, so the coordinator's manual hook
+    ///     runs <see cref="PersistManualVariableRefresh" /> for this path and for the overlay's Device
+    ///     row alike, and one owner cannot save what the other does not.
     /// </remarks>
     internal Task<bool> SetVariableRefreshRateFromUserAsync(
         bool enabled,
-        CancellationToken cancellationToken) => ApplyVariableRefreshRateAsync(
+        CancellationToken cancellationToken)
+    {
+        return ApplyVariableRefreshRateAsync(
             enabled,
             CapabilityCommandOrigin.User,
             cancellationToken);
+    }
 
     /// <summary>Saves a hand-set variable-refresh state to whichever profile layer is in force.</summary>
     /// <param name="enabled">The state the device just accepted.</param>
     /// <remarks>
-    /// Runs from the coordinator's manual funnel, so the state has already reached the device. This
-    /// only records it as the running application's preference — its own layer when a per-game
-    /// profile is enabled, the global layer otherwise — so the next launch restores it instead of
-    /// letting it leak onto whatever runs next.
+    ///     Runs from the coordinator's manual funnel, so the state has already reached the device. This
+    ///     only records it as the running application's preference — its own layer when a per-game
+    ///     profile is enabled, the global layer otherwise — so the next launch restores it instead of
+    ///     letting it leak onto whatever runs next.
     /// </remarks>
     internal void PersistManualVariableRefresh(bool enabled)
     {
@@ -323,19 +346,23 @@ internal sealed class ApplicationPerformanceReconciler(
         Log.Info($"{saved} saved to the " + (applicationLayer ? $"profile for {applicationId}." : "global profile."));
     }
 
-    private DeviceCapabilityView? FindPowerLimitCapability() =>
-        readCoordinator()?.Capabilities.Snapshot().FirstOrDefault(view =>
+    private DeviceCapabilityView? FindPowerLimitCapability()
+    {
+        return readCoordinator()?.Capabilities.Snapshot().FirstOrDefault(view =>
             view.Descriptor is
             {
                 Role: CapabilityRole.PowerSustainedLimit,
                 SupportsWrite: true,
                 ValueKind: CapabilityValueKind.Integer
             });
+    }
 
-    private DeviceCapabilityView? FindVariableRefreshCapability() =>
-        readCoordinator()?.Capabilities.Snapshot().FirstOrDefault(view =>
+    private DeviceCapabilityView? FindVariableRefreshCapability()
+    {
+        return readCoordinator()?.Capabilities.Snapshot().FirstOrDefault(view =>
             view.Descriptor.Role is CapabilityRole.VariableRefreshRate
             && view.Descriptor.SupportsWrite);
+    }
 
     private async Task<bool> ApplyProfilePowerLimitAsync(
         DeviceCapabilityView power,
@@ -356,10 +383,10 @@ internal sealed class ApplicationPerformanceReconciler(
             // Not a user action: the value is already the saved preference, so it must not re-enter
             // the manual funnel and be persisted again or re-resolved into the wrong layer.
             CapabilityCommandOrigin.ProfileRestore,
-            expectedCycle: power.Projection.State.CycleGeneration,
-            expectedDescriptors: power.Projection.State.DescriptorGeneration,
-            applyPowerPair: paired,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+            power.Projection.State.CycleGeneration,
+            power.Projection.State.DescriptorGeneration,
+            paired,
+            cancellationToken).ConfigureAwait(false);
         var applied = paired
             ? result.Outcome == CommandOutcome.AppliedVerified && result.ReadbackValue?.IntegerValue == watts
             : result.Outcome.IsApplied();
@@ -376,16 +403,16 @@ internal sealed class ApplicationPerformanceReconciler(
     /// <summary>Turns variable refresh rate on or off through the device plugin.</summary>
     /// <param name="enabled">The requested state.</param>
     /// <param name="origin">
-    /// Who asked. <see cref="CapabilityCommandOrigin.ProfileRestore"/> for a value WSGM is putting
-    /// back, so it is not saved again — the release case applies <see langword="false"/> when no
-    /// layer prefers a value at all, and storing that would invent a preference the user never set.
+    ///     Who asked. <see cref="CapabilityCommandOrigin.ProfileRestore" /> for a value WSGM is putting
+    ///     back, so it is not saved again — the release case applies <see langword="false" /> when no
+    ///     layer prefers a value at all, and storing that would invent a preference the user never set.
     /// </param>
     /// <param name="cancellationToken">Cancels the device write.</param>
     /// <returns>Whether the device applied it.</returns>
     /// <remarks>
-    /// The plugin owns the transport — Arc Sync on the reference device — because it touches the
-    /// GPU driver, and chasing driver changes is the plugin author's burden rather than WSGM's.
-    /// This only finds the published capability and asks.
+    ///     The plugin owns the transport — Arc Sync on the reference device — because it touches the
+    ///     GPU driver, and chasing driver changes is the plugin author's burden rather than WSGM's.
+    ///     This only finds the published capability and asks.
     /// </remarks>
     private async Task<bool> ApplyVariableRefreshRateAsync(
         bool enabled,

@@ -23,11 +23,14 @@ internal interface ICaptureReceiptClock
 /// <summary>QueryPerformanceCounter-backed production receipt clock.</summary>
 internal sealed class QpcCaptureReceiptClock : ICaptureReceiptClock
 {
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public long Frequency => Stopwatch.Frequency;
 
-    /// <inheritdoc/>
-    public long GetTimestamp() => Stopwatch.GetTimestamp();
+    /// <inheritdoc />
+    public long GetTimestamp()
+    {
+        return Stopwatch.GetTimestamp();
+    }
 }
 
 /// <summary>One raw observation submitted by a passive source before receipt sequencing.</summary>
@@ -67,14 +70,14 @@ internal sealed record PassiveObservation
 /// <summary>Thread-safe QPC-aligned timeline retaining source and receipt ordering.</summary>
 internal sealed class PassiveCaptureTimeline
 {
-    private readonly Lock _gate = new();
     private readonly ICaptureReceiptClock _clock;
     private readonly List<CaptureStreamEvent> _events = [];
+    private readonly Lock _gate = new();
     private readonly Dictionary<string, SourceState> _sources = new(StringComparer.Ordinal);
+    private int _clockSegment;
+    private long? _deviceGeneration;
     private long _globalSequence;
     private long _maximumQpc;
-    private long? _deviceGeneration;
-    private int _clockSegment;
 
     /// <summary>Creates an empty capture timeline.</summary>
     /// <param name="clock">Receipt clock shared by every source.</param>
@@ -114,7 +117,8 @@ internal sealed class PassiveCaptureTimeline
                 or EventDiscontinuity.DeviceGenerationChanged;
             var sourceClockReset = source.LastSourceTime is { } previousSourceTime
                                    && observation.SourceTime is { } currentSourceTime
-                                   && string.Equals(previousSourceTime.ClockId, currentSourceTime.ClockId, StringComparison.Ordinal)
+                                   && string.Equals(previousSourceTime.ClockId, currentSourceTime.ClockId,
+                                       StringComparison.Ordinal)
                                    && currentSourceTime.Value < previousSourceTime.Value;
             var generationChanged = _deviceGeneration is { } generation
                                     && observation.DeviceGeneration != generation;
@@ -201,10 +205,13 @@ internal sealed class PassiveCaptureTimeline
         }
     }
 
-    private static CapturedPayload ClonePayload(CapturedPayload payload) => payload with
+    private static CapturedPayload ClonePayload(CapturedPayload payload)
     {
-        Bytes = payload.Bytes is null ? null : [.. payload.Bytes]
-    };
+        return payload with
+        {
+            Bytes = payload.Bytes is null ? null : [.. payload.Bytes]
+        };
+    }
 
     private sealed class SourceState
     {
@@ -248,7 +255,8 @@ internal sealed class PassiveCaptureCoordinator
         ArgumentNullException.ThrowIfNull(sources);
         _timeline = timeline ?? throw new ArgumentNullException(nameof(timeline));
         Dictionary<string, IPassiveCaptureSource> indexed = new(StringComparer.Ordinal);
-        if (sources.Any(source => string.IsNullOrWhiteSpace(source.SourceId) || !indexed.TryAdd(source.SourceId, source)))
+        if (sources.Any(source =>
+                string.IsNullOrWhiteSpace(source.SourceId) || !indexed.TryAdd(source.SourceId, source)))
         {
             throw new ArgumentException("Passive source identifiers must be nonempty and unique.", nameof(sources));
         }
@@ -264,7 +272,8 @@ internal sealed class PassiveCaptureCoordinator
         ArgumentNullException.ThrowIfNull(recipe);
         if (recipe.SchemaVersion != CaptureSchema.CurrentVersion
             || recipe.Steps.Count > CaptureSchema.MaximumRecipeSteps
-            || recipe.Steps.Any(step => step.DurationMilliseconds is <= 0 or > CaptureSchema.MaximumStepDurationMilliseconds))
+            || recipe.Steps.Any(step =>
+                step.DurationMilliseconds is <= 0 or > CaptureSchema.MaximumStepDurationMilliseconds))
         {
             throw new InvalidDataException("Passive capture recipe failed its closed schema or duration bounds.");
         }
@@ -289,7 +298,8 @@ internal sealed class PassiveCaptureCoordinator
                         if (!string.Equals(observation.SourceId, source.SourceId, StringComparison.Ordinal)
                             || !string.Equals(observation.RecipeStepId, step.StepId, StringComparison.Ordinal))
                         {
-                            throw new InvalidDataException("Passive source emitted outside its assigned source or step.");
+                            throw new InvalidDataException(
+                                "Passive source emitted outside its assigned source or step.");
                         }
 
                         _timeline.Record(observation);
@@ -304,31 +314,40 @@ internal sealed class PassiveCaptureCoordinator
         }
     }
 
-    private void RecordUnavailable(ObservationStep step) => _timeline.Record(new PassiveObservation
+    private void RecordUnavailable(ObservationStep step)
     {
-        SourceId = step.SourceId,
-        RecipeStepId = step.StepId,
-        SourceSequence = _timeline.NextSourceSequence(step.SourceId),
-        DeviceGeneration = 0,
-        Payload = EmptyPayload(),
-        Access = EventAccessState.Unavailable
-    });
+        _timeline.Record(new PassiveObservation
+        {
+            SourceId = step.SourceId,
+            RecipeStepId = step.StepId,
+            SourceSequence = _timeline.NextSourceSequence(step.SourceId),
+            DeviceGeneration = 0,
+            Payload = EmptyPayload(),
+            Access = EventAccessState.Unavailable
+        });
+    }
 
-    private void RecordTimedOut(ObservationStep step) => _timeline.Record(new PassiveObservation
+    private void RecordTimedOut(ObservationStep step)
     {
-        SourceId = step.SourceId,
-        RecipeStepId = step.StepId,
-        SourceSequence = _timeline.NextSourceSequence(step.SourceId),
-        DeviceGeneration = 0,
-        Payload = EmptyPayload(),
-        TimedOut = true
-    });
+        _timeline.Record(new PassiveObservation
+        {
+            SourceId = step.SourceId,
+            RecipeStepId = step.StepId,
+            SourceSequence = _timeline.NextSourceSequence(step.SourceId),
+            DeviceGeneration = 0,
+            Payload = EmptyPayload(),
+            TimedOut = true
+        });
+    }
 
-    private static CapturedPayload EmptyPayload() => new()
+    private static CapturedPayload EmptyPayload()
     {
-        Length = 0,
-        Disposition = PayloadDisposition.NotCaptured
-    };
+        return new CapturedPayload
+        {
+            Length = 0,
+            Disposition = PayloadDisposition.NotCaptured
+        };
+    }
 }
 
 /// <summary>Closed guided operator actions that may be placed on the passive timeline.</summary>
@@ -365,10 +384,10 @@ internal enum GuidedOperatorMarkerKind
 /// <summary>Decodes passive operator-marker observations found in imported captures.</summary>
 internal static class GuidedOperatorMarkers
 {
-    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
-
     /// <summary>Stable source ID for guided operator markers.</summary>
     public const string SourceId = "operator.marker";
+
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     /// <summary>Decodes one marker event.</summary>
     /// <param name="captureEvent">Raw event.</param>
@@ -401,8 +420,9 @@ internal static class GuidedOperatorMarkers
         {
             return false;
         }
+
         if (parts is not ["v1", _, _, _]
-            || !Enum.TryParse(parts[1], ignoreCase: false, out kind)
+            || !Enum.TryParse(parts[1], false, out kind)
             || !Enum.IsDefined(kind)
             || !string.Equals(parts[1], kind.ToString(), StringComparison.Ordinal)
             || parts[2].Length == 0
@@ -415,7 +435,6 @@ internal static class GuidedOperatorMarkers
         label = parts[3];
         return true;
     }
-
 }
 
 /// <summary>Explicit limitations attached to passive Device Lab observations.</summary>

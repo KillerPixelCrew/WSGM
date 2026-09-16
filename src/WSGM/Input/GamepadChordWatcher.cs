@@ -3,17 +3,16 @@ using WSGM.Core;
 
 namespace WSGM.Input;
 
-/// <summary>Watches the controllers for the configured chord while the shell runs,
-/// and fires once per matching press/hold. A chord only matches when it was pressed
-/// on a single pad (per-pad tracking in ChordTracker).</summary>
+/// <summary>
+///     Watches the controllers for the configured chord while the shell runs,
+///     and fires once per matching press/hold. A chord only matches when it was pressed
+///     on a single pad (per-pad tracking in ChordTracker).
+/// </summary>
 public sealed class GamepadChordWatcher : IDisposable
 {
     private readonly GamepadService _gamepad;
     private readonly ChordTracker _tracker;
     private GamepadChordConfig _config;
-
-    /// <summary>Raised once when the configured chord completes on one controller.</summary>
-    public event Action? Triggered;
 
     /// <summary>Creates a watcher for one polling service and initial chord configuration.</summary>
     /// <param name="gamepad">The service that provides per-controller state changes.</param>
@@ -27,6 +26,16 @@ public sealed class GamepadChordWatcher : IDisposable
         _tracker.Released += OnReleased;
         _gamepad.StateChanged += OnStateChanged;
     }
+
+    /// <summary>Unsubscribes from controller state changes.</summary>
+    public void Dispose()
+    {
+        _gamepad.StateChanged -= OnStateChanged;
+        _tracker.Dispose();
+    }
+
+    /// <summary>Raised once when the configured chord completes on one controller.</summary>
+    public event Action? Triggered;
 
     /// <summary>Replaces the watched chord and clears any partial chord state.</summary>
     /// <param name="config">The new chord configuration.</param>
@@ -42,6 +51,7 @@ public sealed class GamepadChordWatcher : IDisposable
         {
             return;
         }
+
         _tracker.OnState(padId, state);
     }
 
@@ -53,7 +63,7 @@ public sealed class GamepadChordWatcher : IDisposable
         }
 
         Fire();
-        pad.HoldConsumed = true;    // don't repeat while still held
+        pad.HoldConsumed = true; // don't repeat while still held
     }
 
     private void OnReleased(ChordTracker.Pad pad)
@@ -70,12 +80,5 @@ public sealed class GamepadChordWatcher : IDisposable
     {
         Log.Info("Controller chord matched — opening overlay.");
         Triggered?.Invoke();
-    }
-
-    /// <summary>Unsubscribes from controller state changes.</summary>
-    public void Dispose()
-    {
-        _gamepad.StateChanged -= OnStateChanged;
-        _tracker.Dispose();
     }
 }

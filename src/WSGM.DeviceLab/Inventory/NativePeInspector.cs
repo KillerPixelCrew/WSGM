@@ -23,7 +23,7 @@ internal static class NativePeInspector
             resolved = Path.GetFullPath(path);
         }
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException
-            or SecurityException)
+                                              or SecurityException)
         {
             return Unavailable(path, InventoryAccess.Malformed);
         }
@@ -35,6 +35,7 @@ internal static class NativePeInspector
             {
                 return Unavailable(resolved, InventoryAccess.Malformed, stream.Length);
             }
+
             using PEReader pe = new(stream, PEStreamOptions.LeaveOpen);
             if (pe.PEHeaders.PEHeader is null)
             {
@@ -71,8 +72,9 @@ internal static class NativePeInspector
             return Unavailable(resolved, InventoryAccess.Disconnected);
         }
         catch (Exception exception) when (exception is BadImageFormatException
-            or CryptographicException or ArgumentException or InvalidOperationException
-            or OverflowException or Win32Exception)
+                                              or CryptographicException or ArgumentException
+                                              or InvalidOperationException
+                                              or OverflowException or Win32Exception)
         {
             return Unavailable(resolved, InventoryAccess.Malformed);
         }
@@ -81,7 +83,9 @@ internal static class NativePeInspector
     private static NativeBinaryInventory Unavailable(
         string path,
         InventoryAccess access,
-        long fileBytes = 0) => new()
+        long fileBytes = 0)
+    {
+        return new NativeBinaryInventory
         {
             Access = access,
             Path = path,
@@ -89,9 +93,12 @@ internal static class NativePeInspector
             FileBytes = fileBytes,
             Signature = BinarySignatureState.Unknown
         };
+    }
 
-    private static bool IsSharingViolation(IOException exception) =>
-        (exception.HResult & 0xFFFF) is 32 or 33;
+    private static bool IsSharingViolation(IOException exception)
+    {
+        return (exception.HResult & 0xFFFF) is 32 or 33;
+    }
 
     private static string SafeFileName(string path)
     {
@@ -192,6 +199,8 @@ internal static class NativePeInspector
         return exports;
     }
 
-    private static string? EmptyToNull(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private static string? EmptyToNull(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
 }

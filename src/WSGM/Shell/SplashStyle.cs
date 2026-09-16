@@ -6,15 +6,19 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>Resolved position of one boot-splash element, produced by
-/// <see cref="SplashStyle.MapPlacement"/>. Exactly one positioning scheme is
-/// meaningful per instance: alignment + margin when <see cref="IsAbsolute"/> is
-/// false (host the element in an alignment container), Canvas coordinates when
-/// it is true (host the element on a Canvas).</summary>
+/// <summary>
+///     Resolved position of one boot-splash element, produced by
+///     <see cref="SplashStyle.MapPlacement" />. Exactly one positioning scheme is
+///     meaningful per instance: alignment + margin when <see cref="IsAbsolute" /> is
+///     false (host the element in an alignment container), Canvas coordinates when
+///     it is true (host the element on a Canvas).
+/// </summary>
 internal readonly struct SplashElementLayout
 {
-    /// <summary>True = position via <see cref="CanvasX"/>/<see cref="CanvasY"/>;
-    /// false = position via alignment + margin.</summary>
+    /// <summary>
+    ///     True = position via <see cref="CanvasX" />/<see cref="CanvasY" />;
+    ///     false = position via alignment + margin.
+    /// </summary>
     public bool IsAbsolute { get; init; }
 
     /// <summary>Horizontal alignment inside the splash panel (anchor mode).</summary>
@@ -33,20 +37,26 @@ internal readonly struct SplashElementLayout
     public double CanvasY { get; init; }
 }
 
-/// <summary>Pure mapping helpers between <see cref="SplashConfig"/> values and
-/// Avalonia layout primitives. No UI dependencies beyond struct/enum types, so
-/// everything here is unit-testable.</summary>
+/// <summary>
+///     Pure mapping helpers between <see cref="SplashConfig" /> values and
+///     Avalonia layout primitives. No UI dependencies beyond struct/enum types, so
+///     everything here is unit-testable.
+/// </summary>
 internal static class SplashStyle
 {
-    /// <summary>Minimum bottom margin for bottom-row anchors, keeping elements
-    /// clear of the splash's "Switch to desktop" button (Margin 0,0,28,24 +
-    /// MinHeight 44 occupies roughly the bottom 68 px, plus breathing room).</summary>
+    /// <summary>
+    ///     Minimum bottom margin for bottom-row anchors, keeping elements
+    ///     clear of the splash's "Switch to desktop" button (Margin 0,0,28,24 +
+    ///     MinHeight 44 occupies roughly the bottom 68 px, plus breathing room).
+    /// </summary>
     private const double BottomClearance = 128;
 
-    /// <summary>Parses a user-supplied color string, falling back on bad input.
-    /// Never throws: null/empty input silently yields the fallback; a non-empty
-    /// unparsable value logs a warning first (a bad color must never break the
-    /// boot cover).</summary>
+    /// <summary>
+    ///     Parses a user-supplied color string, falling back on bad input.
+    ///     Never throws: null/empty input silently yields the fallback; a non-empty
+    ///     unparsable value logs a warning first (a bad color must never break the
+    ///     boot cover).
+    /// </summary>
     /// <param name="text">User-supplied color string, e.g. <c>#RRGGBB</c>.</param>
     /// <param name="fallback">Color used when the string cannot be parsed.</param>
     internal static Color ParseColor(string? text, Color fallback)
@@ -65,17 +75,21 @@ internal static class SplashStyle
         return fallback;
     }
 
-    /// <summary>Maps a configured element placement to concrete layout values.
-    /// Anchor mode (and <see cref="SplashPlacementMode.WithText"/>, which callers
-    /// are expected to divert before calling) yields alignment + margin: padding
-    /// applies from the anchored edges only and is ignored on centered axes, and
-    /// bottom-row anchors get at least <see cref="BottomClearance"/> px of bottom
-    /// margin to clear the desktop button. Absolute mode yields Canvas
-    /// coordinates clamped so the element stays inside the screen.</summary>
+    /// <summary>
+    ///     Maps a configured element placement to concrete layout values.
+    ///     Anchor mode (and <see cref="SplashPlacementMode.WithText" />, which callers
+    ///     are expected to divert before calling) yields alignment + margin: padding
+    ///     applies from the anchored edges only and is ignored on centered axes, and
+    ///     bottom-row anchors get at least <see cref="BottomClearance" /> px of bottom
+    ///     margin to clear the desktop button. Absolute mode yields Canvas
+    ///     coordinates clamped so the element stays inside the screen.
+    /// </summary>
     /// <param name="placement">The configured placement to resolve.</param>
     /// <param name="screenSize">Logical screen size the splash covers.</param>
-    /// <param name="elementHint">Estimated logical size of the element, used to
-    /// keep absolute placements fully on screen.</param>
+    /// <param name="elementHint">
+    ///     Estimated logical size of the element, used to
+    ///     keep absolute placements fully on screen.
+    /// </param>
     internal static SplashElementLayout MapPlacement(
         SplashElementPlacement placement, Size screenSize, Size elementHint)
     {

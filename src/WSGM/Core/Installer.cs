@@ -3,9 +3,11 @@ using System.IO;
 
 namespace WSGM.Core;
 
-/// <summary>Install-lifecycle helpers behind the Inno installer: the per-user install
-/// directory layout and the machine-setting rollback the uninstaller drives through
-/// <c>--uninstall-restore</c>.</summary>
+/// <summary>
+///     Install-lifecycle helpers behind the Inno installer: the per-user install
+///     directory layout and the machine-setting rollback the uninstaller drives through
+///     <c>--uninstall-restore</c>.
+/// </summary>
 public static class Installer
 {
     /// <summary>Gets the stable per-user directory that holds the installed application files.</summary>
@@ -21,11 +23,13 @@ public static class Installer
         Log.Info($"Installed to {InstalledExePath}");
     }
 
-    /// <summary>Best-effort rollback of every machine/user setting WSGM changed
-    /// outside its own directory: display scaling, UAC prompt level, and
-    /// lock-on-wake. Called by --uninstall-restore, which the elevated Inno
-    /// uninstaller runs (PrivilegesRequired=admin) so the HKLM writes succeed
-    /// directly; each step is isolated so one failure cannot stop the rest.</summary>
+    /// <summary>
+    ///     Best-effort rollback of every machine/user setting WSGM changed
+    ///     outside its own directory: display scaling, UAC prompt level, and
+    ///     lock-on-wake. Called by --uninstall-restore, which the elevated Inno
+    ///     uninstaller runs (PrivilegesRequired=admin) so the HKLM writes succeed
+    ///     directly; each step is isolated so one failure cannot stop the rest.
+    /// </summary>
     public static void RestoreMachineSettings()
     {
         try
@@ -44,7 +48,7 @@ public static class Installer
             if (config.PreviousUacSnapshotCaptured && UacSettings.Read().PromptsDisabled)
             {
                 Log.Info("Uninstall restore: restoring UAC prompt level.");
-                UacSettings.ApplyDirect(disablePrompts: false);
+                UacSettings.ApplyDirect(false);
             }
         }
         catch (Exception ex)
@@ -71,7 +75,7 @@ public static class Installer
             }
 
             Log.Info("Uninstall restore: restoring lock-on-wake.");
-            LockScreenSettings.ApplyDirect(disableSignInOnWake: false);
+            LockScreenSettings.ApplyDirect(false);
         }
         catch (Exception ex)
         {

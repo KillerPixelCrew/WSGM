@@ -8,7 +8,9 @@ namespace WSGM.Core;
 /// <param name="ShortcutTarget">Target for a non-Steam shortcut.</param>
 /// <param name="ShortcutArguments">Launch Arguments for a non-Steam shortcut.</param>
 internal readonly record struct SteamCustomLaunchFields(
-    string LaunchOptions, string ShortcutTarget, string ShortcutArguments);
+    string LaunchOptions,
+    string ShortcutTarget,
+    string ShortcutArguments);
 
 /// <summary>Builds Steam-native custom launch commands without a WSGM wrapper.</summary>
 internal static class SteamCustomLaunchCommand
@@ -40,13 +42,15 @@ internal static class SteamCustomLaunchCommand
     {
         var extension = Path.GetExtension(path);
         return extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".bat", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".ps1", StringComparison.OrdinalIgnoreCase);
+               || extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase)
+               || extension.Equals(".bat", StringComparison.OrdinalIgnoreCase)
+               || extension.Equals(".ps1", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static SteamCustomLaunchFields BuildScript(string host, string arguments) =>
-        new($"{host} {arguments} %command%", host, arguments);
+    private static SteamCustomLaunchFields BuildScript(string host, string arguments)
+    {
+        return new SteamCustomLaunchFields($"{host} {arguments} %command%", host, arguments);
+    }
 
     private static string NormalizeArguments(string? arguments)
     {
@@ -56,17 +60,27 @@ internal static class SteamCustomLaunchCommand
             : value;
     }
 
-    private static string ResolveCommandProcessor() =>
-        Environment.GetEnvironmentVariable("ComSpec") is { Length: > 0 } path
+    private static string ResolveCommandProcessor()
+    {
+        return Environment.GetEnvironmentVariable("ComSpec") is { Length: > 0 } path
             ? path
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
+    }
 
-    private static string ResolvePowerShell() => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.System),
-        "WindowsPowerShell", "v1.0", "powershell.exe");
+    private static string ResolvePowerShell()
+    {
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.System),
+            "WindowsPowerShell", "v1.0", "powershell.exe");
+    }
 
-    /// <summary>Always-wrapping quote for Steam-facing command strings (Launch Options and
-    /// shortcut Target fields), shared with the launch-wrapper command builder. Distinct from
-    /// <see cref="SelfElevation.Quote"/>, which quotes conditionally for argv round-trips.</summary>
-    internal static string Quote(string value) => $"\"{value.Replace("\"", "\\\"")}\"";
+    /// <summary>
+    ///     Always-wrapping quote for Steam-facing command strings (Launch Options and
+    ///     shortcut Target fields), shared with the launch-wrapper command builder. Distinct from
+    ///     <see cref="SelfElevation.Quote" />, which quotes conditionally for argv round-trips.
+    /// </summary>
+    internal static string Quote(string value)
+    {
+        return $"\"{value.Replace("\"", "\\\"")}\"";
+    }
 }

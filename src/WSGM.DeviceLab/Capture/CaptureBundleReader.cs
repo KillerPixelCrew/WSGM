@@ -79,10 +79,11 @@ internal static class CaptureBundleReader
 
         try
         {
-            using ZipArchive archive = new(source, ZipArchiveMode.Read, leaveOpen: true, Encoding.UTF8);
+            using ZipArchive archive = new(source, ZipArchiveMode.Read, true, Encoding.UTF8);
             if (archive.Entries.Count is 0 or > CaptureSchema.MaximumArchiveEntries)
             {
-                return Failure(CaptureBundleReadFailure.UnsafeArchive, "Archive entry count is outside the allowed range.");
+                return Failure(CaptureBundleReadFailure.UnsafeArchive,
+                    "Archive entry count is outside the allowed range.");
             }
 
             Dictionary<string, ZipArchiveEntry> entries = new(StringComparer.OrdinalIgnoreCase);
@@ -94,16 +95,18 @@ internal static class CaptureBundleReader
                     || !entries.TryAdd(entry.FullName, entry)
                     || entry.Length < 0)
                 {
-                    return Failure(CaptureBundleReadFailure.UnsafeArchive, "Archive contains an unsafe or duplicate path.");
+                    return Failure(CaptureBundleReadFailure.UnsafeArchive,
+                        "Archive contains an unsafe or duplicate path.");
                 }
 
                 uncompressedTotal = checked(uncompressedTotal + entry.Length);
                 if (uncompressedTotal > CaptureSchema.MaximumArchiveBytes
                     || entry.Length > CaptureSchema.MaximumArchiveBytes
-                    || entry is { CompressedLength: > 0, Length: > 1024 * 1024 }
-                        && entry.Length / entry.CompressedLength > 100)
+                    || (entry is { CompressedLength: > 0, Length: > 1024 * 1024 }
+                        && entry.Length / entry.CompressedLength > 100))
                 {
-                    return Failure(CaptureBundleReadFailure.UnsafeArchive, "Archive exceeds its size or expansion budget.");
+                    return Failure(CaptureBundleReadFailure.UnsafeArchive,
+                        "Archive exceeds its size or expansion budget.");
                 }
             }
 
@@ -117,10 +120,10 @@ internal static class CaptureBundleReader
             }
 
             if (!TryVerifyHashes(
-                entries,
-                cancellationToken,
-                out var hashes,
-                out var hashError))
+                    entries,
+                    cancellationToken,
+                    out var hashes,
+                    out var hashError))
             {
                 return Failure(CaptureBundleReadFailure.HashMismatch, hashError);
             }
@@ -237,8 +240,8 @@ internal static class CaptureBundleReader
                 : Failure(CaptureBundleReadFailure.InvalidSchema, errors[0].Message);
         }
         catch (Exception exception) when (exception is InvalidDataException or IOException
-            or UnauthorizedAccessException or JsonException or OverflowException
-            or ArgumentException or NotSupportedException)
+                                              or UnauthorizedAccessException or JsonException or OverflowException
+                                              or ArgumentException or NotSupportedException)
         {
             return Failure(
                 exception is JsonException or InvalidDataException
@@ -248,14 +251,17 @@ internal static class CaptureBundleReader
         }
     }
 
-    private static string[] RequiredRootEntries() =>
-    [
-        CaptureBundleLayout.ManifestPath,
-        CaptureBundleLayout.RecipePath,
-        CaptureBundleLayout.InventoryPath,
-        CaptureBundleLayout.RedactionPath,
-        CaptureBundleLayout.HashesPath
-    ];
+    private static string[] RequiredRootEntries()
+    {
+        return
+        [
+            CaptureBundleLayout.ManifestPath,
+            CaptureBundleLayout.RecipePath,
+            CaptureBundleLayout.InventoryPath,
+            CaptureBundleLayout.RedactionPath,
+            CaptureBundleLayout.HashesPath
+        ];
+    }
 
     private static byte[] ReadEntry(ZipArchiveEntry entry, CancellationToken cancellationToken)
     {
@@ -334,8 +340,11 @@ internal static class CaptureBundleReader
             return false;
         }
 
-        string[] expectedPaths = [.. entries.Keys
-            .Where(path => !string.Equals(path, CaptureBundleLayout.HashesPath, StringComparison.OrdinalIgnoreCase))];
+        string[] expectedPaths =
+        [
+            .. entries.Keys
+                .Where(path => !string.Equals(path, CaptureBundleLayout.HashesPath, StringComparison.OrdinalIgnoreCase))
+        ];
         if (!hashes.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(expectedPaths))
         {
             error = "Hash manifest does not cover every archive entry exactly once.";
@@ -346,7 +355,7 @@ internal static class CaptureBundleReader
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (string.Equals(HashEntry(entries[path], cancellationToken), expected,
-                StringComparison.Ordinal))
+                    StringComparison.Ordinal))
             {
                 continue;
             }
@@ -397,8 +406,8 @@ internal static class CaptureBundleReader
     {
         using var input = entry.Open();
         return JsonSerializer.DeserializeAsync(input, typeInfo, cancellationToken)
-            .AsTask().GetAwaiter().GetResult()
-            ?? throw new InvalidDataException("A required JSON entry decoded to null.");
+                   .AsTask().GetAwaiter().GetResult()
+               ?? throw new InvalidDataException("A required JSON entry decoded to null.");
     }
 
     private static List<T> DeserializeLines<T>(
@@ -409,7 +418,7 @@ internal static class CaptureBundleReader
     {
         List<T> values = [];
         using var input = entry.Open();
-        using MemoryStream line = new(capacity: Math.Min(MaximumJsonLineBytes, 64 * 1024));
+        using MemoryStream line = new(Math.Min(MaximumJsonLineBytes, 64 * 1024));
         var buffer = new byte[64 * 1024];
         long total = 0;
         while (true)
@@ -484,15 +493,18 @@ internal static class CaptureBundleReader
         if (!bytes.IsEmpty)
         {
             values.Add(JsonSerializer.Deserialize(bytes, typeInfo)
-                ?? throw new InvalidDataException("NDJSON line decoded to null."));
+                       ?? throw new InvalidDataException("NDJSON line decoded to null."));
         }
     }
 
-    private static CaptureBundleReadResult Failure(CaptureBundleReadFailure failure, string? detail) => new()
+    private static CaptureBundleReadResult Failure(CaptureBundleReadFailure failure, string? detail)
     {
-        Failure = failure,
-        Detail = detail
-    };
+        return new CaptureBundleReadResult
+        {
+            Failure = failure,
+            Detail = detail
+        };
+    }
 }
 
 /// <summary>Stable summary returned by capture inspection.</summary>
@@ -533,10 +545,13 @@ internal static class CaptureWorkbench
             EventCount = bundle.Streams.Sum(stream => (long)stream.Events.Count),
             AnalysisCount = bundle.Analysis.Sum(stream => (long)stream.Results.Count),
             BlobCount = bundle.Blobs.Count,
-            Limitations = [.. bundle.Analysis.SelectMany(stream => stream.Results)
-                .SelectMany(result => result.Limitations)
-                .Distinct(StringComparer.Ordinal)
-                .OrderBy(value => value, StringComparer.Ordinal)]
+            Limitations =
+            [
+                .. bundle.Analysis.SelectMany(stream => stream.Results)
+                    .SelectMany(result => result.Limitations)
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(value => value, StringComparer.Ordinal)
+            ]
         };
     }
 

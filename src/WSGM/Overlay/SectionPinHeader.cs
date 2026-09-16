@@ -19,7 +19,8 @@ internal sealed class SectionPinHeader : Grid
         ColumnDefinitions = new ColumnDefinitions("*,Auto");
         ColumnSpacing = 12;
         Margin = new Thickness(2, 0, 2, 4);
-        Children.Add(new TextBlock { Text = title, Classes = { "eyebrow" }, VerticalAlignment = VerticalAlignment.Center });
+        Children.Add(new TextBlock
+            { Text = title, Classes = { "eyebrow" }, VerticalAlignment = VerticalAlignment.Center });
         _pin.Tag = pinnedSurface ? "pin:" + id : id;
         _pin.Click += (_, _) => toggle(id);
         SetColumn(_pin, 1);

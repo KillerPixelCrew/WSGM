@@ -20,9 +20,11 @@ public sealed class SettingsInteractionTests
         using UiFixture fixture = new();
         var window = fixture.Settings();
         var model = Assert.IsType<SettingsViewModel>(window.DataContext);
-        var toggle = UiFixture.Named<Control>(window, "PageSystem").GetVisualDescendants().OfType<ToggleSwitch>().First();
+        var toggle = UiFixture.Named<Control>(window, "PageSystem").GetVisualDescendants().OfType<ToggleSwitch>()
+            .First();
         UiFixture.Click(window, toggle);
-        UiFixture.Click(window, window.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "Save changes")));
+        UiFixture.Click(window,
+            window.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "Save changes")));
         Assert.Equal(model.StartAtSignIn, fixture.Saved.StartAtSignIn);
         Assert.Equal(1, fixture.Calls.Count(call => call == "save"));
         Assert.StartsWith("Saved", model.StatusText);
@@ -40,6 +42,7 @@ public sealed class SettingsInteractionTests
             Assert.True(page.IsVisible);
             Assert.Equal(index, UiFixture.Named<TabStrip>(window, "Tabs").SelectedIndex);
         }
+
         var system = UiFixture.Tab(window, 0);
         system.Focus();
         UiFixture.Key(window, Key.Enter);
@@ -53,14 +56,20 @@ public sealed class SettingsInteractionTests
         using UiFixture fixture = new();
         TaskCompletionSource<SettingsViewModel.SaveResult> completion = new();
         SettingsViewModel.SaveRequest? captured = null;
-        fixture.Persist = request => { captured = request; return completion.Task; };
+        fixture.Persist = request =>
+        {
+            captured = request;
+            return completion.Task;
+        };
         var window = fixture.Settings();
         var model = Assert.IsType<SettingsViewModel>(window.DataContext);
-        var toggle = UiFixture.Named<Control>(window, "PageSystem").GetVisualDescendants().OfType<ToggleSwitch>().First();
+        var toggle = UiFixture.Named<Control>(window, "PageSystem").GetVisualDescendants().OfType<ToggleSwitch>()
+            .First();
         var before = model.StartAtSignIn;
         UiFixture.Click(window, toggle);
         Assert.Equal(!before, model.StartAtSignIn);
-        UiFixture.Click(window, window.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "Save changes")));
+        UiFixture.Click(window,
+            window.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "Save changes")));
         Assert.True(model.IsSaving);
         Assert.False(UiFixture.Named<Control>(window, "SettingsRoot").IsEnabled);
         Assert.NotNull(captured);
@@ -80,7 +89,8 @@ public sealed class SettingsInteractionTests
         fixture.Persist = _ => throw new IOException("fixture disk full");
         var window = fixture.Settings();
         var model = Assert.IsType<SettingsViewModel>(window.DataContext);
-        UiFixture.Click(window, window.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "Save changes")));
+        UiFixture.Click(window,
+            window.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "Save changes")));
         Assert.Contains("fixture disk full", model.StatusText);
         Assert.False(model.IsSaving);
         Assert.DoesNotContain("reconcile", fixture.Calls);
@@ -101,9 +111,10 @@ public sealed class SettingsInteractionTests
             UiFixture.Key(window, Key.Escape);
             Assert.False(window.IsVisible);
             Assert.Equal("#4CC2FF", fixture.Saved.AccentColor);
-            var brush = Assert.IsType<ISolidColorBrush>(Application.Current!.Resources["HcAccentBrush"], exactMatch: false);
+            var brush = Assert.IsType<ISolidColorBrush>(Application.Current!.Resources["HcAccentBrush"], false);
             Assert.Equal(AccentPalette.Parse(fixture.Saved.AccentColor), brush.Color);
         }
+
         Assert.Equal(3, fixture.Calls.Count(call => call == "input-start"));
         Assert.Equal(3, fixture.Calls.Count(call => call == "input-stop"));
         Assert.Equal(3, fixture.Calls.Count(call => call == "window-import-begin"));

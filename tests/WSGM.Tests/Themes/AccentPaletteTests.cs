@@ -3,10 +3,12 @@ using WSGM.Themes;
 
 namespace WSGM.Tests.Themes;
 
-/// <summary>The executable specification of the pure accent-pipeline pieces:
-/// <see cref="AccentPalette.Parse"/> fallback behavior, the full-opacity accent
-/// normalization, and the relative-luminance black/white foreground decision. The Application-mutating Apply path is
-/// device/manual-verified, not unit-tested (no Avalonia app in tests).</summary>
+/// <summary>
+///     The executable specification of the pure accent-pipeline pieces:
+///     <see cref="AccentPalette.Parse" /> fallback behavior, the full-opacity accent
+///     normalization, and the relative-luminance black/white foreground decision. The Application-mutating Apply path is
+///     device/manual-verified, not unit-tested (no Avalonia app in tests).
+/// </summary>
 public sealed class AccentPaletteTests
 {
     [Fact]

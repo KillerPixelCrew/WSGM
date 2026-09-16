@@ -10,14 +10,14 @@ using Microsoft.Win32.SafeHandles;
 namespace WSGM.DeviceLab.Packaging;
 
 /// <summary>
-/// Pins one package tree and every accepted file so validation and packing consume identical bytes.
+///     Pins one package tree and every accepted file so validation and packing consume identical bytes.
 /// </summary>
 internal sealed class DeviceLabPackageSnapshot : IDisposable
 {
-    private readonly NoFollowPackageSource _source;
-    private readonly Dictionary<string, DeviceLabPackageFile> _files = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _canonicalPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DeviceLabPackageFile> _files = new(StringComparer.OrdinalIgnoreCase);
     private readonly ICollection<PluginPackageValidationIssue> _issues;
+    private readonly NoFollowPackageSource _source;
     private bool _disposed;
 
     private DeviceLabPackageSnapshot(
@@ -34,6 +34,25 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
 
     /// <summary>Structural issues observed while pinning the package tree.</summary>
     internal IReadOnlyList<PluginPackageValidationIssue> Issues => [.. _issues];
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        foreach (var file in _files.Values)
+        {
+            file.Dispose();
+        }
+
+        _files.Clear();
+        _canonicalPaths.Clear();
+        _source.Dispose();
+    }
 
     /// <summary>Captures a bounded no-follow view of an existing package directory.</summary>
     internal static DeviceLabPackageSnapshot Capture(
@@ -120,7 +139,6 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
                     fileCount++;
                     totalBytes += entry.Length;
                 }
-
             }
 
             return snapshot;
@@ -133,11 +151,13 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
     }
 
     /// <summary>Looks up one captured file without reopening its source path.</summary>
-    internal bool TryGetFile(string relativePath, out DeviceLabPackageFile file) =>
-        _files.TryGetValue(relativePath.Replace('\\', '/'), out file!);
+    internal bool TryGetFile(string relativePath, out DeviceLabPackageFile file)
+    {
+        return _files.TryGetValue(relativePath.Replace('\\', '/'), out file!);
+    }
 
     /// <summary>
-    /// Takes at most the remaining entry budget plus one overflow observation before sorting.
+    ///     Takes at most the remaining entry budget plus one overflow observation before sorting.
     /// </summary>
     internal static IReadOnlyList<string> TakeBoundedEntries(
         IEnumerable<string> entries,
@@ -157,30 +177,13 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
                 exceeded = false;
                 return accepted;
             }
+
             accepted.Add(enumerator.Current);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
         exceeded = enumerator.MoveNext();
         return accepted;
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        foreach (var file in _files.Values)
-        {
-            file.Dispose();
-        }
-        _files.Clear();
-        _canonicalPaths.Clear();
-        _source.Dispose();
     }
 }
 
@@ -193,7 +196,7 @@ internal sealed class DeviceLabPackageFile : IDisposable
     {
         RelativePath = relativePath;
         Length = length;
-        _stream = new FileStream(handle, FileAccess.Read, 64 * 1024, isAsync: false);
+        _stream = new FileStream(handle, FileAccess.Read, 64 * 1024, false);
     }
 
     /// <summary>Canonical package-relative path.</summary>
@@ -202,11 +205,20 @@ internal sealed class DeviceLabPackageFile : IDisposable
     /// <summary>Stable file length observed from the retained handle.</summary>
     internal long Length { get; }
 
-    /// <summary>Retained seekable stream. Call <see cref="Rewind"/> before each read.</summary>
+    /// <summary>Retained seekable stream. Call <see cref="Rewind" /> before each read.</summary>
     internal Stream Stream => _stream;
 
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _stream.Dispose();
+    }
+
     /// <summary>Rewinds the retained stream to the start.</summary>
-    internal void Rewind() => _stream.Position = 0;
+    internal void Rewind()
+    {
+        _stream.Position = 0;
+    }
 
     /// <summary>Reads stable owned bytes without reopening the path.</summary>
     internal bool TryReadAllBytes(int maximumBytes, out byte[] bytes)
@@ -223,14 +235,21 @@ internal sealed class DeviceLabPackageFile : IDisposable
         bytes = owned;
         return true;
     }
-
-    /// <inheritdoc />
-    public void Dispose() => _stream.Dispose();
 }
 
 /// <summary>Locks source ancestors and opens each enumerated entry without following its final link.</summary>
 internal sealed partial class NoFollowPackageSource : IDisposable
 {
+    private const uint GenericRead = 0x80000000;
+    private const uint FileReadAttributes = 0x00000080;
+    private const uint FileShareRead = 0x00000001;
+    private const uint FileShareWrite = 0x00000002;
+    private const uint OpenExisting = 3;
+    private const uint FileAttributeDirectory = 0x00000010;
+    private const uint FileAttributeReparsePoint = 0x00000400;
+    private const uint FileFlagSequentialScan = 0x08000000;
+    private const uint FileFlagBackupSemantics = 0x02000000;
+    private const uint FileFlagOpenReparsePoint = 0x00200000;
     private readonly List<SafeFileHandle> _directoryHandles = [];
     private bool _disposed;
 
@@ -241,6 +260,23 @@ internal sealed partial class NoFollowPackageSource : IDisposable
 
     /// <summary>Canonical source root held against rename and deletion.</summary>
     internal string RootPath { get; }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        for (var index = _directoryHandles.Count - 1; index >= 0; index--)
+        {
+            _directoryHandles[index].Dispose();
+        }
+
+        _directoryHandles.Clear();
+    }
 
     /// <summary>Opens and pins every existing source ancestor through the package root.</summary>
     internal static NoFollowPackageSource Open(string path)
@@ -265,12 +301,15 @@ internal sealed partial class NoFollowPackageSource : IDisposable
                 {
                     throw new InvalidDataException("Package source may not traverse a link or reparse point.");
                 }
+
                 if (!entry.IsDirectory)
                 {
                     throw new InvalidDataException("Package source root and ancestors must be directories.");
                 }
+
                 source._directoryHandles.Add(entry.TakeHandle());
             }
+
             return source;
         }
         catch
@@ -296,23 +335,8 @@ internal sealed partial class NoFollowPackageSource : IDisposable
         {
             throw new InvalidDataException("Only ordinary package directories may be retained.");
         }
+
         _directoryHandles.Add(entry.TakeHandle());
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        for (var index = _directoryHandles.Count - 1; index >= 0; index--)
-        {
-            _directoryHandles[index].Dispose();
-        }
-        _directoryHandles.Clear();
     }
 
     private static NoFollowPackageSourceEntry OpenEntryCore(string path)
@@ -340,7 +364,7 @@ internal sealed partial class NoFollowPackageSource : IDisposable
                     probe,
                     isDirectory,
                     isReparsePoint,
-                    length: 0);
+                    0);
                 probe = null;
                 return result;
             }
@@ -367,8 +391,8 @@ internal sealed partial class NoFollowPackageSource : IDisposable
 
                 NoFollowPackageSourceEntry result = new(
                     readHandle,
-                    isDirectory: false,
-                    isReparsePoint: false,
+                    false,
+                    false,
                     readInformation.Length);
                 readHandle = null;
                 return result;
@@ -416,6 +440,32 @@ internal sealed partial class NoFollowPackageSource : IDisposable
         };
     }
 
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true,
+        StringMarshalling = StringMarshalling.Utf16)]
+    private static partial SafeFileHandle CreateFileW(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        nint securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        nint templateFile);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetFileInformationByHandle(
+        SafeFileHandle file,
+        out ByHandleFileInformation information);
+
+    private static SafeFileHandle OpenPath(
+        string path,
+        uint desiredAccess,
+        uint shareMode,
+        uint flags)
+    {
+        return CreateFileW(path, desiredAccess, shareMode, 0, OpenExisting, flags, 0);
+    }
+
     private readonly record struct NativeEntryInformation(
         uint Attributes,
         PackagePathIdentity Identity,
@@ -444,40 +494,6 @@ internal sealed partial class NoFollowPackageSource : IDisposable
         public uint FileIndexHigh;
         public uint FileIndexLow;
     }
-
-    private const uint GenericRead = 0x80000000;
-    private const uint FileReadAttributes = 0x00000080;
-    private const uint FileShareRead = 0x00000001;
-    private const uint FileShareWrite = 0x00000002;
-    private const uint OpenExisting = 3;
-    private const uint FileAttributeDirectory = 0x00000010;
-    private const uint FileAttributeReparsePoint = 0x00000400;
-    private const uint FileFlagSequentialScan = 0x08000000;
-    private const uint FileFlagBackupSemantics = 0x02000000;
-    private const uint FileFlagOpenReparsePoint = 0x00200000;
-
-    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true,
-        StringMarshalling = StringMarshalling.Utf16)]
-    private static partial SafeFileHandle CreateFileW(
-        string fileName,
-        uint desiredAccess,
-        uint shareMode,
-        nint securityAttributes,
-        uint creationDisposition,
-        uint flagsAndAttributes,
-        nint templateFile);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool GetFileInformationByHandle(
-        SafeFileHandle file,
-        out ByHandleFileInformation information);
-
-    private static SafeFileHandle OpenPath(
-        string path,
-        uint desiredAccess,
-        uint shareMode,
-        uint flags) => CreateFileW(path, desiredAccess, shareMode, 0, OpenExisting, flags, 0);
 }
 
 /// <summary>One no-follow source entry with a stable native identity.</summary>
@@ -506,6 +522,13 @@ internal sealed class NoFollowPackageSourceEntry : IDisposable
     /// <summary>Stable file length from the retained native handle.</summary>
     internal long Length { get; }
 
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _handle?.Dispose();
+        _handle = null;
+    }
+
     /// <summary>Transfers the retained native handle.</summary>
     internal SafeFileHandle TakeHandle()
     {
@@ -513,12 +536,5 @@ internal sealed class NoFollowPackageSourceEntry : IDisposable
                      ?? throw new ObjectDisposedException(nameof(NoFollowPackageSourceEntry));
         _handle = null;
         return handle;
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        _handle?.Dispose();
-        _handle = null;
     }
 }

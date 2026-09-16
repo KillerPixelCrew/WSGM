@@ -296,19 +296,21 @@ public sealed class AttendedPluginActionTests
         Assert.Null(report.HapticSweep.MinimumPulse);
     }
 
-    private static CanonicalControllerSample SweepSample(long sequence, CanonicalButtons buttons) =>
-        new()
+    private static CanonicalControllerSample SweepSample(long sequence, CanonicalButtons buttons)
+    {
+        return new CanonicalControllerSample
         {
             Sequence = sequence,
             CycleGeneration = 7,
             Timestamp = DateTimeOffset.UtcNow,
             Buttons = buttons
         };
+    }
 
     [Fact]
     public async Task CapabilityValue_TextIsValidatedAppliedAndRestored()
     {
-        var host = new TestPluginHostAdapter(cycleGeneration: 7);
+        var host = new TestPluginHostAdapter(7);
         var descriptor = new CapabilityDescriptor
         {
             CapabilityId = "generic.label",
@@ -358,16 +360,19 @@ public sealed class AttendedPluginActionTests
         Assert.Equal("Dock", report.Restore!.ReadbackValue!.TextValue);
     }
 
-    private static AttendedPluginActionRequest CapabilityRequest(string value) => new()
+    private static AttendedPluginActionRequest CapabilityRequest(string value)
     {
-        Kind = AttendedPluginActionKind.CapabilityValue,
-        CapabilityId = "power.sustained",
-        ValueText = value
-    };
+        return new AttendedPluginActionRequest
+        {
+            Kind = AttendedPluginActionKind.CapabilityValue,
+            CapabilityId = "power.sustained",
+            ValueText = value
+        };
+    }
 
     private static async Task<TestPluginHostAdapter> CapabilityHostAsync(HardwareStateQuality quality)
     {
-        var host = new TestPluginHostAdapter(cycleGeneration: 7);
+        var host = new TestPluginHostAdapter(7);
         await host.PublishDescriptorsAsync(
             new CapabilityDescriptorSet
             {
@@ -410,72 +415,86 @@ public sealed class AttendedPluginActionTests
         CapabilityRole role,
         params string?[] instanceIds)
     {
-        var host = new TestPluginHostAdapter(cycleGeneration: 7);
+        var host = new TestPluginHostAdapter(7);
         var capabilityId = role is CapabilityRole.HapticSink ? "controller.haptic" : "controller.source";
         if (instanceIds.Length == 0)
         {
             instanceIds = [null];
         }
+
         await host.PublishDescriptorsAsync(
             new CapabilityDescriptorSet
             {
                 Generation = 4,
                 CycleGeneration = 7,
-                Descriptors = [.. instanceIds.Select(instanceId =>
-                    new CapabilityDescriptor
-                    {
-                        CapabilityId = capabilityId,
-                        InstanceId = instanceId,
-                        Role = role,
-                        ValueKind = role is CapabilityRole.HapticSink
-                            ? CapabilityValueKind.None
-                            : CapabilityValueKind.Choice,
-                        Display = Display(role.ToString()),
-                        SupportsRead = role is CapabilityRole.ControllerSource,
-                        SupportsAction = role is CapabilityRole.HapticSink,
-                        Choices = role is CapabilityRole.ControllerSource
-                            ?
-                            [
-                                new CapabilityChoice("device", Display("Device")),
-                                new CapabilityChoice("plugin", Display("Plugin")),
-                                new CapabilityChoice("unavailable", Display("Unavailable"))
-                            ]
-                            : [],
-                        Persistence = CapabilityPersistence.Volatile
-                    })]
+                Descriptors =
+                [
+                    .. instanceIds.Select(instanceId =>
+                        new CapabilityDescriptor
+                        {
+                            CapabilityId = capabilityId,
+                            InstanceId = instanceId,
+                            Role = role,
+                            ValueKind = role is CapabilityRole.HapticSink
+                                ? CapabilityValueKind.None
+                                : CapabilityValueKind.Choice,
+                            Display = Display(role.ToString()),
+                            SupportsRead = role is CapabilityRole.ControllerSource,
+                            SupportsAction = role is CapabilityRole.HapticSink,
+                            Choices = role is CapabilityRole.ControllerSource
+                                ?
+                                [
+                                    new CapabilityChoice("device", Display("Device")),
+                                    new CapabilityChoice("plugin", Display("Plugin")),
+                                    new CapabilityChoice("unavailable", Display("Unavailable"))
+                                ]
+                                : [],
+                            Persistence = CapabilityPersistence.Volatile
+                        })
+                ]
             },
             CancellationToken.None);
         var descriptor = host.DescriptorSets[^1].Descriptors[0];
         await host.PublishCapabilityStateAsync(
-            State(descriptor, available: false, generation: 7),
+            State(descriptor, false, 7),
             CancellationToken.None);
         return host;
     }
 
-    private static CapabilityDisplay Display(string label) => new()
+    private static CapabilityDisplay Display(string label)
     {
-        Key = DisplayKey.Custom,
-        CustomLabel = label
-    };
+        return new CapabilityDisplay
+        {
+            Key = DisplayKey.Custom,
+            CustomLabel = label
+        };
+    }
 
-    private static CapabilityValue RoleValue(CapabilityDescriptor descriptor, bool available) =>
-        descriptor.ValueKind switch
+    private static CapabilityValue RoleValue(CapabilityDescriptor descriptor, bool available)
+    {
+        return descriptor.ValueKind switch
         {
             CapabilityValueKind.Choice => CapabilityValue.Choice(available ? "plugin" : "device"),
             CapabilityValueKind.None => CapabilityValue.None(),
             _ => CapabilityValue.Boolean(available)
         };
+    }
 
-    private static CapabilityCommandResult Verified(CapabilityCommand command) => Result(
-        command,
-        CommandOutcome.AppliedVerified,
-        command.RequestedValue);
+    private static CapabilityCommandResult Verified(CapabilityCommand command)
+    {
+        return Result(
+            command,
+            CommandOutcome.AppliedVerified,
+            command.RequestedValue);
+    }
 
     private static CapabilityCommandResult Result(
         CapabilityCommand command,
         CommandOutcome outcome,
         CapabilityValue? readback = null,
-        CapabilityReason? reason = null) => new()
+        CapabilityReason? reason = null)
+    {
+        return new CapabilityCommandResult
         {
             CommandId = command.CommandId,
             Outcome = outcome,
@@ -483,11 +502,14 @@ public sealed class AttendedPluginActionTests
             ReadbackValue = readback,
             CompletedAt = DateTimeOffset.UtcNow
         };
+    }
 
     private static CapabilityState State(
         CapabilityDescriptor descriptor,
         bool available,
-        long generation) => new()
+        long generation)
+    {
+        return new CapabilityState
         {
             CapabilityId = descriptor.CapabilityId,
             InstanceId = descriptor.InstanceId,
@@ -498,11 +520,10 @@ public sealed class AttendedPluginActionTests
             DescriptorGeneration = 4,
             CycleGeneration = generation
         };
+    }
 
     private sealed class ActionTestPlugin(TestPluginHostAdapter host) : IDevicePlugin
     {
-        public string PackageId => "wsgm.device.test.attended-action";
-
         public List<CapabilityCommand> Commands { get; } = [];
 
         public List<HapticOutputFrame> HapticFrames { get; } = [];
@@ -519,20 +540,28 @@ public sealed class AttendedPluginActionTests
             Result = ControllerHandoffResult.ReleasedVerified
         };
 
+        public string PackageId => "wsgm.device.test.attended-action";
+
         public ValueTask<PluginDetectionResult> DetectAsync(
             PluginDetectionContext context,
-            CancellationToken cancellationToken) => ValueTask.FromResult(new PluginDetectionResult
+            CancellationToken cancellationToken)
+        {
+            return ValueTask.FromResult(new PluginDetectionResult
             {
                 Matched = true,
                 DeviceDefinitionId = "synthetic-attended-action"
             });
+        }
 
         public ValueTask<PluginStartResult> StartAsync(
             PluginStartContext context,
-            CancellationToken cancellationToken) => ValueTask.FromResult(new PluginStartResult
+            CancellationToken cancellationToken)
+        {
+            return ValueTask.FromResult(new PluginStartResult
             {
                 State = PluginOperationalState.Active
             });
+        }
 
         public ValueTask<CapabilityCommandResult> ExecuteCommandAsync(
             CapabilityCommand command,
@@ -547,17 +576,25 @@ public sealed class AttendedPluginActionTests
 
         public ValueTask SuspendAsync(
             PluginQuiesceContext context,
-            CancellationToken cancellationToken) => ValueTask.CompletedTask;
+            CancellationToken cancellationToken)
+        {
+            return ValueTask.CompletedTask;
+        }
 
         public ValueTask<PluginStartResult> ResumeAsync(
             PluginResumeContext context,
-            CancellationToken cancellationToken) => ValueTask.FromResult(new PluginStartResult
+            CancellationToken cancellationToken)
+        {
+            return ValueTask.FromResult(new PluginStartResult
             {
                 State = PluginOperationalState.Active
             });
+        }
 
-        public ValueTask<PluginDiagnostics> GetDiagnosticsAsync(CancellationToken cancellationToken) =>
-            ValueTask.FromResult(new PluginDiagnostics());
+        public ValueTask<PluginDiagnostics> GetDiagnosticsAsync(CancellationToken cancellationToken)
+        {
+            return ValueTask.FromResult(new PluginDiagnostics());
+        }
 
         public ValueTask ApplyHapticOutputAsync(
             HapticOutputFrame frame,
@@ -596,7 +633,7 @@ public sealed class AttendedPluginActionTests
             var descriptors = sets[^1];
 
             foreach (var descriptor in descriptors.Descriptors.Where(candidate =>
-                candidate.Role is CapabilityRole.ControllerSource or CapabilityRole.HapticSink))
+                         candidate.Role is CapabilityRole.ControllerSource or CapabilityRole.HapticSink))
             {
                 await host.PublishCapabilityStateAsync(
                     State(descriptor, context.Enabled, context.CycleGeneration),
@@ -606,11 +643,17 @@ public sealed class AttendedPluginActionTests
 
         public ValueTask<PluginStopResult> StopAsync(
             PluginStopContext context,
-            CancellationToken cancellationToken) => ValueTask.FromResult(new PluginStopResult
+            CancellationToken cancellationToken)
+        {
+            return ValueTask.FromResult(new PluginStopResult
             {
                 Status = PluginStopStatus.Clean
             });
+        }
 
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask DisposeAsync()
+        {
+            return ValueTask.CompletedTask;
+        }
     }
 }

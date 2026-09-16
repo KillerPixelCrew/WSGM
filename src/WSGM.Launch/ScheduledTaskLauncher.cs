@@ -64,29 +64,29 @@ internal static class ScheduledTaskLauncher
         var command = SecurityElement.Escape(executablePath);
         var arguments = SecurityElement.Escape($"--medium-child {pipeName}");
         return $"""
-            <?xml version="1.0" encoding="UTF-16"?>
-            <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-              <Principals>
-                <Principal id="Author">
-                  <UserId>{SecurityElement.Escape(user)}</UserId>
-                  <LogonType>InteractiveToken</LogonType>
-                </Principal>
-              </Principals>
-              <Settings>
-                <AllowStartOnDemand>true</AllowStartOnDemand>
-                <Enabled>true</Enabled>
-                <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-                <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-                <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-              </Settings>
-              <Actions Context="Author">
-                <Exec>
-                  <Command>{command}</Command>
-                  <Arguments>{arguments}</Arguments>
-                </Exec>
-              </Actions>
-            </Task>
-            """;
+                <?xml version="1.0" encoding="UTF-16"?>
+                <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+                  <Principals>
+                    <Principal id="Author">
+                      <UserId>{SecurityElement.Escape(user)}</UserId>
+                      <LogonType>InteractiveToken</LogonType>
+                    </Principal>
+                  </Principals>
+                  <Settings>
+                    <AllowStartOnDemand>true</AllowStartOnDemand>
+                    <Enabled>true</Enabled>
+                    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+                    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+                    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+                  </Settings>
+                  <Actions Context="Author">
+                    <Exec>
+                      <Command>{command}</Command>
+                      <Arguments>{arguments}</Arguments>
+                    </Exec>
+                  </Actions>
+                </Task>
+                """;
     }
 
     private static bool RunSchtasks(string[] arguments, bool logFailure = true)
@@ -114,6 +114,7 @@ internal static class ScheduledTaskLauncher
                 {
                     LaunchLog.Error($"schtasks {arguments[0]} did not start.");
                 }
+
                 return false;
             }
 
@@ -121,7 +122,7 @@ internal static class ScheduledTaskLauncher
             {
                 try
                 {
-                    process.Kill(entireProcessTree: true);
+                    process.Kill(true);
                     _ = process.WaitForExit(5_000);
                 }
                 catch (Exception ex)
@@ -134,6 +135,7 @@ internal static class ScheduledTaskLauncher
                 {
                     LaunchLog.Error($"schtasks {arguments[0]} timed out and was terminated.");
                 }
+
                 return false;
             }
 
@@ -147,6 +149,7 @@ internal static class ScheduledTaskLauncher
                 LaunchLog.Error(
                     $"schtasks {arguments[0]} exited with code {process.ExitCode}.");
             }
+
             return false;
         }
         catch (Exception ex)
@@ -155,6 +158,7 @@ internal static class ScheduledTaskLauncher
             {
                 LaunchLog.Error($"schtasks {arguments[0]} failed: {ex.Message}");
             }
+
             return false;
         }
     }

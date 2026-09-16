@@ -5,12 +5,12 @@ using System.Linq;
 
 namespace WSGM.Core;
 
-/// <summary>Companion utilities handheld users typically want running before the
-/// launcher — offered as one-click suggestions with sane elevation defaults.</summary>
+/// <summary>
+///     Companion utilities handheld users typically want running before the
+///     launcher — offered as one-click suggestions with sane elevation defaults.
+/// </summary>
 public static class KnownStartupApps
 {
-    private sealed record Suggestion(string Label, string[] RelativePaths, bool Elevated);
-
     private static readonly Suggestion[] Candidates =
     [
         // Handheld Companion needs elevation for its virtual controller / HID work.
@@ -38,11 +38,13 @@ public static class KnownStartupApps
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         return (from candidate in Candidates
-                from root in roots
-                where !string.IsNullOrEmpty(root)
-                from relative in candidate.RelativePaths
-                let full = Path.Combine(root, relative)
-                where File.Exists(full) && seen.Add(Path.GetFileName(full))
-                select (candidate.Label, full, candidate.Elevated)).ToList();
+            from root in roots
+            where !string.IsNullOrEmpty(root)
+            from relative in candidate.RelativePaths
+            let full = Path.Combine(root, relative)
+            where File.Exists(full) && seen.Add(Path.GetFileName(full))
+            select (candidate.Label, full, candidate.Elevated)).ToList();
     }
+
+    private sealed record Suggestion(string Label, string[] RelativePaths, bool Elevated);
 }

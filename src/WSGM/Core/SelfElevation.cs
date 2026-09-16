@@ -6,22 +6,25 @@ using System.Text;
 
 namespace WSGM.Core;
 
-/// <summary>Relaunches WSGM elevated when the config starts elevated apps.
-///
-/// The point is the INHERITANCE CHAIN: children inherit elevation, so an
-/// elevated WSGM yields an elevated Steam — which is what lets Steam Input
-/// synthesize input into elevated windows and the Steam Overlay inject into
-/// elevated games (UIPI blocks both for an unelevated Steam). Same chain
-/// covers elevated startup apps, and WSGM matching that integrity keeps its
-/// own overlay/edge swipes alive over elevated foreground windows (UIPI also
-/// shields raw touch input and foreground from lower-integrity processes).</summary>
+/// <summary>
+///     Relaunches WSGM elevated when the config starts elevated apps.
+///     The point is the INHERITANCE CHAIN: children inherit elevation, so an
+///     elevated WSGM yields an elevated Steam — which is what lets Steam Input
+///     synthesize input into elevated windows and the Steam Overlay inject into
+///     elevated games (UIPI blocks both for an unelevated Steam). Same chain
+///     covers elevated startup apps, and WSGM matching that integrity keeps its
+///     own overlay/edge swipes alive over elevated foreground windows (UIPI also
+///     shields raw touch input and foreground from lower-integrity processes).
+/// </summary>
 public static class SelfElevation
 {
     private const string RelaunchMarker = "--elevated-relaunch";
     private const int ErrorCancelled = 1223;
 
-    /// <summary>Returns the exit code to propagate when this process handed over to an
-    /// elevated copy of itself, or null to continue running normally.</summary>
+    /// <summary>
+    ///     Returns the exit code to propagate when this process handed over to an
+    ///     elevated copy of itself, or null to continue running normally.
+    /// </summary>
     public static int? EnsureElevatedIfConfigured(string[] args)
     {
         if (args.Contains(RelaunchMarker, StringComparer.OrdinalIgnoreCase))
@@ -69,6 +72,7 @@ public static class SelfElevation
             {
                 return null;
             }
+
             Log.Info($"{reason} — handed over to elevated instance (pid {child.Id}).");
             // Stay alive while the elevated instance runs: on a service boot (--boot)
             // the logon service watchdog holds THIS pid — the parent exiting only
@@ -90,15 +94,17 @@ public static class SelfElevation
         }
     }
 
-    /// <summary>Starts an elevated copy of WSGM with the given arguments, waits for
-    /// it to finish, and reports whether it succeeded (exit code 0). This is how the
-    /// non-elevated settings UI performs one-shot HKLM writes: the elevated instance
-    /// applies the change and exits. Device-plugin maintenance passes
-    /// <see cref="System.Threading.Timeout.Infinite"/> because a bounded file copy can
-    /// legitimately exceed the short settings-action window and must not keep running
-    /// after its caller reports a false failure. Returns false when elevation was
-    /// declined, the elevated instance outlived the wait, or the write failed.
-    /// <paramref name="description"/> prefixes the log lines (e.g. "UAC change").</summary>
+    /// <summary>
+    ///     Starts an elevated copy of WSGM with the given arguments, waits for
+    ///     it to finish, and reports whether it succeeded (exit code 0). This is how the
+    ///     non-elevated settings UI performs one-shot HKLM writes: the elevated instance
+    ///     applies the change and exits. Device-plugin maintenance passes
+    ///     <see cref="System.Threading.Timeout.Infinite" /> because a bounded file copy can
+    ///     legitimately exceed the short settings-action window and must not keep running
+    ///     after its caller reports a false failure. Returns false when elevation was
+    ///     declined, the elevated instance outlived the wait, or the write failed.
+    ///     <paramref name="description" /> prefixes the log lines (e.g. "UAC change").
+    /// </summary>
     public static bool RunElevatedAction(string argument, string description, int timeoutMs = 60_000)
     {
         var exe = Environment.ProcessPath;
@@ -106,6 +112,7 @@ public static class SelfElevation
         {
             return false;
         }
+
         try
         {
             var psi = new ProcessStartInfo(exe, argument)
@@ -118,10 +125,12 @@ public static class SelfElevation
             {
                 return false;
             }
+
             if (p.WaitForExit(timeoutMs))
             {
                 return p.ExitCode == 0;
             }
+
             // ExitCode would throw on a still-running process.
             Log.Warn($"{description}: elevated instance still running after {timeoutMs / 1000} s — result unknown.");
             return false;
@@ -133,16 +142,19 @@ public static class SelfElevation
         }
     }
 
-    /// <summary>Quotes one argument per CommandLineToArgvW's rules: embedded quotes
-    /// are backslash-escaped, backslash runs before a quote (including the closing
-    /// one) are doubled, and empty args become "" — a bare Contains-space wrap would
-    /// corrupt args like a quoted path ending in a backslash.</summary>
+    /// <summary>
+    ///     Quotes one argument per CommandLineToArgvW's rules: embedded quotes
+    ///     are backslash-escaped, backslash runs before a quote (including the closing
+    ///     one) are doubled, and empty args become "" — a bare Contains-space wrap would
+    ///     corrupt args like a quoted path ending in a backslash.
+    /// </summary>
     internal static string Quote(string arg)
     {
         if (arg.Length > 0 && arg.IndexOfAny([' ', '\t', '"']) < 0)
         {
             return arg;
         }
+
         var sb = new StringBuilder(arg.Length + 2);
         sb.Append('"');
         var backslashes = 0;
@@ -160,9 +172,11 @@ public static class SelfElevation
                     sb.Append('\\', backslashes);
                     break;
             }
+
             sb.Append(c);
             backslashes = 0;
         }
+
         sb.Append('\\', backslashes * 2);
         sb.Append('"');
         return sb.ToString();

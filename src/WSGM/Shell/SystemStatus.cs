@@ -6,33 +6,42 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>Live system status for the game-mode taskbar's right zone: clock, date
-/// and battery level (GetSystemPowerStatus). Refreshes on a 1 s UI-thread timer
-/// while started; the taskbar binds its status cluster to this object.
-///
-/// Radio and audio state are not read here. They live on <see cref="Radios"/>
-/// and <see cref="Audio"/>, which this object owns and starts; the same manager
-/// instances back the taskbar tiles and their panels, so each pair stays in sync.</summary>
+/// <summary>
+///     Live system status for the game-mode taskbar's right zone: clock, date
+///     and battery level (GetSystemPowerStatus). Refreshes on a 1 s UI-thread timer
+///     while started; the taskbar binds its status cluster to this object.
+///     Radio and audio state are not read here. They live on <see cref="Radios" />
+///     and <see cref="Audio" />, which this object owns and starts; the same manager
+///     instances back the taskbar tiles and their panels, so each pair stays in sync.
+/// </summary>
 public sealed class SystemStatus : ObservableObject, IDisposable
 {
+    private readonly bool _ownsAudio;
+    private readonly bool _ownsDrives;
+    private readonly bool _ownsRadios;
+    private bool _disposed;
+
+    private long _formattedMinute = -1;
+    private DispatcherTimer? _timer;
+
     /// <summary>
-    /// Creates a status cluster, optionally over an audio manager owned by someone else.
+    ///     Creates a status cluster, optionally over an audio manager owned by someone else.
     /// </summary>
     /// <param name="audio">
-    /// A session-scoped audio manager to share, or null to create and own one.
+    ///     A session-scoped audio manager to share, or null to create and own one.
     /// </param>
     /// <param name="radios">
-    /// A session-scoped radio manager to share, or null to create and own one.
+    ///     A session-scoped radio manager to share, or null to create and own one.
     /// </param>
     /// <param name="drives">
-    /// A session-scoped removable-drive manager to share, or null to create and own one.
+    ///     A session-scoped removable-drive manager to share, or null to create and own one.
     /// </param>
     /// <remarks>
-    /// The taskbar comes and goes while a session lasts, so anything that must answer for the whole
-    /// session — Steam's audio namespace, in particular — cannot depend on a manager this object
-    /// disposes when the taskbar closes. Sharing one instance rather than creating a second is the
-    /// point: two managers would enumerate endpoints twice and could disagree about which device is
-    /// default.
+    ///     The taskbar comes and goes while a session lasts, so anything that must answer for the whole
+    ///     session — Steam's audio namespace, in particular — cannot depend on a manager this object
+    ///     disposes when the taskbar closes. Sharing one instance rather than creating a second is the
+    ///     point: two managers would enumerate endpoints twice and could disagree about which device is
+    ///     default.
     /// </remarks>
     public SystemStatus(
         AudioManager? audio = null, RadioManager? radios = null, RemovableDriveManager? drives = null)
@@ -45,13 +54,6 @@ public sealed class SystemStatus : ObservableObject, IDisposable
         Drives = drives ?? new RemovableDriveManager();
     }
 
-    private readonly bool _ownsAudio;
-    private readonly bool _ownsRadios;
-    private readonly bool _ownsDrives;
-    private DispatcherTimer? _timer;
-    private bool _disposed;
-
-    private long _formattedMinute = -1;
     /// <summary>Gets the current time of day, e.g. "21:37".</summary>
     public string ClockText
     {
@@ -66,16 +68,18 @@ public sealed class SystemStatus : ObservableObject, IDisposable
         private set => SetFieldIfChanged(ref field, value, nameof(DateText));
     } = "";
 
-    /// <summary>Gets whether a system battery with a known charge level exists; the
-    /// taskbar hides the battery indicator entirely when false (desktop PCs, or a
-    /// driver reporting the 255 unknown markers).</summary>
+    /// <summary>
+    ///     Gets whether a system battery with a known charge level exists; the
+    ///     taskbar hides the battery indicator entirely when false (desktop PCs, or a
+    ///     driver reporting the 255 unknown markers).
+    /// </summary>
     public bool HasBattery
     {
         get;
         private set => SetFieldIfChanged(ref field, value, nameof(HasBattery));
     }
 
-    /// <summary>Gets the battery charge in percent (0–100; 0 while <see cref="HasBattery"/> is false).</summary>
+    /// <summary>Gets the battery charge in percent (0–100; 0 while <see cref="HasBattery" /> is false).</summary>
     public int BatteryPercent
     {
         get;
@@ -98,51 +102,33 @@ public sealed class SystemStatus : ObservableObject, IDisposable
         private set => SetFieldIfChanged(ref field, value, nameof(BatteryText));
     } = "";
 
-    /// <summary>Gets the Wi-Fi and Bluetooth manager backing the taskbar's radio
-    /// tiles and the radio panel. Disposed with this object only when this object
-    /// created it — a manager supplied by the session outlives every taskbar.</summary>
+    /// <summary>
+    ///     Gets the Wi-Fi and Bluetooth manager backing the taskbar's radio
+    ///     tiles and the radio panel. Disposed with this object only when this object
+    ///     created it — a manager supplied by the session outlives every taskbar.
+    /// </summary>
     public RadioManager Radios { get; }
 
-    /// <summary>Gets the master-volume and endpoint manager backing the taskbar's
-    /// audio tile and audio panel. Disposed with this object only when this object
-    /// created it — a manager supplied by the session outlives every taskbar.</summary>
+    /// <summary>
+    ///     Gets the master-volume and endpoint manager backing the taskbar's
+    ///     audio tile and audio panel. Disposed with this object only when this object
+    ///     created it — a manager supplied by the session outlives every taskbar.
+    /// </summary>
     public AudioManager Audio { get; }
 
-    /// <summary>Gets the removable-storage manager backing the taskbar's eject
-    /// tile and the Safe Eject panel. Disposed with this object only when this object
-    /// created it — a manager supplied by the session outlives every taskbar.</summary>
+    /// <summary>
+    ///     Gets the removable-storage manager backing the taskbar's eject
+    ///     tile and the Safe Eject panel. Disposed with this object only when this object
+    ///     created it — a manager supplied by the session outlives every taskbar.
+    /// </summary>
     public RemovableDriveManager Drives { get; }
 
-    /// <summary>Performs an immediate refresh and starts the 1 s update timer.
-    /// UI-thread callers only (the timer is a DispatcherTimer). Idempotent.
-    /// Refused (and logged) after <see cref="Dispose"/> — the owned managers are
-    /// gone by then and a restarted timer would tick a dead status cluster.</summary>
-    public void Start()
-    {
-        if (_disposed)
-        {
-            Log.Warn("System status Start() ignored: the instance was already disposed.");
-            return;
-        }
-        if (_timer is not null)
-        {
-            return;
-        }
-        Refresh();
-        Radios.Start();
-        Audio.Start();
-        Drives.Start();
-        Log.Info($"System status started (battery: {(HasBattery ? BatteryText : "none")}).");
-        // Parameterless ctor + explicit Start: the 3-arg ctor auto-starts.
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        _timer.Tick += OnTick;
-        _timer.Start();
-    }
-
-    /// <summary>Ends this object's life: stops the update timer AND disposes the
-    /// owned radio, audio and removable-drive managers, which cannot be recreated —
-    /// create a fresh <see cref="SystemStatus"/> instead of restarting this one.
-    /// Idempotent; bound values keep their last state.</summary>
+    /// <summary>
+    ///     Ends this object's life: stops the update timer AND disposes the
+    ///     owned radio, audio and removable-drive managers, which cannot be recreated —
+    ///     create a fresh <see cref="SystemStatus" /> instead of restarting this one.
+    ///     Idempotent; bound values keep their last state.
+    /// </summary>
     public void Dispose()
     {
         _disposed = true;
@@ -168,12 +154,46 @@ public sealed class SystemStatus : ObservableObject, IDisposable
         {
             return;
         }
+
         _timer.Stop();
         _timer.Tick -= OnTick;
         _timer = null;
     }
 
-    private void OnTick(object? sender, EventArgs e) => Refresh();
+    /// <summary>
+    ///     Performs an immediate refresh and starts the 1 s update timer.
+    ///     UI-thread callers only (the timer is a DispatcherTimer). Idempotent.
+    ///     Refused (and logged) after <see cref="Dispose" /> — the owned managers are
+    ///     gone by then and a restarted timer would tick a dead status cluster.
+    /// </summary>
+    public void Start()
+    {
+        if (_disposed)
+        {
+            Log.Warn("System status Start() ignored: the instance was already disposed.");
+            return;
+        }
+
+        if (_timer is not null)
+        {
+            return;
+        }
+
+        Refresh();
+        Radios.Start();
+        Audio.Start();
+        Drives.Start();
+        Log.Info($"System status started (battery: {(HasBattery ? BatteryText : "none")}).");
+        // Parameterless ctor + explicit Start: the 3-arg ctor auto-starts.
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _timer.Tick += OnTick;
+        _timer.Start();
+    }
+
+    private void OnTick(object? sender, EventArgs e)
+    {
+        Refresh();
+    }
 
     private void Refresh()
     {
@@ -196,14 +216,20 @@ public sealed class SystemStatus : ObservableObject, IDisposable
 
     /// <summary>Formats the taskbar clock ("21:37"). 24-hour, culture-independent.</summary>
     internal static string FormatClock(DateTime now)
-        => now.ToString("HH:mm", CultureInfo.InvariantCulture);
+    {
+        return now.ToString("HH:mm", CultureInfo.InvariantCulture);
+    }
 
     /// <summary>Formats the taskbar date ("Fri 08 Aug") with the culture's day/month names.</summary>
     internal static string FormatDate(DateTime now, CultureInfo culture)
-        => now.ToString("ddd dd MMM", culture);
+    {
+        return now.ToString("ddd dd MMM", culture);
+    }
 
-    /// <summary>Maps a GetSystemPowerStatus result to the indicator state: hidden
-    /// (no battery / unknown markers) or a percent with display text.</summary>
+    /// <summary>
+    ///     Maps a GetSystemPowerStatus result to the indicator state: hidden
+    ///     (no battery / unknown markers) or a percent with display text.
+    /// </summary>
     internal static (bool HasBattery, int Percent, string Text) InterpretBattery(
         bool callSucceeded, byte batteryFlag, byte lifePercent)
     {
@@ -213,8 +239,7 @@ public sealed class SystemStatus : ObservableObject, IDisposable
         {
             return (false, 0, "");
         }
+
         return (true, lifePercent, lifePercent + "%");
     }
-
-
 }

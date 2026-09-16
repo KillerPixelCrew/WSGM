@@ -5,16 +5,16 @@ using WSGM.Shell;
 namespace WSGM.Tests.Shell;
 
 /// <summary>
-/// With Device Integration off, WSGM must be invisible to the hardware.
+///     With Device Integration off, WSGM must be invisible to the hardware.
 /// </summary>
 /// <remarks>
-/// This is the promise that lets someone run another manager — MSI Center, HandheldCompanion — beside
-/// WSGM. It is not enough that WSGM stops writing: nothing may be created, claimed, hidden or
-/// reconfigured either, because anything left behind is something the other manager then fights.
-/// <para>
-/// These pin the decisions that are pure. Observing on a real Claw that nothing moves while another
-/// manager drives it is the attended half and stays in its own item.
-/// </para>
+///     This is the promise that lets someone run another manager — MSI Center, HandheldCompanion — beside
+///     WSGM. It is not enough that WSGM stops writing: nothing may be created, claimed, hidden or
+///     reconfigured either, because anything left behind is something the other manager then fights.
+///     <para>
+///         These pin the decisions that are pure. Observing on a real Claw that nothing moves while another
+///         manager drives it is the attended half and stays in its own item.
+///     </para>
 /// </remarks>
 public sealed class DeviceIntegrationOffTests
 {
@@ -69,7 +69,7 @@ public sealed class DeviceIntegrationOffTests
         // Switching integration off runs this. Pulling the virtual target while the plugin is still
         // releasing leaves the plugin talking to something that no longer exists.
         ControllerMakeSafeSequence sequence = new();
-        sequence.RecordNeutralized(verified: true);
+        sequence.RecordNeutralized(true);
 
         Assert.False(sequence.CanRemoveTarget);
         Assert.False(sequence.CanRemoveHidHide);
@@ -84,7 +84,7 @@ public sealed class DeviceIntegrationOffTests
     public void HidHideOutlivesTheTargetAndBothAreGoneAtTheEnd()
     {
         ControllerMakeSafeSequence sequence = new();
-        sequence.RecordNeutralized(verified: true);
+        sequence.RecordNeutralized(true);
         sequence.RecordPluginRelease(
             ControllerHandoffStep.TopologyVerified,
             ControllerHandoffResult.ReleasedVerified);
@@ -92,12 +92,12 @@ public sealed class DeviceIntegrationOffTests
         Assert.True(sequence.CanRemoveTarget);
         Assert.False(sequence.CanRemoveHidHide);
 
-        sequence.RecordTargetRemoved(verified: true);
+        sequence.RecordTargetRemoved(true);
         Assert.True(sequence.TargetRemoved);
         Assert.True(sequence.CanRemoveHidHide);
         Assert.False(sequence.HidHideMustRemain);
 
-        sequence.RecordHidHideRemoved(verified: true);
+        sequence.RecordHidHideRemoved(true);
         Assert.True(sequence.HidHideRemoved);
     }
 

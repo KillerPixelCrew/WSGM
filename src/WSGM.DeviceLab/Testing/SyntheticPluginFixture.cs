@@ -56,7 +56,7 @@ internal static class SyntheticPluginFixture
         Check(exact is { Matched: true, DeviceDefinitionId: SyntheticDockPlugin.DeviceId },
             "synthetic-dock-exact-match", checks);
 
-        TestPluginHostAdapter host = new(cycleGeneration: 7);
+        TestPluginHostAdapter host = new(7);
         var start = await plugin.StartAsync(
             new PluginStartContext
             {
@@ -69,24 +69,24 @@ internal static class SyntheticPluginFixture
             cancellationToken).ConfigureAwait(false);
         var activation = PluginPublicationSummary.From(host);
         Check(start.State is PluginOperationalState.Degraded
-            && start.Reason?.Code is CapabilityReasonCode.PrerequisiteMissing
-            && activation is { DescriptorSets: 1, CapabilityStates: 2 }
-            && host.CapabilityStates.Any(capabilityState => capabilityState is
-            {
-                Available: false,
-                Reason.Code: CapabilityReasonCode.PrerequisiteMissing
-            }),
+              && start.Reason?.Code is CapabilityReasonCode.PrerequisiteMissing
+              && activation is { DescriptorSets: 1, CapabilityStates: 2 }
+              && host.CapabilityStates.Any(capabilityState => capabilityState is
+              {
+                  Available: false,
+                  Reason.Code: CapabilityReasonCode.PrerequisiteMissing
+              }),
             "partial-capability-availability", checks);
         Check(activation.ControllerSamples == 1
-            && host.ControllerSamples[0].Buttons.HasFlag(CanonicalButtons.A)
-            && host.ControllerSamples[0].Motion is { HasGyro: true },
+              && host.ControllerSamples[0].Buttons.HasFlag(CanonicalButtons.A)
+              && host.ControllerSamples[0].Motion is { HasGyro: true },
             "canonical-input-published", checks);
 
         var applied = await plugin.ExecuteCommandAsync(
-            Command(expectedDeviceGeneration: 7),
+            Command(7),
             cancellationToken).ConfigureAwait(false);
         Check(applied.Outcome is CommandOutcome.AppliedVerified
-            && applied.ReadbackValue?.BooleanValue is true,
+              && applied.ReadbackValue?.BooleanValue is true,
             "boolean-command-readback", checks);
 
         HapticOutputFrame output = new()
@@ -99,12 +99,12 @@ internal static class SyntheticPluginFixture
         };
         await plugin.ApplyHapticOutputAsync(output, cancellationToken).ConfigureAwait(false);
         Check(plugin.LastHapticOutput is
-        {
-            LowFrequency: 0.75f,
-            HighFrequency: 0.25f,
-            LeftTrigger: 0,
-            RightTrigger: 0
-        },
+            {
+                LowFrequency: 0.75f,
+                HighFrequency: 0.25f,
+                LeftTrigger: 0,
+                RightTrigger: 0
+            },
             "canonical-output-applied", checks);
 
         using (CancellationTokenSource cancelled = new())
@@ -124,10 +124,10 @@ internal static class SyntheticPluginFixture
         }
 
         var stale = await plugin.ExecuteCommandAsync(
-            Command(expectedDeviceGeneration: 6),
+            Command(6),
             cancellationToken).ConfigureAwait(false);
         Check(stale.Outcome is CommandOutcome.Rejected
-            && stale.Reason?.Code is CapabilityReasonCode.GenerationChanged,
+              && stale.Reason?.Code is CapabilityReasonCode.GenerationChanged,
             "stale-generation-rejected", checks);
 
         var stop = await plugin.StopAsync(
@@ -137,11 +137,12 @@ internal static class SyntheticPluginFixture
             cancellationToken).ConfigureAwait(false);
         var diagnostics = await plugin.GetDiagnosticsAsync(cancellationToken).ConfigureAwait(false);
         Check(stop.Status is PluginStopStatus.Clean
-            && host.CapabilityStates[^1].ObservedValue?.BooleanValue is false
-            && plugin.LastHapticOutput?.IsSilent is true,
+              && host.CapabilityStates[^1].ObservedValue?.BooleanValue is false
+              && plugin.LastHapticOutput?.IsSilent is true,
             "stop-restores-original-state-and-output", checks);
         Check(diagnostics.Values.TryGetValue("state", out var state) && state == "stopped"
-                                                                     && diagnostics.Values.TryGetValue("restorations", out var restorations)
+                                                                     && diagnostics.Values.TryGetValue("restorations",
+                                                                         out var restorations)
                                                                      && restorations == "1",
             "cleanup-diagnostics-reported", checks);
 
@@ -152,15 +153,18 @@ internal static class SyntheticPluginFixture
         };
     }
 
-    private static CapabilityCommand Command(long expectedDeviceGeneration) => new()
+    private static CapabilityCommand Command(long expectedDeviceGeneration)
     {
-        CommandId = Guid.NewGuid(),
-        CapabilityId = SyntheticDockPlugin.BeaconCapabilityId,
-        RequestedValue = CapabilityValue.Boolean(true),
-        ExpectedDescriptorGeneration = 1,
-        ExpectedCycleGeneration = expectedDeviceGeneration,
-        Deadline = DateTimeOffset.UtcNow.AddSeconds(5)
-    };
+        return new CapabilityCommand
+        {
+            CommandId = Guid.NewGuid(),
+            CapabilityId = SyntheticDockPlugin.BeaconCapabilityId,
+            RequestedValue = CapabilityValue.Boolean(true),
+            ExpectedDescriptorGeneration = 1,
+            ExpectedCycleGeneration = expectedDeviceGeneration,
+            Deadline = DateTimeOffset.UtcNow.AddSeconds(5)
+        };
+    }
 
     private static void Check(bool condition, string name, List<string> checks)
     {
@@ -172,8 +176,10 @@ internal static class SyntheticPluginFixture
         checks.Add(name);
     }
 
-    private static string PathForFixtureOnly() =>
-        Path.Combine(Path.GetTempPath(), "wsgm-device-synthetic-state-not-written");
+    private static string PathForFixtureOnly()
+    {
+        return Path.Combine(Path.GetTempPath(), "wsgm-device-synthetic-state-not-written");
+    }
 }
 
 internal sealed class SyntheticDockPlugin : IDevicePlugin
@@ -188,14 +194,30 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
     /// <summary>Settings id exercising the undeclared-section fallback.</summary>
     internal const string OrphanSettingId = "dock.stray";
 
+    private static readonly HapticCapabilities OutputCapabilities = new()
+    {
+        LowFrequency = OutputChannelSupport.Native,
+        HighFrequency = OutputChannelSupport.Native,
+        LeftTrigger = OutputChannelSupport.Unsupported,
+        RightTrigger = OutputChannelSupport.Unsupported
+    };
+
+    private bool _active;
+    private bool _beaconValue;
+    private bool _capturedBeaconValue;
+    private long _cycleGeneration;
+
+    private TestPluginHostAdapter? _host;
+    private int _restorationCount;
+
     /// <summary>
-    /// A settings declaration covering every value kind the SDK allows, so the settings page can be
-    /// exercised without hardware.
+    ///     A settings declaration covering every value kind the SDK allows, so the settings page can be
+    ///     exercised without hardware.
     /// </summary>
     /// <remarks>
-    /// Deliberately includes one setting naming a section that is never declared. That path renders
-    /// into a WSGM-owned fallback rather than dropping the control, and a fixture that only ever
-    /// declared well-formed manifests would never exercise it.
+    ///     Deliberately includes one setting naming a section that is never declared. That path renders
+    ///     into a WSGM-owned fallback rather than dropping the control, and a fixture that only ever
+    ///     declared well-formed manifests would never exercise it.
     /// </remarks>
     internal static PluginSettingsManifest SettingsManifest { get; } = new()
     {
@@ -308,21 +330,6 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
         ]
     };
 
-    private static readonly HapticCapabilities OutputCapabilities = new()
-    {
-        LowFrequency = OutputChannelSupport.Native,
-        HighFrequency = OutputChannelSupport.Native,
-        LeftTrigger = OutputChannelSupport.Unsupported,
-        RightTrigger = OutputChannelSupport.Unsupported
-    };
-
-    private TestPluginHostAdapter? _host;
-    private long _cycleGeneration;
-    private bool _beaconValue;
-    private bool _capturedBeaconValue;
-    private bool _active;
-    private int _restorationCount;
-
     internal HapticOutputFrame? LastHapticOutput { get; private set; }
 
     internal static DeviceIdentitySnapshot Identity { get; } = new()
@@ -352,8 +359,10 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
         var matched = IdentityText.Matches(context.Identity.SystemManufacturer, Identity.SystemManufacturer)
                       && IdentityText.Matches(context.Identity.BaseboardProduct, Identity.BaseboardProduct)
                       && context.Identity.UsbEndpoints.Count == 1
-                      && string.Equals(context.Identity.UsbEndpoints[0].VendorId, "CAFE", StringComparison.OrdinalIgnoreCase)
-                      && string.Equals(context.Identity.UsbEndpoints[0].ProductId, "BEEF", StringComparison.OrdinalIgnoreCase);
+                      && string.Equals(context.Identity.UsbEndpoints[0].VendorId, "CAFE",
+                          StringComparison.OrdinalIgnoreCase)
+                      && string.Equals(context.Identity.UsbEndpoints[0].ProductId, "BEEF",
+                          StringComparison.OrdinalIgnoreCase);
         return ValueTask.FromResult(new PluginDetectionResult
         {
             Matched = matched,
@@ -373,7 +382,7 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
         }
 
         _host = context.Host as TestPluginHostAdapter
-            ?? throw new InvalidOperationException("Synthetic fixture requires the Device Lab test adapter.");
+                ?? throw new InvalidOperationException("Synthetic fixture requires the Device Lab test adapter.");
         _cycleGeneration = context.CycleGeneration;
         _capturedBeaconValue = false;
         _beaconValue = _capturedBeaconValue;
@@ -522,7 +531,9 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                 ["beacon"] = _beaconValue ? "on" : "off",
                 ["haptic-output"] = LastHapticOutput is null
                     ? "not-observed"
-                    : LastHapticOutput.IsSilent ? "silent" : "active",
+                    : LastHapticOutput.IsSilent
+                        ? "silent"
+                        : "active",
                 ["restorations"] = _restorationCount.ToString(CultureInfo.InvariantCulture)
             }
         });
@@ -575,27 +586,36 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
         return new PluginStopResult { Status = PluginStopStatus.Clean };
     }
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-
-    private CapabilityState State(bool value) => new()
+    public ValueTask DisposeAsync()
     {
-        CapabilityId = BeaconCapabilityId,
-        Available = true,
-        ObservedValue = CapabilityValue.Boolean(value),
-        Quality = HardwareStateQuality.Verified,
-        ObservedAt = DateTimeOffset.UtcNow,
-        DescriptorGeneration = 1,
-        CycleGeneration = _cycleGeneration
-    };
+        return ValueTask.CompletedTask;
+    }
+
+    private CapabilityState State(bool value)
+    {
+        return new CapabilityState
+        {
+            CapabilityId = BeaconCapabilityId,
+            Available = true,
+            ObservedValue = CapabilityValue.Boolean(value),
+            Quality = HardwareStateQuality.Verified,
+            ObservedAt = DateTimeOffset.UtcNow,
+            DescriptorGeneration = 1,
+            CycleGeneration = _cycleGeneration
+        };
+    }
 
     private static CapabilityCommandResult Result(
         CapabilityCommand command,
         CommandOutcome outcome,
-        CapabilityReasonCode reason) => new()
+        CapabilityReasonCode reason)
+    {
+        return new CapabilityCommandResult
         {
             CommandId = command.CommandId,
             Outcome = outcome,
             Reason = new CapabilityReason(reason),
             CompletedAt = DateTimeOffset.UtcNow
         };
+    }
 }

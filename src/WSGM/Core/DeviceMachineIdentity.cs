@@ -14,10 +14,10 @@ public static class DeviceMachineIdentity
     {
         using var bios = Registry.LocalMachine.OpenSubKey(
             @"HARDWARE\DESCRIPTION\System\BIOS",
-            writable: false);
+            false);
         using var cpu = Registry.LocalMachine.OpenSubKey(
             @"HARDWARE\DESCRIPTION\System\CentralProcessor\0",
-            writable: false);
+            false);
         return new DeviceIdentitySnapshot
         {
             SystemManufacturer = Normalize(bios?.GetValue("SystemManufacturer") as string),
@@ -43,5 +43,8 @@ public static class DeviceMachineIdentity
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material)))[..24];
     }
 
-    private static string? Normalize(string? value) => IdentityText.Normalize(value);
+    private static string? Normalize(string? value)
+    {
+        return IdentityText.Normalize(value);
+    }
 }

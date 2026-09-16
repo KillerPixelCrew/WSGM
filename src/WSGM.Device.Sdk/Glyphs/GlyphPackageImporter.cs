@@ -11,9 +11,9 @@ namespace WSGM.Device.Sdk.Glyphs;
 
 /// <summary>Supplies immutable files from one already selected plugin package.</summary>
 /// <remarks>
-/// Implementations own package-root confinement, reparse-point rejection, and stable bounded reads.
-/// The loader derives artwork paths from validated hashes and validates the sole manifest-provided
-/// notice path before asking the source to read it.
+///     Implementations own package-root confinement, reparse-point rejection, and stable bounded reads.
+///     The loader derives artwork paths from validated hashes and validates the sole manifest-provided
+///     notice path before asking the source to read it.
 /// </remarks>
 public interface IGlyphPackageSource
 {
@@ -80,7 +80,7 @@ public sealed record GlyphPackageImportResult(
 }
 
 /// <summary>
-/// The single bounded loader for plugin-owned glyph manifests, artwork, control maps, and notices.
+///     The single bounded loader for plugin-owned glyph manifests, artwork, control maps, and notices.
 /// </summary>
 public static class GlyphPackageImporter
 {
@@ -110,9 +110,9 @@ public static class GlyphPackageImporter
             discovered = source.EnumerateProfileIds() ?? [];
         }
         catch (Exception exception) when (exception is IOException
-            or UnauthorizedAccessException
-            or InvalidDataException
-            or NotSupportedException)
+                                              or UnauthorizedAccessException
+                                              or InvalidDataException
+                                              or NotSupportedException)
         {
             errors.Add(new GlyphPackageImportError(
                 string.Empty,
@@ -317,22 +317,27 @@ public static class GlyphPackageImporter
         {
             Invalid("schemaVersion", $"Schema version {manifest.SchemaVersion} is not supported.");
         }
+
         if (!IsIdentifier(manifest.ProfileId))
         {
             Invalid("profileId", "A bounded identifier is required.");
         }
+
         if (!IsDisplayText(manifest.DisplayName, GlyphProfileLimits.MaxDisplayNameLength))
         {
             Invalid("displayName", "A bounded plain display name is required.");
         }
+
         if (manifest.Revision <= 0)
         {
             Invalid("revision", "The profile revision must be positive.");
         }
+
         if (!IsIdentifier(manifest.SourceRevision))
         {
             Invalid("sourceRevision", "A bounded immutable source revision is required.");
         }
+
         if (!IsNoticePath(manifest.NoticePath))
         {
             Invalid("noticePath", "The notice must be a confined .md or .txt package-relative path.");
@@ -343,6 +348,7 @@ public static class GlyphPackageImporter
         {
             Invalid("exactDeviceIds", $"At most {GlyphProfileLimits.MaxExactDevices} entries are accepted.");
         }
+
         HashSet<string> deviceIds = new(StringComparer.Ordinal);
         for (var index = 0; index < exactDeviceIds.Count; index++)
         {
@@ -362,6 +368,7 @@ public static class GlyphPackageImporter
         {
             Invalid("assets", $"At most {GlyphProfileLimits.MaxAssets} entries are accepted.");
         }
+
         Dictionary<string, GlyphAssetLockEntry> assetsByHash = new(StringComparer.Ordinal);
         long totalBytes = 0;
         for (var index = 0; index < assets.Count; index++)
@@ -373,6 +380,7 @@ public static class GlyphPackageImporter
                 Invalid(path, "An asset declaration is required.");
                 continue;
             }
+
             if (!IsHash(asset.Sha256))
             {
                 Invalid($"{path}.sha256", "SHA-256 must be 64 lowercase hexadecimal characters.");
@@ -381,10 +389,12 @@ public static class GlyphPackageImporter
             {
                 Invalid($"{path}.sha256", "The asset hash is declared more than once.");
             }
+
             if (!Enum.IsDefined(asset.Format) || !Enum.IsDefined(asset.Role))
             {
                 Invalid(path, "The artwork format or role is undefined.");
             }
+
             if (asset.ByteCount is <= 0 or > GlyphProfileLimits.MaxAssetBytes)
             {
                 Invalid($"{path}.byteCount",
@@ -394,8 +404,10 @@ public static class GlyphPackageImporter
             {
                 totalBytes += asset.ByteCount;
             }
+
             ValidateAssetShape(asset, path, Invalid);
         }
+
         if (totalBytes > GlyphProfileLimits.MaxProfileBytes)
         {
             Invalid("assets", $"Aggregate artwork exceeds {GlyphProfileLimits.MaxProfileBytes} bytes.");
@@ -426,6 +438,7 @@ public static class GlyphPackageImporter
         {
             Invalid("controls", $"At most {GlyphProfileLimits.MaxControls} entries are accepted.");
         }
+
         Dictionary<GlyphControlId, GlyphControlMapping> controlsById = [];
         for (var index = 0; index < controls.Count; index++)
         {
@@ -436,25 +449,30 @@ public static class GlyphPackageImporter
                 Invalid(path, "A control mapping is required.");
                 continue;
             }
+
             if (!Enum.IsDefined(control.Control)
                 || !Enum.IsDefined(control.Presence)
                 || !Enum.IsDefined(control.Side))
             {
                 Invalid(path, "The control, presence, or side value is undefined.");
             }
+
             if (!controlsById.TryAdd(control.Control, control))
             {
                 Invalid($"{path}.control", "The control is mapped more than once.");
             }
+
             if (control.PhysicalLabel is { } label
                 && !IsDisplayText(label, GlyphProfileLimits.MaxPhysicalLabelLength))
             {
                 Invalid($"{path}.physicalLabel", "The physical label is not bounded plain text.");
             }
+
             if (control.Presence is GlyphControlPresence.Absent && control.AssetSha256 is not null)
             {
                 Invalid($"{path}.assetSha256", "A physically absent control cannot declare artwork.");
             }
+
             if (control.AssetSha256 is { } hash
                 && (!IsHash(hash)
                     || !assetsByHash.TryGetValue(hash, out var asset)
@@ -469,6 +487,7 @@ public static class GlyphPackageImporter
         {
             Invalid("aliases", $"At most {GlyphProfileLimits.MaxAliases} entries are accepted.");
         }
+
         var aliasSources = aliases
             .Where(alias => alias is not null)
             .Select(alias => alias.LogicalControl)
@@ -483,14 +502,17 @@ public static class GlyphPackageImporter
                 Invalid(path, "A control alias is required.");
                 continue;
             }
+
             if (!Enum.IsDefined(alias.LogicalControl) || !Enum.IsDefined(alias.PhysicalControl))
             {
                 Invalid(path, "The logical or physical control is undefined.");
             }
+
             if (!seenAliases.Add(alias.LogicalControl))
             {
                 Invalid($"{path}.logicalControl", "The logical control is aliased more than once.");
             }
+
             var targetPresent = controlsById.TryGetValue(
                                     alias.PhysicalControl,
                                     out var target)
@@ -505,11 +527,14 @@ public static class GlyphPackageImporter
 
         return;
 
-        void Invalid(string path, string message) => errors.Add(new GlyphPackageImportError(
-            profileId,
-            profilePath,
-            GlyphPackageImportCode.ProfileManifestInvalid,
-            $"{path}: {message}"));
+        void Invalid(string path, string message)
+        {
+            errors.Add(new GlyphPackageImportError(
+                profileId,
+                profilePath,
+                GlyphPackageImportCode.ProfileManifestInvalid,
+                $"{path}: {message}"));
+        }
     }
 
     private static void ValidateAssetShape(
@@ -520,43 +545,47 @@ public static class GlyphPackageImporter
         switch (asset.Format)
         {
             case GlyphAssetFormat.Svg:
+            {
+                if (asset.ViewBox is not { } viewBox
+                    || asset.PixelWidth is not null
+                    || asset.PixelHeight is not null)
                 {
-                    if (asset.ViewBox is not { } viewBox
-                        || asset.PixelWidth is not null
-                        || asset.PixelHeight is not null)
-                    {
-                        invalid(path, "SVG artwork requires a view box and no raster dimensions.");
-                        return;
-                    }
-                    if (viewBox.Width <= 0 || viewBox.Height <= 0
-                        || viewBox.Width > GlyphProfileLimits.MaxDimension
-                        || viewBox.Height > GlyphProfileLimits.MaxDimension
-                        || viewBox.X < -GlyphProfileLimits.MaxDimension
-                        || viewBox.X > GlyphProfileLimits.MaxDimension
-                        || viewBox.Y < -GlyphProfileLimits.MaxDimension
-                        || viewBox.Y > GlyphProfileLimits.MaxDimension)
-                    {
-                        invalid($"{path}.viewBox", "The SVG view box exceeds the coordinate budget.");
-                    }
+                    invalid(path, "SVG artwork requires a view box and no raster dimensions.");
                     return;
                 }
-            case GlyphAssetFormat.Png:
+
+                if (viewBox.Width <= 0 || viewBox.Height <= 0
+                                       || viewBox.Width > GlyphProfileLimits.MaxDimension
+                                       || viewBox.Height > GlyphProfileLimits.MaxDimension
+                                       || viewBox.X < -GlyphProfileLimits.MaxDimension
+                                       || viewBox.X > GlyphProfileLimits.MaxDimension
+                                       || viewBox.Y < -GlyphProfileLimits.MaxDimension
+                                       || viewBox.Y > GlyphProfileLimits.MaxDimension)
                 {
-                    if (asset.ViewBox is not null || asset.PixelWidth is not > 0 || asset.PixelHeight is not > 0)
-                    {
-                        invalid(path, "PNG artwork requires positive pixel dimensions and no view box.");
-                        return;
-                    }
-                    if (asset.PixelWidth <= GlyphProfileLimits.MaxDimension
-                        && asset.PixelHeight <= GlyphProfileLimits.MaxDimension
-                        && (long)asset.PixelWidth.Value * asset.PixelHeight.Value
-                            <= GlyphProfileLimits.MaxRasterPixels)
-                    {
-                        return;
-                    }
-                    invalid(path, "PNG dimensions exceed the axis or decoded-pixel budget.");
-                    break;
+                    invalid($"{path}.viewBox", "The SVG view box exceeds the coordinate budget.");
                 }
+
+                return;
+            }
+            case GlyphAssetFormat.Png:
+            {
+                if (asset.ViewBox is not null || asset.PixelWidth is not > 0 || asset.PixelHeight is not > 0)
+                {
+                    invalid(path, "PNG artwork requires positive pixel dimensions and no view box.");
+                    return;
+                }
+
+                if (asset.PixelWidth <= GlyphProfileLimits.MaxDimension
+                    && asset.PixelHeight <= GlyphProfileLimits.MaxDimension
+                    && (long)asset.PixelWidth.Value * asset.PixelHeight.Value
+                    <= GlyphProfileLimits.MaxRasterPixels)
+                {
+                    return;
+                }
+
+                invalid(path, "PNG dimensions exceed the axis or decoded-pixel budget.");
+                break;
+            }
         }
     }
 
@@ -571,6 +600,7 @@ public static class GlyphPackageImporter
         {
             return;
         }
+
         if (!IsHash(hash)
             || !assets.TryGetValue(hash, out var asset)
             || asset.Role != expectedRole)
@@ -598,18 +628,21 @@ public static class GlyphPackageImporter
         }
     }
 
-    private static GlyphProfileManifest OrderManifest(GlyphProfileManifest manifest) => manifest with
+    private static GlyphProfileManifest OrderManifest(GlyphProfileManifest manifest)
     {
-        ExactDeviceIds = [.. (manifest.ExactDeviceIds ?? []).Order(StringComparer.Ordinal)],
-        Assets = [.. (manifest.Assets ?? []).OrderBy(asset => asset.Sha256, StringComparer.Ordinal)],
-        Controls = [.. (manifest.Controls ?? []).OrderBy(control => control.Control)],
-        Aliases =
-        [
-            .. (manifest.Aliases ?? [])
+        return manifest with
+        {
+            ExactDeviceIds = [.. (manifest.ExactDeviceIds ?? []).Order(StringComparer.Ordinal)],
+            Assets = [.. (manifest.Assets ?? []).OrderBy(asset => asset.Sha256, StringComparer.Ordinal)],
+            Controls = [.. (manifest.Controls ?? []).OrderBy(control => control.Control)],
+            Aliases =
+            [
+                .. (manifest.Aliases ?? [])
                 .OrderBy(alias => alias.LogicalControl)
                 .ThenBy(alias => alias.PhysicalControl)
-        ]
-    };
+            ]
+        };
+    }
 
     private static bool IsIdentifier(string? value)
     {
@@ -618,17 +651,23 @@ public static class GlyphPackageImporter
         {
             return false;
         }
+
         return value.All(character => char.IsAsciiLetterOrDigit(character)
-            || character is '.' or '-' or '_');
+                                      || character is '.' or '-' or '_');
     }
 
-    private static bool IsDisplayText(string? value, int maximumLength) =>
-        !string.IsNullOrWhiteSpace(value)
-        && value.Length <= maximumLength
-        && value.All(character => !char.IsControl(character));
+    private static bool IsDisplayText(string? value, int maximumLength)
+    {
+        return !string.IsNullOrWhiteSpace(value)
+               && value.Length <= maximumLength
+               && value.All(character => !char.IsControl(character));
+    }
 
-    private static bool IsHash(string? value) => value is { Length: 64 }
-        && value.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
+    private static bool IsHash(string? value)
+    {
+        return value is { Length: 64 }
+               && value.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
+    }
 
     private static bool IsNoticePath(string? value)
     {
@@ -645,9 +684,9 @@ public static class GlyphPackageImporter
 
         var segments = value.Split('/');
         return segments.All(segment => segment.Length > 0
-            && segment is not "." and not ".."
-            && segment.All(character => char.IsAsciiLetterOrDigit(character)
-                || character is '.' or '-' or '_'));
+                                       && segment is not "." and not ".."
+                                       && segment.All(character => char.IsAsciiLetterOrDigit(character)
+                                                                   || character is '.' or '-' or '_'));
     }
 
     private static bool IsPlainUtf8(ReadOnlySpan<byte> bytes)

@@ -4,8 +4,10 @@ using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Controls;
 
-/// <summary>The bounds a curve is edited within. The editor authors every curve
-/// against the 0..100 percent-over-percent plane the device contract defines.</summary>
+/// <summary>
+///     The bounds a curve is edited within. The editor authors every curve
+///     against the 0..100 percent-over-percent plane the device contract defines.
+/// </summary>
 /// <param name="InputMinimum">Lowest input value, for a fan curve a temperature in °C.</param>
 /// <param name="InputMaximum">Highest input value.</param>
 /// <param name="OutputMinimum">Lowest output value, for a fan curve a duty percentage.</param>
@@ -22,23 +24,29 @@ internal readonly record struct CurveBounds(
     /// <summary>Clamps an input to the bounds.</summary>
     /// <param name="value">The candidate input.</param>
     /// <returns>The value, held inside the bounds.</returns>
-    internal int ClampInput(int value) => Math.Clamp(value, InputMinimum, InputMaximum);
+    internal int ClampInput(int value)
+    {
+        return Math.Clamp(value, InputMinimum, InputMaximum);
+    }
 
     /// <summary>Clamps an output to the bounds.</summary>
     /// <param name="value">The candidate output.</param>
     /// <returns>The value, held inside the bounds.</returns>
-    internal int ClampOutput(int value) => Math.Clamp(value, OutputMinimum, OutputMaximum);
+    internal int ClampOutput(int value)
+    {
+        return Math.Clamp(value, OutputMinimum, OutputMaximum);
+    }
 }
 
 /// <summary>
-/// The editing operations behind the curve editor, kept pure so they can be tested without a UI.
+///     The editing operations behind the curve editor, kept pure so they can be tested without a UI.
 /// </summary>
 /// <remarks>
-/// Every operation returns a curve that satisfies the same contract the device router validates
-/// against: between 1 and 64 points, inputs strictly ascending, everything inside the bounds. The
-/// editor can therefore never build a curve that is refused on apply, which is the failure this
-/// separation exists to prevent — a drag that produces an invalid curve has to be impossible, not
-/// merely reported.
+///     Every operation returns a curve that satisfies the same contract the device router validates
+///     against: between 1 and 64 points, inputs strictly ascending, everything inside the bounds. The
+///     editor can therefore never build a curve that is refused on apply, which is the failure this
+///     separation exists to prevent — a drag that produces an invalid curve has to be impossible, not
+///     merely reported.
 /// </remarks>
 internal static class CurveEditing
 {
@@ -47,8 +55,8 @@ internal static class CurveEditing
 
     /// <summary>How close two inputs may be before a move is refused, in input units.</summary>
     /// <remarks>
-    /// One, because inputs must be strictly ascending and are integers. A drag that would collide
-    /// stops against its neighbour rather than reordering the curve underneath the user's finger.
+    ///     One, because inputs must be strictly ascending and are integers. A drag that would collide
+    ///     stops against its neighbour rather than reordering the curve underneath the user's finger.
     /// </remarks>
     private const int MinimumInputGap = 1;
 
@@ -59,16 +67,16 @@ internal static class CurveEditing
     /// <param name="output">Requested output.</param>
     /// <param name="bounds">The editing bounds.</param>
     /// <param name="risingOutput">
-    /// Whether outputs must not decrease along the curve. A fan table is written to firmware that
-    /// requires it, and a curve that dips is refused on apply — so a drag that would produce one is
-    /// held against its neighbours here instead of failing later with nothing to show for it.
+    ///     Whether outputs must not decrease along the curve. A fan table is written to firmware that
+    ///     requires it, and a curve that dips is refused on apply — so a drag that would produce one is
+    ///     held against its neighbours here instead of failing later with nothing to show for it.
     /// </param>
     /// <returns>The curve with the point moved, or the original if the index is out of range.</returns>
     /// <remarks>
-    /// The moved point is held between its neighbours rather than being allowed to swap with them.
-    /// Reordering mid-drag would make the point under the finger a different point, which reads as
-    /// the curve snapping away — and the endpoints keep their inputs, because a fan curve that no
-    /// longer spans its whole temperature range has an undefined answer at the ends.
+    ///     The moved point is held between its neighbours rather than being allowed to swap with them.
+    ///     Reordering mid-drag would make the point under the finger a different point, which reads as
+    ///     the curve snapping away — and the endpoints keep their inputs, because a fan curve that no
+    ///     longer spans its whole temperature range has an undefined answer at the ends.
     /// </remarks>
     internal static IReadOnlyList<CurvePoint> Move(
         IReadOnlyList<CurvePoint> points,
@@ -125,9 +133,9 @@ internal static class CurveEditing
     /// <param name="bounds">The editing bounds.</param>
     /// <returns>The curve with the point present.</returns>
     /// <remarks>
-    /// Adding at an input a point already occupies moves that point instead of creating a duplicate,
-    /// because duplicate inputs are exactly what the device contract forbids and a double-tap on an
-    /// existing point should not be able to break the curve.
+    ///     Adding at an input a point already occupies moves that point instead of creating a duplicate,
+    ///     because duplicate inputs are exactly what the device contract forbids and a double-tap on an
+    ///     existing point should not be able to break the curve.
     /// </remarks>
     internal static IReadOnlyList<CurvePoint> Add(
         IReadOnlyList<CurvePoint> points,
@@ -167,8 +175,8 @@ internal static class CurveEditing
     /// <param name="index">Index of the point to remove.</param>
     /// <returns>The curve without that point, or unchanged when it cannot be removed.</returns>
     /// <remarks>
-    /// The two endpoints stay. They define the curve's answer at the ends of the device's range, and
-    /// removing one leaves the value there undefined; a curve of two points is the floor.
+    ///     The two endpoints stay. They define the curve's answer at the ends of the device's range, and
+    ///     removing one leaves the value there undefined; a curve of two points is the floor.
     /// </remarks>
     internal static IReadOnlyList<CurvePoint> Remove(IReadOnlyList<CurvePoint> points, int index)
     {
@@ -188,9 +196,9 @@ internal static class CurveEditing
     /// <param name="input">The input to evaluate at.</param>
     /// <returns>The interpolated output, or zero for an empty curve.</returns>
     /// <remarks>
-    /// Linear, and clamped flat outside the curve's own range. This is the editor's own preview, not
-    /// the device's interpolation — a plugin is free to interpolate differently, and where that
-    /// matters the readout must come from the device rather than from here.
+    ///     Linear, and clamped flat outside the curve's own range. This is the editor's own preview, not
+    ///     the device's interpolation — a plugin is free to interpolate differently, and where that
+    ///     matters the readout must come from the device rather than from here.
     /// </remarks>
     internal static int Evaluate(IReadOnlyList<CurvePoint> points, int input)
     {
@@ -228,7 +236,7 @@ internal static class CurveEditing
             // Rounded, not truncated: a duty cycle that reads one below the point the user placed
             // looks like the editor lost the edit.
             return lower.Output
-                + (int)Math.Round((double)(upper.Output - lower.Output) * (input - lower.Input) / span);
+                   + (int)Math.Round((double)(upper.Output - lower.Output) * (input - lower.Input) / span);
         }
 
         return points[^1].Output;

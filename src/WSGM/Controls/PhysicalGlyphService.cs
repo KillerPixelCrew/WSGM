@@ -42,23 +42,23 @@ internal sealed record PhysicalGlyphRenderPlan
 }
 
 /// <summary>
-/// Bounded, path-free adapter from an imported physical profile to Avalonia-safe geometry plans.
+///     Bounded, path-free adapter from an imported physical profile to Avalonia-safe geometry plans.
 /// </summary>
 /// <remarks>
-/// The service never opens a package file, parses SVG, or performs network work; it consumes only
-/// the normalized model returned by the SDK's bounded package loader.
+///     The service never opens a package file, parses SVG, or performs network work; it consumes only
+///     the normalized model returned by the SDK's bounded package loader.
 /// </remarks>
 internal sealed class PhysicalGlyphService : IDisposable
 {
     private const int DefaultMaximumCacheEntries = 128;
     private const int DefaultMaximumCacheBytes = 4 * 1024 * 1024;
+    private readonly Dictionary<RenderCacheKey, CacheEntry> _cache = [];
+    private readonly PhysicalGlyphCatalog _catalog;
 
     private readonly Lock _gate = new();
-    private readonly int _maximumCacheEntries;
-    private readonly int _maximumCacheBytes;
-    private readonly PhysicalGlyphCatalog _catalog;
-    private readonly Dictionary<RenderCacheKey, CacheEntry> _cache = [];
     private readonly LinkedList<RenderCacheKey> _lru = [];
+    private readonly int _maximumCacheBytes;
+    private readonly int _maximumCacheEntries;
     private int _cacheBytes;
 
     internal PhysicalGlyphService(
@@ -96,6 +96,12 @@ internal sealed class PhysicalGlyphService : IDisposable
                 return _cacheBytes;
             }
         }
+    }
+
+    public void Dispose()
+    {
+        _catalog.Changed -= ResetCache;
+        ResetCache();
     }
 
     internal PhysicalGlyphRenderPlan Resolve(
@@ -153,12 +159,6 @@ internal sealed class PhysicalGlyphService : IDisposable
         }
     }
 
-    public void Dispose()
-    {
-        _catalog.Changed -= ResetCache;
-        ResetCache();
-    }
-
     private void ResetCache()
     {
         lock (_gate)
@@ -172,15 +172,13 @@ internal sealed class PhysicalGlyphService : IDisposable
         GlyphControlId requestedControl)
     {
         var physicalControl = requestedControl;
-        var alias = profile.Manifest.Aliases.FirstOrDefault(
-            item => item.LogicalControl == requestedControl);
+        var alias = profile.Manifest.Aliases.FirstOrDefault(item => item.LogicalControl == requestedControl);
         if (alias is not null)
         {
             physicalControl = alias.PhysicalControl;
         }
 
-        var mapping = profile.Manifest.Controls.FirstOrDefault(
-            item => item.Control == physicalControl);
+        var mapping = profile.Manifest.Controls.FirstOrDefault(item => item.Control == physicalControl);
         if (mapping is null || mapping.Presence is GlyphControlPresence.Absent)
         {
             return FallbackPlan(
@@ -241,8 +239,10 @@ internal sealed class PhysicalGlyphService : IDisposable
 
     // Avalonia's path grammar defaults to even-odd filling, while SVG defaults to non-zero; the
     // leading fill-rule command keeps the artwork's own rule.
-    private static string FillRulePrefix(string fillRule) =>
-        string.Equals(fillRule, "evenodd", StringComparison.Ordinal) ? "F0 " : "F1 ";
+    private static string FillRulePrefix(string fillRule)
+    {
+        return string.Equals(fillRule, "evenodd", StringComparison.Ordinal) ? "F0 " : "F1 ";
+    }
 
     private static int EstimateCost(
         ImportedGlyphProfile profile,
@@ -252,10 +252,10 @@ internal sealed class PhysicalGlyphService : IDisposable
         {
             return 64;
         }
-        var mapping = profile.Manifest.Controls.FirstOrDefault(
-            item => item.Control == control);
+
+        var mapping = profile.Manifest.Controls.FirstOrDefault(item => item.Control == control);
         return mapping?.AssetSha256 is { } hash
-            && profile.Assets.TryGetValue(hash, out var asset)
+               && profile.Assets.TryGetValue(hash, out var asset)
             ? Math.Max(64, asset.RetainedBytes)
             : 64;
     }
@@ -272,6 +272,7 @@ internal sealed class PhysicalGlyphService : IDisposable
             {
                 output.Append(' ');
             }
+
             output.Append(command);
             var arity = char.ToUpperInvariant(command[0]) switch
             {
@@ -304,29 +305,34 @@ internal sealed class PhysicalGlyphService : IDisposable
                             .Append(' ').Append(tokens[index + 5]).Append(',').Append(tokens[index + 6]);
                         break;
                     default:
+                    {
+                        for (var parameter = 0; parameter < arity; parameter += 2)
                         {
-                            for (var parameter = 0; parameter < arity; parameter += 2)
+                            if (parameter > 0)
                             {
-                                if (parameter > 0)
-                                {
-                                    output.Append(' ');
-                                }
-                                output.Append(tokens[index + parameter]).Append(',')
-                                    .Append(tokens[index + parameter + 1]);
+                                output.Append(' ');
                             }
 
-                            break;
+                            output.Append(tokens[index + parameter]).Append(',')
+                                .Append(tokens[index + parameter + 1]);
                         }
+
+                        break;
+                    }
                 }
+
                 index += arity;
             }
         }
+
         return output.ToString();
     }
 
     private static PhysicalGlyphRenderPlan FallbackPlan(
         PhysicalGlyphFallbackReason reason,
-        GlyphControlId? physicalControl = null) => new()
+        GlyphControlId? physicalControl = null)
+    {
+        return new PhysicalGlyphRenderPlan
         {
             PhysicalControl = physicalControl,
             FallbackReason = reason,
@@ -334,6 +340,7 @@ internal sealed class PhysicalGlyphService : IDisposable
             Paths = [],
             RasterPng = default
         };
+    }
 
     private void Touch(CacheEntry entry)
     {
@@ -351,6 +358,7 @@ internal sealed class PhysicalGlyphService : IDisposable
             {
                 break;
             }
+
             _lru.Remove(tail);
             _cacheBytes -= removed.Cost;
         }

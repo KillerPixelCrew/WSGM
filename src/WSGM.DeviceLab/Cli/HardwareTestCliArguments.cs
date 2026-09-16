@@ -165,7 +165,8 @@ internal sealed record HardwareTestCliArguments
         {
             if (string.IsNullOrWhiteSpace(capabilityId) || string.IsNullOrWhiteSpace(valueText))
             {
-                error = "test hardware --action capability requires --capability <id> and --value <semantic-value>; --instance <id> is optional.";
+                error =
+                    "test hardware --action capability requires --capability <id> and --value <semantic-value>; --instance <id> is optional.";
                 return false;
             }
 
@@ -184,12 +185,13 @@ internal sealed record HardwareTestCliArguments
             };
         }
         else if (string.Equals(actionName, "haptic", StringComparison.Ordinal)
-            || string.Equals(actionName, "haptic-sweep", StringComparison.Ordinal)
-            || string.Equals(actionName, "controller", StringComparison.Ordinal))
+                 || string.Equals(actionName, "haptic-sweep", StringComparison.Ordinal)
+                 || string.Equals(actionName, "controller", StringComparison.Ordinal))
         {
             if (capabilityId is not null || valueText is not null)
             {
-                error = "--capability and --value apply only to --action capability; --instance may select an exact haptic or controller instance.";
+                error =
+                    "--capability and --value apply only to --action capability; --instance may select an exact haptic or controller instance.";
                 return false;
             }
 
@@ -206,7 +208,8 @@ internal sealed record HardwareTestCliArguments
         }
         else
         {
-            error = "test hardware requires exactly one --action capability, --action haptic, --action haptic-sweep, or --action controller.";
+            error =
+                "test hardware requires exactly one --action capability, --action haptic, --action haptic-sweep, or --action controller.";
             return false;
         }
 
@@ -245,7 +248,9 @@ internal sealed record HardwareTestCliArguments
         return false;
     }
 
-    private static bool LooksLikeOption(string value) =>
-        value.StartsWith("--", StringComparison.Ordinal)
-        || (value is ['-', _] && char.IsLetter(value[1]));
+    private static bool LooksLikeOption(string value)
+    {
+        return value.StartsWith("--", StringComparison.Ordinal)
+               || (value is ['-', _] && char.IsLetter(value[1]));
+    }
 }

@@ -198,8 +198,10 @@ public sealed class StationaryGyroBiasCalibratorTests
         Assert.Equal(expected, calibrator.Bias!.Value.X, 3);
     }
 
-    private static void FeedRestWindow(StationaryGyroBiasCalibrator calibrator) =>
+    private static void FeedRestWindow(StationaryGyroBiasCalibrator calibrator)
+    {
         FeedRestWindow(calibrator, MeasuredOffset);
+    }
 
     private static void FeedRestWindow(
         StationaryGyroBiasCalibrator calibrator,

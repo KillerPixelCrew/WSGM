@@ -8,8 +8,9 @@ internal static class ControllerSamples
     internal static CanonicalControllerSample Sample(
         CanonicalButtons buttons,
         float leftTrigger = 0,
-        float rightTrigger = 0) =>
-        new()
+        float rightTrigger = 0)
+    {
+        return new CanonicalControllerSample
         {
             Sequence = 1,
             CycleGeneration = 1,
@@ -18,4 +19,5 @@ internal static class ControllerSamples
             LeftTrigger = leftTrigger,
             RightTrigger = rightTrigger
         };
+    }
 }

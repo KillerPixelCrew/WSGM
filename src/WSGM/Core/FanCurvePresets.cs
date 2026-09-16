@@ -6,9 +6,9 @@ namespace WSGM.Core;
 
 /// <summary>The fan curve shapes offered as a starting point.</summary>
 /// <remarks>
-/// HandheldCompanion's three, by name and by value. They are the shapes handheld users already
-/// know, and reproducing them exactly means a user moving between the two tools gets the same fans
-/// rather than something that merely sounds similar.
+///     HandheldCompanion's three, by name and by value. They are the shapes handheld users already
+///     know, and reproducing them exactly means a user moving between the two tools gets the same fans
+///     rather than something that merely sounds similar.
 /// </remarks>
 internal enum FanCurvePreset
 {
@@ -23,14 +23,14 @@ internal enum FanCurvePreset
 }
 
 /// <summary>
-/// The preset curves, and how one is fitted to the breakpoints a device actually has.
+///     The preset curves, and how one is fitted to the breakpoints a device actually has.
 /// </summary>
 /// <remarks>
-/// Each preset is HandheldCompanion's own array: eleven duty percentages at 0, 10, … 100 °C, from
-/// <c>IDevice.fanPresets</c> (Quiet, Default, Aggressive in that order). They are stored at HC's
-/// resolution rather than pre-reduced, because the breakpoints a fan table uses are the firmware's
-/// and differ per device — the reference Claw stores six. Fitting happens at apply time against the
-/// curve the device published, so a preset never invents a temperature the table does not have.
+///     Each preset is HandheldCompanion's own array: eleven duty percentages at 0, 10, … 100 °C, from
+///     <c>IDevice.fanPresets</c> (Quiet, Default, Aggressive in that order). They are stored at HC's
+///     resolution rather than pre-reduced, because the breakpoints a fan table uses are the firmware's
+///     and differ per device — the reference Claw stores six. Fitting happens at apply time against the
+///     curve the device published, so a preset never invents a temperature the table does not have.
 /// </remarks>
 internal static class FanCurvePresets
 {
@@ -44,13 +44,16 @@ internal static class FanCurvePresets
     /// <summary>What the user reads on the preset's button.</summary>
     /// <param name="preset">The preset.</param>
     /// <returns>Its label.</returns>
-    internal static string Label(FanCurvePreset preset) => preset switch
+    internal static string Label(FanCurvePreset preset)
     {
-        FanCurvePreset.Quiet => "Quiet",
-        FanCurvePreset.Default => "Default",
-        FanCurvePreset.Aggressive => "Aggressive",
-        _ => preset.ToString()
-    };
+        return preset switch
+        {
+            FanCurvePreset.Quiet => "Quiet",
+            FanCurvePreset.Default => "Default",
+            FanCurvePreset.Aggressive => "Aggressive",
+            _ => preset.ToString()
+        };
+    }
 
     /// <summary>The preset's duty at one temperature, interpolated between its samples.</summary>
     /// <param name="preset">The preset to read.</param>
@@ -78,15 +81,15 @@ internal static class FanCurvePresets
     /// <param name="current">The curve the device published, whose inputs are kept.</param>
     /// <returns>A curve with the same inputs and the preset's duties, or empty when there is none.</returns>
     /// <remarks>
-    /// Inputs are carried over untouched. The temperatures in a fan table are the firmware's own
-    /// breakpoints, and a preset is a statement about how hard to blow at a temperature, not about
-    /// which temperatures the table should contain.
-    /// <para>
-    /// Duties are then forced not to decrease. Interpolating a rising preset onto rising inputs
-    /// already produces a rising result, so this only catches a device whose stored inputs are not
-    /// ascending — which the router refuses anyway — and it costs one pass to be certain the curve
-    /// this hands back is one the firmware will accept.
-    /// </para>
+    ///     Inputs are carried over untouched. The temperatures in a fan table are the firmware's own
+    ///     breakpoints, and a preset is a statement about how hard to blow at a temperature, not about
+    ///     which temperatures the table should contain.
+    ///     <para>
+    ///         Duties are then forced not to decrease. Interpolating a rising preset onto rising inputs
+    ///         already produces a rising result, so this only catches a device whose stored inputs are not
+    ///         ascending — which the router refuses anyway — and it costs one pass to be certain the curve
+    ///         this hands back is one the firmware will accept.
+    ///     </para>
     /// </remarks>
     internal static IReadOnlyList<CurvePoint> SampleOnto(
         FanCurvePreset preset,
@@ -110,10 +113,13 @@ internal static class FanCurvePresets
         return sampled;
     }
 
-    private static int[] SamplesFor(FanCurvePreset preset) => preset switch
+    private static int[] SamplesFor(FanCurvePreset preset)
     {
-        FanCurvePreset.Quiet => Quiet,
-        FanCurvePreset.Aggressive => Aggressive,
-        _ => Default
-    };
+        return preset switch
+        {
+            FanCurvePreset.Quiet => Quiet,
+            FanCurvePreset.Aggressive => Aggressive,
+            _ => Default
+        };
+    }
 }

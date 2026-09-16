@@ -11,10 +11,12 @@ using Avalonia.Threading;
 
 namespace WSGM.Controls;
 
-/// <summary>One tab of a <see cref="TabStrip"/>: a label, an optional vector icon and a
-/// caller-defined integer tag (typically the index or id of the page the tab selects).
-/// Items are immutable; assign a new list to <see cref="TabStrip.Tabs"/> to change the
-/// tab set.</summary>
+/// <summary>
+///     One tab of a <see cref="TabStrip" />: a label, an optional vector icon and a
+///     caller-defined integer tag (typically the index or id of the page the tab selects).
+///     Items are immutable; assign a new list to <see cref="TabStrip.Tabs" /> to change the
+///     tab set.
+/// </summary>
 public sealed class TabStripItem
 {
     /// <summary>Creates a tab descriptor.</summary>
@@ -38,7 +40,7 @@ public sealed class TabStripItem
     public int Tag { get; }
 }
 
-/// <summary>Event data for <see cref="TabStrip.SelectionChanged"/>.</summary>
+/// <summary>Event data for <see cref="TabStrip.SelectionChanged" />.</summary>
 public sealed class TabStripSelectionChangedEventArgs : EventArgs
 {
     internal TabStripSelectionChangedEventArgs(int newIndex, TabStripItem? selectedItem)
@@ -50,24 +52,30 @@ public sealed class TabStripSelectionChangedEventArgs : EventArgs
     /// <summary>Gets the newly selected tab index.</summary>
     public int NewIndex { get; }
 
-    /// <summary>Gets the newly selected tab item, or null when <see cref="NewIndex"/> is
-    /// outside the current <see cref="TabStrip.Tabs"/> list.</summary>
+    /// <summary>
+    ///     Gets the newly selected tab item, or null when <see cref="NewIndex" /> is
+    ///     outside the current <see cref="TabStrip.Tabs" /> list.
+    /// </summary>
     public TabStripItem? SelectedItem { get; }
 }
 
-/// <summary>The shared bumper tab bar used by the quick access overlay and the Settings
-/// window: LB/RB hint chips at the ends and readable, horizontally scrollable tab buttons,
-/// with an accent underline marking the active tab. The tabs are real focusable
-/// <see cref="Button"/>s, so gamepad navigation (tab-order traversal + synthesized
-/// Enter) and touch both work without special handling. Visuals live in
-/// Themes\TabStripTheme.axaml.</summary>
+/// <summary>
+///     The shared bumper tab bar used by the quick access overlay and the Settings
+///     window: LB/RB hint chips at the ends and readable, horizontally scrollable tab buttons,
+///     with an accent underline marking the active tab. The tabs are real focusable
+///     <see cref="Button" />s, so gamepad navigation (tab-order traversal + synthesized
+///     Enter) and touch both work without special handling. Visuals live in
+///     Themes\TabStripTheme.axaml.
+/// </summary>
 public sealed class TabStrip : TemplatedControl
 {
     /// <summary>Rendered size of a tab icon along its longer axis, in DIPs.</summary>
     private const double IconExtent = 15;
 
-    /// <summary>Defines the Avalonia property holding the list of tabs. Assigning a new
-    /// list rebuilds the tab buttons; mutating a previously assigned list is not observed.</summary>
+    /// <summary>
+    ///     Defines the Avalonia property holding the list of tabs. Assigning a new
+    ///     list rebuilds the tab buttons; mutating a previously assigned list is not observed.
+    /// </summary>
     private static readonly StyledProperty<IReadOnlyList<TabStripItem>?> TabsProperty =
         AvaloniaProperty.Register<TabStrip, IReadOnlyList<TabStripItem>?>(nameof(Tabs));
 
@@ -78,33 +86,49 @@ public sealed class TabStrip : TemplatedControl
     private readonly List<Button> _tabButtons = [];
     private Panel? _tabsHost;
 
-    /// <summary>Gets or sets the list of tabs. Assigning a new list rebuilds the tab
-    /// buttons; mutating a previously assigned list is not observed.</summary>
+    /// <summary>
+    ///     Gets or sets the list of tabs. Assigning a new list rebuilds the tab
+    ///     buttons; mutating a previously assigned list is not observed.
+    /// </summary>
     public IReadOnlyList<TabStripItem>? Tabs
     {
         get => GetValue(TabsProperty);
         set => SetValue(TabsProperty, value);
     }
 
-    /// <summary>Gets or sets the selected tab index. Setting it moves the accent
-    /// underline and raises <see cref="SelectionChanged"/>.</summary>
+    /// <summary>
+    ///     Gets or sets the selected tab index. Setting it moves the accent
+    ///     underline and raises <see cref="SelectionChanged" />.
+    /// </summary>
     public int SelectedIndex
     {
         get => GetValue(SelectedIndexProperty);
         set => SetValue(SelectedIndexProperty, value);
     }
 
-    /// <summary>Raised after <see cref="SelectedIndex"/> changes, whether by tab button
-    /// activation or programmatically (e.g. shoulder-button cycling).</summary>
+    /// <summary>
+    ///     Raised after <see cref="SelectedIndex" /> changes, whether by tab button
+    ///     activation or programmatically (e.g. shoulder-button cycling).
+    /// </summary>
     public event EventHandler<TabStripSelectionChangedEventArgs>? SelectionChanged;
 
-    /// <summary>Selects the next tab, wrapping from the last to the first. Intended for
-    /// the RB shoulder button.</summary>
-    public void SelectNext() => MoveSelection(1);
+    /// <summary>
+    ///     Selects the next tab, wrapping from the last to the first. Intended for
+    ///     the RB shoulder button.
+    /// </summary>
+    public void SelectNext()
+    {
+        MoveSelection(1);
+    }
 
-    /// <summary>Selects the previous tab, wrapping from the first to the last. Intended
-    /// for the LB shoulder button.</summary>
-    public void SelectPrevious() => MoveSelection(-1);
+    /// <summary>
+    ///     Selects the previous tab, wrapping from the first to the last. Intended
+    ///     for the LB shoulder button.
+    /// </summary>
+    public void SelectPrevious()
+    {
+        MoveSelection(-1);
+    }
 
     /// <inheritdoc />
     protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
@@ -133,7 +157,10 @@ public sealed class TabStrip : TemplatedControl
             {
                 Dispatcher.UIThread.Post(() =>
                 {
-                    if (SelectedIndex >= 0 && SelectedIndex < _tabButtons.Count) { _tabButtons[SelectedIndex].BringIntoView(); }
+                    if (SelectedIndex >= 0 && SelectedIndex < _tabButtons.Count)
+                    {
+                        _tabButtons[SelectedIndex].BringIntoView();
+                    }
                 });
             }
         }
@@ -146,6 +173,7 @@ public sealed class TabStrip : TemplatedControl
         {
             return;
         }
+
         SelectedIndex = ((SelectedIndex + delta) % count + count) % count;
     }
 
@@ -155,10 +183,12 @@ public sealed class TabStrip : TemplatedControl
         {
             return;
         }
+
         foreach (var button in _tabButtons)
         {
             button.Click -= OnTabButtonClick;
         }
+
         _tabButtons.Clear();
         _tabsHost.Children.Clear();
 
@@ -167,12 +197,14 @@ public sealed class TabStrip : TemplatedControl
         {
             return;
         }
+
         for (var i = 0; i < tabs.Count; i++)
         {
             var button = CreateTabButton(tabs[i], i);
             _tabButtons.Add(button);
             _tabsHost.Children.Add(button);
         }
+
         ApplySelectionClasses();
     }
 
@@ -211,9 +243,11 @@ public sealed class TabStrip : TemplatedControl
             {
                 icon.Height = IconExtent;
             }
+
             icon.Classes.Add("tab-strip-icon");
             face.Children.Add(icon);
         }
+
         face.Children.Add(new TextBlock
         {
             Text = item.Label,

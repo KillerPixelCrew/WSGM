@@ -4,11 +4,12 @@ using WSGM.Plugin.Sdk;
 
 namespace WSGM.Core;
 
-/// <summary>The retired display shapes, kept only so <see cref="ConfigMigrations"/> can read a
-/// stored document that still uses them.
-///
-/// They live apart from <see cref="AppConfig"/> deliberately: nothing current writes them, and a
-/// reader that finds one is looking at a file an older build saved.</summary>
+/// <summary>
+///     The retired display shapes, kept only so <see cref="ConfigMigrations" /> can read a
+///     stored document that still uses them.
+///     They live apart from <see cref="AppConfig" /> deliberately: nothing current writes them, and a
+///     reader that finds one is looking at a file an older build saved.
+/// </summary>
 internal sealed class LegacyDisplayRoutes
 {
     /// <summary>Whether the retired route automation was switched on.</summary>
@@ -49,8 +50,10 @@ internal sealed class LegacyDisplayRouteBinding
     public int TimeoutSeconds { get; set; } = 30;
 }
 
-/// <summary>One monitor's retired desktop and game values, keyed by GDI names rather than by a
-/// display identity Windows can still resolve.</summary>
+/// <summary>
+///     One monitor's retired desktop and game values, keyed by GDI names rather than by a
+///     display identity Windows can still resolve.
+/// </summary>
 internal sealed class LegacyMonitorDisplayProfile
 {
     /// <summary>Registry device key of the monitor, which is not a CCD device path.</summary>

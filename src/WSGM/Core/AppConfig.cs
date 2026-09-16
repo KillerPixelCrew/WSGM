@@ -21,8 +21,11 @@ public sealed class StartupAppConfig
 
     /// <summary>Whether the executable must inherit WSGM's elevated token.</summary>
     public bool Elevated { get; set; }
-    /// <summary>Relaunch this tool automatically when its process dies (e.g. a
-    /// crashed Handheld Companion leaves the device without controller input).</summary>
+
+    /// <summary>
+    ///     Relaunch this tool automatically when its process dies (e.g. a
+    ///     crashed Handheld Companion leaves the device without controller input).
+    /// </summary>
     public bool AutoRelaunch { get; set; }
 }
 
@@ -43,33 +46,40 @@ public sealed class HotkeyConfig
 
     /// <summary>Whether either Windows key is required.</summary>
     public bool Win { get; set; }
+
     /// <summary>Win32 virtual-key code. Default VK_HOME (0x24). 0 = unset.</summary>
     public int VirtualKey { get; set; } = 0x24;
 }
 
-/// <summary>Controller shortcut: a set of buttons pressed together, optionally held.
-/// Modelled on Handheld Companion's chords — buttons accumulate until every button is
-/// released, so they don't have to be pressed on the same frame.</summary>
+/// <summary>
+///     Controller shortcut: a set of buttons pressed together, optionally held.
+///     Modelled on Handheld Companion's chords — buttons accumulate until every button is
+///     released, so they don't have to be pressed on the same frame.
+/// </summary>
 public sealed class GamepadChordConfig
 {
     /// <summary>False = no controller shortcut.</summary>
     public bool Enabled { get; set; }
+
     /// <summary>Bit mask of XInput buttons (see Input.GamepadButtons).</summary>
     public int Buttons { get; set; }
+
     /// <summary>True = must be held (~600 ms); false = a normal press.</summary>
     public bool Hold { get; set; }
 }
 
 /// <summary>Controls the raw-input edge-swipe activation areas.</summary>
 /// <remarks>
-/// Top opens WSGM's quick access sheet. Bottom is disabled by default; enabling it opens
-/// the Open apps strip in game mode. Explorer retains that edge in desktop mode.
-/// Left and right send Steam Big Picture's own menu shortcuts.
+///     Top opens WSGM's quick access sheet. Bottom is disabled by default; enabling it opens
+///     the Open apps strip in game mode. Explorer retains that edge in desktop mode.
+///     Left and right send Steam Big Picture's own menu shortcuts.
 /// </remarks>
 public sealed class GestureConfig
 {
-    /// <summary>Whether a swipe up from the bottom edge opens the quick access sheet
-    /// with focus on its Open apps strip (game mode only).</summary>
+    /// <summary>
+    ///     Whether a swipe up from the bottom edge opens the quick access sheet
+    ///     with focus on its Open apps strip (game mode only).
+    /// </summary>
     public bool BottomEdge { get; set; }
 
     /// <summary>Whether a swipe down from the top edge opens the quick access sheet.</summary>
@@ -98,8 +108,10 @@ public enum GlyphStyle
     Nintendo
 }
 
-/// <summary>One display's pre-game scaling, keyed by the GDI source device name
-/// (\\.\DISPLAYn) so restore survives topology changes and later boots.</summary>
+/// <summary>
+///     One display's pre-game scaling, keyed by the GDI source device name
+///     (\\.\DISPLAYn) so restore survives topology changes and later boots.
+/// </summary>
 public sealed class DisplayScaleEntry
 {
     /// <summary>GDI source device name, such as <c>\\.\DISPLAY1</c>.</summary>
@@ -109,10 +121,11 @@ public sealed class DisplayScaleEntry
     public int Percent { get; set; }
 }
 
-/// <summary>One Steam startup entry WSGM turned off, and how to put it back.
-///
-/// An install-lifecycle recovery snapshot like the registry ones beside it: feature code never
-/// clobbers these, and the uninstaller reads them to undo exactly what WSGM changed.</summary>
+/// <summary>
+///     One Steam startup entry WSGM turned off, and how to put it back.
+///     An install-lifecycle recovery snapshot like the registry ones beside it: feature code never
+///     clobbers these, and the uninstaller reads them to undo exactly what WSGM changed.
+/// </summary>
 public sealed class SteamAutostartRecord
 {
     /// <summary>What kind of startup source this was.</summary>
@@ -136,8 +149,10 @@ public sealed class SteamAutostartRecord
     /// <summary>The approval bytes as they were, base64-encoded; null when there were none.</summary>
     public string? PreviousApproval { get; set; }
 
-    /// <summary>The approval bytes WSGM wrote, base64-encoded. Restore only undoes a state that
-    /// still carries these, so a decision the user made afterwards is never overwritten.</summary>
+    /// <summary>
+    ///     The approval bytes WSGM wrote, base64-encoded. Restore only undoes a state that
+    ///     still carries these, so a decision the user made afterwards is never overwritten.
+    /// </summary>
     public string? WrittenApproval { get; set; }
 
     /// <summary>Whether the change was recorded but never confirmed by a readback.</summary>
@@ -149,12 +164,15 @@ public enum SessionStartMode
 {
     /// <summary>Stay beside Explorer as a resident desktop session.</summary>
     Desktop,
+
     /// <summary>Take the session over and run Big Picture.</summary>
     Game
 }
 
-/// <summary>One power scheme's CONSOLELOCK values as they were before WSGM wrote
-/// them. -1 = value absent (Windows default applies).</summary>
+/// <summary>
+///     One power scheme's CONSOLELOCK values as they were before WSGM wrote
+///     them. -1 = value absent (Windows default applies).
+/// </summary>
 public sealed class PowerSchemeConsoleLock
 {
     /// <summary>Power-scheme GUID without surrounding braces.</summary>
@@ -201,16 +219,22 @@ public enum SplashPlacementAnchor
 /// <summary>How a boot-splash element is positioned on screen.</summary>
 public enum SplashPlacementMode
 {
-    /// <summary>Positioned by a nine-grid anchor plus edge padding — the portable
-    /// option that adapts to any screen size.</summary>
+    /// <summary>
+    ///     Positioned by a nine-grid anchor plus edge padding — the portable
+    ///     option that adapts to any screen size.
+    /// </summary>
     Anchor,
 
-    /// <summary>Positioned at absolute logical pixel coordinates (device-specific;
-    /// anchors are the portable option).</summary>
+    /// <summary>
+    ///     Positioned at absolute logical pixel coordinates (device-specific;
+    ///     anchors are the portable option).
+    /// </summary>
     Absolute,
 
-    /// <summary>Rendered inside the text stack (spinner/logo only), following the
-    /// text element wherever it is placed.</summary>
+    /// <summary>
+    ///     Rendered inside the text stack (spinner/logo only), following the
+    ///     text element wherever it is placed.
+    /// </summary>
     WithText
 }
 
@@ -247,8 +271,10 @@ public enum SplashSpinnerStyle
     /// <summary>LoadingIndicators.Avalonia "Wave" mode.</summary>
     LiWave,
 
-    /// <summary>In-repo sweeping line along a screen edge (see
-    /// <see cref="SplashConfig.SweepEdge"/>).</summary>
+    /// <summary>
+    ///     In-repo sweeping line along a screen edge (see
+    ///     <see cref="SplashConfig.SweepEdge" />).
+    /// </summary>
     SweepLine,
 
     /// <summary>No spinner at all (no animation timer is created).</summary>
@@ -268,36 +294,48 @@ public enum SweepEdge
 /// <summary>Position of one boot-splash element (text, spinner, or logo).</summary>
 public sealed class SplashElementPlacement
 {
-    /// <summary>How this element is positioned. <see cref="SplashPlacementMode.WithText"/>
-    /// is honored for the spinner and logo only.</summary>
+    /// <summary>
+    ///     How this element is positioned. <see cref="SplashPlacementMode.WithText" />
+    ///     is honored for the spinner and logo only.
+    /// </summary>
     public SplashPlacementMode Mode { get; set; } = SplashPlacementMode.Anchor;
 
-    /// <summary>Nine-grid anchor used in <see cref="SplashPlacementMode.Anchor"/> mode.</summary>
+    /// <summary>Nine-grid anchor used in <see cref="SplashPlacementMode.Anchor" /> mode.</summary>
     public SplashPlacementAnchor Anchor { get; set; } = SplashPlacementAnchor.Center;
 
-    /// <summary>Horizontal padding in logical pixels from the anchored edge; ignored
-    /// on a horizontally centered axis.</summary>
+    /// <summary>
+    ///     Horizontal padding in logical pixels from the anchored edge; ignored
+    ///     on a horizontally centered axis.
+    /// </summary>
     public int PaddingX { get; set; } = 64;
 
-    /// <summary>Vertical padding in logical pixels from the anchored edge; ignored
-    /// on a vertically centered axis.</summary>
+    /// <summary>
+    ///     Vertical padding in logical pixels from the anchored edge; ignored
+    ///     on a vertically centered axis.
+    /// </summary>
     public int PaddingY { get; set; } = 64;
 
-    /// <summary>Absolute X coordinate in logical pixels for
-    /// <see cref="SplashPlacementMode.Absolute"/> mode (device-specific — anchors
-    /// are the portable option).</summary>
+    /// <summary>
+    ///     Absolute X coordinate in logical pixels for
+    ///     <see cref="SplashPlacementMode.Absolute" /> mode (device-specific — anchors
+    ///     are the portable option).
+    /// </summary>
     public int X { get; set; }
 
-    /// <summary>Absolute Y coordinate in logical pixels for
-    /// <see cref="SplashPlacementMode.Absolute"/> mode (device-specific — anchors
-    /// are the portable option).</summary>
+    /// <summary>
+    ///     Absolute Y coordinate in logical pixels for
+    ///     <see cref="SplashPlacementMode.Absolute" /> mode (device-specific — anchors
+    ///     are the portable option).
+    /// </summary>
     public int Y { get; set; }
 }
 
-/// <summary>Boot-splash customization: text, spinner, background, logo, and per-element
-/// placement. Defaults reproduce the classic look (black background, white "Please
-/// wait" with a ring spinner, centered). Colors are <c>#RRGGBB</c> strings parsed
-/// with a logged fallback, so a bad value can never break the boot cover.</summary>
+/// <summary>
+///     Boot-splash customization: text, spinner, background, logo, and per-element
+///     placement. Defaults reproduce the classic look (black background, white "Please
+///     wait" with a ring spinner, centered). Colors are <c>#RRGGBB</c> strings parsed
+///     with a logged fallback, so a bad value can never break the boot cover.
+/// </summary>
 public sealed class SplashConfig
 {
     /// <summary>Title text shown on the splash.</summary>
@@ -321,8 +359,10 @@ public sealed class SplashConfig
     /// <summary>Caption font size in logical pixels.</summary>
     public int CaptionFontSize { get; set; } = 12;
 
-    /// <summary>Spinner style; <see cref="SplashSpinnerStyle.Off"/> disables the
-    /// spinner and its animation timer.</summary>
+    /// <summary>
+    ///     Spinner style; <see cref="SplashSpinnerStyle.Off" /> disables the
+    ///     spinner and its animation timer.
+    /// </summary>
     public SplashSpinnerStyle SpinnerStyle { get; set; } = SplashSpinnerStyle.Ring;
 
     /// <summary>Spinner color as a <c>#RRGGBB</c> string.</summary>
@@ -331,7 +371,7 @@ public sealed class SplashConfig
     /// <summary>Spinner size (diameter/height) in logical pixels.</summary>
     public int SpinnerSize { get; set; } = 36;
 
-    /// <summary>Edge the <see cref="SplashSpinnerStyle.SweepLine"/> spinner travels along.</summary>
+    /// <summary>Edge the <see cref="SplashSpinnerStyle.SweepLine" /> spinner travels along.</summary>
     public SweepEdge SweepEdge { get; set; } = SweepEdge.Bottom;
 
     /// <summary>Background fill color as a <c>#RRGGBB</c> string.</summary>
@@ -340,12 +380,16 @@ public sealed class SplashConfig
     /// <summary>Whether a radial vignette overlay darkens the background edges.</summary>
     public bool VignetteEnabled { get; set; }
 
-    /// <summary>Full-screen background image path; empty = solid color only. A
-    /// missing or unreadable file falls back to the color with a logged warning.</summary>
+    /// <summary>
+    ///     Full-screen background image path; empty = solid color only. A
+    ///     missing or unreadable file falls back to the color with a logged warning.
+    /// </summary>
     public string BackgroundImagePath { get; set; } = "";
 
-    /// <summary>Logo image path; empty = no logo. A missing or unreadable file is
-    /// skipped with a logged warning.</summary>
+    /// <summary>
+    ///     Logo image path; empty = no logo. A missing or unreadable file is
+    ///     skipped with a logged warning.
+    /// </summary>
     public string LogoImagePath { get; set; } = "";
 
     /// <summary>Maximum logo edge length in logical pixels (aspect ratio preserved).</summary>
@@ -361,9 +405,11 @@ public sealed class SplashConfig
     public SplashElementPlacement LogoPlacement { get; set; } = new() { Mode = SplashPlacementMode.WithText };
 }
 
-/// <summary>One remembered SteamGridDB match: which SGDB game supplies artwork for a
-/// local target app (typically a non-Steam shortcut, whose generated id has no SGDB
-/// page). Re-picking a match in the artwork changer overwrites the entry.</summary>
+/// <summary>
+///     One remembered SteamGridDB match: which SGDB game supplies artwork for a
+///     local target app (typically a non-Steam shortcut, whose generated id has no SGDB
+///     page). Re-picking a match in the artwork changer overwrites the entry.
+/// </summary>
 public sealed class SgdbLinkConfig
 {
     /// <summary>The local target app id (a shortcut's generated id).</summary>
@@ -376,13 +422,15 @@ public sealed class SgdbLinkConfig
     public string Name { get; set; } = "";
 }
 
-/// <summary>What one game's launch configuration looked like before WSGM changed it.
-/// Restoring the launch action writes these values back.</summary>
+/// <summary>
+///     What one game's launch configuration looked like before WSGM changed it.
+///     Restoring the launch action writes these values back.
+/// </summary>
 /// <remarks>
-/// Load-bearing for non-Steam shortcuts: configuring one overwrites its Target with
-/// the wrapper path, so without this snapshot the real program's path would survive
-/// only inside the arguments string WSGM itself generated. Steam apps only need
-/// <see cref="OriginalLaunchOptions"/>, which is usually empty.
+///     Load-bearing for non-Steam shortcuts: configuring one overwrites its Target with
+///     the wrapper path, so without this snapshot the real program's path would survive
+///     only inside the arguments string WSGM itself generated. Steam apps only need
+///     <see cref="OriginalLaunchOptions" />, which is usually empty.
 /// </remarks>
 public sealed class LaunchWrapperConfig
 {
@@ -410,12 +458,16 @@ public sealed class LaunchWrapperConfig
     /// <summary>The launch options / launch arguments before WSGM replaced them.</summary>
     public string OriginalLaunchOptions { get; set; } = "";
 
-    /// <summary>The shortcut's start directory at configuration time, recorded for
-    /// diagnostics; WSGM deliberately never changes it.</summary>
+    /// <summary>
+    ///     The shortcut's start directory at configuration time, recorded for
+    ///     diagnostics; WSGM deliberately never changes it.
+    /// </summary>
     public string OriginalStartDir { get; set; } = "";
 
-    /// <summary>Display name at configuration time, so the overlay can name an entry
-    /// whose game Steam can no longer resolve.</summary>
+    /// <summary>
+    ///     Display name at configuration time, so the overlay can name an entry
+    ///     whose game Steam can no longer resolve.
+    /// </summary>
     public string Name { get; set; } = "";
 }
 
@@ -429,37 +481,44 @@ public enum LaunchConfigurationKind
     CustomAction
 }
 
-/// <summary>One Steam library on a removable drive (a MicroSD card or external
-/// drive), tracked so WSGM can render it as a Steam collection ("library tab").
-/// Keyed by the card's <c>libraryfolder.vdf</c> content id, which is stable across
-/// drive-letter changes and reinserts. Games are remembered so the tab persists
-/// while the card is ejected.</summary>
+/// <summary>
+///     One Steam library on a removable drive (a MicroSD card or external
+///     drive), tracked so WSGM can render it as a Steam collection ("library tab").
+///     Keyed by the card's <c>libraryfolder.vdf</c> content id, which is stable across
+///     drive-letter changes and reinserts. Games are remembered so the tab persists
+///     while the card is ejected.
+/// </summary>
 public sealed class CardLibraryConfig
 {
     /// <summary>The card's library content id — its stable identity.</summary>
     public string ContentId { get; set; } = "";
 
-    /// <summary>Display/collection name. A cache of the label in the card's own
-    /// <c>libraryfolder.vdf</c>, which is what names the card while it is ejected
-    /// and nothing can be read from it. The marker wins whenever the card is
-    /// present; see <c>docs\sd-cards.md</c> for why Steam's config label may not.
+    /// <summary>
+    ///     Display/collection name. A cache of the label in the card's own
+    ///     <c>libraryfolder.vdf</c>, which is what names the card while it is ejected
+    ///     and nothing can be read from it. The marker wins whenever the card is
+    ///     present; see <c>docs\sd-cards.md</c> for why Steam's config label may not.
     /// </summary>
     public string Name { get; set; } = "";
 
     /// <summary>Whether a Steam collection ("tab") is maintained for this card.</summary>
     public bool Enabled { get; set; } = true;
 
-    /// <summary>Hidden from the card manager list (still tracked, no tab). Mirrors
-    /// MicroSDeck's per-card hide.</summary>
+    /// <summary>
+    ///     Hidden from the card manager list (still tracked, no tab). Mirrors
+    ///     MicroSDeck's per-card hide.
+    /// </summary>
     public bool Hidden { get; set; }
 
     /// <summary>App ids installed on the card (remembered while it is ejected).</summary>
     public List<long> AppIds { get; set; } = [];
 }
 
-/// <summary>One user-built custom library tab: a WSGM-owned Steam collection whose
-/// membership is recomputed by evaluating <see cref="FilterTree"/> over the library.
-/// The TabMaster analog, materialized as a native Steam collection.</summary>
+/// <summary>
+///     One user-built custom library tab: a WSGM-owned Steam collection whose
+///     membership is recomputed by evaluating <see cref="FilterTree" /> over the library.
+///     The TabMaster analog, materialized as a native Steam collection.
+/// </summary>
 public sealed class CustomTabConfig
 {
     /// <summary>Stable unique identity, independent of the editable display name.</summary>
@@ -474,18 +533,24 @@ public sealed class CustomTabConfig
     /// <summary>Sort order in the builder list (ascending).</summary>
     public int Position { get; set; }
 
-    /// <summary>Category prefilter bitfield (see <see cref="LibraryFilter.Categories"/>);
-    /// 0 defaults to Games at evaluation time.</summary>
+    /// <summary>
+    ///     Category prefilter bitfield (see <see cref="LibraryFilter.Categories" />);
+    ///     0 defaults to Games at evaluation time.
+    /// </summary>
     public int Categories { get; set; } = (int)LibraryFilter.Categories.Games;
 
-    /// <summary>The top-level filter group. Its <see cref="FilterNode.Mode"/> is the
-    /// tab's AND/OR; its children are the filters.</summary>
+    /// <summary>
+    ///     The top-level filter group. Its <see cref="FilterNode.Mode" /> is the
+    ///     tab's AND/OR; its children are the filters.
+    /// </summary>
     public FilterNode FilterTree { get; set; } = new() { Kind = FilterKind.Merge };
 }
 
-/// <summary>One of Steam's own library tabs as last observed in the tab strip,
-/// remembered so the tab-order UI can list native tabs with their real (localized)
-/// titles even while Steam is closed.</summary>
+/// <summary>
+///     One of Steam's own library tabs as last observed in the tab strip,
+///     remembered so the tab-order UI can list native tabs with their real (localized)
+///     titles even while Steam is closed.
+/// </summary>
 public sealed class NativeTabConfig
 {
     /// <summary>Steam's stable tab id (e.g. <c>AllGames</c>, <c>Collections</c>).</summary>
@@ -515,8 +580,8 @@ public sealed class PerformanceConfig
 
     /// <summary>How a frame limit relates to the panel's refresh rate.</summary>
     /// <remarks>
-    /// Global rather than per-application: it decides whether WSGM changes display modes at all,
-    /// which is a tolerance for mode-change risk the user holds once, not per game.
+    ///     Global rather than per-application: it decides whether WSGM changes display modes at all,
+    ///     which is a tolerance for mode-change risk the user holds once, not per game.
     /// </remarks>
     public FrameLimitStrategy FrameLimitStrategy { get; set; } = FrameLimitStrategy.FrameLimitOnly;
 
@@ -529,8 +594,10 @@ public sealed class PerformanceConfig
     /// <summary>Global variable-refresh preference, or null to leave the panel as found.</summary>
     public bool? VariableRefreshRate { get; set; }
 
-    /// <summary>Custom overlay (level 4) widget order — HandheldCompanion's widget names,
-    /// comma-separated; unknown names are ignored.</summary>
+    /// <summary>
+    ///     Custom overlay (level 4) widget order — HandheldCompanion's widget names,
+    ///     comma-separated; unknown names are ignored.
+    /// </summary>
     public string OsdCustomOrder { get; set; } = "Time,GPU,CPU,VRAM,RAM,BATT,FPS";
 
     /// <summary>Custom overlay clock detail: 0 hidden, 1 short time, 2 full timestamp.</summary>
@@ -551,8 +618,10 @@ public sealed class PerformanceConfig
     /// <summary>Custom overlay video-memory detail: 0 hidden, 1 used, 2 used of total.</summary>
     public int OsdCustomVram { get; set; } = 2;
 
-    /// <summary>Custom overlay battery detail: 0 hidden, 1 percent and remaining time, 2 adds
-    /// the charge rate.</summary>
+    /// <summary>
+    ///     Custom overlay battery detail: 0 hidden, 1 percent and remaining time, 2 adds
+    ///     the charge rate.
+    /// </summary>
     public int OsdCustomBattery { get; set; } = 2;
 
     /// <summary>Per-application overrides keyed by WSGM's canonical application identity.</summary>
@@ -561,10 +630,12 @@ public sealed class PerformanceConfig
     /// <summary>The stored entry for one application, if there is one.</summary>
     /// <param name="applicationId">The canonical application id, or null.</param>
     /// <returns>The entry, or null when the id is empty or has no entry.</returns>
-    internal PerformanceApplicationConfig? FindApplication(string? applicationId) =>
-        string.IsNullOrEmpty(applicationId)
+    internal PerformanceApplicationConfig? FindApplication(string? applicationId)
+    {
+        return string.IsNullOrEmpty(applicationId)
             ? null
             : Applications.Find(application => application.ApplicationId == applicationId);
+    }
 }
 
 /// <summary>One persistent RTSS application-profile override.</summary>
@@ -589,12 +660,12 @@ public sealed class PerformanceApplicationConfig
     public int? OverlayLevel { get; set; }
 
     /// <summary>
-    /// Whether this application's own values apply at all.
+    ///     Whether this application's own values apply at all.
     /// </summary>
     /// <remarks>
-    /// The switch behind Steam's "Use per-game profile". Off keeps the stored values so turning it
-    /// back on restores what the user set up rather than starting from the global defaults again —
-    /// the same reversibility the device master switch has.
+    ///     The switch behind Steam's "Use per-game profile". Off keeps the stored values so turning it
+    ///     back on restores what the user set up rather than starting from the global defaults again —
+    ///     the same reversibility the device master switch has.
     /// </remarks>
     public bool UsePerGameProfile { get; set; }
 
@@ -613,6 +684,7 @@ public sealed class AppConfig
 {
     /// <summary>Explicit common-plugin preferences, independent of effective state publications.</summary>
     public List<CommonPluginConfiguration> PluginConfigurations { get; set; } = [];
+
     /// <summary>Explicit activation choices for installed common plugins. Empty means none are loaded.</summary>
     public List<CommonPluginInstanceConfig> PluginInstances { get; set; } = [];
 
@@ -622,88 +694,109 @@ public sealed class AppConfig
     /// <summary>Optional RTSS policy, independent from Device Integration.</summary>
     public PerformanceConfig Performance { get; set; } = new();
 
-    /// <summary>Restart Steam automatically when it exits. Steam itself is located
-    /// via the registry (see Core.Steam) — there is nothing else to configure.</summary>
+    /// <summary>
+    ///     Restart Steam automatically when it exits. Steam itself is located
+    ///     via the registry (see Core.Steam) — there is nothing else to configure.
+    /// </summary>
     public bool SteamAutoRelaunch { get; set; }
 
     /// <summary>Whether the complete Steam client is launched at medium integrity.</summary>
     /// <remarks>
-    /// Off by default, which starts Steam at WSGM's own integrity. Elevated Steam is the deliberate
-    /// default because several WSGM mechanisms drive the running client and a mismatched pair loses
-    /// UIPI messages, but it also elevates every game Steam starts. This is the user-owned choice
-    /// between the two, and it applies to Steam itself rather than to individual games, which
-    /// <c>WSGM.Launch</c> de-elevates independently.
+    ///     Off by default, which starts Steam at WSGM's own integrity. Elevated Steam is the deliberate
+    ///     default because several WSGM mechanisms drive the running client and a mismatched pair loses
+    ///     UIPI messages, but it also elevates every game Steam starts. This is the user-owned choice
+    ///     between the two, and it applies to Steam itself rather than to individual games, which
+    ///     <c>WSGM.Launch</c> de-elevates independently.
     /// </remarks>
     public bool SteamLaunchUnelevated { get; set; }
 
-    /// <summary>Keep a card's injected library tab after the card is
-    /// ejected. The games show as not-installed until it is reinserted.</summary>
+    /// <summary>
+    ///     Keep a card's injected library tab after the card is
+    ///     ejected. The games show as not-installed until it is reinserted.
+    /// </summary>
     public bool KeepEjectedCardTabs { get; set; } = true;
 
-    /// <summary>Tracked removable Steam libraries, keyed by content id, used to
-    /// maintain per-card injected library tabs.</summary>
+    /// <summary>
+    ///     Tracked removable Steam libraries, keyed by content id, used to
+    ///     maintain per-card injected library tabs.
+    /// </summary>
     public List<CardLibraryConfig> CardLibraries { get; set; } = [];
 
-    /// <summary>Cards forgotten while still inserted. Discovery skips these identities
-    /// until a scan observes them absent, so Forget does not immediately undo itself.</summary>
+    /// <summary>
+    ///     Cards forgotten while still inserted. Discovery skips these identities
+    ///     until a scan observes them absent, so Forget does not immediately undo itself.
+    /// </summary>
     public List<string> ForgottenInsertedCardIds { get; set; } = [];
 
     /// <summary>User-built custom filter tabs (the TabMaster analog).</summary>
     public List<CustomTabConfig> CustomTabs { get; set; } = [];
 
-    /// <summary>The library tab strip's display order as tab keys — Steam's native ids
-    /// (<c>AllGames</c>, <c>Collections</c>, …) and injected WSGM ids
-    /// (<c>wsgm-custom-…</c>, <c>wsgm-card-…</c>) mixed freely. Tabs not listed keep
-    /// their natural order after the listed ones; empty means Steam's default order
-    /// with WSGM tabs appended.</summary>
+    /// <summary>
+    ///     The library tab strip's display order as tab keys — Steam's native ids
+    ///     (<c>AllGames</c>, <c>Collections</c>, …) and injected WSGM ids
+    ///     (<c>wsgm-custom-…</c>, <c>wsgm-card-…</c>) mixed freely. Tabs not listed keep
+    ///     their natural order after the listed ones; empty means Steam's default order
+    ///     with WSGM tabs appended.
+    /// </summary>
     public List<string> LibraryTabOrder { get; set; } = [];
 
     /// <summary>Native Steam tab ids the user removed from the library tab strip.</summary>
     public List<string> HiddenNativeTabs { get; set; } = [];
 
-    /// <summary>Native tabs as last observed in Steam's strip (id + localized title),
-    /// captured on every tab sync so the tab-order UI reflects the running Steam.</summary>
+    /// <summary>
+    ///     Native tabs as last observed in Steam's strip (id + localized title),
+    ///     captured on every tab sync so the tab-order UI reflects the running Steam.
+    /// </summary>
     public List<NativeTabConfig> KnownNativeTabs { get; set; } = [];
 
-    /// <summary>Optional SteamGridDB API key. No key is bundled; set a free personal
-    /// key from steamgriddb.com to enable artwork search.</summary>
+    /// <summary>
+    ///     Optional SteamGridDB API key. No key is bundled; set a free personal
+    ///     key from steamgriddb.com to enable artwork search.
+    /// </summary>
     public string SteamGridDbApiKey { get; set; } = "";
 
     /// <summary>Whether Screenscraper.fr is searched alongside SteamGridDB.</summary>
     /// <remarks>
-    /// On by default. WSGM ships registered developer credentials (see
-    /// <see cref="ScreenscraperCredentials"/>), so unlike SteamGridDB's key there is nothing the
-    /// user has to obtain first. A configuration written before the credentials shipped keeps its
-    /// stored value, which was false, and is turned on from Settings.
+    ///     On by default. WSGM ships registered developer credentials (see
+    ///     <see cref="ScreenscraperCredentials" />), so unlike SteamGridDB's key there is nothing the
+    ///     user has to obtain first. A configuration written before the credentials shipped keeps its
+    ///     stored value, which was false, and is turned on from Settings.
     /// </remarks>
     public bool ScreenscraperEnabled { get; set; } = true;
 
     /// <summary>Optional Screenscraper user account, which raises the request quota.</summary>
     /// <remarks>
-    /// The only Screenscraper credential a user supplies; the developer pair is the application's
-    /// identity and ships with the build. Without an account, Screenscraper counts the daily
-    /// allowance against the requesting IP, and a free registration lifts that and the thread limit.
+    ///     The only Screenscraper credential a user supplies; the developer pair is the application's
+    ///     identity and ships with the build. Without an account, Screenscraper counts the daily
+    ///     allowance against the requesting IP, and a free registration lifts that and the thread limit.
     /// </remarks>
     public string ScreenscraperUser { get; set; } = "";
 
-    /// <summary>The password for <see cref="ScreenscraperUser"/>.</summary>
+    /// <summary>The password for <see cref="ScreenscraperUser" />.</summary>
     public string ScreenscraperUserPassword { get; set; } = "";
 
-    /// <summary>Remembered SteamGridDB game matches for targets whose Steam app id
-    /// cannot be looked up there (non-Steam shortcuts) — so the artwork changer does
-    /// not re-ask which game a shortcut is on every visit.</summary>
+    /// <summary>
+    ///     Remembered SteamGridDB game matches for targets whose Steam app id
+    ///     cannot be looked up there (non-Steam shortcuts) — so the artwork changer does
+    ///     not re-ask which game a shortcut is on every visit.
+    /// </summary>
     public List<SgdbLinkConfig> SgdbLinks { get; set; } = [];
 
-    /// <summary>Games WSGM has pointed at the launch wrapper, with the launch
-    /// configuration each had beforehand so removing the wrapper can restore it.</summary>
+    /// <summary>
+    ///     Games WSGM has pointed at the launch wrapper, with the launch
+    ///     configuration each had beforehand so removing the wrapper can restore it.
+    /// </summary>
     public List<LaunchWrapperConfig> LaunchWrappers { get; set; } = [];
 
     /// <summary>Programs to start before Steam, in launch order.</summary>
     public List<StartupAppConfig> StartupApps { get; set; } = [];
-    /// <summary>Delay before the FIRST startup app. Apps launch a few hundred ms
-    /// into the logon session, right after the game-mode display-scale change —
-    /// tools started into that window can hang (device-observed with Handheld
-    /// Companion, intermittent). This lets the session and the DPI change settle.</summary>
+
+    /// <summary>
+    ///     Delay before the FIRST startup app. Apps launch a few hundred ms
+    ///     into the logon session, right after the game-mode display-scale change —
+    ///     tools started into that window can hang (device-observed with Handheld
+    ///     Companion, intermittent). This lets the session and the DPI change settle.
+    /// </summary>
     public int StartupDelayMs { get; set; } = 3000;
 
     /// <summary>Delay between enabled startup-app launches, in milliseconds.</summary>
@@ -711,113 +804,145 @@ public sealed class AppConfig
 
     /// <summary>Extra delay before Steam Big Picture is started at logon.</summary>
     public int SteamDelayMs { get; set; }
-    /// <summary>Mute system audio only while the screen is off and Steam reports an
-    /// active download (see Shell\DisplayOffMuteService). Screen-off alone stays
-    /// audible; download completion restores after a short grace period, and display
-    /// wake restores immediately. Only a mute WSGM applied itself is undone.</summary>
+
+    /// <summary>
+    ///     Mute system audio only while the screen is off and Steam reports an
+    ///     active download (see Shell\DisplayOffMuteService). Screen-off alone stays
+    ///     audible; download completion restores after a short grace period, and display
+    ///     wake restores immediately. Only a mute WSGM applied itself is undone.
+    /// </summary>
     public bool MuteWhileDisplayOff { get; set; }
-    /// <summary>Send the handheld back to sleep after a standby wake nothing accounts for (see
-    /// Shell\ModernStandbyGuard). Off by default: it decides on its own to suspend the machine, so
-    /// it is the user's to switch on. WSGM changes no Windows power settings and arms no wake
-    /// sources for it, so switching it off leaves nothing behind to restore.</summary>
+
+    /// <summary>
+    ///     Send the handheld back to sleep after a standby wake nothing accounts for (see
+    ///     Shell\ModernStandbyGuard). Off by default: it decides on its own to suspend the machine, so
+    ///     it is the user's to switch on. WSGM changes no Windows power settings and arms no wake
+    ///     sources for it, so switching it off leaves nothing behind to restore.
+    /// </summary>
     public bool ResuspendUnexplainedWakes { get; set; }
 
     /// <summary>Allow Steam's own storage pages to erase a drive through WSGM's format workflow.</summary>
     /// <remarks>
-    /// On by default, as an opt-out. It started life off by default on the argument that Steam's
-    /// page offers an erase to a single controller press; in use, Steam's Format Drive modal is
-    /// already a confirmation with a typed name, and <see cref="Shell.SdFormatManager"/> re-verifies
-    /// the disk's identity before every destructive step regardless of who asked. What the extra
-    /// gate actually did was make the feature look broken to anyone who had not found the toggle
-    /// (Claw, 2026-09-11). Off refuses only the erase; eject and library registration from that
-    /// page keep working.
+    ///     On by default, as an opt-out. It started life off by default on the argument that Steam's
+    ///     page offers an erase to a single controller press; in use, Steam's Format Drive modal is
+    ///     already a confirmation with a typed name, and <see cref="Shell.SdFormatManager" /> re-verifies
+    ///     the disk's identity before every destructive step regardless of who asked. What the extra
+    ///     gate actually did was make the feature look broken to anyone who had not found the toggle
+    ///     (Claw, 2026-09-11). Off refuses only the erase; eject and library registration from that
+    ///     page keep working.
     /// </remarks>
     public bool SteamStorageFormatEnabled { get; set; } = true;
-    /// <summary>Fullscreen "Please wait" cover at logon that hides startup-app
-    /// window flashes until Steam Big Picture is on screen (see Shell\BootSplash).</summary>
+
+    /// <summary>
+    ///     Fullscreen "Please wait" cover at logon that hides startup-app
+    ///     window flashes until Steam Big Picture is on screen (see Shell\BootSplash).
+    /// </summary>
     public bool BootSplashEnabled { get; set; } = true;
 
-    /// <summary>Boot-splash appearance customization (see <see cref="SplashConfig"/>);
-    /// <see cref="BootSplashEnabled"/> controls whether the splash runs at all.</summary>
-    /// <summary>Boot-splash appearance. A fresh install starts on the shipped 2.0 preset; a
-    /// configuration that already carries a splash section keeps whatever it says, so an existing
-    /// user's chosen look survives the upgrade.</summary>
+    /// <summary>
+    ///     Boot-splash appearance customization (see <see cref="SplashConfig" />);
+    ///     <see cref="BootSplashEnabled" /> controls whether the splash runs at all.
+    /// </summary>
+    /// <summary>
+    ///     Boot-splash appearance. A fresh install starts on the shipped 2.0 preset; a
+    ///     configuration that already carries a splash section keeps whatever it says, so an existing
+    ///     user's chosen look survives the upgrade.
+    /// </summary>
     public SplashConfig Splash { get; set; } = SplashPresets.Wsgm20();
 
-    /// <summary>UI accent color as an <c>#AARRGGBB</c>/<c>#RRGGBB</c> string, applied
-    /// to the Fluent theme and the Hc accent tokens at startup and on save.</summary>
+    /// <summary>
+    ///     UI accent color as an <c>#AARRGGBB</c>/<c>#RRGGBB</c> string, applied
+    ///     to the Fluent theme and the Hc accent tokens at startup and on save.
+    /// </summary>
     public string AccentColor { get; set; } = AccentPalette.DefaultAccent;
-    /// <summary>Whether the logon service starts WSGM at sign-in. Projected into boot.json
-    /// (see Core\BootManifest) because the SYSTEM service never parses this file. False leaves
-    /// the sign-in alone entirely; <see cref="StartMode"/> decides what a start becomes.</summary>
+
+    /// <summary>
+    ///     Whether the logon service starts WSGM at sign-in. Projected into boot.json
+    ///     (see Core\BootManifest) because the SYSTEM service never parses this file. False leaves
+    ///     the sign-in alone entirely; <see cref="StartMode" /> decides what a start becomes.
+    /// </summary>
     public bool StartAtSignIn { get; set; } = true;
 
-    /// <summary>Which session mode a start produces. Independent of <see cref="StartAtSignIn"/>,
-    /// because starting with Windows and taking the screen over are separate choices: a desktop
-    /// PC wants the first without the second.</summary>
+    /// <summary>
+    ///     Which session mode a start produces. Independent of <see cref="StartAtSignIn" />,
+    ///     because starting with Windows and taking the screen over are separate choices: a desktop
+    ///     PC wants the first without the second.
+    /// </summary>
     public SessionStartMode StartMode { get; set; } = SessionStartMode.Game;
 
-    /// <summary>Whether the user allowed WSGM to own how Steam starts. Until they do, WSGM changes
-    /// no startup entry; afterwards every start re-checks for new ones.</summary>
+    /// <summary>
+    ///     Whether the user allowed WSGM to own how Steam starts. Until they do, WSGM changes
+    ///     no startup entry; afterwards every start re-checks for new ones.
+    /// </summary>
     public bool SteamAutostartTakeoverAccepted { get; set; }
 
-    /// <summary>The Steam startup entries WSGM turned off, with their previous state. An
-    /// install-lifecycle recovery snapshot: the uninstaller restores from it.</summary>
+    /// <summary>
+    ///     The Steam startup entries WSGM turned off, with their previous state. An
+    ///     install-lifecycle recovery snapshot: the uninstaller restores from it.
+    /// </summary>
     public List<SteamAutostartRecord> SteamAutostartDisabled { get; set; } = [];
 
-    /// <summary>Settle delay after explorer's shell window and taskbar both exist,
-    /// before the boot takeover cleanly shuts explorer down. Covers the logon prep
-    /// (Run keys, Startup folder, session services) that must complete once per
-    /// sign-in for touch features to survive game mode.</summary>
+    /// <summary>
+    ///     Settle delay after explorer's shell window and taskbar both exist,
+    ///     before the boot takeover cleanly shuts explorer down. Covers the logon prep
+    ///     (Run keys, Startup folder, session services) that must complete once per
+    ///     sign-in for touch features to survive game mode.
+    /// </summary>
     public int ExplorerLogonSettleMs { get; set; } = 5000;
 
-    /// <summary>Whether WSGM manages the Steam Input lease around its focused
-    /// surfaces (overlay/taskbar). Off = the lease is never acquired: Steam Input's
-    /// desktop profile may take the controller while a WSGM panel is open, but
-    /// nothing is ever injected into Steam.</summary>
+    /// <summary>
+    ///     Whether WSGM manages the Steam Input lease around its focused
+    ///     surfaces (overlay/taskbar). Off = the lease is never acquired: Steam Input's
+    ///     desktop profile may take the controller while a WSGM panel is open, but
+    ///     nothing is ever injected into Steam.
+    /// </summary>
     /// <remarks>
-    /// Read when a surface opens, so turning it off takes effect at the NEXT surface
-    /// open — no restart, but not mid-surface either. A lease already applied for a
-    /// surface that is still on screen is deliberately never released early: the
-    /// release hands the controller back to Steam's desktop profile, which swallows
-    /// it from SDL system-wide, so the user who just turned this off from an open
-    /// Settings window would lose controller navigation on that very click. The lease
-    /// is scoped to the surface lifetime by specification — see docs\steam-input.md
-    /// and src\WSGM\Overlay\AGENTS.md.
+    ///     Read when a surface opens, so turning it off takes effect at the NEXT surface
+    ///     open — no restart, but not mid-surface either. A lease already applied for a
+    ///     surface that is still on screen is deliberately never released early: the
+    ///     release hands the controller back to Steam's desktop profile, which swallows
+    ///     it from SDL system-wide, so the user who just turned this off from an open
+    ///     Settings window would lose controller navigation on that very click. The lease
+    ///     is scoped to the surface lifetime by specification — see docs\steam-input.md
+    ///     and src\WSGM\Overlay\AGENTS.md.
     /// </remarks>
     public bool SteamInputLeaseEnabled { get; set; } = true;
 
-    /// <summary>Whether WSGM deploys its Steam Input shim into Steam's own install
-    /// directory as a search-order proxy DLL, so Steam loads it itself and WSGM
-    /// never writes into the Steam process.</summary>
+    /// <summary>
+    ///     Whether WSGM deploys its Steam Input shim into Steam's own install
+    ///     directory as a search-order proxy DLL, so Steam loads it itself and WSGM
+    ///     never writes into the Steam process.
+    /// </summary>
     /// <remarks>
-    /// Off parks the deployed file beside itself instead of deleting it, and every
-    /// lease WSGM takes for its own surfaces fails open. <see cref="SteamInputLeaseEnabled"/>
-    /// still decides whether the block is asked for at all; this decides how it gets
-    /// into Steam. Absent from an older config.json it defaults on, which is what
-    /// carries an upgrading device across without losing controller navigation.
+    ///     Off parks the deployed file beside itself instead of deleting it, and every
+    ///     lease WSGM takes for its own surfaces fails open. <see cref="SteamInputLeaseEnabled" />
+    ///     still decides whether the block is asked for at all; this decides how it gets
+    ///     into Steam. Absent from an older config.json it defaults on, which is what
+    ///     carries an upgrading device across without losing controller navigation.
     /// </remarks>
     public bool SteamInputManagementEnabled { get; set; } = true;
 
     /// <summary>How much detail reaches <c>wsgm.log</c>.</summary>
     /// <remarks>
-    /// Absent from an older config.json this defaults to <see cref="Core.LogVerbosity.Normal"/>,
-    /// which records every transition, warning and failure. Verbose adds the debug level and is
-    /// meant for reproducing a specific problem, not for running on.
+    ///     Absent from an older config.json this defaults to <see cref="Core.LogVerbosity.Normal" />,
+    ///     which records every transition, warning and failure. Verbose adds the debug level and is
+    ///     meant for reproducing a specific problem, not for running on.
     /// </remarks>
     public LogVerbosity LogVerbosity { get; set; } = LogVerbosity.Normal;
 
     /// <summary>Which revision of the first-run Quick Setup this device has completed.</summary>
     /// <remarks>
-    /// An int rather than a bool so a later build that adds a setting needing an
-    /// explicit decision can raise <see cref="QuickSetup.CurrentRevision"/> and have
-    /// the panel appear once more, showing only what is new. Zero means the panel
-    /// has never been completed.
+    ///     An int rather than a bool so a later build that adds a setting needing an
+    ///     explicit decision can raise <see cref="QuickSetup.CurrentRevision" /> and have
+    ///     the panel appear once more, showing only what is new. Zero means the panel
+    ///     has never been completed.
     /// </remarks>
     public int QuickSetupRevision { get; set; }
 
-    /// <summary>Steam CEF integration master switch and per-feature sub-toggles
-    /// (see <see cref="CefConfig"/>).</summary>
+    /// <summary>
+    ///     Steam CEF integration master switch and per-feature sub-toggles
+    ///     (see <see cref="CefConfig" />).
+    /// </summary>
     public CefConfig Cef { get; set; } = new();
 
     /// <summary>Keyboard shortcut configuration for opening the overlay.</summary>
@@ -829,38 +954,49 @@ public sealed class AppConfig
     /// <summary>Touch-edge gesture configuration for opening the overlay.</summary>
     public GestureConfig Gestures { get; set; } = new();
 
-    /// <summary>Rows pinned to the quick access sheet's home tab, as stable row ids
-    /// (a row's <c>Tag</c>: <c>home.steam</c>, <c>system.keep-awake</c>, a device
-    /// capability key, …) in display order. An id the running build cannot resolve
-    /// is kept (a device plugin's row survives the device being unplugged) but not
-    /// rendered.</summary>
+    /// <summary>
+    ///     Rows pinned to the quick access sheet's home tab, as stable row ids
+    ///     (a row's <c>Tag</c>: <c>home.steam</c>, <c>system.keep-awake</c>, a device
+    ///     capability key, …) in display order. An id the running build cannot resolve
+    ///     is kept (a device plugin's row survives the device being unplugged) but not
+    ///     rendered.
+    /// </summary>
     public List<string> QuickAccessPins { get; set; } = [];
 
     /// <summary>Common plugin widget pins in display order; unavailable identities are retained.</summary>
     public List<PluginWidgetPin> PluginWidgetPins { get; set; } = [];
 
-    /// <summary>Last Windows power scheme explicitly selected and verified through the overlay.
-    /// This is a reference only; startup and config reload must not reapply it.</summary>
+    /// <summary>
+    ///     Last Windows power scheme explicitly selected and verified through the overlay.
+    ///     This is a reference only; startup and config reload must not reapply it.
+    /// </summary>
     public Guid? LastSelectedPowerSchemeId { get; set; }
 
     /// <summary>Controller glyph family displayed by the UI.</summary>
     public GlyphStyle GlyphStyle { get; set; } = GlyphStyle.Xbox;
 
-    /// <summary>Per-display scaling captured before game mode forced 100%. Non-empty
-    /// means "not yet restored" — survives crashes so recovery paths can put
-    /// scaling back, matched per display via the GDI source device name.</summary>
+    /// <summary>
+    ///     Per-display scaling captured before game mode forced 100%. Non-empty
+    ///     means "not yet restored" — survives crashes so recovery paths can put
+    ///     scaling back, matched per display via the GDI source device name.
+    /// </summary>
     public List<DisplayScaleEntry> SavedDisplayScaleEntries { get; set; } = [];
 
     /// <summary>What Game Mode entry and leave do to displays, and the automation around them.</summary>
     public GameModeLaunchConfiguration GameModeLaunch { get; set; } = new();
 
-    /// <summary>Runtime-owned record of a Game Mode session that has not returned yet. Settings
-    /// never writes this, so an editor open across a crash cannot discard the layout a recovery
-    /// start has to restore.</summary>
+    /// <summary>
+    ///     Runtime-owned record of a Game Mode session that has not returned yet. Settings
+    ///     never writes this, so an editor open across a crash cannot discard the layout a recovery
+    ///     start has to restore.
+    /// </summary>
     public GameModeLaunchRecovery GameModeLaunchRecovery { get; set; } = new();
-    /// <summary>The Winlogon Shell snapshot that existed before WSGM installed itself.
-    /// Presence is separate from the string so an empty value remains distinguishable
-    /// from an absent value; kind preserves REG_EXPAND_SZ as well as REG_SZ.</summary>
+
+    /// <summary>
+    ///     The Winlogon Shell snapshot that existed before WSGM installed itself.
+    ///     Presence is separate from the string so an empty value remains distinguishable
+    ///     from an absent value; kind preserves REG_EXPAND_SZ as well as REG_SZ.
+    /// </summary>
     public string? PreviousShellValue { get; set; }
 
     /// <summary>Whether the original Winlogon Shell value has been captured.</summary>
@@ -872,9 +1008,11 @@ public sealed class AppConfig
     /// <summary>Registry type of the original Winlogon Shell value.</summary>
     public RegistryValueKind PreviousShellValueKind { get; set; } = RegistryValueKind.String;
 
-    /// <summary>Snapshot of GamingConfiguration\StartupToGamingHome, which is changed
-    /// while WSGM is installed to keep Xbox Full Screen Experience from competing
-    /// for the session.</summary>
+    /// <summary>
+    ///     Snapshot of GamingConfiguration\StartupToGamingHome, which is changed
+    ///     while WSGM is installed to keep Xbox Full Screen Experience from competing
+    ///     for the session.
+    /// </summary>
     public int PreviousStartupToGamingHomeValue { get; set; }
 
     /// <summary>Whether the original GamingConfiguration value has been captured.</summary>
@@ -886,8 +1024,10 @@ public sealed class AppConfig
     /// <summary>Registry type of the original GamingConfiguration value.</summary>
     public RegistryValueKind PreviousStartupToGamingHomeValueKind { get; set; } = RegistryValueKind.DWord;
 
-    /// <summary>UAC prompt-level values as they were before WSGM lowered them,
-    /// so the change can be undone exactly.</summary>
+    /// <summary>
+    ///     UAC prompt-level values as they were before WSGM lowered them,
+    ///     so the change can be undone exactly.
+    /// </summary>
     public bool PreviousUacSnapshotCaptured { get; set; }
 
     /// <summary>Original administrator-consent prompt level.</summary>
@@ -896,18 +1036,25 @@ public sealed class AppConfig
     /// <summary>Original secure-desktop prompt setting.</summary>
     public int PreviousUacSecureDesktop { get; set; } = 1;
 
-    /// <summary>Whether the lock-on-wake state was captured before WSGM changed it
-    /// (the exact per-scheme values live in the fields below).</summary>
+    /// <summary>
+    ///     Whether the lock-on-wake state was captured before WSGM changed it
+    ///     (the exact per-scheme values live in the fields below).
+    /// </summary>
     public bool PreviousLockOnWakeSnapshotCaptured { get; set; }
 
     /// <summary>Previous HKLM Personalization\NoLockScreen value (-1 = absent).</summary>
     public int PreviousNoLockScreen { get; set; } = -1;
 
-    /// <summary>Per-power-scheme CONSOLELOCK values (AC and DC) as they were before
-    /// WSGM flattened them to 0, so restore is exact even for mixed setups.</summary>
+    /// <summary>
+    ///     Per-power-scheme CONSOLELOCK values (AC and DC) as they were before
+    ///     WSGM flattened them to 0, so restore is exact even for mixed setups.
+    /// </summary>
     public List<PowerSchemeConsoleLock> PreviousConsoleLockSchemeValues { get; set; } = [];
-    /// <summary>True when the CONSOLELOCK policy key already existed before WSGM;
-    /// false means WSGM created it and restore deletes the whole key.</summary>
+
+    /// <summary>
+    ///     True when the CONSOLELOCK policy key already existed before WSGM;
+    ///     false means WSGM created it and restore deletes the whole key.
+    /// </summary>
     public bool PreviousConsoleLockPolicyKeyExisted { get; set; }
 
     /// <summary>Pre-existing CONSOLELOCK policy values (-1 = value absent).</summary>
@@ -919,71 +1066,89 @@ public sealed class AppConfig
 
 /// <summary>Decides when the first-run Quick Setup panel is shown.</summary>
 /// <remarks>
-/// Keyed on a revision rather than a "seen it" flag so the panel can come back
-/// exactly once when a later build adds a setting that needs an explicit decision -
-/// the same way Steam Input Management needed one. Raising
-/// <see cref="CurrentRevision"/> is the whole trigger; everything else follows from
-/// the comparison, and a user who has already answered a revision is never asked
-/// about it again.
+///     Keyed on a revision rather than a "seen it" flag so the panel can come back
+///     exactly once when a later build adds a setting that needs an explicit decision -
+///     the same way Steam Input Management needed one. Raising
+///     <see cref="CurrentRevision" /> is the whole trigger; everything else follows from
+///     the comparison, and a user who has already answered a revision is never asked
+///     about it again.
 /// </remarks>
 public static class QuickSetup
 {
     /// <summary>The revision this build asks about.</summary>
     /// <remarks>
-    /// Revision 1 introduced Steam Input Management, which writes a file into
-    /// Steam's own install directory, and the Steam CEF integration master switch.
-    /// Revision 2 added the sign-in start and its mode, and the Steam autostart
-    /// takeover, which turns the user's own startup entries off.
-    /// Raise this only when a NEW setting genuinely needs the user's decision -
-    /// every raise interrupts every existing device once.
+    ///     Revision 1 introduced Steam Input Management, which writes a file into
+    ///     Steam's own install directory, and the Steam CEF integration master switch.
+    ///     Revision 2 added the sign-in start and its mode, and the Steam autostart
+    ///     takeover, which turns the user's own startup entries off.
+    ///     Raise this only when a NEW setting genuinely needs the user's decision -
+    ///     every raise interrupts every existing device once.
     /// </remarks>
     public const int CurrentRevision = 2;
 
     /// <summary>Whether the panel should be shown for the given configuration.</summary>
     /// <param name="config">The configuration to test.</param>
-    /// <returns><see langword="true"/> when this device has not answered the current revision.</returns>
-    public static bool ShouldShow(AppConfig config) =>
-        config.QuickSetupRevision < CurrentRevision;
+    /// <returns><see langword="true" /> when this device has not answered the current revision.</returns>
+    public static bool ShouldShow(AppConfig config)
+    {
+        return config.QuickSetupRevision < CurrentRevision;
+    }
 
     /// <summary>Records that the current revision has been answered.</summary>
     /// <param name="config">The configuration to stamp.</param>
-    public static void MarkCompleted(AppConfig config) =>
+    public static void MarkCompleted(AppConfig config)
+    {
         config.QuickSetupRevision = CurrentRevision;
+    }
 }
 
-/// <summary>Master switch and per-feature sub-toggles for WSGM's Steam CEF
-/// (Chromium Embedded Framework) integration — everything WSGM injects into Steam
-/// over its debug port. <see cref="Enabled"/> off means WSGM never writes or uses
-/// the CEF debug flag at all (no injection, and the sub-features are hidden from
-/// the overlay); the sub-toggles gate individual injected features while CEF is on.
-/// Every feature flag defaults on, so an existing install behaves exactly as before; the one
-/// presentation preference, <see cref="CarouselShowUninstalled"/>, defaults off.</summary>
+/// <summary>
+///     Master switch and per-feature sub-toggles for WSGM's Steam CEF
+///     (Chromium Embedded Framework) integration — everything WSGM injects into Steam
+///     over its debug port. <see cref="Enabled" /> off means WSGM never writes or uses
+///     the CEF debug flag at all (no injection, and the sub-features are hidden from
+///     the overlay); the sub-toggles gate individual injected features while CEF is on.
+///     Every feature flag defaults on, so an existing install behaves exactly as before; the one
+///     presentation preference, <see cref="CarouselShowUninstalled" />, defaults off.
+/// </summary>
 public sealed class CefConfig
 {
-    /// <summary>Master CEF switch. Off = the debug-port flag is never written, no
-    /// injection is attempted, and every CEF feature below is hidden.</summary>
+    /// <summary>
+    ///     Master CEF switch. Off = the debug-port flag is never written, no
+    ///     injection is attempted, and every CEF feature below is hidden.
+    /// </summary>
     public bool Enabled { get; set; } = true;
 
-    /// <summary>Injected library filter tabs plus the tab-strip order and native-tab
-    /// hiding — one subsystem (<c>SteamLibraryTabs</c>).</summary>
+    /// <summary>
+    ///     Injected library filter tabs plus the tab-strip order and native-tab
+    ///     hiding — one subsystem (<c>SteamLibraryTabs</c>).
+    /// </summary>
     public bool LibraryTabs { get; set; } = true;
 
-    /// <summary>The SD-card library manager: per-card injected library tabs, the
-    /// library badge on Steam's game tiles, and live library relabeling.</summary>
+    /// <summary>
+    ///     The SD-card library manager: per-card injected library tabs, the
+    ///     library badge on Steam's game tiles, and live library relabeling.
+    /// </summary>
     public bool CardManager { get; set; } = true;
 
-    /// <summary>Big Picture Home's carousel shows the games on the libraries attached right
-    /// now, newest played first, behind recent purchases, instead of Steam's own mix
-    /// (<c>SteamHomeCarouselSurface</c>).</summary>
+    /// <summary>
+    ///     Big Picture Home's carousel shows the games on the libraries attached right
+    ///     now, newest played first, behind recent purchases, instead of Steam's own mix
+    ///     (<c>SteamHomeCarouselSurface</c>).
+    /// </summary>
     public bool ConnectedLibraryCarousel { get; set; } = true;
 
-    /// <summary>With <see cref="ConnectedLibraryCarousel"/> on, also lists owned games that are
-    /// not installed, greyed. A presentation preference rather than a feature, so it defaults
-    /// off.</summary>
+    /// <summary>
+    ///     With <see cref="ConnectedLibraryCarousel" /> on, also lists owned games that are
+    ///     not installed, greyed. A presentation preference rather than a feature, so it defaults
+    ///     off.
+    /// </summary>
     public bool CarouselShowUninstalled { get; set; }
 
-    /// <summary>Format SD Card and register its library into the running Steam. The
-    /// whole feature (native disk format included) is hidden when off.</summary>
+    /// <summary>
+    ///     Format SD Card and register its library into the running Steam. The
+    ///     whole feature (native disk format included) is hidden when off.
+    /// </summary>
     public bool SdFormat { get; set; } = true;
 
     /// <summary>Shortcut artwork changer (SteamGridDB) applied via Steam's client API.</summary>
@@ -993,22 +1158,26 @@ public sealed class CefConfig
     public bool WifiIndicator { get; set; } = true;
 
     /// <summary>
-    /// Narrow, fingerprint-gated native Quick Access bootstrap over the persistent Steam UI host.
+    ///     Narrow, fingerprint-gated native Quick Access bootstrap over the persistent Steam UI host.
     /// </summary>
     public bool NativeQuickAccess { get; set; } = true;
 
-    /// <summary>Automatic wake lock while the running Steam client reports an active
-    /// download (polled over the CEF bridge), so the device finishes downloading
-    /// instead of entering standby. The quick-access Power tab's manual Keep Awake
-    /// cycle works regardless of this flag.</summary>
+    /// <summary>
+    ///     Automatic wake lock while the running Steam client reports an active
+    ///     download (polled over the CEF bridge), so the device finishes downloading
+    ///     instead of entering standby. The quick-access Power tab's manual Keep Awake
+    ///     cycle works regardless of this flag.
+    /// </summary>
     public bool DownloadKeepAwake { get; set; } = true;
 
-    /// <summary>Name/Size/Type sort buttons injected into the header of Big Picture's
-    /// download queue (<c>SteamDownloadSort</c>).</summary>
+    /// <summary>
+    ///     Name/Size/Type sort buttons injected into the header of Big Picture's
+    ///     download queue (<c>SteamDownloadSort</c>).
+    /// </summary>
     public bool DownloadQueueSort { get; set; } = true;
 }
 
-/// <summary>Source-generated JSON metadata for the persisted <see cref="AppConfig"/> contract.</summary>
+/// <summary>Source-generated JSON metadata for the persisted <see cref="AppConfig" /> contract.</summary>
 [JsonSerializable(typeof(AppConfig))]
 [JsonSerializable(typeof(CefConfig))]
 [JsonSerializable(typeof(SplashConfig))]

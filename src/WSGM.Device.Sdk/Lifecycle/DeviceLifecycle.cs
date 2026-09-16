@@ -3,18 +3,18 @@ using System.Text.Json.Serialization;
 namespace WSGM.Device.Sdk.Lifecycle;
 
 /// <summary>
-/// Where the device cycle is.
+///     Where the device cycle is.
 /// </summary>
 /// <remarks>
-/// The cycle spans the whole WSGM run and has exactly two terminal triggers: WSGM exits, or the user
-/// turns Device Integration off. Entering or leaving Game Mode, closing a game, restarting Steam,
-/// turning controller management off, and a temporarily degraded capability are all state that
-/// happens *inside* one cycle — none of them is a transition here.
-/// <para>
-/// There is no separate state for a runtime task fault. It is handled within the running cycle by
-/// cleanup, bounded restart, and then <see cref="Faulted"/>; it is not an intentional deactivation
-/// or a handoff to another manager.
-/// </para>
+///     The cycle spans the whole WSGM run and has exactly two terminal triggers: WSGM exits, or the user
+///     turns Device Integration off. Entering or leaving Game Mode, closing a game, restarting Steam,
+///     turning controller management off, and a temporarily degraded capability are all state that
+///     happens *inside* one cycle — none of them is a transition here.
+///     <para>
+///         There is no separate state for a runtime task fault. It is handled within the running cycle by
+///         cleanup, bounded restart, and then <see cref="Faulted" />; it is not an intentional deactivation
+///         or a handoff to another manager.
+///     </para>
 /// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<DeviceCycleState>))]
 public enum DeviceCycleState
@@ -26,8 +26,8 @@ public enum DeviceCycleState
     Detected,
 
     /// <summary>
-    /// The hardware exists, but another owner or a missing prerequisite prevents acquiring one or
-    /// more resources.
+    ///     The hardware exists, but another owner or a missing prerequisite prevents acquiring one or
+    ///     more resources.
     /// </summary>
     Passive,
 
@@ -47,12 +47,12 @@ public enum DeviceCycleState
     Deactivating,
 
     /// <summary>
-    /// The plugin runtime failed repeatedly and will not be restarted automatically.
+    ///     The plugin runtime failed repeatedly and will not be restarted automatically.
     /// </summary>
     /// <remarks>
-    /// This state fails open: the virtual target and WSGM's HidHide entries are removed so the user
-    /// keeps a working controller, while desired state is retained because a fault is not a change of
-    /// intent.
+    ///     This state fails open: the virtual target and WSGM's HidHide entries are removed so the user
+    ///     keeps a working controller, while desired state is retained because a fault is not a change of
+    ///     intent.
     /// </remarks>
     Faulted
 }

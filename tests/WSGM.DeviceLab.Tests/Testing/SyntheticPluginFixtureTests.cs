@@ -10,7 +10,7 @@ public sealed class SyntheticPluginFixtureTests
     [Fact]
     public async Task PublicationSummary_UsesTheSdkOwnedTestHostAdapterForEveryChannel()
     {
-        TestPluginHostAdapter host = new(cycleGeneration: 3);
+        TestPluginHostAdapter host = new(3);
         await host.PublishDescriptorsAsync(
             new CapabilityDescriptorSet { Generation = 1, CycleGeneration = 3 },
             CancellationToken.None);
@@ -24,7 +24,7 @@ public sealed class SyntheticPluginFixtureTests
                 CycleGeneration = 3
             },
             CancellationToken.None);
-        await host.PublishPhysicalDevicesAsync([], output: null, CancellationToken.None);
+        await host.PublishPhysicalDevicesAsync([], null, CancellationToken.None);
         await host.PublishControllerSampleAsync(
             CanonicalControllerSample.Neutral(1, 3, DateTimeOffset.UnixEpoch),
             CancellationToken.None);

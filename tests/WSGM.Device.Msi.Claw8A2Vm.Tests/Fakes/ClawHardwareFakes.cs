@@ -59,22 +59,11 @@ internal sealed class FakeWmiTransport : IMsiWmiTransport
 
     public int Reads { get; private set; }
 
-    public void SetResponse(string method, byte selector, byte[] response) =>
-        _responses[(method, selector)] = response;
-
     public bool FailNextSetter { get; set; }
 
     public Action<string, byte[]>? AfterSetter { get; set; }
 
     public int ProviderAvailabilityChecks { get; private set; }
-
-    public int ReadData(byte address) =>
-        BinaryPrimitives.ReadInt32LittleEndian(_responses[("Get_Data", address)].AsSpan(1, sizeof(int)));
-
-    public void SetData(byte address, int value)
-    {
-        _responses[("Get_Data", address)] = Data(value);
-    }
 
     public ValueTask<bool> IsProviderAvailableAsync(CancellationToken cancellationToken)
     {
@@ -123,7 +112,25 @@ internal sealed class FakeWmiTransport : IMsiWmiTransport
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public ValueTask DisposeAsync()
+    {
+        return ValueTask.CompletedTask;
+    }
+
+    public void SetResponse(string method, byte selector, byte[] response)
+    {
+        _responses[(method, selector)] = response;
+    }
+
+    public int ReadData(byte address)
+    {
+        return BinaryPrimitives.ReadInt32LittleEndian(_responses[("Get_Data", address)].AsSpan(1, sizeof(int)));
+    }
+
+    public void SetData(byte address, int value)
+    {
+        _responses[("Get_Data", address)] = Data(value);
+    }
 
     private static byte[] Data(int value)
     {
@@ -141,7 +148,10 @@ internal sealed class FakeWmiTransport : IMsiWmiTransport
         return response;
     }
 
-    private static byte[] Table(params byte[] payload) => Response(payload);
+    private static byte[] Table(params byte[] payload)
+    {
+        return Response(payload);
+    }
 }
 
 internal sealed class FakeOemEventSource : IMsiOemEventSource
@@ -157,9 +167,6 @@ internal sealed class FakeOemEventSource : IMsiOemEventSource
         return ValueTask.FromResult(true);
     }
 
-    public ValueTask EmitAsync(byte code, DateTimeOffset timestamp) =>
-        _callback?.Invoke(code, timestamp) ?? ValueTask.CompletedTask;
-
     public ValueTask StopAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -167,7 +174,15 @@ internal sealed class FakeOemEventSource : IMsiOemEventSource
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public ValueTask DisposeAsync()
+    {
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask EmitAsync(byte code, DateTimeOffset timestamp)
+    {
+        return _callback?.Invoke(code, timestamp) ?? ValueTask.CompletedTask;
+    }
 }
 
 internal sealed class FakeMcuTransport : IClawMcuTransport
@@ -235,15 +250,18 @@ internal sealed class FakeMcuTransport : IClawMcuTransport
             []));
     }
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public ValueTask DisposeAsync()
+    {
+        return ValueTask.CompletedTask;
+    }
 }
 
 internal sealed class FakeControllerSource : IClawControllerSource
 {
     private readonly Lock _gate = new();
+    private Task? _activePublication;
     private Func<CanonicalControllerSample, CancellationToken, ValueTask>? _publish;
     private CancellationTokenSource? _readerCancellation;
-    private Task? _activePublication;
 
     public ControllerTopology Topology { get; init; } = new(
         ClawControllerMode.XInput,
@@ -317,18 +335,6 @@ internal sealed class FakeControllerSource : IClawControllerSource
         }
     }
 
-    public ValueTask EmitAsync(CanonicalControllerSample sample)
-    {
-        lock (_gate)
-        {
-            var publish = _publish ?? throw new InvalidOperationException("The fake reader is not active.");
-            var cancellationToken = _readerCancellation?.Token
-                ?? throw new InvalidOperationException("The fake reader has no cancellation source.");
-            _activePublication = publish(sample, cancellationToken).AsTask();
-            return new ValueTask(_activePublication);
-        }
-    }
-
     public ValueTask WriteRumbleAsync(byte weak, byte strong, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -342,11 +348,29 @@ internal sealed class FakeControllerSource : IClawControllerSource
         throw new IOException("Synthetic rumble write failure.");
     }
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public ValueTask DisposeAsync()
+    {
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask EmitAsync(CanonicalControllerSample sample)
+    {
+        lock (_gate)
+        {
+            var publish = _publish ?? throw new InvalidOperationException("The fake reader is not active.");
+            var cancellationToken = _readerCancellation?.Token
+                                    ?? throw new InvalidOperationException(
+                                        "The fake reader has no cancellation source.");
+            _activePublication = publish(sample, cancellationToken).AsTask();
+            return new ValueTask(_activePublication);
+        }
+    }
 }
 
-/// <summary>A motion source that accepts every start and keeps the publish callback, so a test can
-/// drive samples through the service.</summary>
+/// <summary>
+///     A motion source that accepts every start and keeps the publish callback, so a test can
+///     drive samples through the service.
+/// </summary>
 internal sealed class FakeMotionSource : IClawMotionSource
 {
     public Func<MotionSample, ValueTask>? Publish { get; private set; }
@@ -366,7 +390,10 @@ internal sealed class FakeMotionSource : IClawMotionSource
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public ValueTask DisposeAsync()
+    {
+        return ValueTask.CompletedTask;
+    }
 }
 
 internal sealed class FakeChordSuppressor : IFirmwareChordSuppressor
@@ -387,8 +414,13 @@ internal sealed class FakeChordSuppressor : IFirmwareChordSuppressor
         return ValueTask.CompletedTask;
     }
 
-    public void TriggerFault(Exception exception) =>
-        (_fault ?? throw new InvalidOperationException("The fake hook is not active."))(exception);
+    public ValueTask DisposeAsync()
+    {
+        return ValueTask.CompletedTask;
+    }
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public void TriggerFault(Exception exception)
+    {
+        (_fault ?? throw new InvalidOperationException("The fake hook is not active."))(exception);
+    }
 }

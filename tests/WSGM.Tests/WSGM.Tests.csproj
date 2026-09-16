@@ -11,8 +11,8 @@
     <NoWarn>$(NoWarn);1573;1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
-    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1"/>
+    <PackageReference Include="xunit" Version="2.9.3"/>
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -23,18 +23,18 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj" />
-    <ProjectReference Include="../../src/WSGM.Launch/WSGM.Launch.csproj" />
-    <ProjectReference Include="../../src/WSGM.Plugin.Ir/WSGM.Plugin.Ir.csproj" />
-    <ProjectReference Include="../../src/WSGM/WSGM.csproj" />
-    <ProjectReference Include="../../external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiToolkit.csproj" />
+    <ProjectReference Include="../../src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj"/>
+    <ProjectReference Include="../../src/WSGM.Launch/WSGM.Launch.csproj"/>
+    <ProjectReference Include="../../src/WSGM.Plugin.Ir/WSGM.Plugin.Ir.csproj"/>
+    <ProjectReference Include="../../src/WSGM/WSGM.csproj"/>
+    <ProjectReference Include="../../external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiToolkit.csproj"/>
   </ItemGroup>
   <ItemGroup>
     <!-- The service's pure decision core is linked as source (its BootManifest
          dependency comes from the WSGM project reference) — referencing the AOT
          WinExe project would drag its publish plumbing into the test build. -->
-    <Compile Include="../../src/WSGM.LogonService/LogonDecision.cs" Link="Linked/LogonDecision.cs" />
-    <Compile Include="../Shared/RepositoryFiles.cs" Link="Shared/RepositoryFiles.cs" />
-    <Compile Include="../Shared/TemporaryDirectory.cs" Link="Shared/TemporaryDirectory.cs" />
+    <Compile Include="../../src/WSGM.LogonService/LogonDecision.cs" Link="Linked/LogonDecision.cs"/>
+    <Compile Include="../Shared/RepositoryFiles.cs" Link="Shared/RepositoryFiles.cs"/>
+    <Compile Include="../Shared/TemporaryDirectory.cs" Link="Shared/TemporaryDirectory.cs"/>
   </ItemGroup>
 </Project>

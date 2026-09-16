@@ -21,34 +21,11 @@ namespace WSGM.UiTests.Infrastructure;
 internal sealed class UiFixture : IDisposable
 {
     private readonly CultureInfo _culture = CultureInfo.CurrentCulture;
-    private readonly CultureInfo _uiCulture = CultureInfo.CurrentUICulture;
-    private readonly ILogSink? _previousSink = Logger.Sink;
     private readonly BindingErrors _errors = new();
-    private readonly List<Window> _windows = [];
     private readonly List<IDisposable> _owned = [];
-    internal List<string> Calls { get; } = [];
-    internal AppConfig Saved { get; private set; } = new() { AccentColor = "#4CC2FF", QuickSetupRevision = QuickSetup.CurrentRevision };
-    internal Func<SettingsViewModel.SaveRequest, Task<SettingsViewModel.SaveResult>>? Persist { get; set; }
-    internal Action<string> ClaimSteamInput { get; set; } = _ => { };
-    internal Action<string> AcquireSteamInput { get; set; } = _ => { };
-    internal Action<string, string> ReleaseSteamInput { get; set; } = (_, _) => { };
-    internal Func<IReadOnlyList<SteamAutostartSource>> ScanSteamAutostart { get; set; } = () => [];
-    internal Func<IReadOnlyList<SteamAutostartSource>, SteamAutostartTakeoverResult> ApplySteamAutostart { get; set; } =
-        _ => throw new InvalidOperationException("Unexpected Steam autostart write.");
-
-    /// <summary>What a Snapshot in Settings observes. Synthetic: these tests never read this
-    /// machine's displays.</summary>
-    internal DisplayArrangement Displays { get; set; } =
-        new([], "no-displays", DateTimeOffset.UnixEpoch);
-    internal Func<DisplayArrangement>? ReadDisplays { get; set; }
-
-    /// <summary>What each display claims to support, keyed by device path.</summary>
-    internal Dictionary<string, DisplayCatalogFacts> DisplayFacts { get; } = [];
-
-    /// <summary>The actions a running plugin would declare. Empty means no plugin host, which is
-    /// what a standalone Settings process sees.</summary>
-    internal IReadOnlyList<SettingsViewModel.PluginActionOption> PluginActions { get; init; } = [];
-    private OverlayWindow.SessionState Session { get; } = new();
+    private readonly ILogSink? _previousSink = Logger.Sink;
+    private readonly CultureInfo _uiCulture = CultureInfo.CurrentUICulture;
+    private readonly List<Window> _windows = [];
 
     internal UiFixture()
     {
@@ -56,6 +33,65 @@ internal sealed class UiFixture : IDisposable
         CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en-US");
         Logger.Sink = _errors;
         AccentPalette.Apply(Application.Current!, AccentPalette.Parse("#4CC2FF"));
+    }
+
+    internal List<string> Calls { get; } = [];
+
+    internal AppConfig Saved { get; private set; } = new()
+        { AccentColor = "#4CC2FF", QuickSetupRevision = QuickSetup.CurrentRevision };
+
+    internal Func<SettingsViewModel.SaveRequest, Task<SettingsViewModel.SaveResult>>? Persist { get; set; }
+    internal Action<string> ClaimSteamInput { get; set; } = _ => { };
+    internal Action<string> AcquireSteamInput { get; set; } = _ => { };
+    internal Action<string, string> ReleaseSteamInput { get; set; } = (_, _) => { };
+    internal Func<IReadOnlyList<SteamAutostartSource>> ScanSteamAutostart { get; set; } = () => [];
+
+    internal Func<IReadOnlyList<SteamAutostartSource>, SteamAutostartTakeoverResult> ApplySteamAutostart { get; set; } =
+        _ => throw new InvalidOperationException("Unexpected Steam autostart write.");
+
+    /// <summary>
+    ///     What a Snapshot in Settings observes. Synthetic: these tests never read this
+    ///     machine's displays.
+    /// </summary>
+    internal DisplayArrangement Displays { get; set; } =
+        new([], "no-displays", DateTimeOffset.UnixEpoch);
+
+    internal Func<DisplayArrangement>? ReadDisplays { get; set; }
+
+    /// <summary>What each display claims to support, keyed by device path.</summary>
+    internal Dictionary<string, DisplayCatalogFacts> DisplayFacts { get; } = [];
+
+    /// <summary>
+    ///     The actions a running plugin would declare. Empty means no plugin host, which is
+    ///     what a standalone Settings process sees.
+    /// </summary>
+    internal IReadOnlyList<SettingsViewModel.PluginActionOption> PluginActions { get; init; } = [];
+
+    private OverlayWindow.SessionState Session { get; } = new();
+
+    public void Dispose()
+    {
+        try
+        {
+            foreach (var window in _windows.AsEnumerable().Reverse())
+            {
+                window.Close();
+            }
+
+            foreach (var resource in _owned.AsEnumerable().Reverse())
+            {
+                resource.Dispose();
+            }
+
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(_errors.Messages.Count == 0, string.Join("\n", _errors.Messages));
+        }
+        finally
+        {
+            Logger.Sink = _previousSink;
+            CultureInfo.CurrentCulture = _culture;
+            CultureInfo.CurrentUICulture = _uiCulture;
+        }
     }
 
     internal SettingsWindow Settings(int width = 1280, int height = 800, bool gameModeSurface = false)
@@ -69,13 +105,21 @@ internal sealed class UiFixture : IDisposable
             async request =>
             {
                 Calls.Add("save");
-                if (Persist is { } persist) { return await persist(request); }
+                if (Persist is { } persist)
+                {
+                    return await persist(request);
+                }
+
                 var fresh = ConfigStore.CloneJson(Saved, ConfigJsonContext.Default.AppConfig);
                 SettingsViewModel.ApplyCapturedValues(fresh, request, request.Splash);
                 Saved = fresh;
                 return new SettingsViewModel.SaveResult(fresh, [], null);
             },
-            _ => { Calls.Add("reconcile"); return Task.CompletedTask; },
+            _ =>
+            {
+                Calls.Add("reconcile");
+                return Task.CompletedTask;
+            },
             (message, _) => Calls.Add(message),
             // A fixed report: the real reader describes this machine's last standby, which put the
             // previous night's sleep length into the settings-system baselines.
@@ -86,7 +130,11 @@ internal sealed class UiFixture : IDisposable
         var windowServices = new SettingsWindowServices(new GamepadService(),
             () => Calls.Add("input-start"), () => Calls.Add("input-stop"),
             () => Calls.Add("window-import-begin"), () => Calls.Add("window-import-end"),
-            () => { Calls.Add("device-read"); return Task.CompletedTask; }, () => Saved.AccentColor,
+            () =>
+            {
+                Calls.Add("device-read");
+                return Task.CompletedTask;
+            }, () => Saved.AccentColor,
             owner => ClaimSteamInput(owner), owner => AcquireSteamInput(owner),
             (owner, reason) => ReleaseSteamInput(owner, reason));
         SettingsWindow window = new(model, windowServices, gameModeSurface) { Width = width, Height = height };
@@ -101,7 +149,11 @@ internal sealed class UiFixture : IDisposable
         OverlayWindow window = new(
             new OverlayViewModel { HomeAppName = "Steam", HomeAppAlive = true, ExplorerRunning = true },
             new AppSwitcherViewModel(), status, Session,
-            w => { w.Width = width; w.Height = Math.Round(height * OverlayWindow.SheetHeightFraction); },
+            w =>
+            {
+                w.Width = width;
+                w.Height = Math.Round(height * OverlayWindow.SheetHeightFraction);
+            },
             _ => Calls.Add("tabs-sync"));
         window.SetPins(["home.steam", "home.desktop"]);
         Show(window);
@@ -119,11 +171,15 @@ internal sealed class UiFixture : IDisposable
         }
     }
 
-    internal static T Named<T>(Control parent, string name) where T : Control =>
-        parent.FindControl<T>(name) ?? throw new InvalidOperationException($"Missing control {name}");
+    internal static T Named<T>(Control parent, string name) where T : Control
+    {
+        return parent.FindControl<T>(name) ?? throw new InvalidOperationException($"Missing control {name}");
+    }
 
-    internal static Button Tab(Window window, int index) =>
-        Named<TabStrip>(window, "Tabs").GetVisualDescendants().OfType<Button>().ElementAt(index);
+    internal static Button Tab(Window window, int index)
+    {
+        return Named<TabStrip>(window, "Tabs").GetVisualDescendants().OfType<Button>().ElementAt(index);
+    }
 
     internal static void Click(Window window, Control control, MouseButton button = MouseButton.Left)
     {
@@ -141,34 +197,30 @@ internal sealed class UiFixture : IDisposable
     internal static void Key(Window window, Key key)
     {
         window.KeyPress(key, RawInputModifiers.None, PhysicalKey.None, null);
-        if (window.IsVisible) { window.KeyRelease(key, RawInputModifiers.None, PhysicalKey.None, null); }
-    }
-
-    public void Dispose()
-    {
-        try
+        if (window.IsVisible)
         {
-            foreach (var window in _windows.AsEnumerable().Reverse()) { window.Close(); }
-            foreach (var resource in _owned.AsEnumerable().Reverse()) { resource.Dispose(); }
-            Dispatcher.UIThread.RunJobs();
-            Assert.True(_errors.Messages.Count == 0, string.Join("\n", _errors.Messages));
-        }
-        finally
-        {
-            Logger.Sink = _previousSink;
-            CultureInfo.CurrentCulture = _culture;
-            CultureInfo.CurrentUICulture = _uiCulture;
+            window.KeyRelease(key, RawInputModifiers.None, PhysicalKey.None, null);
         }
     }
 
     private sealed class BindingErrors : ILogSink
     {
         internal List<string> Messages { get; } = [];
-        public bool IsEnabled(LogEventLevel level, string area) =>
-            area == "Binding" && level >= LogEventLevel.Warning;
-        public void Log(LogEventLevel level, string area, object? source, string messageTemplate) =>
+
+        public bool IsEnabled(LogEventLevel level, string area)
+        {
+            return area == "Binding" && level >= LogEventLevel.Warning;
+        }
+
+        public void Log(LogEventLevel level, string area, object? source, string messageTemplate)
+        {
             Messages.Add(messageTemplate);
+        }
+
         public void Log(LogEventLevel level, string area, object? source, string messageTemplate,
-            params object?[] propertyValues) => Messages.Add(messageTemplate + " " + string.Join(", ", propertyValues));
+            params object?[] propertyValues)
+        {
+            Messages.Add(messageTemplate + " " + string.Join(", ", propertyValues));
+        }
     }
 }

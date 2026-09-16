@@ -10,23 +10,27 @@ using WSGM.Interop;
 namespace WSGM.Overlay;
 
 /// <summary>
-/// The window mechanics the three status panels that hang from the quick access sheet's header
-/// share: radio, audio and safe eject. Each owns its own content and commands; only the geometry is
-/// common.
+///     The window mechanics the three status panels that hang from the quick access sheet's header
+///     share: radio, audio and safe eject. Each owns its own content and commands; only the geometry is
+///     common.
 /// </summary>
 internal static class StatusPanel
 {
-    /// <summary>Wires the behaviour every docked panel shares: Escape closes it, a focused row is
-    /// scrolled into view, and Windows' touch-synthesized mouse messages are swallowed.</summary>
+    /// <summary>
+    ///     Wires the behaviour every docked panel shares: Escape closes it, a focused row is
+    ///     scrolled into view, and Windows' touch-synthesized mouse messages are swallowed.
+    /// </summary>
     /// <param name="window">The panel window.</param>
-    /// <param name="scroller">The panel's scrolling row list, or null for a panel whose controls
-    /// all fit (the audio panel is a slider and two pickers).</param>
+    /// <param name="scroller">
+    ///     The panel's scrolling row list, or null for a panel whose controls
+    ///     all fit (the audio panel is a slider and two pickers).
+    /// </param>
     /// <remarks>
-    /// The scroll-into-view is explicit because directional focus navigation does not raise the
-    /// request itself, so a controller could otherwise focus a row off-screen. The touch filter and
-    /// the controller's 150 ms deferred close are one mechanism — see the touch-promotion finding in
-    /// <c>docs\overlay-and-input.md</c>; removing either brings back ghost clicks on whatever sits
-    /// under the panel.
+    ///     The scroll-into-view is explicit because directional focus navigation does not raise the
+    ///     request itself, so a controller could otherwise focus a row off-screen. The touch filter and
+    ///     the controller's 150 ms deferred close are one mechanism — see the touch-promotion finding in
+    ///     <c>docs\overlay-and-input.md</c>; removing either brings back ghost clicks on whatever sits
+    ///     under the panel.
     /// </remarks>
     internal static void WirePanelBehaviour(Window window, Control? scroller = null)
     {
@@ -51,26 +55,30 @@ internal static class StatusPanel
         }
     }
 
-    /// <summary>Renders the panel at the user's desktop DPI, clamps it to the space below the
-    /// sheet header, and parks it under the header's right end where the status pills are. Game
-    /// mode forces every display to 100% scaling, which would otherwise shrink a DIP-sized panel —
-    /// and any on-screen keyboard inside it — to millimetres on a dense handheld display.</summary>
+    /// <summary>
+    ///     Renders the panel at the user's desktop DPI, clamps it to the space below the
+    ///     sheet header, and parks it under the header's right end where the status pills are. Game
+    ///     mode forces every display to 100% scaling, which would otherwise shrink a DIP-sized panel —
+    ///     and any on-screen keyboard inside it — to millimetres on a dense handheld display.
+    /// </summary>
     /// <param name="window">The panel window being positioned.</param>
     /// <param name="root">The panel's layout-transform root, which carries the touch scale.</param>
     /// <param name="uiScale">The configured overlay UI scale.</param>
     /// <param name="baseWidth">The panel's design width in DIPs.</param>
     /// <param name="baseHeight">The panel's design height in DIPs.</param>
-    /// <param name="anchorBottom">The sheet header's physical bottom edge, or 0 to hang from the
-    /// top of the display.</param>
+    /// <param name="anchorBottom">
+    ///     The sheet header's physical bottom edge, or 0 to hang from the
+    ///     top of the display.
+    /// </param>
     /// <param name="anchorRight">The sheet's physical right edge, or 0 when it is unavailable.</param>
     /// <param name="name">Panel name for the scale log line.</param>
     /// <remarks>
-    /// Positioned from the header's ACTUAL bottom edge rather than derived from the working area:
-    /// the sheet is a topmost window, not a registered appbar, so the working area does not account
-    /// for it. The window is moved onto the target display before its effective DPI is queried.
-    /// The scale never comes from <c>screen.Scaling</c> — the screens cache still reports the
-    /// pre-game-mode factor at exactly the moment this runs, and using it parked the panel far
-    /// from its anchor (device-reported).
+    ///     Positioned from the header's ACTUAL bottom edge rather than derived from the working area:
+    ///     the sheet is a topmost window, not a registered appbar, so the working area does not account
+    ///     for it. The window is moved onto the target display before its effective DPI is queried.
+    ///     The scale never comes from <c>screen.Scaling</c> — the screens cache still reports the
+    ///     pre-game-mode factor at exactly the moment this runs, and using it parked the panel far
+    ///     from its anchor (device-reported).
     /// </remarks>
     internal static void DockBelowHeader(
         Window window,
@@ -89,7 +97,7 @@ internal static class StatusPanel
             ? window.Screens.ScreenFromPoint(new PixelPoint(anchorRight - 1, anchorBottom - 1))
             : window.Screens.ScreenFromWindow(window);
         screen ??= window.Screens.Primary
-            ?? (window.Screens.ScreenCount > 0 ? window.Screens.All[0] : null);
+                   ?? (window.Screens.ScreenCount > 0 ? window.Screens.All[0] : null);
         if (screen is null)
         {
             return;
@@ -128,8 +136,10 @@ internal static class StatusPanel
         window.Position = new PixelPoint(x, y);
     }
 
-    /// <summary>Gets the HWND's current effective scale, falling back to Avalonia only when the
-    /// native handle is unavailable. The sheet and its peer panels deliberately share this rule.</summary>
+    /// <summary>
+    ///     Gets the HWND's current effective scale, falling back to Avalonia only when the
+    ///     native handle is unavailable. The sheet and its peer panels deliberately share this rule.
+    /// </summary>
     internal static double CurrentWindowScale(Window window)
     {
         ArgumentNullException.ThrowIfNull(window);

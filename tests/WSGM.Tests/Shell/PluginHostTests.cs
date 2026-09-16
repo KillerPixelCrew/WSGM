@@ -13,17 +13,22 @@ public sealed class PluginHostTests
     {
         ConcurrentQueue<Action> ui = new();
         PluginHost host = new(ui.Enqueue);
-        var instance = Admit(host, new FakePlugin("test.ir", publishReadyOnResume: true));
+        var instance = Admit(host, new FakePlugin("test.ir", true));
         await instance.StartAsync(Deadline, CancellationToken.None);
         List<PluginStatePublication> observed = [];
         host.StateChanged += observed.Add;
-        var first = new PluginStatePublication(instance.Identity, 1, 1, "level", new PluginValue(Number: 40), PluginStateOrigin.HardwareReadback);
+        var first = new PluginStatePublication(instance.Identity, 1, 1, "level", new PluginValue(Number: 40),
+            PluginStateOrigin.HardwareReadback);
         instance.PublishState(first);
         var latest = first with { Sequence = 3, Value = new PluginValue(Number: 50), ConfigurationRevision = 7 };
         instance.PublishState(latest);
         instance.PublishState(first with { Sequence = 2 });
         instance.PublishState(first with { Sequence = 4, Value = new PluginValue(Number: double.NaN) });
-        while (ui.TryDequeue(out var action)) { action(); }
+        while (ui.TryDequeue(out var action))
+        {
+            action();
+        }
+
         Assert.Equal(latest, Assert.Single(observed));
         Assert.Equal(latest, Assert.Single(host.StateSnapshot(instance.Identity)));
         await Close(instance);
@@ -33,9 +38,10 @@ public sealed class PluginHostTests
     public async Task AResumeRetiresStateAndAllowsTheNewGenerationToRestartItsSequence()
     {
         PluginHost host = new(action => action());
-        var instance = Admit(host, new FakePlugin("test.ir", publishReadyOnResume: true));
+        var instance = Admit(host, new FakePlugin("test.ir", true));
         await instance.StartAsync(Deadline, CancellationToken.None);
-        var state = new PluginStatePublication(instance.Identity, 1, 100, "ready", new PluginValue(Boolean: true), PluginStateOrigin.Initialization);
+        var state = new PluginStatePublication(instance.Identity, 1, 100, "ready", new PluginValue(true),
+            PluginStateOrigin.Initialization);
         instance.PublishState(state);
         await instance.ResumeAsync(2, Deadline, CancellationToken.None);
         Assert.Empty(host.StateSnapshot(instance.Identity));
@@ -51,14 +57,18 @@ public sealed class PluginHostTests
     public async Task StateKeysAreBoundedAndRetiredRegistrationsCannotPublishIntoReplacements()
     {
         PluginHost host = new(action => action());
-        var instance = Admit(host, new FakePlugin("test.ir", publishReadyOnResume: true));
+        var instance = Admit(host, new FakePlugin("test.ir", true));
         await instance.StartAsync(Deadline, CancellationToken.None);
-        var state = new PluginStatePublication(instance.Identity, 1, 1, "ready", new PluginValue(Boolean: true), PluginStateOrigin.Initialization);
+        var state = new PluginStatePublication(instance.Identity, 1, 1, "ready", new PluginValue(true),
+            PluginStateOrigin.Initialization);
         for (var index = 1; index <= 129; index++)
-        { instance.PublishState(state with { Sequence = index, Key = "state" + index }); }
+        {
+            instance.PublishState(state with { Sequence = index, Key = "state" + index });
+        }
+
         Assert.Equal(128, host.StateSnapshot(instance.Identity).Length);
         await Close(instance);
-        var replacement = Admit(host, new FakePlugin("test.ir", publishReadyOnResume: true));
+        var replacement = Admit(host, new FakePlugin("test.ir", true));
         await replacement.StartAsync(Deadline, CancellationToken.None);
         instance.PublishState(state with { Sequence = 130 });
         Assert.Empty(host.StateSnapshot(instance.Identity));
@@ -69,18 +79,20 @@ public sealed class PluginHostTests
     public async Task IndependentInstancesWorkWithoutDeviceAndCoexistWithItsSingleton()
     {
         PluginHost host = new(action => action());
-        FakePlugin first = new("test.ir", publishReadyOnResume: true);
-        FakePlugin second = new("test.ir", publishReadyOnResume: true);
+        FakePlugin first = new("test.ir", true);
+        FakePlugin second = new("test.ir", true);
         var one = Admit(host, first);
         var two = Admit(host, second, "two");
         await one.StartAsync(Deadline, CancellationToken.None);
         await two.StartAsync(Deadline, CancellationToken.None);
         Assert.Equal(2, host.Snapshot().Length);
-        FakePlugin device = new("test.device", publishReadyOnResume: true);
-        var deviceInstance = host.Admit(device, new PluginInstanceIdentity(device.Id, "device"), PluginCategories.Device,
+        FakePlugin device = new("test.device", true);
+        var deviceInstance = host.Admit(device, new PluginInstanceIdentity(device.Id, "device"),
+            PluginCategories.Device,
             PluginCategoryPolicy.Device, true, 1, "fixture-state");
-        Assert.Throws<InvalidOperationException>(() => host.Admit(new FakePlugin("another.device", publishReadyOnResume: true),
-            new PluginInstanceIdentity("another.device", "device"), PluginCategories.Device, PluginCategoryPolicy.Device, true, 1, "fixture-state"));
+        Assert.Throws<InvalidOperationException>(() => host.Admit(new FakePlugin("another.device", true),
+            new PluginInstanceIdentity("another.device", "device"), PluginCategories.Device,
+            PluginCategoryPolicy.Device, true, 1, "fixture-state"));
         await deviceInstance.StartAsync(Deadline, CancellationToken.None);
         await host.SetModeAsync(PluginSessionMode.Game, Deadline, CancellationToken.None);
         Assert.Equal(PluginSessionMode.Game, first.Mode);
@@ -97,7 +109,7 @@ public sealed class PluginHostTests
     {
         ConcurrentQueue<Action> ui = new();
         PluginHost host = new(ui.Enqueue);
-        FakePlugin plugin = new("test.ir", publishReadyOnResume: true);
+        FakePlugin plugin = new("test.ir", true);
         var instance = Admit(host, plugin);
         List<PluginHealthPublication> observed = [];
         host.HealthChanged += observed.Add;
@@ -105,8 +117,13 @@ public sealed class PluginHostTests
         await instance.SuspendAsync(Deadline, CancellationToken.None);
         await instance.ResumeAsync(2, Deadline, CancellationToken.None);
         plugin.Host!.PublishHealth(new PluginHealthPublication(instance.Identity, 1, PluginHealth.Failed, "stale"));
-        plugin.Host.PublishHealth(new PluginHealthPublication(new PluginInstanceIdentity("other.plugin", "one"), 2, PluginHealth.Failed, "wrong identity"));
-        while (ui.TryDequeue(out var action)) { action(); }
+        plugin.Host.PublishHealth(new PluginHealthPublication(new PluginInstanceIdentity("other.plugin", "one"), 2,
+            PluginHealth.Failed, "wrong identity"));
+        while (ui.TryDequeue(out var action))
+        {
+            action();
+        }
+
         Assert.NotEmpty(observed);
         Assert.All(observed, publication => Assert.Equal(2, publication.Generation));
         Assert.Equal(PluginHealth.Ready, Assert.Single(host.Snapshot()).Health);
@@ -117,7 +134,7 @@ public sealed class PluginHostTests
     public async Task UnconfirmedStopIsNotRetriedAndContinuesReservingTheSlot()
     {
         PluginHost host = new(action => action());
-        FakePlugin plugin = new("test.ir", publishReadyOnResume: true) { Released = false };
+        FakePlugin plugin = new("test.ir", true) { Released = false };
         var instance = Admit(host, plugin);
         await instance.StartAsync(Deadline, CancellationToken.None);
         Assert.False(await instance.StopAsync(Deadline, CancellationToken.None));
@@ -125,7 +142,7 @@ public sealed class PluginHostTests
         await instance.DisposeAsync();
         Assert.Equal(1, plugin.Stops);
         Assert.Equal(1, plugin.Disposals);
-        Assert.Throws<InvalidOperationException>(() => Admit(host, new FakePlugin("test.ir", publishReadyOnResume: true)));
+        Assert.Throws<InvalidOperationException>(() => Admit(host, new FakePlugin("test.ir", true)));
     }
 
     [Fact]
@@ -136,7 +153,14 @@ public sealed class PluginHostTests
         host.HealthChanged += publications.Enqueue;
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        FakePlugin plugin = new("test.ir", publishReadyOnResume: true) { StartWork = async () => { entered.SetResult(); await release.Task; } };
+        FakePlugin plugin = new("test.ir", true)
+        {
+            StartWork = async () =>
+            {
+                entered.SetResult();
+                await release.Task;
+            }
+        };
         var instance = Admit(host, plugin);
         using CancellationTokenSource cancellation = new();
         var start = instance.StartAsync(Deadline, cancellation.Token);
@@ -162,7 +186,7 @@ public sealed class PluginHostTests
     public async Task AnObsoleteModeRevisionCannotReplaceNewerIntent()
     {
         PluginHost host = new(action => action());
-        FakePlugin plugin = new("test.ir", publishReadyOnResume: true);
+        FakePlugin plugin = new("test.ir", true);
         var instance = Admit(host, plugin);
         await instance.StartAsync(Deadline, CancellationToken.None);
         await instance.SessionChangedAsync(PluginSessionMode.Game, 2, Deadline, CancellationToken.None);
@@ -176,11 +200,15 @@ public sealed class PluginHostTests
     {
         PluginHost host = new(action => action());
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        FakePlugin plugin = new("test.ir", publishReadyOnResume: true)
+        FakePlugin plugin = new("test.ir", true)
         {
             ModeWork = async (mode, token) =>
             {
-                if (mode != PluginSessionMode.Game) { return; }
+                if (mode != PluginSessionMode.Game)
+                {
+                    return;
+                }
+
                 entered.SetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, token);
             }

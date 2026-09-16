@@ -7,7 +7,7 @@ public sealed class AppLauncherTests
     [Fact]
     public void LaunchResultIsAnImmutableValueSummary()
     {
-        var result = new AppLauncher.LaunchResult(null, Started: false, ElevationDeclined: true);
+        var result = new AppLauncher.LaunchResult(null, false, true);
 
         Assert.False(result.Started);
         Assert.True(result.ElevationDeclined);
@@ -20,7 +20,9 @@ public sealed class AppLauncherTests
     [InlineData(@"C:\Games\Steam.exe", false)]
     [InlineData("relative.exe", false)]
     public void ProtocolDetectionOnlyAcceptsUrls(string path, bool expected)
-        => Assert.Equal(expected, AppLauncher.IsProtocol(path));
+    {
+        Assert.Equal(expected, AppLauncher.IsProtocol(path));
+    }
 
     [Fact]
     public void SafeDirectoryReturnsTheAbsoluteParentDirectory()
@@ -32,5 +34,7 @@ public sealed class AppLauncherTests
 
     [Fact]
     public void SafeDirectoryHandlesInvalidPathsWithoutThrowing()
-        => Assert.Equal("", AppLauncher.SafeDirectory("\0"));
+    {
+        Assert.Equal("", AppLauncher.SafeDirectory("\0"));
+    }
 }

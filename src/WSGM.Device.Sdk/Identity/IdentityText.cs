@@ -3,23 +3,23 @@ using System;
 namespace WSGM.Device.Sdk.Identity;
 
 /// <summary>
-/// Normalization and comparison for identity strings.
+///     Normalization and comparison for identity strings.
 /// </summary>
 /// <remarks>
-/// Firmware strings are hand-entered by vendors and vary in ways that carry no meaning: trailing
-/// spaces, doubled spaces, and inconsistent casing all appear across revisions of the same board.
-/// Normalizing once, here, keeps every comparison ordinal and keeps a definition from failing to
-/// match its own hardware because a BIOS update added a space.
+///     Firmware strings are hand-entered by vendors and vary in ways that carry no meaning: trailing
+///     spaces, doubled spaces, and inconsistent casing all appear across revisions of the same board.
+///     Normalizing once, here, keeps every comparison ordinal and keeps a definition from failing to
+///     match its own hardware because a BIOS update added a space.
 /// </remarks>
 public static class IdentityText
 {
     /// <summary>
-    /// Returns the comparison form of an identity value: trimmed, with internal whitespace runs
-    /// collapsed to a single space. Returns <see langword="null"/> for null, empty, or
-    /// whitespace-only input, so "absent" and "blank" are the same thing to a matcher.
+    ///     Returns the comparison form of an identity value: trimmed, with internal whitespace runs
+    ///     collapsed to a single space. Returns <see langword="null" /> for null, empty, or
+    ///     whitespace-only input, so "absent" and "blank" are the same thing to a matcher.
     /// </summary>
     /// <param name="value">Raw value as read from the machine or a manifest.</param>
-    /// <returns>The normalized value, or <see langword="null"/> when there is nothing to compare.</returns>
+    /// <returns>The normalized value, or <see langword="null" /> when there is nothing to compare.</returns>
     public static string? Normalize(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -56,11 +56,11 @@ public static class IdentityText
     }
 
     /// <summary>
-    /// Compares two identity values after normalization, ignoring case.
+    ///     Compares two identity values after normalization, ignoring case.
     /// </summary>
     /// <param name="observed">Value read from the machine.</param>
     /// <param name="expected">Value declared by a manifest.</param>
-    /// <returns><see langword="true"/> when both normalize to the same non-null value.</returns>
+    /// <returns><see langword="true" /> when both normalize to the same non-null value.</returns>
     public static bool Matches(string? observed, string? expected)
     {
         var left = Normalize(observed);
@@ -69,7 +69,7 @@ public static class IdentityText
         // Two absent values are not a match. A definition that declares an EC firmware gate must not
         // be satisfied by a machine that reports no EC firmware at all.
         return left is not null
-            && right is not null
-            && string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+               && right is not null
+               && string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
     }
 }

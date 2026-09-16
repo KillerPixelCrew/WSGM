@@ -9,12 +9,21 @@ public sealed class SteamControllerOwnershipAdapterTests
     {
         List<string> calls = [];
         using SteamControllerOwnershipAdapter adapter = new(
-            _ => { calls.Add("release-physical"); return Task.FromResult(true); },
-            _ => { calls.Add("restore-physical"); return Task.FromResult(SteamPhysicalRestoreResult.Restored); },
+            _ =>
+            {
+                calls.Add("release-physical");
+                return Task.FromResult(true);
+            },
+            _ =>
+            {
+                calls.Add("restore-physical");
+                return Task.FromResult(SteamPhysicalRestoreResult.Restored);
+            },
             new Gate(calls));
         Assert.True(await adapter.ReleaseAsync(CancellationToken.None));
         Assert.True(await adapter.RestoreAsync(CancellationToken.None));
-        Assert.Equal(["support", "release-physical", "pass-through", "block-steam", "restore-physical", "end-block"], calls);
+        Assert.Equal(["support", "release-physical", "pass-through", "block-steam", "restore-physical", "end-block"],
+            calls);
     }
 
     [Fact]
@@ -66,7 +75,11 @@ public sealed class SteamControllerOwnershipAdapterTests
         List<string> calls = [];
         using SteamControllerOwnershipAdapter adapter = new(
             _ => Task.FromResult(true),
-            _ => { calls.Add("restore-physical"); return Task.FromResult(SteamPhysicalRestoreResult.Restored); },
+            _ =>
+            {
+                calls.Add("restore-physical");
+                return Task.FromResult(SteamPhysicalRestoreResult.Restored);
+            },
             new Gate(calls), () => false);
         Assert.True(await adapter.RestoreAsync(CancellationToken.None));
         Assert.Equal(["dispose", "restore-physical"], calls);
@@ -102,7 +115,11 @@ public sealed class SteamControllerOwnershipAdapterTests
         var present = 0;
         using SteamControllerOwnershipAdapter adapter = new(
             _ => Task.FromResult(true),
-            _ => { calls.Add("restore-physical"); return Task.FromResult(SteamPhysicalRestoreResult.Restored); },
+            _ =>
+            {
+                calls.Add("restore-physical");
+                return Task.FromResult(SteamPhysicalRestoreResult.Restored);
+            },
             new Gate(calls), physicalIsPresent: _ => Task.FromResult(Volatile.Read(ref present) == 1));
         var restore = adapter.RestoreAsync(CancellationToken.None);
         Assert.False(restore.IsCompleted);
@@ -150,7 +167,11 @@ public sealed class SteamControllerOwnershipAdapterTests
             _ => throw new InvalidOperationException("No physical release in lease-only mode"),
             _ => throw new InvalidOperationException("No physical acquisition in lease-only mode"),
             new Gate(calls), managesPhysical: () => false,
-            captureUi: (active, _) => { calls.Add(active ? "pause-ui" : "resume-ui"); return Task.CompletedTask; });
+            captureUi: (active, _) =>
+            {
+                calls.Add(active ? "pause-ui" : "resume-ui");
+                return Task.CompletedTask;
+            });
         Assert.True(await adapter.ReleaseAsync(CancellationToken.None));
         Assert.True(await adapter.RestoreAsync(CancellationToken.None));
         Assert.Equal(["support", "pause-ui", "pass-through", "block-steam", "end-block", "resume-ui"], calls);
@@ -160,11 +181,38 @@ public sealed class SteamControllerOwnershipAdapterTests
     {
         internal bool Supported { get; init; } = true;
         internal bool RestoreAllowed { get; init; } = true;
-        public bool SupportsPassThrough { get { calls.Add("support"); return Supported; } }
+
+        public bool SupportsPassThrough
+        {
+            get
+            {
+                calls.Add("support");
+                return Supported;
+            }
+        }
+
         public bool OriginalSteamExited => false;
-        public bool BeginPassThrough() { calls.Add("pass-through"); return true; }
-        public bool BeginRestore() { calls.Add("block-steam"); return RestoreAllowed; }
-        public void EndRestore() => calls.Add("end-block");
-        public void Dispose() => calls.Add("dispose");
+
+        public bool BeginPassThrough()
+        {
+            calls.Add("pass-through");
+            return true;
+        }
+
+        public bool BeginRestore()
+        {
+            calls.Add("block-steam");
+            return RestoreAllowed;
+        }
+
+        public void EndRestore()
+        {
+            calls.Add("end-block");
+        }
+
+        public void Dispose()
+        {
+            calls.Add("dispose");
+        }
     }
 }

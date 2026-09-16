@@ -12,6 +12,15 @@ namespace WSGM.UiTests.Visual;
 
 internal static class VisualBaseline
 {
+    /// <summary>The per-channel distance two renders of the same surface may differ by.</summary>
+    /// <remarks>
+    ///     Skia's antialiasing of a rounded card corner lands one or two levels apart between runs of
+    ///     the identical window, which made an exact comparison fail at random on four pixels. Two
+    ///     levels of one channel cannot carry a UI change: text, layout, state and colour all move a
+    ///     pixel much further than that, and every one of them moves many pixels at once.
+    /// </remarks>
+    private const int ChannelTolerance = 2;
+
     internal static void Verify(Window window, string name)
     {
         // Capture resting controls. Focus visuals and caret timing belong to interaction tests.
@@ -20,6 +29,7 @@ internal static class VisualBaseline
         {
             visual.Transitions = null;
         }
+
         window.MouseMove(new Point(-20, -20));
         using var frame = window.CaptureRenderedFrame();
         Assert.NotNull(frame);
@@ -32,11 +42,16 @@ internal static class VisualBaseline
         File.Delete(Path.Combine(artifacts, "diff.png"));
         File.WriteAllBytes(Path.Combine(artifacts, "actual.png"), actual);
         var baseline = Path.Combine(AppContext.BaseDirectory, "Baselines", name + ".png");
-        Assert.True(File.Exists(baseline), $"Missing baseline {name}. Review TestResults/ui/{name}/actual.png and use eng/update-ui-baselines.ps1 -Case {name}.");
+        Assert.True(File.Exists(baseline),
+            $"Missing baseline {name}. Review TestResults/ui/{name}/actual.png and use eng/update-ui-baselines.ps1 -Case {name}.");
         var expected = File.ReadAllBytes(baseline);
         File.WriteAllBytes(Path.Combine(artifacts, "expected.png"), expected);
         var mismatch = Compare(expected, actual, out var diff);
-        if (diff is not null) { File.WriteAllBytes(Path.Combine(artifacts, "diff.png"), diff); }
+        if (diff is not null)
+        {
+            File.WriteAllBytes(Path.Combine(artifacts, "diff.png"), diff);
+        }
+
         Assert.True(mismatch is null, $"{name}: {mismatch}. Images: {artifacts}");
     }
 
@@ -48,8 +63,10 @@ internal static class VisualBaseline
         if (expected.Width != actual.Width || expected.Height != actual.Height)
         {
             diff = actualPng;
-            return $"Dimensions differ: expected {expected.Width}x{expected.Height}, actual {actual.Width}x{actual.Height}";
+            return
+                $"Dimensions differ: expected {expected.Width}x{expected.Height}, actual {actual.Width}x{actual.Height}";
         }
+
         // Decode both through Skia before comparing, so PNG metadata and compression are irrelevant.
         var left = expected.Pixels;
         var right = actual.Pixels;
@@ -58,13 +75,23 @@ internal static class VisualBaseline
         for (var i = 0; i < left.Length; i++)
         {
             var changed = Differs(left[i], right[i]);
-            if (changed) { differences++; }
+            if (changed)
+            {
+                differences++;
+            }
+
             pixels[i * 4] = changed ? (byte)255 : (byte)0;
             pixels[i * 4 + 2] = changed ? (byte)255 : (byte)0;
             pixels[i * 4 + 3] = 255;
         }
-        if (differences == 0) { return null; }
-        using SKBitmap difference = new(new SKImageInfo(expected.Width, expected.Height, SKColorType.Bgra8888, SKAlphaType.Opaque));
+
+        if (differences == 0)
+        {
+            return null;
+        }
+
+        using SKBitmap difference =
+            new(new SKImageInfo(expected.Width, expected.Height, SKColorType.Bgra8888, SKAlphaType.Opaque));
         Marshal.Copy(pixels, 0, difference.GetPixels(), pixels.Length);
         using var image = SKImage.FromBitmap(difference);
         using var encoded = image.Encode(SKEncodedImageFormat.Png, 100);
@@ -72,18 +99,11 @@ internal static class VisualBaseline
         return $"{differences} pixels differ";
     }
 
-    /// <summary>The per-channel distance two renders of the same surface may differ by.</summary>
-    /// <remarks>
-    /// Skia's antialiasing of a rounded card corner lands one or two levels apart between runs of
-    /// the identical window, which made an exact comparison fail at random on four pixels. Two
-    /// levels of one channel cannot carry a UI change: text, layout, state and colour all move a
-    /// pixel much further than that, and every one of them moves many pixels at once.
-    /// </remarks>
-    private const int ChannelTolerance = 2;
-
     private static bool Differs(SKColor left, SKColor right)
-        => left.Alpha != right.Alpha
-            || Math.Abs(left.Red - right.Red) > ChannelTolerance
-            || Math.Abs(left.Green - right.Green) > ChannelTolerance
-            || Math.Abs(left.Blue - right.Blue) > ChannelTolerance;
+    {
+        return left.Alpha != right.Alpha
+               || Math.Abs(left.Red - right.Red) > ChannelTolerance
+               || Math.Abs(left.Green - right.Green) > ChannelTolerance
+               || Math.Abs(left.Blue - right.Blue) > ChannelTolerance;
+    }
 }

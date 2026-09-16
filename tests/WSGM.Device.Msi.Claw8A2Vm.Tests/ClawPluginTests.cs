@@ -168,10 +168,8 @@ public sealed class ClawPluginTests
         // variable-refresh toggle joined it and the three ownership rows became Info
         // (maintainer-directed), so the Device overlay is three sections.
         Assert.Equal(3, descriptors.Sections.Count);
-        Assert.All(descriptors.Sections, section =>
-        {
-            Assert.True(section.TryValidate(out var sectionError), sectionError);
-        });
+        Assert.All(descriptors.Sections,
+            section => { Assert.True(section.TryValidate(out var sectionError), sectionError); });
         Assert.All(
             descriptors.Descriptors,
             descriptor =>
@@ -193,13 +191,13 @@ public sealed class ClawPluginTests
         Assert.True(DevicePowerPreset.TryValidate(descriptors.Descriptors, out var presetError), presetError);
         Assert.Equal([
             new DevicePowerPreset("super-battery", "Super Battery", 8, 9, DevicePowerMode.BetterBattery)
-            { ScenarioOnAc = "eco", ScenarioOnDc = "comfort" },
+                { ScenarioOnAc = "eco", ScenarioOnDc = "comfort" },
             new DevicePowerPreset("balanced", "Balanced", 17, 18, DevicePowerMode.Balanced)
-            { ScenarioOnAc = "green", ScenarioOnDc = "comfort" },
+                { ScenarioOnAc = "green", ScenarioOnDc = "comfort" },
             new DevicePowerPreset("extreme-performance", "Extreme Performance", 30, 31, DevicePowerMode.BestPerformance)
-            { ScenarioOnAc = "sport", ScenarioOnDc = "comfort" },
+                { ScenarioOnAc = "sport", ScenarioOnDc = "comfort" },
             new DevicePowerPreset("full-power", "Full Power", 37, 37, DevicePowerMode.BestPerformance)
-            { ScenarioOnAc = "sport", ScenarioOnDc = "comfort" }
+                { ScenarioOnAc = "sport", ScenarioOnDc = "comfort" }
         ], sustained.PowerPresets);
         Assert.Contains(descriptors.Descriptors, descriptor =>
             descriptor is
@@ -212,7 +210,8 @@ public sealed class ClawPluginTests
             descriptor is { CapabilityId: CapabilityIds.LightingColor, InstanceId: CapabilityInstances.Buttons });
         Assert.Equal(descriptors.Descriptors.Count, host.CapabilityStates.Count);
         Assert.Contains(host.CapabilityStates, capability =>
-            capability is { CapabilityId: CapabilityIds.PowerSustained, Available: true, ObservedValue.IntegerValue: 30 });
+            capability is
+                { CapabilityId: CapabilityIds.PowerSustained, Available: true, ObservedValue.IntegerValue: 30 });
         Assert.Contains(host.CapabilityStates, capability =>
             capability is { CapabilityId: CapabilityIds.ChargeLimit, Available: true, ObservedValue.IntegerValue: 80 });
         Assert.Contains(host.CapabilityStates, capability =>
@@ -331,7 +330,7 @@ public sealed class ClawPluginTests
         _ = await plugin.StartAsync(StartContext(host, state.Root), CancellationToken.None);
         var command = Command(
             CapabilityIds.PowerSustained,
-            instanceId: null,
+            null,
             CapabilityValue.Integer(25));
 
         var result = await plugin.ExecuteCommandAsync(command, CancellationToken.None);
@@ -340,8 +339,8 @@ public sealed class ClawPluginTests
         Assert.Equal(25, result.ReadbackValue?.IntegerValue);
         Assert.Equal(25, wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress));
         await using (var pending = await ClawRecoveryJournal.OpenAsync(
-            state.Root,
-            CancellationToken.None))
+                         state.Root,
+                         CancellationToken.None))
         {
             var entry = Assert.Single(pending.OutstandingEntries);
             Assert.Equal(ServiceIds.Power, entry.ServiceId);
@@ -362,7 +361,7 @@ public sealed class ClawPluginTests
             [25, 30],
             wmi.Writes
                 .Where(write => write.Method == "Set_Data"
-                    && write.Package[0] == ClawHardwareFacts.PowerSustainedAddress)
+                                && write.Package[0] == ClawHardwareFacts.PowerSustainedAddress)
                 .Select(write => BinaryPrimitives.ReadInt32LittleEndian(write.Package.AsSpan(1, sizeof(int)))));
         await using var completed = await ClawRecoveryJournal.OpenAsync(
             state.Root,
@@ -387,19 +386,23 @@ public sealed class ClawPluginTests
             {
                 return;
             }
+
             wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, 8);
             wmi.SetData(ClawHardwareFacts.PowerBoostAddress, 9);
         };
         await using Claw8A2VmPlugin plugin = new(CreateServices(wmi));
         TestPluginHostAdapter host = new(CycleGeneration);
         await plugin.StartAsync(StartContext(host, state.Root), CancellationToken.None);
-        Assert.Equal("inactive", host.CapabilityStates.Last(s => s.CapabilityId == CapabilityIds.Scenario).ObservedValue?.ChoiceValue);
+        Assert.Equal("inactive",
+            host.CapabilityStates.Last(s => s.CapabilityId == CapabilityIds.Scenario).ObservedValue?.ChoiceValue);
         var result = await plugin.ExecuteCommandAsync(Command(CapabilityIds.Scenario, null,
             CapabilityValue.Choice(scenario)), CancellationToken.None);
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
         Assert.Equal(expected, wmi.ReadData(ClawHardwareFacts.ScenarioAddress));
         Assert.Equal(scenario, result.ReadbackValue?.ChoiceValue);
-        Assert.Equal(8, host.CapabilityStates.Last(s => s.CapabilityId == CapabilityIds.PowerSustained).ObservedValue?.IntegerValue);
+        Assert.Equal(8,
+            host.CapabilityStates.Last(s => s.CapabilityId == CapabilityIds.PowerSustained).ObservedValue
+                ?.IntegerValue);
         var stop = await plugin.StopAsync(new PluginStopContext(PluginStopReason.IntegrationDisabled,
             DateTimeOffset.UtcNow.AddSeconds(10)), CancellationToken.None);
         Assert.Equal(PluginStopStatus.Clean, stop.Status);
@@ -422,25 +425,39 @@ public sealed class ClawPluginTests
         wmi.AfterSetter = (method, package) =>
         {
             if (method == "Set_Data" && package[0] == ClawHardwareFacts.ScenarioAddress && package[1] == 0xC4)
-            { host.CapabilityPublicationBlock = blocked; }
+            {
+                host.CapabilityPublicationBlock = blocked;
+            }
         };
         var command = Command(CapabilityIds.Scenario, null,
-            CapabilityValue.Choice("sport")) with
-        { Deadline = DateTimeOffset.UtcNow.AddSeconds(10) };
+                CapabilityValue.Choice("sport")) with
+            {
+                Deadline = DateTimeOffset.UtcNow.AddSeconds(10)
+            };
         var applying = plugin.ExecuteCommandAsync(command, CancellationToken.None).AsTask();
         try
         {
             await host.CapabilityPublicationEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             host.CapabilityPublicationBlock = null;
-            var stopping = stop ? plugin.StopAsync(new PluginStopContext(
-                PluginStopReason.IntegrationDisabled, DateTimeOffset.UtcNow.AddSeconds(5)), CancellationToken.None).AsTask() : null;
+            var stopping = stop
+                ? plugin.StopAsync(new PluginStopContext(
+                            PluginStopReason.IntegrationDisabled, DateTimeOffset.UtcNow.AddSeconds(5)),
+                        CancellationToken.None)
+                    .AsTask()
+                : null;
             var result = await applying.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.Equal(CommandOutcome.Indeterminate, result.Outcome);
             Assert.Null(result.ReadbackValue);
             Assert.Equal(RollbackResult.NotRequired, result.Rollback);
-            if (stopping is not null) { Assert.Equal(PluginStopStatus.Clean, (await stopping).Status); }
+            if (stopping is not null)
+            {
+                Assert.Equal(PluginStopStatus.Clean, (await stopping).Status);
+            }
         }
-        finally { blocked.TrySetResult(); }
+        finally
+        {
+            blocked.TrySetResult();
+        }
     }
 
     [Fact]
@@ -453,7 +470,7 @@ public sealed class ClawPluginTests
         _ = await plugin.StartAsync(StartContext(host, state.Root), CancellationToken.None);
         var command = Command(
             CapabilityIds.ChargeLimit,
-            instanceId: null,
+            null,
             CapabilityValue.Integer(60));
 
         var result = await plugin.ExecuteCommandAsync(command, CancellationToken.None);
@@ -483,7 +500,7 @@ public sealed class ClawPluginTests
         wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, 28);
         var command = Command(
             CapabilityIds.PowerSustained,
-            instanceId: null,
+            null,
             CapabilityValue.Integer(25));
 
         var result = await plugin.ExecuteCommandAsync(command, CancellationToken.None);
@@ -571,8 +588,8 @@ public sealed class ClawPluginTests
     {
         using TemporaryDirectory state = new();
         await using (var journal = await ClawRecoveryJournal.OpenAsync(
-            state.Root,
-            CancellationToken.None))
+                         state.Root,
+                         CancellationToken.None))
         {
             var operation = await journal.BeginAsync(
                 ServiceIds.Power,
@@ -608,8 +625,8 @@ public sealed class ClawPluginTests
     {
         using TemporaryDirectory state = new();
         await using (var journal = await ClawRecoveryJournal.OpenAsync(
-            state.Root,
-            CancellationToken.None))
+                         state.Root,
+                         CancellationToken.None))
         {
             _ = await journal.BeginAsync(
                 ServiceIds.Power,
@@ -628,7 +645,8 @@ public sealed class ClawPluginTests
 
         Assert.Equal(30, wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress));
         Assert.Contains(host.CapabilityStates, capability =>
-            capability is { CapabilityId: CapabilityIds.PowerSustained, Available: true, ObservedValue.IntegerValue: 30 });
+            capability is
+                { CapabilityId: CapabilityIds.PowerSustained, Available: true, ObservedValue.IntegerValue: 30 });
         await using var reconciled = await ClawRecoveryJournal.OpenAsync(
             state.Root,
             CancellationToken.None);
@@ -640,8 +658,8 @@ public sealed class ClawPluginTests
     {
         using TemporaryDirectory state = new();
         await using (var journal = await ClawRecoveryJournal.OpenAsync(
-            state.Root,
-            CancellationToken.None))
+                         state.Root,
+                         CancellationToken.None))
         {
             _ = await journal.BeginAsync(
                 ServiceIds.Power,
@@ -693,21 +711,27 @@ public sealed class ClawPluginTests
         }
     }
 
-    private static string[] ServiceOrder(Claw8A2VmPlugin plugin, string field) =>
-    [
-        .. Assert.IsType<IEnumerable<ClawServiceStatus>>(typeof(Claw8A2VmPlugin)
-            .GetField(field, BindingFlags.NonPublic | BindingFlags.Instance)!
-            .GetValue(plugin), exactMatch: false).Select(service => service.ServiceId)
-    ];
-
-    private static PluginStartContext StartContext(IPluginHostAdapter host, string stateDirectory) => new()
+    private static string[] ServiceOrder(Claw8A2VmPlugin plugin, string field)
     {
-        Host = host,
-        CycleGeneration = host.CycleGeneration,
-        DeviceDefinitionId = ClawHardwareFacts.DeviceDefinitionId,
-        StateDirectory = stateDirectory,
-        ControllerManagementEnabled = false
-    };
+        return
+        [
+            .. Assert.IsType<IEnumerable<ClawServiceStatus>>(typeof(Claw8A2VmPlugin)
+                .GetField(field, BindingFlags.NonPublic | BindingFlags.Instance)!
+                .GetValue(plugin), false).Select(service => service.ServiceId)
+        ];
+    }
+
+    private static PluginStartContext StartContext(IPluginHostAdapter host, string stateDirectory)
+    {
+        return new PluginStartContext
+        {
+            Host = host,
+            CycleGeneration = host.CycleGeneration,
+            DeviceDefinitionId = ClawHardwareFacts.DeviceDefinitionId,
+            StateDirectory = stateDirectory,
+            ControllerManagementEnabled = false
+        };
+    }
 
     private static ClawHardwareServices CreateServices(
         FakeWmiTransport? wmi = null,
@@ -715,7 +739,9 @@ public sealed class ClawPluginTests
         FakeMcuTransport? mcu = null,
         FakeControllerSource? controller = null,
         FakeMotionSource? motion = null,
-        FakeChordSuppressor? chordSuppressor = null) => new(
+        FakeChordSuppressor? chordSuppressor = null)
+    {
+        return new ClawHardwareServices(
             new FakeIdentityReader(),
             wmi ?? new FakeWmiTransport(),
             oemEvents ?? new FakeOemEventSource(),
@@ -724,37 +750,44 @@ public sealed class ClawPluginTests
             motion ?? new FakeMotionSource(),
             chordSuppressor ?? new FakeChordSuppressor(),
             new ClawOemButtonLatch());
+    }
 
-    private static DeviceIdentitySnapshot ExactIdentity() => new()
+    private static DeviceIdentitySnapshot ExactIdentity()
     {
-        SystemManufacturer = ClawHardwareFacts.Manufacturer,
-        BaseboardProduct = ClawHardwareFacts.BoardProduct,
-        SystemSku = ClawHardwareFacts.SystemSku,
-        UsbEndpoints =
-        [
-            new UsbEndpointObservation
-            {
-                VendorId = ClawHardwareFacts.UsbVendorId,
-                ProductId = ClawHardwareFacts.XInputProductId,
-                DeviceRelease = ClawHardwareFacts.McuFirmware
-            }
-        ]
-    };
+        return new DeviceIdentitySnapshot
+        {
+            SystemManufacturer = ClawHardwareFacts.Manufacturer,
+            BaseboardProduct = ClawHardwareFacts.BoardProduct,
+            SystemSku = ClawHardwareFacts.SystemSku,
+            UsbEndpoints =
+            [
+                new UsbEndpointObservation
+                {
+                    VendorId = ClawHardwareFacts.UsbVendorId,
+                    ProductId = ClawHardwareFacts.XInputProductId,
+                    DeviceRelease = ClawHardwareFacts.McuFirmware
+                }
+            ]
+        };
+    }
 
-    private static ControllerTopology DirectInputTopology() => new(
-        ClawControllerMode.DirectInput,
-        ClawHardwareFacts.DirectInputProductId,
-        "PCIROOT(0)#USBROOT(0)#USB(2)",
-        [
-            new PhysicalDeviceIdentity
-            {
-                InstancePath = @"HID\VID_0DB0&PID_1902\TEST",
-                LocationPath = "PCIROOT(0)#USBROOT(0)#USB(2)",
-                VendorId = ClawHardwareFacts.UsbVendorId,
-                ProductId = ClawHardwareFacts.DirectInputProductId,
-                RequiresHiding = true
-            }
-        ]);
+    private static ControllerTopology DirectInputTopology()
+    {
+        return new ControllerTopology(
+            ClawControllerMode.DirectInput,
+            ClawHardwareFacts.DirectInputProductId,
+            "PCIROOT(0)#USBROOT(0)#USB(2)",
+            [
+                new PhysicalDeviceIdentity
+                {
+                    InstancePath = @"HID\VID_0DB0&PID_1902\TEST",
+                    LocationPath = "PCIROOT(0)#USBROOT(0)#USB(2)",
+                    VendorId = ClawHardwareFacts.UsbVendorId,
+                    ProductId = ClawHardwareFacts.DirectInputProductId,
+                    RequiresHiding = true
+                }
+            ]);
+    }
 
     [Theory]
     [InlineData(false)]
@@ -762,7 +795,8 @@ public sealed class ClawPluginTests
     public async Task AcPowerFailureKeepsTheDeviceAvailableWithAConservativePowerSource(bool comFailure)
     {
         var reader = Reader(() => throw (comFailure
-            ? new COMException("test failure") : new UnauthorizedAccessException("test refusal")));
+            ? new COMException("test failure")
+            : new UnauthorizedAccessException("test refusal")));
 
         var identity = await reader.ReadAsync(CancellationToken.None);
 
@@ -789,7 +823,8 @@ public sealed class ClawPluginTests
             var read = reader.ReadAsync(cancellation.Token).AsTask();
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(2), CancellationToken.None);
             await cancellation.CancelAsync();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => read.WaitAsync(TimeSpan.FromSeconds(2), CancellationToken.None));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                read.WaitAsync(TimeSpan.FromSeconds(2), CancellationToken.None));
         }
         finally
         {

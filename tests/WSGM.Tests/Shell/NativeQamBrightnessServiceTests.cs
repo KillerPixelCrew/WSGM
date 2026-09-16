@@ -10,7 +10,8 @@ public sealed class NativeQamBrightnessServiceTests
         int? brightness = 42;
         var changes = 0;
         using NativeQamBrightnessService service = new(() => true, () => { },
-            () => brightness, _ => throw new InvalidOperationException("Readback must not write."), Timeout.InfiniteTimeSpan);
+            () => brightness, _ => throw new InvalidOperationException("Readback must not write."),
+            Timeout.InfiniteTimeSpan);
         service.Changed += () => changes++;
         await service.ReadAsync();
         Assert.Equal(42, service.Current!.Percent);
@@ -44,6 +45,7 @@ public sealed class NativeQamBrightnessServiceTests
                     entered.SetResult();
                     Assert.True(release.Wait(TimeSpan.FromSeconds(5)));
                 }
+
                 writes.Add(value);
                 brightness = value;
                 return true;
@@ -64,7 +66,12 @@ public sealed class NativeQamBrightnessServiceTests
         var writes = 0;
         var publications = 0;
         using NativeQamBrightnessService service = new(() => true, () => publications++,
-            () => brightness, value => { brightness = value; writes++; return true; }, Timeout.InfiniteTimeSpan);
+            () => brightness, value =>
+            {
+                brightness = value;
+                writes++;
+                return true;
+            }, Timeout.InfiniteTimeSpan);
         var before = await service.ReadAsync();
         var result = await service.SetBrightnessAsync(31, CancellationToken.None);
 
@@ -86,7 +93,11 @@ public sealed class NativeQamBrightnessServiceTests
     {
         var writes = 0;
         using NativeQamBrightnessService service = new(() => true, () => { },
-            () => readback, _ => { writes++; return true; }, Timeout.InfiniteTimeSpan);
+            () => readback, _ =>
+            {
+                writes++;
+                return true;
+            }, Timeout.InfiniteTimeSpan);
 
         var result = await service.SetBrightnessAsync(31, CancellationToken.None);
 
@@ -110,7 +121,11 @@ public sealed class NativeQamBrightnessServiceTests
         var active = true;
         var writes = 0;
         using NativeQamBrightnessService service = new(() => active, () => { },
-            () => 31, _ => { writes++; return true; }, Timeout.InfiniteTimeSpan);
+            () => 31, _ =>
+            {
+                writes++;
+                return true;
+            }, Timeout.InfiniteTimeSpan);
         using CancellationTokenSource canceled = new();
         await canceled.CancelAsync();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.SetBrightnessAsync(31, canceled.Token));

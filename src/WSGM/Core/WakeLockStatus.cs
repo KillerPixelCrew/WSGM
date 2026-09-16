@@ -5,11 +5,13 @@ using WindowsDeviceControl;
 
 namespace WSGM.Core;
 
-/// <summary>The WakeWatch color vocabulary for the system-wide wake-lock state
-/// (maintainer's WakeWatch project, reused deliberately so both tools read the
-/// same): grey = unknown, green = free, yellow = standby blocked, red = display
-/// pinned on. Only DISPLAY drives red and SYSTEM/AWAYMODE drive yellow; EXECUTION
-/// and friends deliberately do not affect the state.</summary>
+/// <summary>
+///     The WakeWatch color vocabulary for the system-wide wake-lock state
+///     (maintainer's WakeWatch project, reused deliberately so both tools read the
+///     same): grey = unknown, green = free, yellow = standby blocked, red = display
+///     pinned on. Only DISPLAY drives red and SYSTEM/AWAYMODE drive yellow; EXECUTION
+///     and friends deliberately do not affect the state.
+/// </summary>
 public enum WakeLockState
 {
     /// <summary>No trustworthy answer (unelevated, or an unrecognized layout).</summary>
@@ -25,8 +27,10 @@ public enum WakeLockState
     DisplayHeld
 }
 
-/// <summary>The quick-access Keep Awake cycle: off → block standby → block standby
-/// and keep the display on → off.</summary>
+/// <summary>
+///     The quick-access Keep Awake cycle: off → block standby → block standby
+///     and keep the display on → off.
+/// </summary>
 public enum ManualWakeMode
 {
     /// <summary>No manual hold.</summary>
@@ -39,16 +43,20 @@ public enum ManualWakeMode
     StandbyAndDisplay
 }
 
-/// <summary>Pure mapping from a power-request snapshot to the indicator state and
-/// a compact holder summary for the quick-access row.</summary>
+/// <summary>
+///     Pure mapping from a power-request snapshot to the indicator state and
+///     a compact holder summary for the quick-access row.
+/// </summary>
 public static class WakeLockStatus
 {
     private const int MaxNamedHolders = 3;
 
-    /// <summary>Computes the indicator state and a holder summary such as
-    /// "Standby blocked by steam.exe ×3, chrome.exe". WSGM's own requests count
-    /// toward the state (the color must reflect reality) but are excluded from the
-    /// summary — the row's own description already explains WSGM's holds.</summary>
+    /// <summary>
+    ///     Computes the indicator state and a holder summary such as
+    ///     "Standby blocked by steam.exe ×3, chrome.exe". WSGM's own requests count
+    ///     toward the state (the color must reflect reality) but are excluded from the
+    ///     summary — the row's own description already explains WSGM's holds.
+    /// </summary>
     /// <param name="entries">The decoded request list; null = unknown.</param>
     /// <param name="selfPid">WSGM's own process id, excluded from the summary.</param>
     public static (WakeLockState State, string Summary) Compute(
@@ -58,16 +66,18 @@ public static class WakeLockStatus
         {
             return (WakeLockState.Unknown, "");
         }
+
         var display = entries.Any(e => e.HoldsDisplay);
         var system = entries.Any(e => e.HoldsSystem || e.HoldsAwayMode);
         if (!display && !system)
         {
             return (WakeLockState.Free, "");
         }
+
         var state = display ? WakeLockState.DisplayHeld : WakeLockState.SystemHeld;
         var holders = entries
             .Where(e => (display ? e.HoldsDisplay : e.HoldsSystem || e.HoldsAwayMode)
-                && e.Pid != selfPid)
+                        && e.Pid != selfPid)
             .Select(HolderName)
             .GroupBy(name => name, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.Count() > 1 ? $"{group.Key} ×{group.Count()}" : group.Key)
@@ -76,16 +86,20 @@ public static class WakeLockStatus
         {
             return (state, "");
         }
+
         var listed = string.Join(", ", holders.Take(MaxNamedHolders));
         if (holders.Count > MaxNamedHolders)
         {
             listed += $" +{holders.Count - MaxNamedHolders} more";
         }
+
         return (state, (display ? "Screen held on by " : "Standby blocked by ") + listed);
     }
 
-    /// <summary>Shortens an NT-device-form image path to its file name; kernel
-    /// requesters without a name become "(kernel)".</summary>
+    /// <summary>
+    ///     Shortens an NT-device-form image path to its file name; kernel
+    ///     requesters without a name become "(kernel)".
+    /// </summary>
     internal static string HolderName(PowerRequestEntry entry)
     {
         var name = entry.Name;
@@ -94,6 +108,7 @@ public static class WakeLockStatus
         {
             name = name[(cut + 1)..];
         }
+
         return name.Length > 0 ? name : "(kernel)";
     }
 }
@@ -110,21 +125,26 @@ public sealed record WakeLockHolder(string Label, string Detail, string? Reason,
 /// <param name="Holders">Deduplicated requesters, most numerous first.</param>
 public sealed record WakeLockHolderGroup(string Title, IReadOnlyList<WakeLockHolder> Holders);
 
-/// <summary>Groups a power-request snapshot into the per-lock holder list shown by the
-/// quick-access Power tab. Mirrors the maintainer's WakeWatch aggregation deliberately
-/// (same tool, same vocabulary): dedupe on the identity a user perceives, so Steam's
-/// thirty identical standby requests read as <c>steam.exe ×30</c> rather than thirty
-/// rows.
-///
-/// <para>Unlike <see cref="WakeLockStatus.Compute"/> this does NOT hide WSGM's own
-/// requests: the summary line omits them because the row above already explains
-/// WSGM's holds, but a user opening the full list is asking what is holding the
-/// device awake and WSGM's own keep-awake hold is part of that answer.</para></summary>
+/// <summary>
+///     Groups a power-request snapshot into the per-lock holder list shown by the
+///     quick-access Power tab. Mirrors the maintainer's WakeWatch aggregation deliberately
+///     (same tool, same vocabulary): dedupe on the identity a user perceives, so Steam's
+///     thirty identical standby requests read as <c>steam.exe ×30</c> rather than thirty
+///     rows.
+///     <para>
+///         Unlike <see cref="WakeLockStatus.Compute" /> this does NOT hide WSGM's own
+///         requests: the summary line omits them because the row above already explains
+///         WSGM's holds, but a user opening the full list is asking what is holding the
+///         device awake and WSGM's own keep-awake hold is part of that answer.
+///     </para>
+/// </summary>
 public static class WakeLockHolders
 {
-    /// <summary>Builds the grouped holder list. Returns an empty list when the
-    /// snapshot is unknown (unelevated or an unrecognized layout) — callers must
-    /// distinguish that from "nothing holds a lock" using the null entries.</summary>
+    /// <summary>
+    ///     Builds the grouped holder list. Returns an empty list when the
+    ///     snapshot is unknown (unelevated or an unrecognized layout) — callers must
+    ///     distinguish that from "nothing holds a lock" using the null entries.
+    /// </summary>
     /// <param name="entries">The decoded request list; null = unknown.</param>
     public static IReadOnlyList<WakeLockHolderGroup> Build(IReadOnlyList<PowerRequestEntry>? entries)
     {
@@ -132,6 +152,7 @@ public static class WakeLockHolders
         {
             return [];
         }
+
         var groups = new List<WakeLockHolderGroup>();
         AddGroup(groups, "Screen kept on", entries.Where(e => e.HoldsDisplay));
         AddGroup(groups, "Standby blocked", entries.Where(e => e.HoldsSystem));
@@ -160,18 +181,22 @@ public static class WakeLockHolders
                 holders.Add(new WakeLockHolder(label, detail, reason, 1));
             }
         }
+
         if (holders.Count == 0)
         {
             return;
         }
+
         holders.Sort((a, b) => b.Count.CompareTo(a.Count) is var c && c != 0
             ? c
             : string.Compare(a.Label, b.Label, StringComparison.OrdinalIgnoreCase));
         groups.Add(new WakeLockHolderGroup(title, holders));
     }
 
-    /// <summary>Formats the secondary line: caller kind, pid, and the full requester
-    /// name as the kernel reported it.</summary>
+    /// <summary>
+    ///     Formats the secondary line: caller kind, pid, and the full requester
+    ///     name as the kernel reported it.
+    /// </summary>
     /// <param name="entry">The request to describe.</param>
     internal static string Describe(PowerRequestEntry entry)
     {
@@ -180,6 +205,7 @@ public static class WakeLockHolders
         {
             return entry.Name.Length > 0 ? $"Driver: {entry.Name}" : "Kernel driver";
         }
+
         var kind = entry.CallerType == 2 ? "Service" : "Process";
         var name = entry.Name.Length > 0 ? entry.Name : "(unknown)";
         return entry.Pid is { } pid ? $"{kind} (pid {pid}): {name}" : $"{kind}: {name}";

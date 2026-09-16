@@ -7,8 +7,10 @@ public sealed class CurveEditingTests
 {
     private static readonly CurveBounds Fan = new(0, 100, 0, 100);
 
-    private static CurvePoint[] Curve(params (int Input, int Output)[] points) =>
-        [.. points.Select(point => new CurvePoint(point.Input, point.Output))];
+    private static CurvePoint[] Curve(params (int Input, int Output)[] points)
+    {
+        return [.. points.Select(point => new CurvePoint(point.Input, point.Output))];
+    }
 
     /// Test-local restatement of the contract the device router validates on apply
     /// (1..64 points, inputs strictly ascending, everything inside the bounds), so
@@ -45,9 +47,9 @@ public sealed class CurveEditingTests
         // the curve snapping away.
         var curve = CurveEditing.Move(
             Curve((0, 0), (40, 40), (60, 60), (100, 100)),
-            index: 1,
-            input: 95,
-            output: 50,
+            1,
+            95,
+            50,
             Fan);
 
         Assert.Equal(59, curve[1].Input);
@@ -60,9 +62,9 @@ public sealed class CurveEditingTests
         // A fan curve that no longer reaches its highest temperature has an undefined answer there.
         var curve = CurveEditing.Move(
             Curve((0, 0), (50, 50), (100, 100)),
-            index: 2,
-            input: 70,
-            output: 80,
+            2,
+            70,
+            80,
             Fan);
 
         Assert.Equal(100, curve[2].Input);
@@ -74,9 +76,9 @@ public sealed class CurveEditingTests
     {
         var curve = CurveEditing.Move(
             Curve((0, 0), (50, 50), (100, 100)),
-            index: 1,
-            input: 50,
-            output: 400,
+            1,
+            50,
+            400,
             Fan);
 
         Assert.Equal(100, curve[1].Output);
@@ -87,8 +89,8 @@ public sealed class CurveEditingTests
     {
         var curve = CurveEditing.Add(
             Curve((0, 0), (50, 50), (100, 100)),
-            input: 50,
-            output: 70,
+            50,
+            70,
             Fan);
 
         Assert.Equal(3, curve.Count);
@@ -101,8 +103,8 @@ public sealed class CurveEditingTests
     {
         var curve = CurveEditing.Add(
             Curve((0, 0), (100, 100)),
-            input: 30,
-            output: 25,
+            30,
+            25,
             Fan);
 
         Assert.Equal(Curve((0, 0), (30, 25), (100, 100)), curve);
@@ -111,10 +113,13 @@ public sealed class CurveEditingTests
     [Fact]
     public void AFullCurveRefusesANewPointRatherThanDroppingAnExistingOne()
     {
-        CurvePoint[] full = [.. Enumerable.Range(0, CurveEditing.MaximumPoints)
-            .Select(index => new CurvePoint(index, index))];
+        CurvePoint[] full =
+        [
+            .. Enumerable.Range(0, CurveEditing.MaximumPoints)
+                .Select(index => new CurvePoint(index, index))
+        ];
 
-        var curve = CurveEditing.Add(full, input: 90, output: 90, Fan);
+        var curve = CurveEditing.Add(full, 90, 90, Fan);
 
         Assert.Equal(CurveEditing.MaximumPoints, curve.Count);
         Assert.True(SatisfiesRouterContract(curve, Fan));

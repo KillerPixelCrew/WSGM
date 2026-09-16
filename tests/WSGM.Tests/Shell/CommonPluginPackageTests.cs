@@ -17,9 +17,9 @@ public sealed class CommonPluginPackageTests
         var assembly = typeof(IrPlugin).Assembly.Location;
         File.Copy(assembly, Path.Combine(root, "WSGM.Plugin.Ir.dll"));
         await File.WriteAllTextAsync(Path.Combine(root, "plugin.wsgm.json"), """
-            {"id":"wsgm.ir","name":"IR Blaster","version":"0.1.0","category":"wsgm.infrared",
-             "entryAssembly":"WSGM.Plugin.Ir.dll","entryType":"WSGM.Plugin.Ir.IrPlugin"}
-            """);
+                                                                             {"id":"wsgm.ir","name":"IR Blaster","version":"0.1.0","category":"wsgm.infrared",
+                                                                              "entryAssembly":"WSGM.Plugin.Ir.dll","entryType":"WSGM.Plugin.Ir.IrPlugin"}
+                                                                             """);
         var manifest = CommonPluginPackage.ReadManifest(root);
         var package = await CommonPluginPackage.LoadAsync(root, manifest, CancellationToken.None);
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
@@ -29,7 +29,8 @@ public sealed class CommonPluginPackageTests
         Directory.CreateDirectory(irState);
         var device = host.Admit(new CommonPluginFixture(), new PluginInstanceIdentity("test.common-fixture", "device"),
             PluginCategories.Device, PluginCategoryPolicy.Device, true, 1, deviceState);
-        var ir = host.Admit(package, new PluginInstanceIdentity(package.Id, "one"), manifest.Category, PluginCategoryPolicy.Multiple, false, 1, irState);
+        var ir = host.Admit(package, new PluginInstanceIdentity(package.Id, "one"), manifest.Category,
+            PluginCategoryPolicy.Multiple, false, 1, irState);
         var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
         await device.StartAsync(deadline, CancellationToken.None);
         await ir.StartAsync(deadline, CancellationToken.None);
@@ -58,21 +59,25 @@ public sealed class CommonPluginPackageTests
         var name = Path.GetFileName(assembly);
         File.Copy(assembly, Path.Combine(root, name));
         await File.WriteAllTextAsync(Path.Combine(root, "plugin.wsgm.json"), $$"""
-            {"id":"test.common-fixture","name":"Fixture","version":"1.0.0","category":"example.status",
-             "entryAssembly":"{{name}}","entryType":"WSGM.Tests.Fakes.CommonPluginFixture"}
-            """);
+                                                                               {"id":"test.common-fixture","name":"Fixture","version":"1.0.0","category":"example.status",
+                                                                                "entryAssembly":"{{name}}","entryType":"WSGM.Tests.Fakes.CommonPluginFixture"}
+                                                                               """);
         var manifest = CommonPluginPackage.ReadManifest(root);
         var package = await CommonPluginPackage.LoadAsync(root, manifest, CancellationToken.None);
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         var state = temporary.GetPath("state");
         Directory.CreateDirectory(state);
-        var registration = host.Admit(package, new PluginInstanceIdentity(package.Id, "one"), manifest.Category, PluginCategoryPolicy.Multiple, false, 1, state);
+        var registration = host.Admit(package, new PluginInstanceIdentity(package.Id, "one"), manifest.Category,
+            PluginCategoryPolicy.Multiple, false, 1, state);
         var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
         await registration.StartAsync(deadline, CancellationToken.None);
-        Assert.True(host.StateSnapshot(registration.Identity).Single(value => value.Key == "collectible").Value.Boolean);
-        await registration.ConfigureAsync(0, new Dictionary<string, PluginValue> { ["label"] = new(Text: "hello") }, deadline, CancellationToken.None);
+        Assert.True(host.StateSnapshot(registration.Identity).Single(value => value.Key == "collectible").Value
+            .Boolean);
+        await registration.ConfigureAsync(0, new Dictionary<string, PluginValue> { ["label"] = new(Text: "hello") },
+            deadline, CancellationToken.None);
         await host.SetModeAsync(PluginSessionMode.Game, deadline, CancellationToken.None);
-        var result = await host.InvokeActionAsync(registration.Identity, 1, "record", new Dictionary<string, PluginValue>(),
+        var result = await host.InvokeActionAsync(registration.Identity, 1, "record",
+            new Dictionary<string, PluginValue>(),
             PluginActionOrigin.SessionAutomation, deadline, CancellationToken.None);
         Assert.Equal(PluginActionOutcome.AppliedVerified, result.Outcome);
         Assert.Equal("hello:Game", await File.ReadAllTextAsync(Path.Combine(state, "action.txt")));
@@ -93,9 +98,9 @@ public sealed class CommonPluginPackageTests
         await File.WriteAllTextAsync(path, new string(' ', PluginManifestReader.MaximumBytes + 1));
         Assert.Throws<InvalidDataException>(() => CommonPluginPackage.ReadManifest(root));
         await File.WriteAllTextAsync(path, """
-            {"id":"test.fixture","name":"Fixture","version":"1.0","category":"wsgm.device",
-             "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin"}
-            """);
+                                           {"id":"test.fixture","name":"Fixture","version":"1.0","category":"wsgm.device",
+                                            "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin"}
+                                           """);
         Assert.Throws<InvalidDataException>(() => CommonPluginPackage.ReadManifest(root));
     }
 }

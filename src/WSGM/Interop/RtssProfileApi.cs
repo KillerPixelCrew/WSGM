@@ -9,12 +9,12 @@ internal sealed unsafe partial class RtssProfileApi : IDisposable
 {
     private const uint LoadLibrarySearchDllLoadDirectory = 0x00000100;
     private const uint LoadLibrarySearchSystem32 = 0x00000800;
-    private nint _module;
+    private readonly delegate* unmanaged[Cdecl]<nint, nint, uint, int> _getProfileProperty;
     private readonly delegate* unmanaged[Cdecl]<nint, void> _loadProfile;
     private readonly delegate* unmanaged[Cdecl]<nint, void> _saveProfile;
-    private readonly delegate* unmanaged[Cdecl]<nint, nint, uint, int> _getProfileProperty;
     private readonly delegate* unmanaged[Cdecl]<nint, nint, uint, int> _setProfileProperty;
     private readonly delegate* unmanaged[Cdecl]<void> _updateProfiles;
+    private nint _module;
 
     internal RtssProfileApi(string libraryPath)
     {
@@ -29,6 +29,7 @@ internal sealed unsafe partial class RtssProfileApi : IDisposable
                 Marshal.GetLastPInvokeError(),
                 "The verified RTSS profile API could not be loaded.");
         }
+
         try
         {
             _loadProfile = (delegate* unmanaged[Cdecl]<nint, void>)GetExport("LoadProfile");
@@ -47,9 +48,26 @@ internal sealed unsafe partial class RtssProfileApi : IDisposable
         }
     }
 
-    internal void LoadProfile(string profile) => InvokeString(_loadProfile, profile);
+    public void Dispose()
+    {
+        if (_module == 0)
+        {
+            return;
+        }
 
-    internal void SaveProfile(string profile) => InvokeString(_saveProfile, profile);
+        FreeLibrary(_module);
+        _module = 0;
+    }
+
+    internal void LoadProfile(string profile)
+    {
+        InvokeString(_loadProfile, profile);
+    }
+
+    internal void SaveProfile(string profile)
+    {
+        InvokeString(_saveProfile, profile);
+    }
 
     internal bool TryGetUInt32(string property, out uint value)
     {
@@ -89,17 +107,6 @@ internal sealed unsafe partial class RtssProfileApi : IDisposable
     {
         ObjectDisposedException.ThrowIf(_module == 0, this);
         _updateProfiles();
-    }
-
-    public void Dispose()
-    {
-        if (_module == 0)
-        {
-            return;
-        }
-
-        FreeLibrary(_module);
-        _module = 0;
     }
 
     private nint GetExport(string name)

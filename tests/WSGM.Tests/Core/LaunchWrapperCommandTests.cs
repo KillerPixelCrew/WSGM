@@ -14,21 +14,26 @@ public sealed class LaunchWrapperCommandTests
     [InlineData(LaunchWrapperMode.BothInject, "--deelevate --input-lease-inject")]
     public void SteamLaunchOptionsWrapTheHelperAndPreserveTheOriginalCommandPlaceholder(
         LaunchWrapperMode mode, string expectedFlags)
-        => Assert.Equal(
+    {
+        Assert.Equal(
             $"\"{Helper}\" {expectedFlags} -- %command%",
             LaunchWrapperCommand.SteamLaunchOptions(Helper, mode));
+    }
 
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
     public void SteamLaunchOptionsRejectAMissingHelperPath(string helperPath)
-        => Assert.Throws<ArgumentException>(
-            () => LaunchWrapperCommand.SteamLaunchOptions(helperPath, LaunchWrapperMode.Deelevate));
+    {
+        Assert.Throws<ArgumentException>(() =>
+            LaunchWrapperCommand.SteamLaunchOptions(helperPath, LaunchWrapperMode.Deelevate));
+    }
 
     [Fact]
     public void SteamLaunchOptionsRejectAModeWithNoBehaviour()
-        => Assert.Throws<ArgumentException>(
-            () => LaunchWrapperCommand.SteamLaunchOptions(Helper, LaunchWrapperMode.None));
+    {
+        Assert.Throws<ArgumentException>(() => LaunchWrapperCommand.SteamLaunchOptions(Helper, LaunchWrapperMode.None));
+    }
 
     // A title's existing launch options must survive being wrapped: %command%
     // expands to the game's own command only, so options replaced by the wrapper
@@ -36,26 +41,32 @@ public sealed class LaunchWrapperCommandTests
     // ignores %command% entirely and takes the wrapper in its Target instead.)
     [Fact]
     public void SteamLaunchOptionsAppendPlainOriginalOptionsAfterThePlaceholder()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             $"\"{Helper}\" --deelevate -- %command% -dx11 -nolauncher",
             LaunchWrapperCommand.SteamLaunchOptions(
                 Helper, LaunchWrapperMode.Deelevate, "-dx11 -nolauncher"));
+    }
 
     [Fact]
     public void SteamLaunchOptionsSubstituteTheWrapperIntoAUserPlacedPlaceholder()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             $"profiler.exe \"{Helper}\" --input-lease -- %command% -windowed",
             LaunchWrapperCommand.SteamLaunchOptions(
                 Helper, LaunchWrapperMode.InputLease, "profiler.exe %command% -windowed"));
+    }
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
     public void SteamLaunchOptionsWithoutOriginalsAreTheBareWrapperCommand(string? original)
-        => Assert.Equal(
+    {
+        Assert.Equal(
             $"\"{Helper}\" --deelevate -- %command%",
             LaunchWrapperCommand.SteamLaunchOptions(Helper, LaunchWrapperMode.Deelevate, original));
+    }
 
     [Theory]
     [InlineData("-dx11 -nolauncher")]
@@ -84,7 +95,9 @@ public sealed class LaunchWrapperCommandTests
 
     [Fact]
     public void OriginalLaunchOptionsLeaveAnUnwrappedValueAlone()
-        => Assert.Equal("-dx11", LaunchWrapperCommand.OriginalLaunchOptions("  -dx11  "));
+    {
+        Assert.Equal("-dx11", LaunchWrapperCommand.OriginalLaunchOptions("  -dx11  "));
+    }
 
     // A game can be wrapped without WSGM holding a snapshot — the user pasted the
     // copied command, or the configuration was reset. Snapshotting the values on
@@ -96,7 +109,7 @@ public sealed class LaunchWrapperCommandTests
             Helper, LaunchWrapperMode.Both, "-dx11");
         var details = new SteamLaunchDetails(wrapped, "", "", "");
 
-        var originals = SteamLaunchConfig.OriginalsFrom(isShortcut: false, details);
+        var originals = SteamLaunchConfig.OriginalsFrom(false, details);
 
         Assert.Equal("-dx11", originals.LaunchOptions);
     }
@@ -111,7 +124,7 @@ public sealed class LaunchWrapperCommandTests
                 LaunchWrapperMode.Deelevate, "\"D:\\Games\\game.exe\"", "-windowed"),
             "D:\\Games");
 
-        var originals = SteamLaunchConfig.OriginalsFrom(isShortcut: true, details);
+        var originals = SteamLaunchConfig.OriginalsFrom(true, details);
 
         Assert.Equal("\"D:\\Games\\game.exe\"", originals.Target);
         Assert.Equal("-windowed", originals.LaunchOptions);
@@ -123,7 +136,7 @@ public sealed class LaunchWrapperCommandTests
     {
         var details = new SteamLaunchDetails("-dx11", "\"D:\\g\\game.exe\"", "-mod", "D:\\g");
 
-        var originals = SteamLaunchConfig.OriginalsFrom(isShortcut: false, details);
+        var originals = SteamLaunchConfig.OriginalsFrom(false, details);
 
         Assert.Equal("\"D:\\g\\game.exe\"", originals.Target);
         Assert.Equal("-dx11", originals.LaunchOptions);
@@ -133,33 +146,43 @@ public sealed class LaunchWrapperCommandTests
     // quoted form, so the quotes are part of the value WSGM has to write.
     [Fact]
     public void ShortcutTargetIsQuotedForPathsContainingSpaces()
-        => Assert.Equal($"\"{Helper}\"", LaunchWrapperCommand.ShortcutTarget(Helper));
+    {
+        Assert.Equal($"\"{Helper}\"", LaunchWrapperCommand.ShortcutTarget(Helper));
+    }
 
     [Fact]
     public void ShortcutArgumentsKeepSteamsAlreadyQuotedTargetUnchanged()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             "--deelevate -- \"C:\\Games\\The Movies\\MoviesSE.exe\"",
             LaunchWrapperCommand.ShortcutArguments(
                 LaunchWrapperMode.Deelevate, "\"C:\\Games\\The Movies\\MoviesSE.exe\"", null));
+    }
 
     [Fact]
     public void ShortcutArgumentsQuoteABareTarget()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             "--input-lease -- \"C:\\Games\\The Movies\\MoviesSE.exe\"",
             LaunchWrapperCommand.ShortcutArguments(
                 LaunchWrapperMode.InputLease, @"C:\Games\The Movies\MoviesSE.exe", ""));
+    }
 
     [Fact]
     public void ShortcutArgumentsPreserveTheShortcutsOwnArguments()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             "--deelevate --input-lease -- \"C:\\Games\\game.exe\" -windowed -skipintro",
             LaunchWrapperCommand.ShortcutArguments(
                 LaunchWrapperMode.Both, "\"C:\\Games\\game.exe\"", " -windowed -skipintro "));
+    }
 
     [Fact]
     public void ShortcutArgumentsRejectAMissingOriginalTarget()
-        => Assert.Throws<ArgumentException>(
-            () => LaunchWrapperCommand.ShortcutArguments(LaunchWrapperMode.Both, "  ", null));
+    {
+        Assert.Throws<ArgumentException>(() =>
+            LaunchWrapperCommand.ShortcutArguments(LaunchWrapperMode.Both, "  ", null));
+    }
 
     [Theory]
     [InlineData(LaunchWrapperMode.Deelevate)]
@@ -168,8 +191,10 @@ public sealed class LaunchWrapperCommandTests
     [InlineData(LaunchWrapperMode.InputLeaseInject)]
     [InlineData(LaunchWrapperMode.BothInject)]
     public void ModeForReadsBackEveryBehaviourSteamLaunchOptionsCanWrite(LaunchWrapperMode mode)
-        => Assert.Equal(
+    {
+        Assert.Equal(
             mode, LaunchWrapperCommand.ModeFor(LaunchWrapperCommand.SteamLaunchOptions(Helper, mode)));
+    }
 
     // A user's own launch options must never be mistaken for WSGM's, even when
     // they happen to contain the same words.
@@ -179,7 +204,9 @@ public sealed class LaunchWrapperCommandTests
     [InlineData("-novid -high")]
     [InlineData("\"C:\\Other\\tool.exe\" --deelevate --input-lease -- %command%")]
     public void ModeForReportsNoneWithoutTheWrapper(string? value)
-        => Assert.Equal(LaunchWrapperMode.None, LaunchWrapperCommand.ModeFor(value));
+    {
+        Assert.Equal(LaunchWrapperMode.None, LaunchWrapperCommand.ModeFor(value));
+    }
 
     [Fact]
     public void TargetsHelperDetectsAShortcutWsgmAlreadyOwns()
@@ -235,9 +262,11 @@ public sealed class LaunchWrapperCommandTests
         Assert.Equal(extra, rest);
     }
 
-    /// <summary>The substring trap: "--input-lease-inject" contains "--input-lease",
-    /// so a plain Contains would report both lease behaviours at once - which then
-    /// trips the mutual-exclusion guard the next time the game is re-applied.</summary>
+    /// <summary>
+    ///     The substring trap: "--input-lease-inject" contains "--input-lease",
+    ///     so a plain Contains would report both lease behaviours at once - which then
+    ///     trips the mutual-exclusion guard the next time the game is re-applied.
+    /// </summary>
     [Fact]
     public void ModeForDoesNotReadInputLeaseOutOfInputLeaseInject()
     {
@@ -275,6 +304,7 @@ public sealed class LaunchWrapperCommandTests
         {
             count++;
         }
+
         return count;
     }
 
@@ -286,13 +316,17 @@ public sealed class LaunchWrapperCommandTests
     [InlineData(LaunchWrapperMode.None, false, LaunchWrapperMode.None)]
     public void ForCurrentInputModeSwapsOnlyTheLeaseBit(
         LaunchWrapperMode requested, bool shimManaged, LaunchWrapperMode expected)
-        => Assert.Equal(
+    {
+        Assert.Equal(
             expected, LaunchWrapperCommand.ForCurrentInputMode(requested, shimManaged));
+    }
 
     [Fact]
     public void SteamLaunchOptionsRefusesToAskForBothLeaseBehavioursAtOnce()
-        => Assert.Throws<ArgumentException>(() => LaunchWrapperCommand.SteamLaunchOptions(
+    {
+        Assert.Throws<ArgumentException>(() => LaunchWrapperCommand.SteamLaunchOptions(
             Helper, LaunchWrapperMode.InputLease | LaunchWrapperMode.InputLeaseInject));
+    }
 
     // Pins the log-only prefix reporter added for launch-option
     // diagnosability. Nothing here may change what SteamLaunchOptions emits: Steam
@@ -303,25 +337,34 @@ public sealed class LaunchWrapperCommandTests
     [InlineData("")]
     [InlineData("   ")]
     public void PreservedPrefix_BlankOptions_IsEmpty(string? original)
-        => Assert.Equal("", LaunchWrapperCommand.PreservedPrefix(original));
+    {
+        Assert.Equal("", LaunchWrapperCommand.PreservedPrefix(original));
+    }
 
     [Fact]
     public void PreservedPrefix_OptionsWithoutThePlaceholder_IsEmpty()
-        => Assert.Equal("", LaunchWrapperCommand.PreservedPrefix("-dx11 -nolauncher"));
+    {
+        Assert.Equal("", LaunchWrapperCommand.PreservedPrefix("-dx11 -nolauncher"));
+    }
 
     [Fact]
     public void PreservedPrefix_PlaceholderAtTheStart_IsEmpty()
-        => Assert.Equal("", LaunchWrapperCommand.PreservedPrefix("%command% -windowed"));
+    {
+        Assert.Equal("", LaunchWrapperCommand.PreservedPrefix("%command% -windowed"));
+    }
 
     [Fact]
     public void PreservedPrefix_ShimAheadOfThePlaceholder_IsTheShim()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             "profiler.exe",
             LaunchWrapperCommand.PreservedPrefix("profiler.exe %command% -windowed"));
+    }
 
     [Fact]
     public void PreservedPrefix_ShimWithItsOwnArguments_KeepsThoseArguments()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             """
             "C:\Tools\rtss.exe" --hook --profile=default
             """,
@@ -329,20 +372,25 @@ public sealed class LaunchWrapperCommandTests
                 """
                 "C:\Tools\rtss.exe" --hook --profile=default %command% -dx11
                 """));
+    }
 
     // Log.Write interpolates its message raw, so an options value carrying a newline
     // could otherwise forge whole lines in wsgm.log — the only remote-diagnosis
     // surface WSGM has.
     [Fact]
     public void PreservedPrefix_ControlCharactersInThePrefix_AreRemoved()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             "profiler.exe2026-01-01 [Info] forged",
             LaunchWrapperCommand.PreservedPrefix(
                 "profiler.exe\r\n2026-01-01 [Info] forged\t %command%"));
+    }
 
     [Fact]
     public void PreservedPrefix_PrefixOfOnlyControlCharacters_IsEmpty()
-        => Assert.Equal("", LaunchWrapperCommand.PreservedPrefix("\u0001\u0002 %command%"));
+    {
+        Assert.Equal("", LaunchWrapperCommand.PreservedPrefix("\u0001\u0002 %command%"));
+    }
 
     [Fact]
     public void PreservedPrefix_PrefixLongerThanTheCap_IsTruncatedAndMarked()

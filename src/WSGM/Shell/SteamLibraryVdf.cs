@@ -8,25 +8,27 @@ using System.Text;
 
 namespace WSGM.Shell;
 
-/// <summary>Generates the two Valve KeyValues files a Steam library needs, in
-/// Steam's exact on-disk dialect (byte-verified against real libraries,
-/// 2026-08-10): UTF-8 without BOM, LF-only line endings even on Windows, one TAB
-/// per nesting level, TWO TABs between key and value, backslashes in paths
-/// escaped as <c>\\</c>, file ends with the closing brace plus LF.
-///
-/// The library id ("contentid") is a random unsigned 64-bit chosen at creation —
-/// Steam's own client stores it as <c>m_ulContentID</c> with no derivation from
-/// path/volume/machine, accepts third-party-invented ids, and self-heals empty
-/// ones. The same value goes into the card marker and the config registration.
-///
-/// Everything here is pure string work so the exact bytes are unit-testable;
-/// file I/O lives in <see cref="SdFormatManager"/>, except the one shared card-marker
-/// read (<see cref="TryReadMarkerContentId"/>).</summary>
+/// <summary>
+///     Generates the two Valve KeyValues files a Steam library needs, in
+///     Steam's exact on-disk dialect (byte-verified against real libraries,
+///     2026-08-10): UTF-8 without BOM, LF-only line endings even on Windows, one TAB
+///     per nesting level, TWO TABs between key and value, backslashes in paths
+///     escaped as <c>\\</c>, file ends with the closing brace plus LF.
+///     The library id ("contentid") is a random unsigned 64-bit chosen at creation —
+///     Steam's own client stores it as <c>m_ulContentID</c> with no derivation from
+///     path/volume/machine, accepts third-party-invented ids, and self-heals empty
+///     ones. The same value goes into the card marker and the config registration.
+///     Everything here is pure string work so the exact bytes are unit-testable;
+///     file I/O lives in <see cref="SdFormatManager" />, except the one shared card-marker
+///     read (<see cref="TryReadMarkerContentId" />).
+/// </summary>
 public static class SteamLibraryVdf
 {
-    /// <summary>Generates a fresh library content id: a uniformly random integer
-    /// in [1, 2^63), decimal-formatted — the value shape of every Steam-created
-    /// id observed in the wild.</summary>
+    /// <summary>
+    ///     Generates a fresh library content id: a uniformly random integer
+    ///     in [1, 2^63), decimal-formatted — the value shape of every Steam-created
+    ///     id observed in the wild.
+    /// </summary>
     /// <param name="taken">Ids already present in the config; collisions retry.</param>
     public static string GenerateContentId(IReadOnlySet<string> taken)
     {
@@ -42,6 +44,7 @@ public static class SteamLibraryVdf
             {
                 continue;
             }
+
             var value = raw.ToString(CultureInfo.InvariantCulture);
             if (!taken.Contains(value))
             {
@@ -52,53 +55,68 @@ public static class SteamLibraryVdf
 
     /// <summary>Escapes a Windows path for a VDF string value.</summary>
     /// <param name="path">The plain path, e.g. <c>E:\SteamLibrary</c>.</param>
-    private static string EscapePath(string path) => path.Replace(@"\", @"\\");
+    private static string EscapePath(string path)
+    {
+        return path.Replace(@"\", @"\\");
+    }
 
-    /// <summary>Escapes a VDF string value (backslash then double-quote), for the
-    /// user-chosen library label.</summary>
+    /// <summary>
+    ///     Escapes a VDF string value (backslash then double-quote), for the
+    ///     user-chosen library label.
+    /// </summary>
     /// <param name="value">The raw value.</param>
-    private static string EscapeValue(string value) =>
-        value.Replace(@"\", @"\\").Replace("\"", @"\""");
+    private static string EscapeValue(string value)
+    {
+        return value.Replace(@"\", @"\\").Replace("\"", @"\""");
+    }
 
     /// <summary>Builds the card marker — <c>&lt;X&gt;:\SteamLibrary\libraryfolder.vdf</c>.</summary>
     /// <param name="contentId">The generated library id.</param>
     /// <param name="steamExePath">The plain steam.exe path (escaped here).</param>
     /// <param name="label">The user-chosen library label, or empty for none.</param>
-    public static string BuildMarker(string contentId, string steamExePath, string label = "") =>
-        "\"libraryfolder\"\n"
-        + "{\n"
-        + $"\t\"contentid\"\t\t\"{contentId}\"\n"
-        + $"\t\"label\"\t\t\"{EscapeValue(label)}\"\n"
-        + $"\t\"launcher\"\t\t\"{EscapePath(steamExePath)}\"\n"
-        + "}\n";
+    public static string BuildMarker(string contentId, string steamExePath, string label = "")
+    {
+        return "\"libraryfolder\"\n"
+               + "{\n"
+               + $"\t\"contentid\"\t\t\"{contentId}\"\n"
+               + $"\t\"label\"\t\t\"{EscapeValue(label)}\"\n"
+               + $"\t\"launcher\"\t\t\"{EscapePath(steamExePath)}\"\n"
+               + "}\n";
+    }
 
-    /// <summary>Builds one numbered registration block for
-    /// <c>config\libraryfolders.vdf</c>, field order matching what Steam writes;
-    /// <c>apps</c> stays empty for Steam to fill.</summary>
+    /// <summary>
+    ///     Builds one numbered registration block for
+    ///     <c>config\libraryfolders.vdf</c>, field order matching what Steam writes;
+    ///     <c>apps</c> stays empty for Steam to fill.
+    /// </summary>
     /// <param name="index">The zero-based entry index.</param>
     /// <param name="libraryPath">The plain library path (escaped here).</param>
     /// <param name="contentId">The library id, matching the card marker.</param>
     /// <param name="totalSize">The volume size in bytes.</param>
     /// <param name="label">The user-chosen library label, or empty for none.</param>
     private static string BuildConfigEntry(
-        int index, string libraryPath, string contentId, long totalSize, string label = "") =>
-        $"\t\"{index}\"\n"
-        + "\t{\n"
-        + $"\t\t\"path\"\t\t\"{EscapePath(libraryPath)}\"\n"
-        + $"\t\t\"label\"\t\t\"{EscapeValue(label)}\"\n"
-        + $"\t\t\"contentid\"\t\t\"{contentId}\"\n"
-        + $"\t\t\"totalsize\"\t\t\"{totalSize.ToString(CultureInfo.InvariantCulture)}\"\n"
-        + "\t\t\"update_clean_bytes_tally\"\t\t\"0\"\n"
-        + "\t\t\"time_last_update_verified\"\t\t\"0\"\n"
-        + "\t\t\"apps\"\n"
-        + "\t\t{\n"
-        + "\t\t}\n"
-        + "\t}\n";
+        int index, string libraryPath, string contentId, long totalSize, string label = "")
+    {
+        return $"\t\"{index}\"\n"
+               + "\t{\n"
+               + $"\t\t\"path\"\t\t\"{EscapePath(libraryPath)}\"\n"
+               + $"\t\t\"label\"\t\t\"{EscapeValue(label)}\"\n"
+               + $"\t\t\"contentid\"\t\t\"{contentId}\"\n"
+               + $"\t\t\"totalsize\"\t\t\"{totalSize.ToString(CultureInfo.InvariantCulture)}\"\n"
+               + "\t\t\"update_clean_bytes_tally\"\t\t\"0\"\n"
+               + "\t\t\"time_last_update_verified\"\t\t\"0\"\n"
+               + "\t\t\"apps\"\n"
+               + "\t\t{\n"
+               + "\t\t}\n"
+               + "\t}\n";
+    }
 
-    /// <summary>All quoted values following a given key anywhere in the file,
-    /// UNESCAPED (the inverse of <see cref="EscapeValue"/>/<see cref="EscapePath"/>) —
-    /// used for registered-path, label and content-id lookups. Line-based on
-    /// purpose: existing content is never reserialized, only inspected.</summary>
+    /// <summary>
+    ///     All quoted values following a given key anywhere in the file,
+    ///     UNESCAPED (the inverse of <see cref="EscapeValue" />/<see cref="EscapePath" />) —
+    ///     used for registered-path, label and content-id lookups. Line-based on
+    ///     purpose: existing content is never reserialized, only inspected.
+    /// </summary>
     /// <param name="vdf">The file text.</param>
     /// <param name="key">The bare key name, e.g. "path".</param>
     public static List<string> ValuesOf(string vdf, string key)
@@ -112,43 +130,57 @@ public static class SteamLibraryVdf
             {
                 continue;
             }
+
             if (TryReadQuoted(line[marker.Length..].TrimStart('\t', ' '), out var value))
             {
                 results.Add(value);
             }
         }
+
         return results;
     }
 
-    /// <summary>Whether the config already contains an entry with this content id —
-    /// the library's stable identity, which is what dedup keys on. Path is the
-    /// wrong key: a reformatted card reuses the reader's drive letter but is a
-    /// NEW library (fresh content id), and Steam permits several libraries at one
-    /// path, so a reused path must not suppress the new card's entry.</summary>
+    /// <summary>
+    ///     Whether the config already contains an entry with this content id —
+    ///     the library's stable identity, which is what dedup keys on. Path is the
+    ///     wrong key: a reformatted card reuses the reader's drive letter but is a
+    ///     NEW library (fresh content id), and Steam permits several libraries at one
+    ///     path, so a reused path must not suppress the new card's entry.
+    /// </summary>
     /// <param name="vdf">The config file text.</param>
     /// <param name="contentId">The library content id.</param>
-    public static bool IsContentIdRegistered(string vdf, string contentId) =>
-        ValuesOf(vdf, "contentid")
+    public static bool IsContentIdRegistered(string vdf, string contentId)
+    {
+        return ValuesOf(vdf, "contentid")
             .Any(value => string.Equals(value, contentId, StringComparison.Ordinal));
+    }
 
-    /// <summary>Finds the registered library path for a stable content id. This
-    /// deliberately selects the registration by content id, not by path: a card
-    /// reader can assign the same letter to many different cards.</summary>
+    /// <summary>
+    ///     Finds the registered library path for a stable content id. This
+    ///     deliberately selects the registration by content id, not by path: a card
+    ///     reader can assign the same letter to many different cards.
+    /// </summary>
     /// <param name="vdf">The current libraryfolders configuration text.</param>
     /// <param name="contentId">The library identity from its card marker.</param>
     /// <returns>The unescaped registered path, or null when the id is absent.</returns>
-    public static string? PathForContentId(string vdf, string contentId) =>
-        ValueForContentId(vdf, "path", contentId);
+    public static string? PathForContentId(string vdf, string contentId)
+    {
+        return ValueForContentId(vdf, "path", contentId);
+    }
 
     /// <summary>Finds the label belonging to a specific content-id registration.</summary>
     /// <param name="vdf">The current libraryfolders configuration text.</param>
     /// <param name="contentId">The stable library identity.</param>
     /// <returns>The matching label, or null when the identity is absent.</returns>
-    public static string? LabelForContentId(string vdf, string contentId) =>
-        ValueForContentId(vdf, "label", contentId);
+    public static string? LabelForContentId(string vdf, string contentId)
+    {
+        return ValueForContentId(vdf, "label", contentId);
+    }
 
-    /// <summary>The value of one key inside the block whose contentid matches, or
-    /// null when the identity is absent (or the block carries no such key).</summary>
+    /// <summary>
+    ///     The value of one key inside the block whose contentid matches, or
+    ///     null when the identity is absent (or the block carries no such key).
+    /// </summary>
     private static string? ValueForContentId(string vdf, string key, string contentId)
     {
         string? value = null;
@@ -162,10 +194,12 @@ public static class SteamLibraryVdf
                 {
                     return value;
                 }
+
                 value = null;
                 currentId = null;
                 continue;
             }
+
             if (TryReadValue(line, key, out var candidate))
             {
                 value = candidate;
@@ -175,15 +209,18 @@ public static class SteamLibraryVdf
                 currentId = candidateId;
             }
         }
+
         return string.Equals(currentId, contentId, StringComparison.Ordinal) ? value : null;
     }
 
-    /// <summary>Rewrites the <c>label</c> of the library block whose content id
-    /// matches, preserving every other byte. Works on both file shapes: the
-    /// numbered blocks of <c>config\libraryfolders.vdf</c> and the single-block
-    /// card marker <c>libraryfolder.vdf</c>. A block without a label line gets one
-    /// inserted after its contentid line. Used only while Steam is closed; a
-    /// running client is renamed through its CEF API instead.</summary>
+    /// <summary>
+    ///     Rewrites the <c>label</c> of the library block whose content id
+    ///     matches, preserving every other byte. Works on both file shapes: the
+    ///     numbered blocks of <c>config\libraryfolders.vdf</c> and the single-block
+    ///     card marker <c>libraryfolder.vdf</c>. A block without a label line gets one
+    ///     inserted after its contentid line. Used only while Steam is closed; a
+    ///     running client is renamed through its CEF API instead.
+    /// </summary>
     /// <param name="vdf">The current file text.</param>
     /// <param name="contentId">The stable library identity to rename.</param>
     /// <param name="label">The new raw label (escaped here).</param>
@@ -202,6 +239,7 @@ public static class SteamLibraryVdf
             {
                 return false;
             }
+
             blockStart = 0;
             blockEnd = vdf.Length;
         }
@@ -220,6 +258,7 @@ public static class SteamLibraryVdf
                 blockEnd = end;
                 break;
             }
+
             if (blockStart < 0)
             {
                 return false;
@@ -235,6 +274,7 @@ public static class SteamLibraryVdf
             {
                 end = blockEnd;
             }
+
             var line = vdf[position..end].TrimEnd('\r');
             if (TryReadValue(line, "label", out _))
             {
@@ -246,6 +286,7 @@ public static class SteamLibraryVdf
                 idStart = position;
                 idEnd = end;
             }
+
             position = end + 1;
         }
 
@@ -256,11 +297,12 @@ public static class SteamLibraryVdf
             var line = raw.TrimEnd('\r');
             var leading = line[..^line.TrimStart('\t', ' ').Length];
             var replacement = leading + "\"label\"\t\t\"" + escaped + "\""
-                + (raw.EndsWith('\r') ? "\r" : "");
+                              + (raw.EndsWith('\r') ? "\r" : "");
             updated = vdf.Remove(labelStart, labelEnd - labelStart)
                 .Insert(labelStart, replacement);
             return true;
         }
+
         if (idStart < 0)
         {
             return false;
@@ -272,9 +314,11 @@ public static class SteamLibraryVdf
         return true;
     }
 
-    /// <summary>Removes exactly one top-level library registration selected by
-    /// content id, preserving all other configuration bytes. Used only while
-    /// Steam is closed; a running client is changed through its CEF API instead.</summary>
+    /// <summary>
+    ///     Removes exactly one top-level library registration selected by
+    ///     content id, preserving all other configuration bytes. Used only while
+    ///     Steam is closed; a running client is changed through its CEF API instead.
+    /// </summary>
     /// <param name="vdf">The current libraryfolders configuration text.</param>
     /// <param name="contentId">The stable library identity to remove.</param>
     /// <param name="updated">The text without the matching entry on success.</param>
@@ -288,6 +332,7 @@ public static class SteamLibraryVdf
         {
             return false;
         }
+
         var starts = TopLevelEntryStarts(vdf);
         var rootClose = vdf.LastIndexOf('}');
         for (var i = 0; i < starts.Count; i++)
@@ -298,25 +343,29 @@ public static class SteamLibraryVdf
             {
                 continue;
             }
+
             updated = RenumberEntries(vdf.Remove(starts[i], end - starts[i]));
             return true;
         }
+
         return false;
     }
 
-    /// <summary>Removes EVERY top-level registration whose <c>path</c> is
-    /// <paramref name="libraryPath"/>, whatever content id each one carries.</summary>
+    /// <summary>
+    ///     Removes EVERY top-level registration whose <c>path</c> is
+    ///     <paramref name="libraryPath" />, whatever content id each one carries.
+    /// </summary>
     /// <remarks>
-    /// The closed-Steam counterpart of the live purge in
-    /// <see cref="Core.SteamCdp"/>. A card reader reuses its drive letter, so
-    /// <c>E:\SteamLibrary</c> names a different card every time one is swapped, and
-    /// a registration left behind by the previous card keeps its own content id.
-    /// Dedup by content id therefore does NOT see it, the freshly formatted card is
-    /// appended as a second entry at the same path, and Steam ends up listing the
-    /// old card's games next to the new card's capacity. Removal is by PATH here
-    /// for exactly that reason; identity-based removal stays
-    /// <see cref="TryRemoveContentId"/>, which is what the pre-format step uses
-    /// when the card's own marker is still readable.
+    ///     The closed-Steam counterpart of the live purge in
+    ///     <see cref="Core.SteamCdp" />. A card reader reuses its drive letter, so
+    ///     <c>E:\SteamLibrary</c> names a different card every time one is swapped, and
+    ///     a registration left behind by the previous card keeps its own content id.
+    ///     Dedup by content id therefore does NOT see it, the freshly formatted card is
+    ///     appended as a second entry at the same path, and Steam ends up listing the
+    ///     old card's games next to the new card's capacity. Removal is by PATH here
+    ///     for exactly that reason; identity-based removal stays
+    ///     <see cref="TryRemoveContentId" />, which is what the pre-format step uses
+    ///     when the card's own marker is still readable.
     /// </remarks>
     /// <param name="vdf">The current libraryfolders configuration text.</param>
     /// <param name="libraryPath">The plain library path, e.g. <c>E:\SteamLibrary</c>.</param>
@@ -331,11 +380,13 @@ public static class SteamLibraryVdf
         {
             return 0;
         }
+
         var target = NormalizePath(libraryPath);
         if (target.Length == 0)
         {
             return 0;
         }
+
         var removed = 0;
         var current = vdf;
         // Re-scan after each removal: the offsets of every later block move, and
@@ -354,8 +405,9 @@ public static class SteamLibraryVdf
                 {
                     continue;
                 }
+
                 if (!ValuesOf(current[starts[i]..end], "path")
-                    .Any(path => string.Equals(NormalizePath(path), target, StringComparison.Ordinal)))
+                        .Any(path => string.Equals(NormalizePath(path), target, StringComparison.Ordinal)))
                 {
                     continue;
                 }
@@ -364,31 +416,30 @@ public static class SteamLibraryVdf
                 cutEnd = end;
                 break;
             }
+
             if (cut < 0)
             {
                 break;
             }
+
             current = RenumberEntries(current.Remove(cut, cutEnd - cut));
             removed++;
         }
+
         if (removed > 0)
         {
             updated = current;
         }
+
         return removed;
     }
 
-    /// <summary>One top-level registration's key facts, as
-    /// <see cref="ReadEntries"/> reports them. Null means the block carries no
-    /// such line.</summary>
-    /// <param name="Path">The unescaped library path.</param>
-    /// <param name="ContentId">The library's stable identity.</param>
-    public readonly record struct ConfigEntry(string? Path, string? ContentId);
-
-    /// <summary>Reads every top-level registration's path and content id,
-    /// each taken from ITS OWN block — index-zipping separate
-    /// <see cref="ValuesOf"/> lists silently mispairs them when a block lacks a
-    /// key.</summary>
+    /// <summary>
+    ///     Reads every top-level registration's path and content id,
+    ///     each taken from ITS OWN block — index-zipping separate
+    ///     <see cref="ValuesOf" /> lists silently mispairs them when a block lacks a
+    ///     key.
+    /// </summary>
     /// <param name="vdf">The current libraryfolders configuration text.</param>
     public static List<ConfigEntry> ReadEntries(string vdf)
     {
@@ -404,14 +455,17 @@ public static class SteamLibraryVdf
                 {
                     entries.Add(new ConfigEntry(path, contentId));
                 }
+
                 inEntry = true;
                 path = contentId = null;
                 continue;
             }
+
             if (!inEntry)
             {
                 continue;
             }
+
             if (TryReadValue(line, "path", out var candidatePath))
             {
                 path = candidatePath;
@@ -421,28 +475,36 @@ public static class SteamLibraryVdf
                 contentId = candidateId;
             }
         }
+
         if (inEntry)
         {
             entries.Add(new ConfigEntry(path, contentId));
         }
+
         return entries;
     }
 
-    /// <summary>Reads the content id a card's <c>libraryfolder.vdf</c> marker
-    /// carries — the one file read shared by the card features. False when the
-    /// marker is absent or holds no usable id. Deliberately does NOT catch IO
-    /// failures: the callers' policies for an unreadable marker differ (skip the
-    /// volume, refuse a restore), so the exception is theirs to handle.</summary>
+    /// <summary>
+    ///     Reads the content id a card's <c>libraryfolder.vdf</c> marker
+    ///     carries — the one file read shared by the card features. False when the
+    ///     marker is absent or holds no usable id. Deliberately does NOT catch IO
+    ///     failures: the callers' policies for an unreadable marker differ (skip the
+    ///     volume, refuse a restore), so the exception is theirs to handle.
+    /// </summary>
     /// <param name="libraryPath">The library root, e.g. <c>E:\SteamLibrary</c>.</param>
     /// <param name="contentId">The first non-whitespace content id, or null.</param>
     public static bool TryReadMarkerContentId(string libraryPath, out string? contentId)
-        => TryReadMarker(libraryPath, out contentId, out _);
+    {
+        return TryReadMarker(libraryPath, out contentId, out _);
+    }
 
-    /// <summary>Reads both values a card's <c>libraryfolder.vdf</c> marker holds:
-    /// its content id and its label. The marker is the only copy of either that
-    /// travels with the media, which is why it, and not
-    /// <c>config\libraryfolders.vdf</c>, names a card (see <c>docs\sd-cards.md</c>).
-    /// IO failures propagate, as in <see cref="TryReadMarkerContentId"/>.</summary>
+    /// <summary>
+    ///     Reads both values a card's <c>libraryfolder.vdf</c> marker holds:
+    ///     its content id and its label. The marker is the only copy of either that
+    ///     travels with the media, which is why it, and not
+    ///     <c>config\libraryfolders.vdf</c>, names a card (see <c>docs\sd-cards.md</c>).
+    ///     IO failures propagate, as in <see cref="TryReadMarkerContentId" />.
+    /// </summary>
     /// <param name="libraryPath">The library root, e.g. <c>E:\SteamLibrary</c>.</param>
     /// <param name="contentId">The first non-whitespace content id, or null.</param>
     /// <param name="label">The marker's label, empty when it carries none.</param>
@@ -457,6 +519,7 @@ public static class SteamLibraryVdf
         {
             return false;
         }
+
         var text = File.ReadAllText(marker);
         contentId = ValuesOf(text, "contentid")
             .FirstOrDefault(id => !string.IsNullOrWhiteSpace(id));
@@ -464,6 +527,7 @@ public static class SteamLibraryVdf
         {
             return false;
         }
+
         // Selected by content id, not "the first label in the file": a marker that
         // somehow carries more than one block must not hand one card's label to
         // another card's identity.
@@ -471,25 +535,28 @@ public static class SteamLibraryVdf
         return true;
     }
 
-    /// <summary>Canonical form used to decide whether two registrations name the
-    /// same folder: separator direction unified, trailing separators dropped, case
-    /// folded. Mirrors the normalizer the injected CEF expressions use, so the
-    /// closed-Steam and live paths can never disagree about "the same folder".
+    /// <summary>
+    ///     Canonical form used to decide whether two registrations name the
+    ///     same folder: separator direction unified, trailing separators dropped, case
+    ///     folded. Mirrors the normalizer the injected CEF expressions use, so the
+    ///     closed-Steam and live paths can never disagree about "the same folder".
     /// </summary>
     /// <param name="path">A library path as stored or as supplied.</param>
     /// <returns>The comparable form, or an empty string for an empty input.</returns>
-    public static string NormalizePath(string? path) =>
-        string.IsNullOrWhiteSpace(path)
+    public static string NormalizePath(string? path)
+    {
+        return string.IsNullOrWhiteSpace(path)
             ? string.Empty
             : path.Replace('/', '\\').TrimEnd('\\').ToLowerInvariant();
+    }
 
     /// <summary>The volume root a path sits on, for example <c>D:\</c>.</summary>
     /// <param name="path">Any path on the volume.</param>
     /// <returns>The root, or empty when the path does not name one.</returns>
     /// <remarks>
-    /// Everything that reasons about "which volume holds this library" keys on this — the eject
-    /// intent, the registered-library lookup, the projection to Steam — so it lives here once
-    /// rather than beside each of them.
+    ///     Everything that reasons about "which volume holds this library" keys on this — the eject
+    ///     intent, the registered-library lookup, the projection to Steam — so it lives here once
+    ///     rather than beside each of them.
     /// </remarks>
     internal static string VolumeRoot(string? path)
     {
@@ -520,12 +587,15 @@ public static class SteamLibraryVdf
             {
                 lineEnd = vdf.Length;
             }
+
             if (IsTopLevelEntry(vdf[lineStart..lineEnd].TrimEnd('\r')))
             {
                 starts.Add(lineStart);
             }
+
             lineStart = lineEnd + 1;
         }
+
         return starts;
     }
 
@@ -541,9 +611,11 @@ public static class SteamLibraryVdf
             {
                 continue;
             }
+
             var suffix = raw.EndsWith('\r') ? "\r" : "";
             lines[i] = $"\t\"{index++}\"{suffix}";
         }
+
         return string.Join("\n", lines);
     }
 
@@ -554,6 +626,7 @@ public static class SteamLibraryVdf
         {
             return false;
         }
+
         var end = line.IndexOf('"', 2);
         return end > 2 && int.TryParse(line[2..end], NumberStyles.None,
             CultureInfo.InvariantCulture, out _);
@@ -565,15 +638,17 @@ public static class SteamLibraryVdf
         var trimmed = line.TrimStart('\t', ' ');
         var marker = $"\"{key}\"";
         return trimmed.StartsWith(marker, StringComparison.Ordinal)
-            && TryReadQuoted(trimmed[marker.Length..].TrimStart('\t', ' '), out value);
+               && TryReadQuoted(trimmed[marker.Length..].TrimStart('\t', ' '), out value);
     }
 
-    /// <summary>Reads one quoted VDF value and returns it UNESCAPED. A backslash
-    /// escapes the next character, so an escaped quote does not terminate the
-    /// value: a label may legitimately contain <c>"</c> or <c>\</c> (both are
-    /// written escaped by <see cref="EscapeValue"/>) and a path is stored with its
-    /// backslashes doubled. Scanning to the first raw quote instead truncated such
-    /// a value, and returning it still escaped doubled it on the next write.</summary>
+    /// <summary>
+    ///     Reads one quoted VDF value and returns it UNESCAPED. A backslash
+    ///     escapes the next character, so an escaped quote does not terminate the
+    ///     value: a label may legitimately contain <c>"</c> or <c>\</c> (both are
+    ///     written escaped by <see cref="EscapeValue" />) and a path is stored with its
+    ///     backslashes doubled. Scanning to the first raw quote instead truncated such
+    ///     a value, and returning it still escaped doubled it on the next write.
+    /// </summary>
     private static bool TryReadQuoted(string rest, out string value)
     {
         value = "";
@@ -581,6 +656,7 @@ public static class SteamLibraryVdf
         {
             return false;
         }
+
         var builder = new StringBuilder(rest.Length - 1);
         for (var i = 1; i < rest.Length; i++)
         {
@@ -597,11 +673,14 @@ public static class SteamLibraryVdf
 
             builder.Append(current);
         }
+
         return false;
     }
 
-    /// <summary>The next free top-level entry index: highest existing numbered
-    /// block + 1. Line-based scan for <c>\t"N"</c> at nesting depth one.</summary>
+    /// <summary>
+    ///     The next free top-level entry index: highest existing numbered
+    ///     block + 1. Line-based scan for <c>\t"N"</c> at nesting depth one.
+    /// </summary>
     /// <param name="vdf">The config file text.</param>
     internal static int NextIndex(string vdf)
     {
@@ -613,6 +692,7 @@ public static class SteamLibraryVdf
             {
                 continue;
             }
+
             var end = line.IndexOf('"', 2);
             if (int.TryParse(line[2..end], NumberStyles.None,
                     CultureInfo.InvariantCulture, out var index)
@@ -621,16 +701,19 @@ public static class SteamLibraryVdf
                 highest = index;
             }
         }
+
         return highest + 1;
     }
 
-    /// <summary>Splices a new registration block into
-    /// <c>config\libraryfolders.vdf</c>, preserving every existing byte — the
-    /// block is inserted immediately before the file's final closing brace.
-    /// Returns false (with <paramref name="updated"/> = null) when the file does
-    /// not look like a libraryfolders file or an entry with this content id is
-    /// already present. Dedup is by content id, NOT path: a reused drive letter
-    /// (card reader) is expected and Steam allows several libraries at one path.</summary>
+    /// <summary>
+    ///     Splices a new registration block into
+    ///     <c>config\libraryfolders.vdf</c>, preserving every existing byte — the
+    ///     block is inserted immediately before the file's final closing brace.
+    ///     Returns false (with <paramref name="updated" /> = null) when the file does
+    ///     not look like a libraryfolders file or an entry with this content id is
+    ///     already present. Dedup is by content id, NOT path: a reused drive letter
+    ///     (card reader) is expected and Steam allows several libraries at one path.
+    /// </summary>
     /// <param name="vdf">The current file text (LF line endings).</param>
     /// <param name="libraryPath">The plain library path, e.g. <c>E:\SteamLibrary</c>.</param>
     /// <param name="contentId">The library id (must match the card marker).</param>
@@ -647,6 +730,7 @@ public static class SteamLibraryVdf
         {
             return false;
         }
+
         // The root block's closing brace is the last '}' in the file; everything
         // after it (a trailing LF, per Steam's own writes) is preserved.
         var close = vdf.LastIndexOf('}');
@@ -654,8 +738,18 @@ public static class SteamLibraryVdf
         {
             return false;
         }
+
         var entry = BuildConfigEntry(NextIndex(vdf), libraryPath, contentId, totalSize, label);
         updated = vdf[..close] + entry + vdf[close..];
         return true;
     }
+
+    /// <summary>
+    ///     One top-level registration's key facts, as
+    ///     <see cref="ReadEntries" /> reports them. Null means the block carries no
+    ///     such line.
+    /// </summary>
+    /// <param name="Path">The unescaped library path.</param>
+    /// <param name="ContentId">The library's stable identity.</param>
+    public readonly record struct ConfigEntry(string? Path, string? ContentId);
 }

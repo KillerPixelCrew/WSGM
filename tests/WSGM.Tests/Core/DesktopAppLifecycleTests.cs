@@ -4,6 +4,8 @@ namespace WSGM.Tests.Core;
 
 public sealed class DesktopAppLifecycleTests
 {
+    private static DateTimeOffset Deadline => DateTimeOffset.UtcNow.AddMinutes(1);
+
     [Theory]
     [InlineData(@"C:\Apps\DISPLAYFUSION.exe", true)]
     [InlineData(@"C:\Apps\wallpaper64.exe", true)]
@@ -11,8 +13,10 @@ public sealed class DesktopAppLifecycleTests
     [InlineData(@"C:\Apps\DisplayFusionService.exe", false)]
     [InlineData(@"C:\Apps\MyDisplayFusion.exe", false)]
     [InlineData("steam://rungameid/431960", false)]
-    public void LaunchSuppressionMatchesOnlyExplicitProcessNames(string path, bool expected) =>
+    public void LaunchSuppressionMatchesOnlyExplicitProcessNames(string path, bool expected)
+    {
         Assert.Equal(expected, DesktopAppLifecycle.MatchesPath(path));
+    }
 
     [Fact]
     public async Task AbsentApplicationsAreNeverStarted()
@@ -116,14 +120,22 @@ public sealed class DesktopAppLifecycleTests
         Assert.False(await lifecycle.StopAsync(CancellationToken.None));
     }
 
-    private static DateTimeOffset Deadline => DateTimeOffset.UtcNow.AddMinutes(1);
-
     private sealed class Backend(params int[] rules) : IDesktopAppBackend
     {
-        public List<DesktopAppInstance> Initial { get; } = [.. rules.Select(index => new DesktopAppInstance(
-            DesktopAppLifecycle.Rules[index], index, DateTime.UnixEpoch, $@"C:\Apps\{index}.exe"))];
-        public List<DesktopAppInstance> Running { get; } = [.. rules.Select(index => new DesktopAppInstance(
-            DesktopAppLifecycle.Rules[index], index, DateTime.UnixEpoch, $@"C:\Apps\{index}.exe"))];
+        private int _captures;
+
+        public List<DesktopAppInstance> Initial { get; } =
+        [
+            .. rules.Select(index => new DesktopAppInstance(
+                DesktopAppLifecycle.Rules[index], index, DateTime.UnixEpoch, $@"C:\Apps\{index}.exe"))
+        ];
+
+        public List<DesktopAppInstance> Running { get; } =
+        [
+            .. rules.Select(index => new DesktopAppInstance(
+                DesktopAppLifecycle.Rules[index], index, DateTime.UnixEpoch, $@"C:\Apps\{index}.exe"))
+        ];
+
         public List<DesktopAppInstance> Stops { get; } = [];
         public List<DesktopAppInstance> Restarts { get; } = [];
         public int FailStop { get; init; } = -1;
@@ -131,7 +143,6 @@ public sealed class DesktopAppLifecycleTests
         public bool Respawn { get; init; }
         public ScheduledTaskLaunchDisposition RestartResult { get; init; } = ScheduledTaskLaunchDisposition.Dispatched;
         public int CapturesAtFirstStop { get; private set; }
-        private int _captures;
 
         public IReadOnlyList<DesktopAppInstance> Capture(DesktopAppRule rule)
         {
@@ -141,21 +152,40 @@ public sealed class DesktopAppLifecycleTests
 
         public Task StopAsync(DesktopAppInstance instance, CancellationToken cancellationToken)
         {
-            if (Stops.Count == 0) { CapturesAtFirstStop = _captures; }
+            if (Stops.Count == 0)
+            {
+                CapturesAtFirstStop = _captures;
+            }
+
             Stops.Add(instance);
-            if (!Respawn) { Running.Remove(instance); }
+            if (!Respawn)
+            {
+                Running.Remove(instance);
+            }
+
             return instance.ProcessId == FailStop
                 ? throw new InvalidOperationException("Exit uncertain")
                 : Task.CompletedTask;
         }
 
-        public bool IsRunning(DesktopAppInstance instance) => Running.Contains(instance);
+        public bool IsRunning(DesktopAppInstance instance)
+        {
+            return Running.Contains(instance);
+        }
 
         public Task<ScheduledTaskLaunchDisposition> RestartAsync(DesktopAppInstance instance, DateTimeOffset deadline)
         {
             Restarts.Add(instance);
-            if (instance.ProcessId == FailRestart) { throw new InvalidOperationException("Before dispatch"); }
-            if (RestartResult == ScheduledTaskLaunchDisposition.Dispatched) { Running.Add(instance); }
+            if (instance.ProcessId == FailRestart)
+            {
+                throw new InvalidOperationException("Before dispatch");
+            }
+
+            if (RestartResult == ScheduledTaskLaunchDisposition.Dispatched)
+            {
+                Running.Add(instance);
+            }
+
             return Task.FromResult(RestartResult);
         }
     }

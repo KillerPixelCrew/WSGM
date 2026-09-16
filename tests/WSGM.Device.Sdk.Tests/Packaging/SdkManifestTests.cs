@@ -44,6 +44,8 @@ public sealed class SdkManifestTests
         Assert.Contains(result.Errors, error => error.Code is ManifestValidationCode.UnsafePath);
     }
 
-    private static string Describe(PluginManifestReadResult result) =>
-        string.Join("; ", result.Errors.Select(error => $"{error.Path}: {error.Message}"));
+    private static string Describe(PluginManifestReadResult result)
+    {
+        return string.Join("; ", result.Errors.Select(error => $"{error.Path}: {error.Message}"));
+    }
 }

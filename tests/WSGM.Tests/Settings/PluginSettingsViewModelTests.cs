@@ -8,32 +8,46 @@ namespace WSGM.Tests.Settings;
 
 public sealed class PluginSettingsViewModelTests
 {
-    private static SettingsViewModel ViewModel() => new(new AppConfig());
+    private const string Device = "msi.claw8";
 
-    private static PluginSettingDescriptor Setting(string id, string? sectionId) => new()
+    private const string Plugin = "wsgm.device.msi";
+
+    private static SettingsViewModel ViewModel()
     {
-        SettingId = id,
-        ValueKind = CapabilityValueKind.Boolean,
-        Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = id },
-        Default = new CapabilityValue { Kind = CapabilityValueKind.Boolean },
-        SectionId = sectionId
-    };
+        return new SettingsViewModel(new AppConfig());
+    }
+
+    private static PluginSettingDescriptor Setting(string id, string? sectionId)
+    {
+        return new PluginSettingDescriptor
+        {
+            SettingId = id,
+            ValueKind = CapabilityValueKind.Boolean,
+            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = id },
+            Default = new CapabilityValue { Kind = CapabilityValueKind.Boolean },
+            SectionId = sectionId
+        };
+    }
 
     /// <remarks>
-    /// Through the one shared projection, not a Settings-specific copy: the overlay draws from the
-    /// same call, so a second arrangement here would let the two surfaces disagree about where a
-    /// plugin's settings live.
+    ///     Through the one shared projection, not a Settings-specific copy: the overlay draws from the
+    ///     same call, so a second arrangement here would let the two surfaces disagree about where a
+    ///     plugin's settings live.
     /// </remarks>
-    private static PluginSettingsView Page(PluginSettingsManifest manifest, params string[] ids) =>
-        PluginSettingsCoordinator.Project(
+    private static PluginSettingsView Page(PluginSettingsManifest manifest, params string[] ids)
+    {
+        return PluginSettingsCoordinator.Project(
             manifest,
             new PluginSettingsResolution(
-                [.. ids.Select(id => new EffectivePluginSetting(
-                    id,
-                    new CapabilityValue { Kind = CapabilityValueKind.Boolean },
-                    PluginSettingOrigin.Default,
-                    null))],
+                [
+                    .. ids.Select(id => new EffectivePluginSetting(
+                        id,
+                        new CapabilityValue { Kind = CapabilityValueKind.Boolean },
+                        PluginSettingOrigin.Default,
+                        null))
+                ],
                 []));
+    }
 
     [Fact]
     public void APageWithNoSectionsReportsItselfUnavailableRatherThanDrawingNothing()
@@ -136,45 +150,47 @@ public sealed class PluginSettingsViewModelTests
         Assert.NotSame(stale, viewModel.PluginSettingSections[0].Rows[0]);
     }
 
-    private const string Device = "msi.claw8";
-
-    private const string Plugin = "wsgm.device.msi";
-
-    private static PluginSettingsManifest Manifest(string label = "Flag") => new()
+    private static PluginSettingsManifest Manifest(string label = "Flag")
     {
-        Sections = [new PluginSettingSection { SectionId = "one", Key = SettingSectionKey.General }],
-        Settings =
-        [
-            new PluginSettingDescriptor
-            {
-                SettingId = "vendor.flag",
-                ValueKind = CapabilityValueKind.Boolean,
-                Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = label },
-                Default = new CapabilityValue
-                {
-                    Kind = CapabilityValueKind.Boolean,
-                    BooleanValue = false
-                },
-                SectionId = "one"
-            }
-        ]
-    };
-
-    private static AppConfig Config(PluginSettingsManifest? declaration) => new()
-    {
-        DeviceIntegration = new DeviceIntegrationConfig
+        return new PluginSettingsManifest
         {
-            PluginSettings =
+            Sections = [new PluginSettingSection { SectionId = "one", Key = SettingSectionKey.General }],
+            Settings =
             [
-                new PluginSettingsScope
+                new PluginSettingDescriptor
                 {
-                    DeviceDefinitionId = Device,
-                    PluginId = Plugin,
-                    Declaration = declaration
+                    SettingId = "vendor.flag",
+                    ValueKind = CapabilityValueKind.Boolean,
+                    Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = label },
+                    Default = new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Boolean,
+                        BooleanValue = false
+                    },
+                    SectionId = "one"
                 }
             ]
-        }
-    };
+        };
+    }
+
+    private static AppConfig Config(PluginSettingsManifest? declaration)
+    {
+        return new AppConfig
+        {
+            DeviceIntegration = new DeviceIntegrationConfig
+            {
+                PluginSettings =
+                [
+                    new PluginSettingsScope
+                    {
+                        DeviceDefinitionId = Device,
+                        PluginId = Plugin,
+                        Declaration = declaration
+                    }
+                ]
+            }
+        };
+    }
 
     [Fact]
     public void ACachedDeclarationProducesAnEditablePage()
@@ -284,7 +300,7 @@ public sealed class PluginSettingsViewModelTests
     [Fact]
     public void EmptyPluginSlotDoesNotExposeAReplacedPluginDeclaration()
     {
-        SettingsViewModel viewModel = new(Config(Manifest("Replaced")), installedPluginId: null);
+        SettingsViewModel viewModel = new(Config(Manifest("Replaced")), null);
 
         Assert.False(viewModel.PluginSettingsAvailable);
     }

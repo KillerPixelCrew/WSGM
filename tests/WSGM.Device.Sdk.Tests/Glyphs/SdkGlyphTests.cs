@@ -36,8 +36,8 @@ public sealed class SdkGlyphTests
         // drawn it as unstyled outlines.
         var svg = Svg(
             "<g stroke=\"#899099\" stroke-width=\"2\">"
-                + "<path d=\"M 0 0 L 64 0\"/>"
-                + "</g>");
+            + "<path d=\"M 0 0 L 64 0\"/>"
+            + "</g>");
 
         var result = GlyphPackageImporter.Import(Source(svg));
 
@@ -210,16 +210,24 @@ public sealed class SdkGlyphTests
         Assert.Equal(GlyphProfileLimits.MaxProfiles + 1, source.EnumerateProfileIds().Count);
     }
 
-    private static byte[] Svg(string content) => Encoding.UTF8.GetBytes(
-        $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\">{content}</svg>");
+    private static byte[] Svg(string content)
+    {
+        return Encoding.UTF8.GetBytes(
+            $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\">{content}</svg>");
+    }
 
-    private static string Describe(GlyphPackageImportResult result) =>
-        string.Join("; ", result.Errors.Select(error => $"{error.Path}: {error.Message}"));
+    private static string Describe(GlyphPackageImportResult result)
+    {
+        return string.Join("; ", result.Errors.Select(error => $"{error.Path}: {error.Message}"));
+    }
 
     /// <summary>A source that advertises identifiers and holds no files for any of them.</summary>
     private sealed class EmptyGlyphSource(IReadOnlyList<string> profileIds) : IGlyphPackageSource
     {
-        public IReadOnlyList<string> EnumerateProfileIds() => profileIds;
+        public IReadOnlyList<string> EnumerateProfileIds()
+        {
+            return profileIds;
+        }
 
         public bool TryRead(string relativePath, int maximumBytes, out byte[] bytes)
         {
@@ -232,7 +240,10 @@ public sealed class SdkGlyphTests
         string profileId,
         IReadOnlyDictionary<string, byte[]> files) : IGlyphPackageSource
     {
-        public IReadOnlyList<string> EnumerateProfileIds() => [profileId];
+        public IReadOnlyList<string> EnumerateProfileIds()
+        {
+            return [profileId];
+        }
 
         public bool TryRead(string relativePath, int maximumBytes, out byte[] bytes)
         {

@@ -45,9 +45,9 @@ public sealed class PluginSettingsProjectionTests
         {
             Sections =
             [
-                Section("third", sort: 5),
-                Section("first", sort: 1),
-                Section("second", sort: 1)
+                Section("third", 5),
+                Section("first", 1),
+                Section("second", 1)
             ],
             Settings = [Toggle("a", "third"), Toggle("b", "first"), Toggle("c", "second")]
         };
@@ -67,7 +67,7 @@ public sealed class PluginSettingsProjectionTests
             Sections = [Section("power")],
             Settings =
             [
-                Toggle("c", "power", sort: 9),
+                Toggle("c", "power", 9),
                 Toggle("a", "power"),
                 Toggle("b", "power")
             ]
@@ -85,7 +85,7 @@ public sealed class PluginSettingsProjectionTests
     {
         PluginSettingsManifest manifest = new()
         {
-            Sections = [Section("power", sort: 100)],
+            Sections = [Section("power", 100)],
             Settings = [Toggle("a", "power"), Toggle("b", "nowhere")]
         };
 
@@ -107,23 +107,31 @@ public sealed class PluginSettingsProjectionTests
         Assert.Empty(view.Settings);
     }
 
-    private static PluginSettingsResolution Resolve(PluginSettingsManifest manifest) =>
-        PluginSettingsResolver.Resolve(manifest, []);
-
-    private static PluginSettingSection Section(string id, int sort = 0) => new()
+    private static PluginSettingsResolution Resolve(PluginSettingsManifest manifest)
     {
-        SectionId = id,
-        Key = SettingSectionKey.General,
-        SortOrder = sort
-    };
+        return PluginSettingsResolver.Resolve(manifest, []);
+    }
 
-    private static PluginSettingDescriptor Toggle(string id, string? section, int sort = 0) => new()
+    private static PluginSettingSection Section(string id, int sort = 0)
     {
-        SettingId = id,
-        ValueKind = CapabilityValueKind.Boolean,
-        Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "A setting" },
-        Default = new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = false },
-        SectionId = section,
-        SortOrder = sort
-    };
+        return new PluginSettingSection
+        {
+            SectionId = id,
+            Key = SettingSectionKey.General,
+            SortOrder = sort
+        };
+    }
+
+    private static PluginSettingDescriptor Toggle(string id, string? section, int sort = 0)
+    {
+        return new PluginSettingDescriptor
+        {
+            SettingId = id,
+            ValueKind = CapabilityValueKind.Boolean,
+            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "A setting" },
+            Default = new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = false },
+            SectionId = section,
+            SortOrder = sort
+        };
+    }
 }

@@ -92,7 +92,7 @@ public sealed class PluginTestWorkflowSafetyTests
             if (descendantPid is { } pid && IsProcessRunning(pid))
             {
                 using var descendant = Process.GetProcessById(pid);
-                descendant.Kill(entireProcessTree: true);
+                descendant.Kill(true);
                 descendant.WaitForExit(2_000);
             }
         }
@@ -150,7 +150,7 @@ public sealed class PluginTestWorkflowSafetyTests
             new DeviceIdentitySnapshot(),
             stateDirectory,
             Action(),
-            confirmed: false,
+            false,
             DeviceLabPackages.Boundaries(temporary),
             SafetyEnvironment(() =>
             {
@@ -182,7 +182,7 @@ public sealed class PluginTestWorkflowSafetyTests
             new DeviceIdentitySnapshot(),
             stateDirectory,
             Action(),
-            confirmed: true,
+            true,
             DeviceLabPackages.Boundaries(temporary),
             SafetyEnvironment(() =>
             {
@@ -211,7 +211,7 @@ public sealed class PluginTestWorkflowSafetyTests
             new DeviceIdentitySnapshot(),
             stateDirectory,
             Action(),
-            confirmed: true,
+            true,
             DeviceLabPackages.Boundaries(temporary),
             SafetyEnvironment(() =>
             {
@@ -253,7 +253,7 @@ public sealed class PluginTestWorkflowSafetyTests
             new DeviceIdentitySnapshot(),
             stateDirectory,
             Action(),
-            confirmed: true,
+            true,
             DeviceLabPackages.Boundaries(temporary),
             SafetyEnvironment(() => Reserved(handle)),
             CancellationToken.None);
@@ -312,7 +312,7 @@ public sealed class PluginTestWorkflowSafetyTests
                 new DeviceIdentitySnapshot(),
                 temporary.GetPath("new-state"),
                 Action(),
-                confirmed: true,
+                true,
                 DeviceLabPackages.Boundaries(temporary),
                 SafetyEnvironment(() => DeviceLabOwnerInspector.Reserve(ownerName)),
                 CancellationToken.None));
@@ -338,7 +338,7 @@ public sealed class PluginTestWorkflowSafetyTests
             new DeviceIdentitySnapshot(),
             temporary.GetPath("new-state"),
             Action(),
-            confirmed: true,
+            true,
             DeviceLabPackages.Boundaries(temporary),
             SafetyEnvironment(() => DeviceLabOwnerInspector.Reserve(ownerName)),
             CancellationToken.None));
@@ -366,7 +366,7 @@ public sealed class PluginTestWorkflowSafetyTests
             new DeviceIdentitySnapshot(),
             temporary.GetPath("new-state"),
             Action(),
-            confirmed: true,
+            true,
             DeviceLabPackages.Boundaries(temporary),
             SafetyEnvironment(() => DeviceLabOwnerInspector.Reserve(ownerName)),
             CancellationToken.None));
@@ -394,7 +394,7 @@ public sealed class PluginTestWorkflowSafetyTests
             new DeviceIdentitySnapshot(),
             temporary.GetPath("new-state"),
             Action(),
-            confirmed: true,
+            true,
             DeviceLabPackages.Boundaries(temporary),
             SafetyEnvironment(() => DeviceLabOwnerInspector.Reserve(ownerName)),
             CancellationToken.None));
@@ -420,7 +420,6 @@ public sealed class PluginTestWorkflowSafetyTests
         ThrowingStopPlugin.Id,
         typeof(ThrowingStopPlugin),
         "synthetic Stop threw")]
-
     public async Task RunAttended_PostStartUnverifiedOutcomeWithCleanDisposalKeepsOwnerUnavailable(
         string packageId,
         Type pluginType,
@@ -438,7 +437,7 @@ public sealed class PluginTestWorkflowSafetyTests
             new DeviceIdentitySnapshot(),
             temporary.GetPath("new-state"),
             Action(),
-            confirmed: true,
+            true,
             DeviceLabPackages.Boundaries(temporary),
             SafetyEnvironment(() => DeviceLabOwnerInspector.Reserve(ownerName)),
             CancellationToken.None);
@@ -484,47 +483,47 @@ public sealed class PluginTestWorkflowSafetyTests
     }
 
     private static AttendedPluginSafetyEnvironment SafetyEnvironment(
-        Func<DeviceLabOwnerReservationResult> reserveOwner) => new()
+        Func<DeviceLabOwnerReservationResult> reserveOwner)
+    {
+        return new AttendedPluginSafetyEnvironment
         {
             ReserveOwner = reserveOwner,
             IsElevated = true,
             IsUserInteractive = true,
             IsContinuousIntegration = false
         };
+    }
 
-    private static DeviceLabOwnerReservationResult Reserved(IDisposable handle) => new()
+    private static DeviceLabOwnerReservationResult Reserved(IDisposable handle)
     {
-        Inspection = new DeviceLabOwnerInspection
+        return new DeviceLabOwnerReservationResult
         {
-            State = DeviceOwnerDiscoveryState.Absent
-        },
-        Reservation = new DeviceLabOwnerReservation(handle)
-    };
+            Inspection = new DeviceLabOwnerInspection
+            {
+                State = DeviceOwnerDiscoveryState.Absent
+            },
+            Reservation = new DeviceLabOwnerReservation(handle)
+        };
+    }
 
-    private static DeviceLabOwnerReservationResult OwnerPresent() => new()
+    private static DeviceLabOwnerReservationResult OwnerPresent()
     {
-        Inspection = new DeviceLabOwnerInspection
+        return new DeviceLabOwnerReservationResult
         {
-            State = DeviceOwnerDiscoveryState.Present
-        }
-    };
-
-    private sealed class CallbackDisposable(Action callback) : IDisposable
-    {
-        private Action? _callback = callback;
-
-        public void Dispose()
-        {
-            var callback = Interlocked.Exchange(ref _callback, null);
-            callback?.Invoke();
-        }
+            Inspection = new DeviceLabOwnerInspection
+            {
+                State = DeviceOwnerDiscoveryState.Present
+            }
+        };
     }
 
     private static string CreatePackageWithUnresolvableEntryType(TemporaryDirectory temporary)
-        => CreatePackage(
+    {
+        return CreatePackage(
             temporary,
             "wsgm.device.synthetic.preflight-order",
             "WSGM.Device.Tests.ThisTypeMustNeverBeResolved");
+    }
 
     private static string CreatePackage(
         TemporaryDirectory temporary,
@@ -552,10 +551,13 @@ public sealed class PluginTestWorkflowSafetyTests
         return package;
     }
 
-    private static AttendedPluginActionRequest Action() => new()
+    private static AttendedPluginActionRequest Action()
     {
-        Kind = AttendedPluginActionKind.ControllerManagement
-    };
+        return new AttendedPluginActionRequest
+        {
+            Kind = AttendedPluginActionKind.ControllerManagement
+        };
+    }
 
     private static async Task<string?> CaptureFailureAsync(Func<Task> operation)
     {
@@ -587,6 +589,17 @@ public sealed class PluginTestWorkflowSafetyTests
         catch (ArgumentException)
         {
             return false;
+        }
+    }
+
+    private sealed class CallbackDisposable(Action callback) : IDisposable
+    {
+        private Action? _callback = callback;
+
+        public void Dispose()
+        {
+            var callback = Interlocked.Exchange(ref _callback, null);
+            callback?.Invoke();
         }
     }
 }

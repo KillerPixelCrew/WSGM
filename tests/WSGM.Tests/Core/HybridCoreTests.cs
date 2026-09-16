@@ -42,7 +42,8 @@ public sealed class HybridCoreTests
     [Fact]
     public void EveryClassBelowTheTopCountsAsEfficiency()
     {
-        FakeHybridCoreApi api = new() { Classes = [new HybridCoreClass(0, 4, 4), new HybridCoreClass(1, 8, 8), new HybridCoreClass(2, 2, 4)] };
+        FakeHybridCoreApi api = new()
+            { Classes = [new HybridCoreClass(0, 4, 4), new HybridCoreClass(1, 8, 8), new HybridCoreClass(2, 2, 4)] };
 
         var status = new HybridCores(api).Read();
 
@@ -99,7 +100,9 @@ public sealed class HybridCoreTests
 
     [Fact]
     public void APolicyValueWindowsDoesNotNameIsNoOfferedMode()
-        => Assert.Null(HybridCores.ModeFor(new HybridCoreState(0, (HybridSchedulingPolicy)9, (HybridSchedulingPolicy)9)));
+    {
+        Assert.Null(HybridCores.ModeFor(new HybridCoreState(0, (HybridSchedulingPolicy)9, (HybridSchedulingPolicy)9)));
+    }
 
     [Fact]
     public void AllProcessorsIsReportedAsUnknownRatherThanAsAutomatic()
@@ -164,8 +167,8 @@ public sealed class HybridCoreTests
     {
         FakeHybridCoreApi api = new() { IgnoreWrites = true };
 
-        var error = Assert.Throws<InvalidOperationException>(
-            () => new HybridCores(api).Apply(HybridCoreMode.EfficiencyOnly));
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            new HybridCores(api).Apply(HybridCoreMode.EfficiencyOnly));
         Assert.Contains("did not confirm", error.Message, StringComparison.Ordinal);
     }
 
@@ -205,17 +208,22 @@ public sealed class HybridCoreTests
 
     [Fact]
     public void AnUnsupportedMachineSaysThereIsNothingToChoose()
-        => Assert.Contains(
+    {
+        Assert.Contains(
             "nothing to choose",
             HybridCoreSelection.Describe(new HybridCoreStatus(false, 0, 0, [], null, null)),
             StringComparison.Ordinal);
+    }
 
     [Fact]
     public void TheCoreCountsAreReportedInTheDescription()
-        => Assert.Contains(
+    {
+        Assert.Contains(
             "4 performance and 4 efficiency cores",
-            HybridCoreSelection.Describe(new HybridCoreStatus(true, 4, 4, [], HybridCoreMode.Automatic, HybridCoreMode.Automatic)),
+            HybridCoreSelection.Describe(new HybridCoreStatus(true, 4, 4, [], HybridCoreMode.Automatic,
+                HybridCoreMode.Automatic)),
             StringComparison.Ordinal);
+    }
 
     [Fact]
     public async Task TheSteamDropdownAndTheOverlayShareOneIdVocabularyAndOnePolicy()

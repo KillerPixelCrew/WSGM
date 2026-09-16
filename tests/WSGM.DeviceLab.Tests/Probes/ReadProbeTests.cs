@@ -73,8 +73,8 @@ public sealed class ReadProbeTests
     [Fact]
     public void FanRpmProbe_AllowsLiveTachometerMovementAcrossReads()
     {
-        var metadata = KnownMsiClaw.Create().ReadProbes.Single(
-            probe => probe.Id.EndsWith("fan-rpm", StringComparison.Ordinal));
+        var metadata = KnownMsiClaw.Create().ReadProbes
+            .Single(probe => probe.Id.EndsWith("fan-rpm", StringComparison.Ordinal));
         ReadProbeWorkerResponse response = new()
         {
             SchemaVersion = 1,
@@ -107,8 +107,8 @@ public sealed class ReadProbeTests
     [Fact]
     public void ReadProbeResponse_MutationOrMissingCrossCheck_IsRejected()
     {
-        var metadata = KnownMsiClaw.Create().ReadProbes.Single(
-            probe => probe.Id.EndsWith("charge-limit", StringComparison.Ordinal));
+        var metadata = KnownMsiClaw.Create().ReadProbes
+            .Single(probe => probe.Id.EndsWith("charge-limit", StringComparison.Ordinal));
         ReadProbeSample sample = new()
         {
             ValueKind = ReadProbeValueKind.Integer,
@@ -146,26 +146,32 @@ public sealed class ReadProbeTests
                 }).Code);
     }
 
-    private static ReadProbeSample FanSample(string value, string crossCheck) => new()
+    private static ReadProbeSample FanSample(string value, string crossCheck)
     {
-        ValueKind = ReadProbeValueKind.Text,
-        StatusCode = 1,
-        Length = 5,
-        NormalizedValue = value,
-        ElapsedMilliseconds = 5,
-        CrossCheckValue = crossCheck
-    };
+        return new ReadProbeSample
+        {
+            ValueKind = ReadProbeValueKind.Text,
+            StatusCode = 1,
+            Length = 5,
+            NormalizedValue = value,
+            ElapsedMilliseconds = 5,
+            CrossCheckValue = crossCheck
+        };
+    }
 
-    private static ReadProbeSample Sample() => new()
+    private static ReadProbeSample Sample()
     {
-        ValueKind = ReadProbeValueKind.Version,
-        StatusCode = 0,
-        Length = 3,
-        NumericValue = 8,
-        NormalizedValue = "8.0",
-        ElapsedMilliseconds = 1,
-        CrossCheckValue = "8.0"
-    };
+        return new ReadProbeSample
+        {
+            ValueKind = ReadProbeValueKind.Version,
+            StatusCode = 0,
+            Length = 3,
+            NumericValue = 8,
+            NormalizedValue = "8.0",
+            ElapsedMilliseconds = 1,
+            CrossCheckValue = "8.0"
+        };
+    }
 
     private sealed class MalformedSecondRead : IReadProbeProfile
     {
@@ -174,7 +180,11 @@ public sealed class ReadProbeTests
         public CompiledReadProbeDescriptor Descriptor { get; } =
             new("test", 1, "test", "test", ReadProbeFamily.Version, 20, 2000, 2);
 
-        public ValueTask<ReadProbeSample> ReadOnceAsync(CancellationToken cancellationToken) =>
-            ++_reads == 1 ? ValueTask.FromResult(Sample()) : throw new InvalidDataException("Truncated response.");
+        public ValueTask<ReadProbeSample> ReadOnceAsync(CancellationToken cancellationToken)
+        {
+            return ++_reads == 1
+                ? ValueTask.FromResult(Sample())
+                : throw new InvalidDataException("Truncated response.");
+        }
     }
 }

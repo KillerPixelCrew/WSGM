@@ -13,153 +13,103 @@ using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
-/// <summary>The quick access sheet: the controller-friendly, top-docked surface that
-/// carries the pinned home root, the Session / Steam / Device / Tools / Power roots with
-/// their nested pages, the header status pills and the Open apps strip. It covers
-/// <see cref="SheetHeightFraction"/> of the display and leaves the game visible below.</summary>
+/// <summary>
+///     The quick access sheet: the controller-friendly, top-docked surface that
+///     carries the pinned home root, the Session / Steam / Device / Tools / Power roots with
+///     their nested pages, the header status pills and the Open apps strip. It covers
+///     <see cref="SheetHeightFraction" /> of the display and leaves the game visible below.
+/// </summary>
 public partial class OverlayWindow : Window
 {
-    /// <summary>Share of the display height the sheet covers. The rest stays the
-    /// game's — a tap there is outside the window rectangle and dismisses the sheet
-    /// through the raw-input hit test, which is why the sheet is deliberately NOT
-    /// fullscreen.</summary>
+    /// <summary>
+    ///     Share of the display height the sheet covers. The rest stays the
+    ///     game's — a tap there is outside the window rectangle and dismisses the sheet
+    ///     through the raw-input hit test, which is why the sheet is deliberately NOT
+    ///     fullscreen.
+    /// </summary>
     internal const double SheetHeightFraction = 0.8125;
-
-    /// <summary>Raised when a nested page is torn down so auxiliary peer windows close too.</summary>
-    public event Action? SubViewClosed;
-    private bool _confirmRestart;
-    private bool _confirmShutdown;
-    private DispatcherTimer? _confirmResetTimer;
-    private DispatcherTimer? _slideTimer;
-    private PixelPoint _slideStart;
-    private PixelPoint _slideEnd;
-    private DateTime _slideStartedUtc;
-    private readonly HashSet<IPointer> _pressedPointers = [];
-    private int _pendingLiveRefreshes;
-    private int _liveRefreshScheduled;
 
     private const int DeviceLiveRefresh = 1;
     private const int PerformanceLiveRefresh = 2;
-    private PowerSchemeSelection? _powerSchemeSelection;
-    private HybridCoreSelection? _hybridCoreSelection;
-    private bool _performanceDetailsExpanded;
-    private OverlayPage? _renderedDevicePage;
-    private string? _renderedDeviceSection;
+    private const int DeviceRenderAwaitingOpen = 1;
+    private const int PerformanceRenderAwaitingOpen = 2;
+
+    private const int PinsRenderAwaitingOpen = 4;
+
+    // Window recreation retains navigation within the resident session, without persisting it.
+    private static readonly SessionState SharedSession = new();
 
     private readonly Dictionary<string, (string Title, Func<Control> Create)> _controlPinFactories = [];
+    private readonly CancellationTokenSource _deviceLifetime = new();
+    private readonly Action<OverlayWindow> _dock;
 
-    /// <summary>Raised when the user requests Task Manager.</summary>
-    public event Action? TaskManagerRequested;
-
-    internal event Action? OnScreenKeyboardRequested;
-
-    private void OnScreenKeyboard(object? sender, RoutedEventArgs e) => OnScreenKeyboardRequested?.Invoke();
-
-    /// <summary>Raised when the keep-awake row is activated (toggle the manual hold).</summary>
-    public event Action? KeepAwakeToggleRequested;
-
-    /// <summary>Raised when an idle-timeout row is activated (cycle to the next preset).</summary>
-    public event Action<PowerTimeoutKind>? PowerTimeoutCycleRequested;
-
-    /// <summary>Raised when the overlay is dismissed without another action.</summary>
-    public event Action? Dismissed;
-
-    /// <summary>Raised when the user picks an Open apps chip (or cycles with Y).</summary>
-    public event Action<AppSwitcherEntry>? WindowPicked;
-
-    /// <summary>Raised when the user activates a tray icon. Arguments: the entry,
-    /// whether this is a context-menu (right-click / X) activation, and the screen
-    /// pixel position the app should anchor any menu to.</summary>
-    public event Action<TrayIconEntry, bool, PixelPoint>? TrayIconActivated;
-
-    /// <summary>Raised when a radio pill is tapped. The flag selects the tab to
-    /// open on: true for Bluetooth, false for Wi-Fi.</summary>
-    public event Action<bool>? RadioPanelRequested;
-
-    /// <summary>Raised when the audio pill is pressed.</summary>
-    public event Action? AudioPanelRequested;
-
-    /// <summary>Raised when the eject pill (or the Tools row) is pressed.</summary>
-    public event Action? EjectPanelRequested;
-
-    /// <summary>Raised with a row's id when the user pins or unpins it (X on the
-    /// focused row, a touch hold, or a right click). The controller owns the
-    /// persisted list and hands the new one back through <see cref="SetPins"/>.</summary>
-    public event Action<string>? PinToggleRequested;
-
-    /// <summary>Raised with <c>true</c> while a modal system dialog owns the screen,
-    /// and <c>false</c> once it closes.</summary>
+    /// <summary>Preview tiles by control, rebuilt with the Glyphs page and empty elsewhere.</summary>
     /// <remarks>
-    /// A system dialog is its own window OUTSIDE the bar's rectangle, so for its
-    /// lifetime the controller must suspend tap-outside dismissal and gamepad
-    /// navigation. Without this the first touch inside the file picker read as a tap
-    /// outside the bar, closed it, and cancelled the whole flow (user-reproduced);
-    /// a B press would likewise have driven the bar hidden behind the dialog.
+    ///     Held so the input test can light a tile without re-rendering the page on every sample. The
+    ///     tiles are owned by the visual tree; this only points at them, and is cleared whenever the
+    ///     page that made them is replaced.
     /// </remarks>
-    public event Action<bool>? SystemDialogActive;
+    private readonly Dictionary<GlyphControlId, Border> _glyphTiles = [];
+
+    private readonly OverlayNavigation _navigation = new();
+    private readonly HashSet<IPointer> _pressedPointers = [];
+    private readonly SessionState _session;
+    private readonly AppSwitcherViewModel _switcher;
+    private readonly Action _synchronizeTabs;
+
+    /// <summary>
+    ///     Set once this window instance is gone. Post-action feedback delays
+    ///     outlive the window they started on, and a dismissal raised from a dead window
+    ///     would close whatever panel is on screen by then.
+    /// </summary>
+    private bool _closed;
 
     private bool _confirmCloseLauncher;
+    private DispatcherTimer? _confirmResetTimer;
+    private bool _confirmRestart;
+    private bool _confirmShutdown;
+    private IDeviceOverlaySource? _deviceBridge;
+    private DevicePrerequisiteSource? _devicePrerequisites;
 
-    /// <summary>Set once this window instance is gone. Post-action feedback delays
-    /// outlive the window they started on, and a dismissal raised from a dead window
-    /// would close whatever panel is on screen by then.</summary>
-    private bool _closed;
+    private SdFormatManager? _format;
+    private IDisposable? _glyphInputObservation;
+    private HybridCoreSelection? _hybridCoreSelection;
+    private int _liveRefreshScheduled;
 
     // Renders asked for before the window first opens are held and run once in OnOpened. Each
     // source attached while the sheet is being built otherwise rebuilt the Device page or the pins.
     private bool _opened;
+    private int _pendingLiveRefreshes;
+    private FormatTargetEntry? _pendingTarget;
+    private bool _performanceDetailsExpanded;
+    private IDisposable? _performanceObservation;
+    private PerformanceOverlayBridge? _performanceSource;
+    private PowerSchemeSelection? _powerSchemeSelection;
+
+    private HashSet<GlyphControlId> _pressedGlyphControls = [];
+    private OverlayPage? _renderedDevicePage;
+    private string? _renderedDeviceSection;
     private int _rendersAwaitingOpen;
-    private const int DeviceRenderAwaitingOpen = 1;
-    private const int PerformanceRenderAwaitingOpen = 2;
-    private const int PinsRenderAwaitingOpen = 4;
 
     // Guards the Device render that ShowDestination performs, which re-enters it via ConfigureTabs.
     private bool _showingDestination;
-    private readonly CancellationTokenSource _deviceLifetime = new();
-    private readonly OverlayNavigation _navigation = new();
-    // Window recreation retains navigation within the resident session, without persisting it.
-    private static readonly SessionState SharedSession = new();
-    private readonly SessionState _session;
-    private readonly Action<OverlayWindow> _dock;
-    private readonly Action _synchronizeTabs;
-
-    internal sealed class SessionState
-    {
-        internal OverlayFocusMemory Focus { get; } = new();
-        internal OverlayDestination Destination { get; set; } = OverlayDestination.QuickAccess;
-    }
-    private IDeviceOverlaySource? _deviceBridge;
-    private DevicePrerequisiteSource? _devicePrerequisites;
-
-    /// <summary>Preview tiles by control, rebuilt with the Glyphs page and empty elsewhere.</summary>
-    /// <remarks>
-    /// Held so the input test can light a tile without re-rendering the page on every sample. The
-    /// tiles are owned by the visual tree; this only points at them, and is cleared whenever the
-    /// page that made them is replaced.
-    /// </remarks>
-    private readonly Dictionary<GlyphControlId, Border> _glyphTiles = [];
-
-    private HashSet<GlyphControlId> _pressedGlyphControls = [];
-    private IDisposable? _glyphInputObservation;
-    private PerformanceOverlayBridge? _performanceSource;
-    private IDisposable? _performanceObservation;
-
-    private SdFormatManager? _format;
-    private FormatTargetEntry? _pendingTarget;
-    private readonly AppSwitcherViewModel _switcher;
-
-    /// <summary>Set while the peer keyboard owns activation so focus handoff does not
-    /// look like a fresh overlay summons and discard the active workflow.</summary>
-    internal bool KeyboardOwnsFocus { get; set; }
+    private PixelPoint _slideEnd;
+    private PixelPoint _slideStart;
+    private DateTime _slideStartedUtc;
+    private DispatcherTimer? _slideTimer;
 
     /// <summary>Creates the sheet bound to the supplied state.</summary>
     /// <param name="viewModel">The state that drives labels, warnings and the rows.</param>
     /// <param name="switcher">The Open apps chips and tray icons (reconciled in place by the controller).</param>
     /// <param name="status">The live clock/battery/radio/audio status the header pills bind.</param>
-    /// <param name="uiScale">The desktop-DPI scale factor for WSGM UI (e.g. 1.5
-    /// for a 150% desktop; see DisplayScale.GetUiScalePercent).</param>
-    /// <param name="preferredScreenPoint">A physical point in the foreground window that summoned
-    /// the sheet. Null falls back to Avalonia's current window or primary-screen selection.</param>
+    /// <param name="uiScale">
+    ///     The desktop-DPI scale factor for WSGM UI (e.g. 1.5
+    ///     for a 150% desktop; see DisplayScale.GetUiScalePercent).
+    /// </param>
+    /// <param name="preferredScreenPoint">
+    ///     A physical point in the foreground window that summoned
+    ///     the sheet. Null falls back to Avalonia's current window or primary-screen selection.
+    /// </param>
     public OverlayWindow(
         OverlayViewModel viewModel,
         AppSwitcherViewModel switcher,
@@ -167,8 +117,10 @@ public partial class OverlayWindow : Window
         double uiScale = 1.0,
         PixelPoint? preferredScreenPoint = null)
         : this(viewModel, switcher, status, SharedSession,
-            static window => window.DockToTopEdge(), static window => window.MaybeAutoSyncTabs(), uiScale, preferredScreenPoint)
-    { }
+            static window => window.DockToTopEdge(), static window => window.MaybeAutoSyncTabs(), uiScale,
+            preferredScreenPoint)
+    {
+    }
 
     internal OverlayWindow(
         OverlayViewModel viewModel,
@@ -209,14 +161,14 @@ public partial class OverlayWindow : Window
         // primary screen); the dock recomputes it against the real display width.
         TrayScroller.MaxWidth = ComputeTrayMaxWidth(Width, _contentScale);
         // Touch and mouse routes to pinning: a hold on a row, or a right click.
-        AddHandler(HoldingEvent, OnHolding, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(HoldingEvent, OnHolding, RoutingStrategies.Bubble, true);
         AddHandler(PointerPressedEvent, OnPointerPressedForPin, RoutingStrategies.Tunnel);
         AddHandler(PointerReleasedEvent, OnPointerReleasedForPin, RoutingStrategies.Tunnel);
         AddHandler(PointerPressedEvent, OnPointerPressedForLiveRefresh, RoutingStrategies.Tunnel);
         AddHandler(PointerReleasedEvent, OnPointerReleasedForLiveRefresh, RoutingStrategies.Tunnel);
         PointerCaptureLost += OnPointerCaptureLostForLiveRefresh;
 
-        ConfigureTabs(showDevice: false);
+        ConfigureTabs(false);
         Tabs.SelectionChanged += OnTabSelectionChanged;
         // The panel reopens on the destination the user last had selected (static: the
         // window is recreated per open). Activated covers both the fresh open and a
@@ -229,11 +181,13 @@ public partial class OverlayWindow : Window
             {
                 continue;
             }
+
             var page = view.Page;
             var leave = () => LeaveSubView(page);
             host.CloseRequested += leave;
             _subViewCloseHandlers.Add((host, leave));
         }
+
         CardManagerHost.FormatRequested += OnFormatFromCardManager;
         LaunchWrapperHost.Picked += OnLaunchFixGamePicked;
         LaunchWrapperHost.CustomPicked += OnCustomLaunchGamePicked;
@@ -261,11 +215,90 @@ public partial class OverlayWindow : Window
         Win32Properties.AddWndProcHookCallback(this, DeclineMouseActivationForPanels);
     }
 
-    /// <summary>True while a status panel hangs from the header. A mouse click on the sheet then
-    /// reaches its control without activating the sheet, so the click Windows synthesizes from
-    /// the tap that opened the panel cannot raise the sheet over it. Set by
-    /// <c>OverlayController.SyncSheetMouseActivation</c>; see its remarks for the mechanism.</summary>
+    /// <summary>
+    ///     Set while the peer keyboard owns activation so focus handoff does not
+    ///     look like a fresh overlay summons and discard the active workflow.
+    /// </summary>
+    internal bool KeyboardOwnsFocus { get; set; }
+
+    /// <summary>
+    ///     True while a status panel hangs from the header. A mouse click on the sheet then
+    ///     reaches its control without activating the sheet, so the click Windows synthesizes from
+    ///     the tap that opened the panel cannot raise the sheet over it. Set by
+    ///     <c>OverlayController.SyncSheetMouseActivation</c>; see its remarks for the mechanism.
+    /// </summary>
     internal bool SuppressMouseActivation { get; set; }
+
+    /// <summary>
+    ///     When set before the first show, the window primes the process-global render
+    ///     backend off-screen and then closes: <see cref="OnOpened" /> skips docking, focus and the
+    ///     CEF tab sync so nothing user-visible or Steam-touching happens during the warm pass.
+    /// </summary>
+    internal bool WarmingUp { get; set; }
+
+    /// <summary>Raised when a nested page is torn down so auxiliary peer windows close too.</summary>
+    public event Action? SubViewClosed;
+
+    /// <summary>Raised when the user requests Task Manager.</summary>
+    public event Action? TaskManagerRequested;
+
+    internal event Action? OnScreenKeyboardRequested;
+
+    private void OnScreenKeyboard(object? sender, RoutedEventArgs e)
+    {
+        OnScreenKeyboardRequested?.Invoke();
+    }
+
+    /// <summary>Raised when the keep-awake row is activated (toggle the manual hold).</summary>
+    public event Action? KeepAwakeToggleRequested;
+
+    /// <summary>Raised when an idle-timeout row is activated (cycle to the next preset).</summary>
+    public event Action<PowerTimeoutKind>? PowerTimeoutCycleRequested;
+
+    /// <summary>Raised when the overlay is dismissed without another action.</summary>
+    public event Action? Dismissed;
+
+    /// <summary>Raised when the user picks an Open apps chip (or cycles with Y).</summary>
+    public event Action<AppSwitcherEntry>? WindowPicked;
+
+    /// <summary>
+    ///     Raised when the user activates a tray icon. Arguments: the entry,
+    ///     whether this is a context-menu (right-click / X) activation, and the screen
+    ///     pixel position the app should anchor any menu to.
+    /// </summary>
+    public event Action<TrayIconEntry, bool, PixelPoint>? TrayIconActivated;
+
+    /// <summary>
+    ///     Raised when a radio pill is tapped. The flag selects the tab to
+    ///     open on: true for Bluetooth, false for Wi-Fi.
+    /// </summary>
+    public event Action<bool>? RadioPanelRequested;
+
+    /// <summary>Raised when the audio pill is pressed.</summary>
+    public event Action? AudioPanelRequested;
+
+    /// <summary>Raised when the eject pill (or the Tools row) is pressed.</summary>
+    public event Action? EjectPanelRequested;
+
+    /// <summary>
+    ///     Raised with a row's id when the user pins or unpins it (X on the
+    ///     focused row, a touch hold, or a right click). The controller owns the
+    ///     persisted list and hands the new one back through <see cref="SetPins" />.
+    /// </summary>
+    public event Action<string>? PinToggleRequested;
+
+    /// <summary>
+    ///     Raised with <c>true</c> while a modal system dialog owns the screen,
+    ///     and <c>false</c> once it closes.
+    /// </summary>
+    /// <remarks>
+    ///     A system dialog is its own window OUTSIDE the bar's rectangle, so for its
+    ///     lifetime the controller must suspend tap-outside dismissal and gamepad
+    ///     navigation. Without this the first touch inside the file picker read as a tap
+    ///     outside the bar, closed it, and cancelled the whole flow (user-reproduced);
+    ///     a B press would likewise have driven the bar hidden behind the dialog.
+    /// </remarks>
+    public event Action<bool>? SystemDialogActive;
 
     private nint DeclineMouseActivationForPanels(
         nint hWnd,
@@ -283,11 +316,6 @@ public partial class OverlayWindow : Window
         return NativeMethods.MaNoActivate;
     }
 
-    /// <summary>When set before the first show, the window primes the process-global render
-    /// backend off-screen and then closes: <see cref="OnOpened"/> skips docking, focus and the
-    /// CEF tab sync so nothing user-visible or Steam-touching happens during the warm pass.</summary>
-    internal bool WarmingUp { get; set; }
-
     private void OnOpened(object? sender, EventArgs e)
     {
         // Before the warm-up return: rendering is part of what the warm pass exercises.
@@ -300,7 +328,7 @@ public partial class OverlayWindow : Window
 
         _dock(this);
         SelectDestination(_session.Destination);
-        RestoreDestinationState(focus: true);
+        RestoreDestinationState(true);
         _synchronizeTabs();
     }
 
@@ -312,10 +340,12 @@ public partial class OverlayWindow : Window
         {
             RefreshPerformancePanel();
         }
+
         if ((pending & DeviceRenderAwaitingOpen) != 0)
         {
             RefreshDevicePanel();
         }
+
         if ((pending & PinsRenderAwaitingOpen) != 0)
         {
             RenderPins();
@@ -351,10 +381,12 @@ public partial class OverlayWindow : Window
         {
             _deviceBridge.Changed -= OnDeviceChanged;
         }
+
         if (_performanceSource is not null)
         {
             _performanceSource.Changed -= OnPerformanceChanged;
         }
+
         _performanceObservation?.Dispose();
         _performanceObservation = null;
 
@@ -370,6 +402,7 @@ public partial class OverlayWindow : Window
         {
             host.CloseRequested -= leave;
         }
+
         CardManagerHost.FormatRequested -= OnFormatFromCardManager;
         ArtworkHost.Close();
         LaunchWrapperHost.Picked -= OnLaunchFixGamePicked;
@@ -382,5 +415,11 @@ public partial class OverlayWindow : Window
         ResetConfirms();
         ReleasePinMirrors();
         _deviceLifetime.Dispose();
+    }
+
+    internal sealed class SessionState
+    {
+        internal OverlayFocusMemory Focus { get; } = new();
+        internal OverlayDestination Destination { get; set; } = OverlayDestination.QuickAccess;
     }
 }

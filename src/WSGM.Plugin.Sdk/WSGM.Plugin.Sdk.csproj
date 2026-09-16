@@ -13,6 +13,6 @@
     <Description>Common WSGM plugin identity, lifecycle and host contracts.</Description>
   </PropertyGroup>
   <ItemGroup>
-    <None Update="README.md" Pack="true" PackagePath="\" />
+    <None Update="README.md" Pack="true" PackagePath="\"/>
   </ItemGroup>
 </Project>

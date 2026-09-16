@@ -12,10 +12,10 @@ namespace WSGM.Core;
 
 /// <summary>SteamGridDB behind the shared provider contract.</summary>
 /// <remarks>
-/// A thin adapter rather than a rewrite: <see cref="SteamGridDb"/> keeps every endpoint, header and
-/// failure message it already had, and this only re-shapes the results and reports readiness. The
-/// existing search and picker behaviour is unchanged, which is what the second provider was
-/// required not to disturb.
+///     A thin adapter rather than a rewrite: <see cref="SteamGridDb" /> keeps every endpoint, header and
+///     failure message it already had, and this only re-shapes the results and reports readiness. The
+///     existing search and picker behaviour is unchanged, which is what the second provider was
+///     required not to disturb.
 /// </remarks>
 public sealed class SteamGridDbProvider : IArtworkProvider
 {
@@ -64,6 +64,7 @@ public sealed class SteamGridDbProvider : IArtworkProvider
         {
             return [];
         }
+
         var assets = await SteamGridDb.GetAssetsForGameAsync(
             asset, id, SteamGridDb.ResolveKey(config), cancellationToken).ConfigureAwait(false);
         return Convert(assets);
@@ -79,41 +80,44 @@ public sealed class SteamGridDbProvider : IArtworkProvider
         return Convert(assets);
     }
 
-    private ArtworkCandidate[] Convert(IReadOnlyList<SgdbAsset> assets) =>
-    [
-        .. assets.Select(a => new ArtworkCandidate(
-            Id, DisplayName, a.Id, a.Url, a.Thumb, a.Width, a.Height, a.Extension))
-    ];
+    private ArtworkCandidate[] Convert(IReadOnlyList<SgdbAsset> assets)
+    {
+        return
+        [
+            .. assets.Select(a => new ArtworkCandidate(
+                Id, DisplayName, a.Id, a.Url, a.Thumb, a.Width, a.Height, a.Extension))
+        ];
+    }
 }
 
 /// <summary>
-/// Screenscraper.fr behind the shared provider contract.
+///     Screenscraper.fr behind the shared provider contract.
 /// </summary>
 /// <remarks>
-/// Screenscraper differs from SteamGridDB in the two ways that shaped the abstraction. Its
-/// credentials are the application's own — a registered developer pair that ships with the build
-/// (see <see cref="ScreenscraperCredentials"/>), plus an optional user account whose level decides
-/// the quota — where SteamGridDB needs a key the user obtains. And it is organised around emulated
-/// systems and ROM names rather than Steam app ids, so it can answer a title search but has nothing
-/// to say about a Steam app id.
-/// <para>
-/// Its media vocabulary is its own and does not line up one-to-one with Steam's artwork slots, so
-/// the mapping lives here rather than leaking into the picker. Regional variants are preferred
-/// world-first, because a world release is the one most likely to match what the user expects.
-/// </para>
-/// <para>
-/// Rate limiting is explicit in this API: HTTP 429 means the concurrent-thread or per-minute quota
-/// is spent, 430 the daily scrape quota, and 431 too many lookups in a day for titles Screenscraper
-/// does not hold. All three are reported as provider failures rather than as empty results, so one
-/// provider running out cannot read as the game having no art.
-/// </para>
-/// <para>
-/// 431 is the one to watch. Screenscraper is a ROM database being asked about a Steam library, so a
-/// miss is the ordinary outcome rather than the exceptional one, and the misses count. All three are
-/// counted against the account an <c>ssid</c> names, or against the requesting IP when there is
-/// none, never against the shipped developer pair — so a user can only ever spend their own
-/// allowance, and each quota message names the free personal account that raises it.
-/// </para>
+///     Screenscraper differs from SteamGridDB in the two ways that shaped the abstraction. Its
+///     credentials are the application's own — a registered developer pair that ships with the build
+///     (see <see cref="ScreenscraperCredentials" />), plus an optional user account whose level decides
+///     the quota — where SteamGridDB needs a key the user obtains. And it is organised around emulated
+///     systems and ROM names rather than Steam app ids, so it can answer a title search but has nothing
+///     to say about a Steam app id.
+///     <para>
+///         Its media vocabulary is its own and does not line up one-to-one with Steam's artwork slots, so
+///         the mapping lives here rather than leaking into the picker. Regional variants are preferred
+///         world-first, because a world release is the one most likely to match what the user expects.
+///     </para>
+///     <para>
+///         Rate limiting is explicit in this API: HTTP 429 means the concurrent-thread or per-minute quota
+///         is spent, 430 the daily scrape quota, and 431 too many lookups in a day for titles Screenscraper
+///         does not hold. All three are reported as provider failures rather than as empty results, so one
+///         provider running out cannot read as the game having no art.
+///     </para>
+///     <para>
+///         431 is the one to watch. Screenscraper is a ROM database being asked about a Steam library, so a
+///         miss is the ordinary outcome rather than the exceptional one, and the misses count. All three are
+///         counted against the account an <c>ssid</c> names, or against the requesting IP when there is
+///         none, never against the shipped developer pair — so a user can only ever spend their own
+///         allowance, and each quota message names the free personal account that raises it.
+///     </para>
 /// </remarks>
 public sealed class ScreenscraperProvider : IArtworkProvider
 {
@@ -129,8 +133,8 @@ public sealed class ScreenscraperProvider : IArtworkProvider
 
     /// <summary>How Screenscraper's media types map onto Steam's artwork slots.</summary>
     /// <remarks>
-    /// In preference order per slot. Screenscraper has no icon media, so that slot falls back to the
-    /// 2D box, which is the only square-ish art it reliably has.
+    ///     In preference order per slot. Screenscraper has no icon media, so that slot falls back to the
+    ///     2D box, which is the only square-ish art it reliably has.
     /// </remarks>
     private static readonly Dictionary<ArtworkAsset, string[]> MediaTypes = new()
     {
@@ -152,8 +156,8 @@ public sealed class ScreenscraperProvider : IArtworkProvider
 
     /// <inheritdoc />
     /// <remarks>
-    /// Credentials are never missing here, unlike SteamGridDB: WSGM ships a developer pair and the
-    /// user's own only replaces it. The switch in Settings is the whole of the readiness question.
+    ///     Credentials are never missing here, unlike SteamGridDB: WSGM ships a developer pair and the
+    ///     user's own only replaces it. The switch in Settings is the whole of the readiness question.
     /// </remarks>
     public ArtworkProviderStatus GetStatus(AppConfig config)
     {
@@ -178,7 +182,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
             $"jeuRecherche.php?{Credentials(config)}&recherche={Uri.EscapeDataString(trimmed)}",
             cancellationToken).ConfigureAwait(false);
         if (root is null || !root.Value.TryGetProperty("response", out var response)
-            || !response.TryGetProperty("jeux", out var games) || games.ValueKind != JsonValueKind.Array)
+                         || !response.TryGetProperty("jeux", out var games) || games.ValueKind != JsonValueKind.Array)
         {
             return [];
         }
@@ -190,6 +194,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
             {
                 continue;
             }
+
             var gameId = id.ValueKind == JsonValueKind.String
                 ? id.GetString() ?? ""
                 : id.ToString();
@@ -202,6 +207,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
             matches.Add(new ArtworkGameMatch(
                 Id, gameId, name, string.Equals(name, trimmed, StringComparison.OrdinalIgnoreCase)));
         }
+
         return matches;
     }
 
@@ -214,8 +220,8 @@ public sealed class ScreenscraperProvider : IArtworkProvider
             $"jeuInfos.php?{Credentials(config)}&gameid={Uri.EscapeDataString(gameId)}",
             cancellationToken).ConfigureAwait(false);
         if (root is null || !root.Value.TryGetProperty("response", out var response)
-            || !response.TryGetProperty("jeu", out var game)
-            || !game.TryGetProperty("medias", out var medias) || medias.ValueKind != JsonValueKind.Array)
+                         || !response.TryGetProperty("jeu", out var game)
+                         || !game.TryGetProperty("medias", out var medias) || medias.ValueKind != JsonValueKind.Array)
         {
             return [];
         }
@@ -246,7 +252,8 @@ public sealed class ScreenscraperProvider : IArtworkProvider
             }
 
             var region = media.TryGetProperty("region", out var regionElement)
-                ? regionElement.GetString() ?? "" : "";
+                ? regionElement.GetString() ?? ""
+                : "";
             var regionRank = Array.IndexOf(RegionPreference, region);
             candidates.Add((
                 typeRank,
@@ -265,12 +272,14 @@ public sealed class ScreenscraperProvider : IArtworkProvider
 
     /// <inheritdoc />
     /// <remarks>
-    /// Screenscraper indexes emulated systems by ROM, so a Steam app id means nothing to it. Saying
-    /// so by returning nothing is correct; the user reaches it through a title search instead.
+    ///     Screenscraper indexes emulated systems by ROM, so a Steam app id means nothing to it. Saying
+    ///     so by returning nothing is correct; the user reaches it through a title search instead.
     /// </remarks>
     public Task<IReadOnlyList<ArtworkCandidate>> GetAssetsForSteamAppAsync(
         ArtworkAsset asset, long steamAppId, AppConfig config, CancellationToken cancellationToken)
-        => Task.FromResult<IReadOnlyList<ArtworkCandidate>>([]);
+    {
+        return Task.FromResult<IReadOnlyList<ArtworkCandidate>>([]);
+    }
 
     private static string Credentials(AppConfig config)
     {
@@ -297,6 +306,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         {
             parts.Add($"devdebugpassword={Uri.EscapeDataString(debug)}");
         }
+
         return string.Join('&', parts);
     }
 
@@ -313,12 +323,13 @@ public sealed class ScreenscraperProvider : IArtworkProvider
             foreach (var entry in names.EnumerateArray())
             {
                 if (entry.TryGetProperty("region", out var r) && r.GetString() == region
-                    && entry.TryGetProperty("text", out var text))
+                                                              && entry.TryGetProperty("text", out var text))
                 {
                     return text.GetString() ?? "";
                 }
             }
         }
+
         foreach (var entry in names.EnumerateArray())
         {
             if (entry.TryGetProperty("text", out var text))
@@ -326,17 +337,21 @@ public sealed class ScreenscraperProvider : IArtworkProvider
                 return text.GetString() ?? "";
             }
         }
+
         return ReadSingleName(game);
     }
 
-    private static string ReadSingleName(JsonElement game) =>
-        game.TryGetProperty("nom", out var single) ? single.GetString() ?? "" : "";
+    private static string ReadSingleName(JsonElement game)
+    {
+        return game.TryGetProperty("nom", out var single) ? single.GetString() ?? "" : "";
+    }
 
     /// <summary>The image format, from the media's own field or the URL, and only if static.</summary>
     private static string? ExtensionOf(JsonElement media, string url)
     {
         var declared = media.TryGetProperty("format", out var format)
-            ? (format.GetString() ?? "").ToLowerInvariant() : "";
+            ? (format.GetString() ?? "").ToLowerInvariant()
+            : "";
         var candidate = declared switch
         {
             "png" => "png",
@@ -346,13 +361,16 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         if (candidate.Length > 0)
         {
             return Uri.TryCreate(url, UriKind.Absolute, out var checkedUri)
-                && checkedUri.Scheme == Uri.UriSchemeHttps ? candidate : null;
+                   && checkedUri.Scheme == Uri.UriSchemeHttps
+                ? candidate
+                : null;
         }
 
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
         {
             return null;
         }
+
         return Path.GetExtension(uri.AbsolutePath).ToLowerInvariant() switch
         {
             ".jpg" or ".jpeg" => "jpg",
@@ -375,9 +393,9 @@ public sealed class ScreenscraperProvider : IArtworkProvider
                     401 or 403 => "Screenscraper rejected the credentials.",
                     429 => "Screenscraper thread or minute quota reached. Try again shortly.",
                     430 => "Screenscraper daily scrape quota is used up. "
-                        + "A free Screenscraper account, set in Settings, raises it.",
+                           + "A free Screenscraper account, set in Settings, raises it.",
                     431 => "Screenscraper stopped answering for today after too many titles it "
-                        + "does not have. A free Screenscraper account, set in Settings, raises it.",
+                           + "does not have. A free Screenscraper account, set in Settings, raises it.",
                     _ => $"Screenscraper returned HTTP {(int)response.StatusCode}."
                 });
             }

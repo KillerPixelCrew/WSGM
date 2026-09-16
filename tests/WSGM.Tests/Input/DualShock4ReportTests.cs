@@ -49,13 +49,13 @@ public sealed class DualShock4ReportTests
     public void TwoCanonicalContactsMapOntoTheSingleTwoFingerTouchpad()
     {
         var frame = Frame(Sample(
-            CanonicalButtons.LeftPadTouch | CanonicalButtons.RightPadTouch) with
-        {
-            LeftPadX = -1f,
-            LeftPadY = 1f,
-            RightPadX = 1f,
-            RightPadY = -1f
-        });
+                CanonicalButtons.LeftPadTouch | CanonicalButtons.RightPadTouch) with
+            {
+                LeftPadX = -1f,
+                LeftPadY = 1f,
+                RightPadX = 1f,
+                RightPadY = -1f
+            });
 
         Assert.Equal(0, BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(9..11)));
         Assert.Equal(0, BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(11..13)));
@@ -100,8 +100,11 @@ public sealed class DualShock4ReportTests
     }
 
     [Fact]
-    public void AWrongSizedDestinationIsRefused() => Assert.Throws<ArgumentException>(() =>
-        DualShock4Report.Write(Sample(CanonicalButtons.None), new byte[DualShock4Report.Length - 1]));
+    public void AWrongSizedDestinationIsRefused()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            DualShock4Report.Write(Sample(CanonicalButtons.None), new byte[DualShock4Report.Length - 1]));
+    }
 
     private static byte[] Frame(CanonicalControllerSample sample)
     {

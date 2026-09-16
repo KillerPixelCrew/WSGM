@@ -15,30 +15,30 @@ using WSGM.Device.Sdk.Capabilities;
 namespace WSGM.Overlay;
 
 /// <summary>
-/// A device capability rendered as a labelled slider — the control an integer capability with a
-/// declared range asks for, instead of a value-cycling button. The <see cref="Slider"/> is the
-/// focusable element on purpose: <c>GamepadNavigation</c> already routes Left/Right to a focused
-/// slider and lets Up/Down leave the row, so pad, touch and keyboard all drive it with no extra
-/// plumbing.
+///     A device capability rendered as a labelled slider — the control an integer capability with a
+///     declared range asks for, instead of a value-cycling button. The <see cref="Slider" /> is the
+///     focusable element on purpose: <c>GamepadNavigation</c> already routes Left/Right to a focused
+///     slider and lets Up/Down leave the row, so pad, touch and keyboard all drive it with no extra
+///     plumbing.
 /// </summary>
 /// <remarks>
-/// Writes are debounced. A touch drag and a held Left/Right both stream value changes, and device
-/// firmware persists some capabilities (charge limit) to non-volatile memory, so the row commits
-/// once the value settles rather than on every tick. Uncertain hardware writes are never retried
-/// here; the snapshot's next refresh reconciles the shown value.
+///     Writes are debounced. A touch drag and a held Left/Right both stream value changes, and device
+///     firmware persists some capabilities (charge limit) to non-volatile memory, so the row commits
+///     once the value settles rather than on every tick. Uncertain hardware writes are never retried
+///     here; the snapshot's next refresh reconciles the shown value.
 /// </remarks>
 internal sealed class DeviceSliderRow : Border
 {
     private static readonly TimeSpan CommitDelay = TimeSpan.FromMilliseconds(250);
+    private readonly DispatcherTimer _commit;
+    private readonly Func<int, string>? _format;
+    private readonly Action<int> _onCommit;
 
     private readonly Slider _slider;
-    private readonly TextBlock _value;
     private readonly CapabilityUnit _unit;
-    private readonly Func<int, string>? _format;
-    private readonly DispatcherTimer _commit;
-    private readonly Action<int> _onCommit;
-    private bool _refreshing;
+    private readonly TextBlock _value;
     private bool _pointerEditing;
+    private bool _refreshing;
 
     /// <summary>Builds the row for one capability.</summary>
     /// <param name="key">Stable focus key, mirrored onto the slider for focus restore.</param>
@@ -52,8 +52,8 @@ internal sealed class DeviceSliderRow : Border
     /// <param name="enabled">Whether the slider accepts input.</param>
     /// <param name="onCommit">Invoked with the settled integer value to write.</param>
     /// <param name="format">
-    /// Renders the live value label, for a row whose numbers are not simply "value plus unit" — a
-    /// frame limit reads "Off" at zero rather than "0". Null uses the unit suffix.
+    ///     Renders the live value label, for a row whose numbers are not simply "value plus unit" — a
+    ///     frame limit reads "Off" at zero rather than "0". Null uses the unit suffix.
     /// </param>
     internal DeviceSliderRow(
         string key,
@@ -154,12 +154,22 @@ internal sealed class DeviceSliderRow : Border
     /// <summary>The slider is the focus target so gamepad focus restore lands on the control.</summary>
     internal Control FocusTarget => _slider;
 
+    internal bool HasPendingUserChange => _commit.IsEnabled;
+
     /// <summary>Updates the existing control without treating readback as user intent.</summary>
     internal void RefreshReadback(int minimum, int maximum, int step, int value, bool enabled)
     {
         _slider.IsEnabled = enabled;
-        if (!enabled) { _commit.Stop(); }
-        if (_pointerEditing || _commit.IsEnabled) { return; }
+        if (!enabled)
+        {
+            _commit.Stop();
+        }
+
+        if (_pointerEditing || _commit.IsEnabled)
+        {
+            return;
+        }
+
         _refreshing = true;
         try
         {
@@ -169,15 +179,20 @@ internal sealed class DeviceSliderRow : Border
             _slider.Value = Math.Clamp(value, minimum, maximum);
             _value.Text = Format((int)Math.Round(_slider.Value));
         }
-        finally { _refreshing = false; }
+        finally
+        {
+            _refreshing = false;
+        }
     }
-
-    internal bool HasPendingUserChange => _commit.IsEnabled;
 
     private void OnSliderValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
     {
         _value.Text = Format((int)Math.Round(_slider.Value));
-        if (_refreshing) { return; }
+        if (_refreshing)
+        {
+            return;
+        }
+
         // Restart the settle window on every change so a drag or a held press commits once.
         _commit.Stop();
         _commit.Start();
@@ -189,17 +204,23 @@ internal sealed class DeviceSliderRow : Border
         _onCommit((int)Math.Round(_slider.Value));
     }
 
-    private string Format(int value) => _format is not null
-        ? _format(value)
-        : $"{value.ToString(CultureInfo.CurrentCulture)}{Suffix(_unit)}";
-
-    private static string Suffix(CapabilityUnit unit) => unit switch
+    private string Format(int value)
     {
-        CapabilityUnit.Watt => " W",
-        CapabilityUnit.Percent => "%",
-        CapabilityUnit.Celsius => " °C",
-        CapabilityUnit.Rpm => " RPM",
-        CapabilityUnit.Milliampere => " mA",
-        _ => string.Empty
-    };
+        return _format is not null
+            ? _format(value)
+            : $"{value.ToString(CultureInfo.CurrentCulture)}{Suffix(_unit)}";
+    }
+
+    private static string Suffix(CapabilityUnit unit)
+    {
+        return unit switch
+        {
+            CapabilityUnit.Watt => " W",
+            CapabilityUnit.Percent => "%",
+            CapabilityUnit.Celsius => " °C",
+            CapabilityUnit.Rpm => " RPM",
+            CapabilityUnit.Milliampere => " mA",
+            _ => string.Empty
+        };
+    }
 }

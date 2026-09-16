@@ -10,20 +10,20 @@ using WindowsDeviceControl;
 namespace WSGM.Shell;
 
 /// <summary>
-/// The backend behind the revealed Wi-Fi surface: scan lifetime, the scanned-network projection,
-/// and the polled header indicator.
+///     The backend behind the revealed Wi-Fi surface: scan lifetime, the scanned-network projection,
+///     and the polled header indicator.
 /// </summary>
 /// <remarks>
-/// The radio manager is borrowed rather than owned — only its scanning lifetime is driven from
-/// here. Joining, forgetting and the radio toggles stay with the surfaces that already own them.
+///     The radio manager is borrowed rather than owned — only its scanning lifetime is driven from
+///     here. Joining, forgetting and the radio toggles stay with the surfaces that already own them.
 /// </remarks>
 internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisposable
 {
-    private readonly RadioManager _radios;
     private readonly Func<bool> _indicatorActive;
-    private readonly Action _publish;
     private readonly Timer _poll;
+    private readonly Action _publish;
     private readonly Timer _publishDebounce;
+    private readonly RadioManager _radios;
 
     /// <summary>Creates the service and starts the indicator poll.</summary>
     /// <param name="radios">The session's radio manager.</param>
@@ -43,6 +43,18 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
             null,
             Timeout.InfiniteTimeSpan,
             Timeout.InfiniteTimeSpan);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        // Direct unsubscribe first so a session that ends while Steam's network page is open does
+        // not leave this service subscribed to a collection it no longer publishes; the sweep stop
+        // still marshals to the UI thread that owns it.
+        _radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
+        _poll.Dispose();
+        _publishDebounce.Dispose();
+        await NativeQamUi.RunAsync(_radios.StopScanning).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -66,10 +78,16 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
     }
 
     /// <summary>Unsubscribes from scan results and stops the sweep, on the UI thread.</summary>
-    internal Task StopScanningAsync() => NativeQamUi.RunAsync(StopScanningCore);
+    internal Task StopScanningAsync()
+    {
+        return NativeQamUi.RunAsync(StopScanningCore);
+    }
 
     /// <summary>Posts the scan stop without waiting, for callers on arbitrary threads.</summary>
-    internal void PostStopScanning() => Dispatcher.UIThread.Post(StopScanningCore);
+    internal void PostStopScanning()
+    {
+        Dispatcher.UIThread.Post(StopScanningCore);
+    }
 
     private void StopScanningCore()
     {
@@ -128,18 +146,6 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
         return new SteamNetworkState(networks);
     }
 
-    /// <inheritdoc />
-    public async ValueTask DisposeAsync()
-    {
-        // Direct unsubscribe first so a session that ends while Steam's network page is open does
-        // not leave this service subscribed to a collection it no longer publishes; the sweep stop
-        // still marshals to the UI thread that owns it.
-        _radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
-        _poll.Dispose();
-        _publishDebounce.Dispose();
-        await NativeQamUi.RunAsync(_radios.StopScanning).ConfigureAwait(false);
-    }
-
     private void OnPoll(object? state)
     {
         if (_indicatorActive())
@@ -148,13 +154,20 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
         }
     }
 
-    private void OnScannedNetworksChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
+    private void OnScannedNetworksChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
         QueuePublication();
+    }
 
-    private void QueuePublication() =>
+    private void QueuePublication()
+    {
         _publishDebounce.Change(
             TimeSpan.FromMilliseconds(400),
             Timeout.InfiniteTimeSpan);
+    }
 
-    private void OnPublishDebounce(object? state) => _publish();
+    private void OnPublishDebounce(object? state)
+    {
+        _publish();
+    }
 }

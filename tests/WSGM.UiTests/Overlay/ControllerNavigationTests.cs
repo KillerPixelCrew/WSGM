@@ -35,7 +35,11 @@ public sealed class ControllerNavigationTests
         await schemes.RefreshAsync();
         var window = fixture.Overlay();
         DeviceGlyphSelection? requested = null;
-        device.SelectGlyphs = selection => { requested = selection; return Task.CompletedTask; };
+        device.SelectGlyphs = selection =>
+        {
+            requested = selection;
+            return Task.CompletedTask;
+        };
         window.AttachDeviceBridge(device);
         window.AttachPowerSchemes(schemes);
         UiFixture.Click(window, UiFixture.Tab(window, 2));

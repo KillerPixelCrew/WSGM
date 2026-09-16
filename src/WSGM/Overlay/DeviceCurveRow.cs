@@ -13,27 +13,27 @@ using WSGM.Device.Sdk.Capabilities;
 namespace WSGM.Overlay;
 
 /// <summary>
-/// A curve capability rendered as the editor it needs, with the presets a fan curve is usually set
-/// from rather than drawn by hand.
+///     A curve capability rendered as the editor it needs, with the presets a fan curve is usually set
+///     from rather than drawn by hand.
 /// </summary>
 /// <remarks>
-/// Modelled on HandheldCompanion's fan editor, which is the shape a handheld user already knows: a
-/// filled graph with a draggable node per breakpoint, the live temperature marked against it, and
-/// one row of preset buttons underneath. The differences are both device facts rather than design
-/// choices — the nodes sit at the breakpoints the firmware actually has (six on the reference Claw,
-/// not HC's fixed eleven), and their temperatures are pinned while the duties move, because those
-/// breakpoints are what the fan table stores.
-/// <para>
-/// Writes are debounced for the same reason the slider's are: dragging a node streams values, and
-/// a fan table write is a firmware round trip with a readback. The curve commits once it settles.
-/// </para>
+///     Modelled on HandheldCompanion's fan editor, which is the shape a handheld user already knows: a
+///     filled graph with a draggable node per breakpoint, the live temperature marked against it, and
+///     one row of preset buttons underneath. The differences are both device facts rather than design
+///     choices — the nodes sit at the breakpoints the firmware actually has (six on the reference Claw,
+///     not HC's fixed eleven), and their temperatures are pinned while the duties move, because those
+///     breakpoints are what the fan table stores.
+///     <para>
+///         Writes are debounced for the same reason the slider's are: dragging a node streams values, and
+///         a fan table write is a firmware round trip with a readback. The curve commits once it settles.
+///     </para>
 /// </remarks>
 internal sealed class DeviceCurveRow : Border
 {
     private static readonly TimeSpan CommitDelay = TimeSpan.FromMilliseconds(400);
+    private readonly DispatcherTimer _commit;
 
     private readonly CurveEditor _editor;
-    private readonly DispatcherTimer _commit;
     private readonly Action<IReadOnlyList<CurvePoint>> _onCommit;
 
     /// <summary>Builds the row for one curve capability.</summary>
@@ -98,8 +98,8 @@ internal sealed class DeviceCurveRow : Border
 
     /// <summary>Applies one preset to the editor and starts the commit window.</summary>
     /// <remarks>
-    /// Sampled onto the curve's own breakpoints rather than replacing them: the temperatures are
-    /// the firmware's, and a preset is a shape to put on them, not a different table.
+    ///     Sampled onto the curve's own breakpoints rather than replacing them: the temperatures are
+    ///     the firmware's, and a preset is a shape to put on them, not a different table.
     /// </remarks>
     private void ApplyPreset(FanCurvePreset preset)
     {

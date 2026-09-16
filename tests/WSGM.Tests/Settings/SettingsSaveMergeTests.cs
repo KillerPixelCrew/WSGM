@@ -29,7 +29,8 @@ public sealed class SettingsSaveMergeTests
         // owes the desktop this layout, and a save must not drop it.
         fresh.GameModeLaunchRecovery.PendingReturnLayout = new DisplayLayout([
             new DisplayLayoutOutput(new DisplayTargetIdentity(@"\\?\a", null, null, "A", 0, 0, 1), 0, 0, 1920, 1080,
-                DisplayRefresh.FromHertz(60))]);
+                DisplayRefresh.FromHertz(60))
+        ]);
         fresh.DeviceIntegration.AutoTdpEnabled = true;
         fresh.DeviceIntegration.ControllerTarget = ManagedControllerTarget.DualShock4;
         fresh.DeviceIntegration.GlyphSelection = DeviceGlyphSelection.ManualReviewedProfile;
@@ -38,13 +39,13 @@ public sealed class SettingsSaveMergeTests
             values,
             values.Splash,
             new Dictionary<string, CapabilityValue>(),
-            DeviceProfiles: null,
-            PluginDevice: "",
-            PluginId: "",
-            AutoTdpEdited: false,
-            ControllerTargetEdited: false,
-            GlyphSelectionEdited: false,
-            QuickSetupWasAnswered: false);
+            null,
+            "",
+            "",
+            false,
+            false,
+            false,
+            false);
 
         var savedPowerScheme = fresh.LastSelectedPowerSchemeId;
         SettingsViewModel.ApplyCapturedValues(fresh, request, values.Splash);
@@ -100,12 +101,12 @@ public sealed class SettingsSaveMergeTests
             values.Splash,
             edits,
             profiles,
-            PluginDevice: "device",
-            PluginId: "plugin",
-            AutoTdpEdited: true,
-            ControllerTargetEdited: true,
-            GlyphSelectionEdited: true,
-            QuickSetupWasAnswered: false);
+            "device",
+            "plugin",
+            true,
+            true,
+            true,
+            false);
 
         SettingsViewModel.ApplyCapturedValues(fresh, request, values.Splash);
 

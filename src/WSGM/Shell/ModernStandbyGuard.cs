@@ -10,35 +10,35 @@ using WSGM.Interop;
 namespace WSGM.Shell;
 
 /// <summary>
-/// Sends the machine back to sleep after a wake nothing accounts for, while the mode is switched on.
+///     Sends the machine back to sleep after a wake nothing accounts for, while the mode is switched on.
 /// </summary>
 /// <remarks>
-/// The Modern Standby enhancement from #27, in the shape the Winhanced investigation found: WSGM
-/// changes no power settings and arms no wake sources, so nothing global is left altered and there
-/// is nothing to restore if this process dies. The machine wakes normally; this only decides
-/// whether to put it back.
-/// <para>
-/// <see cref="ModernStandbyPolicy"/> owns every rule. This type owns the subscriptions, the timer
-/// and the attempt count, and marshals its own state onto the dispatcher.
-/// </para>
+///     The Modern Standby enhancement from #27, in the shape the Winhanced investigation found: WSGM
+///     changes no power settings and arms no wake sources, so nothing global is left altered and there
+///     is nothing to restore if this process dies. The machine wakes normally; this only decides
+///     whether to put it back.
+///     <para>
+///         <see cref="ModernStandbyPolicy" /> owns every rule. This type owns the subscriptions, the timer
+///         and the attempt count, and marshals its own state onto the dispatcher.
+///     </para>
 /// </remarks>
 internal sealed class ModernStandbyGuard : IDisposable
 {
-    private readonly MessageWindow _messages;
     private readonly Func<bool> _enabled;
-    private readonly Func<bool> _unattendedResume;
-    private readonly Func<TimeSpan> _sinceWake;
-    private readonly Func<TimeSpan> _sinceUserInput;
-    private readonly Func<CancellationToken, Task> _suspend;
     private readonly TimeSpan _grace;
-    private readonly DispatcherTimer _timer;
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly MessageWindow _messages;
+    private readonly Func<TimeSpan> _sinceUserInput;
+    private readonly Func<TimeSpan> _sinceWake;
+    private readonly Func<CancellationToken, Task> _suspend;
+    private readonly DispatcherTimer _timer;
+    private readonly Func<bool> _unattendedResume;
 
     // Lit until the console display tells us otherwise. A guard that assumed darkness before any
     // notification arrived could suspend a machine on its very first tick.
     private bool _displayOn = true;
-    private bool _suspending;
     private bool _disposed;
+    private bool _suspending;
 
     /// <summary>Creates the guard and subscribes it to resume and display notifications.</summary>
     /// <param name="messages">The session's message window; not owned or disposed here.</param>
@@ -65,7 +65,7 @@ internal sealed class ModernStandbyGuard : IDisposable
         _unattendedResume = unattendedResume ?? ModernStandby.WasLastResumeUnattended;
         _sinceWake = sinceWake ?? (() => ModernStandby.ReadStandbyTiming().SinceWake);
         _sinceUserInput = sinceUserInput ?? ReadSinceUserInput;
-        _suspend = suspend ?? (token => WindowsPower.SuspendAsync(hibernate: false, token));
+        _suspend = suspend ?? (token => WindowsPower.SuspendAsync(false, token));
         _grace = grace ?? ModernStandbyPolicy.DefaultGrace;
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _timer.Tick += (_, _) => Evaluate();
@@ -75,6 +75,21 @@ internal sealed class ModernStandbyGuard : IDisposable
 
     /// <summary>How many times the current wake has been slept through.</summary>
     private int Attempts { get; set; }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _messages.SystemResumed -= OnSystemResumed;
+        _messages.DisplayStateChanged -= OnDisplayStateChanged;
+        _timer.Stop();
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+    }
 
     private void OnSystemResumed()
     {
@@ -146,8 +161,8 @@ internal sealed class ModernStandbyGuard : IDisposable
         Log.Change(
             "power.modern-standby.resuspend",
             $"Modern Standby guard: unexplained wake {_sinceWake().TotalSeconds:F0}s ago with the "
-                + $"display off and no input; suspending again (attempt {Attempts} of "
-                + $"{ModernStandbyPolicy.MaximumAttemptsPerWake}).");
+            + $"display off and no input; suspending again (attempt {Attempts} of "
+            + $"{ModernStandbyPolicy.MaximumAttemptsPerWake}).");
         _ = SuspendAsync();
     }
 
@@ -184,20 +199,5 @@ internal sealed class ModernStandbyGuard : IDisposable
         // correct across the wrap and the cast keeps it unsigned.
         var elapsed = unchecked((uint)Environment.TickCount - info.DwTime);
         return TimeSpan.FromMilliseconds(elapsed);
-    }
-
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _messages.SystemResumed -= OnSystemResumed;
-        _messages.DisplayStateChanged -= OnDisplayStateChanged;
-        _timer.Stop();
-        _lifetime.Cancel();
-        _lifetime.Dispose();
     }
 }

@@ -25,31 +25,31 @@ public sealed class ConfigurationTests
         // and every unrelated setting with it. The values below are what a hand edit, or a
         // configuration written by a build that knows more names, looks like.
         const string json = """
-        {
-          "AccentColor": "#FF00AA",
-          "DeviceIntegration": {
-            "Enabled": true,
-            "ControllerTarget": "NintendoSwitchPro",
-            "GlyphSelection": "SomethingElse",
-            "DiagnosticLevel": "Verbose",
-            "ControllerTargets": [
-              { "ApplicationId": "steam:70", "Target": "NotATarget" }
-            ],
-            "Profiles": [
-              {
-                "DeviceIdentityKey": "device",
-                "OemAssignments": [ { "ControlId": "oem1", "Action": "LaunchAnything" } ],
-                "Capabilities": [
-                  {
-                    "CapabilityId": "power.primary-limit",
-                    "GlobalDefault": { "Kind": "Wattage", "IntegerValue": 15 }
-                  }
-                ]
-              }
-            ]
-          }
-        }
-        """;
+                            {
+                              "AccentColor": "#FF00AA",
+                              "DeviceIntegration": {
+                                "Enabled": true,
+                                "ControllerTarget": "NintendoSwitchPro",
+                                "GlyphSelection": "SomethingElse",
+                                "DiagnosticLevel": "Verbose",
+                                "ControllerTargets": [
+                                  { "ApplicationId": "steam:70", "Target": "NotATarget" }
+                                ],
+                                "Profiles": [
+                                  {
+                                    "DeviceIdentityKey": "device",
+                                    "OemAssignments": [ { "ControlId": "oem1", "Action": "LaunchAnything" } ],
+                                    "Capabilities": [
+                                      {
+                                        "CapabilityId": "power.primary-limit",
+                                        "GlobalDefault": { "Kind": "Wattage", "IntegerValue": 15 }
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            }
+                            """;
 
         var config = ConfigStore.DeserializeConfig(json);
 
@@ -75,31 +75,31 @@ public sealed class ConfigurationTests
     public void UnknownPerformanceAndCachedDeclarationEnumsDoNotDiscardTheConfig()
     {
         const string json = """
-        {
-          "AccentColor": "#FF00AA",
-          "Performance": { "FrameLimitStrategy": "FutureStrategy" },
-          "DeviceIntegration": {
-            "PluginSettings": [
-              {
-                "DeviceDefinitionId": "device",
-                "PluginId": "plugin",
-                "Declaration": {
-                  "Sections": [ { "SectionId": "general", "Key": "FutureSection" } ],
-                  "Settings": [
-                    {
-                      "SettingId": "future",
-                      "ValueKind": "FutureValue",
-                      "Display": { "Key": "FutureLabel" },
-                      "Default": { "Kind": "FutureValue" },
-                      "Unit": "FutureUnit"
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-        }
-        """;
+                            {
+                              "AccentColor": "#FF00AA",
+                              "Performance": { "FrameLimitStrategy": "FutureStrategy" },
+                              "DeviceIntegration": {
+                                "PluginSettings": [
+                                  {
+                                    "DeviceDefinitionId": "device",
+                                    "PluginId": "plugin",
+                                    "Declaration": {
+                                      "Sections": [ { "SectionId": "general", "Key": "FutureSection" } ],
+                                      "Settings": [
+                                        {
+                                          "SettingId": "future",
+                                          "ValueKind": "FutureValue",
+                                          "Display": { "Key": "FutureLabel" },
+                                          "Default": { "Kind": "FutureValue" },
+                                          "Unit": "FutureUnit"
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                            """;
 
         var config = ConfigStore.DeserializeConfig(json);
 
@@ -546,7 +546,7 @@ public sealed class ConfigurationTests
         {
             try
             {
-                Directory.Delete(root, recursive: true);
+                Directory.Delete(root, true);
             }
             catch
             {
@@ -587,6 +587,7 @@ public sealed class ConfigurationTests
             // The nested acquisition is granted immediately (per-thread recursion
             // count), not degraded to the 2 s lock-less timeout path.
         }
+
         nested.Stop();
         Assert.True(nested.ElapsedMilliseconds < 1000, $"nested acquire took {nested.ElapsedMilliseconds} ms");
 
@@ -596,6 +597,7 @@ public sealed class ConfigurationTests
         using (ConfigStore.AcquireLock())
         {
         }
+
         afterInnerRelease.Stop();
         Assert.True(
             afterInnerRelease.ElapsedMilliseconds < 1000,
@@ -638,8 +640,10 @@ public sealed class ConfigurationTests
                 {
                     Assert.Equal(3, ConfigStore.LockDepth);
                 }
+
                 Assert.Equal(2, ConfigStore.LockDepth);
             }
+
             Assert.Equal(1, ConfigStore.LockDepth);
 
             // A nested scope left through an exception still pops exactly one level.
@@ -727,7 +731,10 @@ public sealed class ConfigurationTests
         // the depth at zero so the next acquisition on this thread is a real one.
         var outer = ConfigStore.AcquireLock();
         Assert.True(ConfigStore.HasExclusiveLock, "the config mutex was held elsewhere");
-        using (ConfigStore.AcquireLock()) { }
+        using (ConfigStore.AcquireLock())
+        {
+        }
+
         outer.Dispose();
         outer.Dispose();
 
@@ -1040,7 +1047,8 @@ public sealed class ConfigurationTests
                 Kind = GameModeLaunchKind.Custom,
                 GameLayout = new DisplayLayout([
                     new DisplayLayoutOutput(target, 0, 0, 3840, 2160, DisplayRefresh.FromHertz(120),
-                        DpiPercent: 150, Hdr: true)]),
+                        DpiPercent: 150, Hdr: true)
+                ]),
                 WaitForDisplay = target,
                 EnterActions =
                 [
@@ -1086,7 +1094,8 @@ public sealed class ConfigurationTests
             {
                 GameLayout = new DisplayLayout([
                     new DisplayLayoutOutput(first, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60)),
-                    new DisplayLayoutOutput(second, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60))])
+                    new DisplayLayoutOutput(second, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60))
+                ])
             }
         };
 
@@ -1105,7 +1114,11 @@ public sealed class ConfigurationTests
                 EnterActions =
                 [
                     new PluginActionStep { ActionId = "orphan" },
-                    new PluginActionStep { Plugin = new PluginInstanceIdentity("wsgm.ir", "blaster"), ActionId = "press", TimeoutSeconds = 9000 }
+                    new PluginActionStep
+                    {
+                        Plugin = new PluginInstanceIdentity("wsgm.ir", "blaster"), ActionId = "press",
+                        TimeoutSeconds = 9000
+                    }
                 ]
             }
         };
@@ -1169,10 +1182,12 @@ public sealed class ConfigurationTests
         Assert.Equal("", wrapper.CustomArguments);
     }
 
-    /// <summary>The upgrade guarantee. Every config.json written before Steam Input
-    /// Management existed omits the property, and those devices must come up with the
-    /// shim deploying - otherwise an upgrade silently costs them controller
-    /// navigation in the overlay.</summary>
+    /// <summary>
+    ///     The upgrade guarantee. Every config.json written before Steam Input
+    ///     Management existed omits the property, and those devices must come up with the
+    ///     shim deploying - otherwise an upgrade silently costs them controller
+    ///     navigation in the overlay.
+    /// </summary>
     [Fact]
     public void AConfigWrittenBeforeSteamInputManagementDeserializesWithItOn()
     {
@@ -1207,8 +1222,10 @@ public sealed class ConfigurationTests
         Assert.Equal(QuickSetup.CurrentRevision, config.QuickSetupRevision);
     }
 
-    /// <summary>A device that answered an older revision is asked once more, which is
-    /// the whole reason the stamp is an int rather than a bool.</summary>
+    /// <summary>
+    ///     A device that answered an older revision is asked once more, which is
+    ///     the whole reason the stamp is an int rather than a bool.
+    /// </summary>
     [Fact]
     public void QuickSetupIsOfferedAgainWhenANewerRevisionAddsSettings()
     {
@@ -1217,9 +1234,10 @@ public sealed class ConfigurationTests
         Assert.True(QuickSetup.ShouldShow(config));
     }
 
-    /// <summary>The opt-out has to survive a round trip on its own: it is read once
-    /// when a focused surface opens, so a value that failed to persist would silently
-    /// re-enable the lease at the next overlay open rather than at some visible moment.
+    /// <summary>
+    ///     The opt-out has to survive a round trip on its own: it is read once
+    ///     when a focused surface opens, so a value that failed to persist would silently
+    ///     re-enable the lease at the next overlay open rather than at some visible moment.
     /// </summary>
     [Fact]
     public void AnExplicitlyDisabledSteamInputLeaseSurvivesARoundTrip()
@@ -1264,7 +1282,8 @@ public sealed class ConfigurationTests
     [Fact]
     public void NormalizeDropsBlankAndDuplicatePins()
     {
-        var config = new AppConfig { QuickAccessPins = ["system.keep-awake", "", " ", "system.keep-awake", "home.steam"] };
+        var config = new AppConfig
+            { QuickAccessPins = ["system.keep-awake", "", " ", "system.keep-awake", "home.steam"] };
 
         ConfigStore.Normalize(config);
 

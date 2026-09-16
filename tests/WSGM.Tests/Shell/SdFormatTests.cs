@@ -6,15 +6,40 @@ namespace WSGM.Tests.Shell;
 
 public sealed class SdFormatTests
 {
+    // ---- config splice ----
+
+    private const string TwoEntryConfig =
+        "\"libraryfolders\"\n"
+        + "{\n"
+        + "\t\"0\"\n"
+        + "\t{\n"
+        + "\t\t\"path\"\t\t\"C:\\\\Program Files (x86)\\\\Steam\"\n"
+        + "\t\t\"contentid\"\t\t\"111\"\n"
+        + "\t\t\"apps\"\n"
+        + "\t\t{\n"
+        + "\t\t\t\"2810\"\t\t\"4586967312\"\n"
+        + "\t\t}\n"
+        + "\t}\n"
+        + "\t\"1\"\n"
+        + "\t{\n"
+        + "\t\t\"path\"\t\t\"D:\\\\SteamLibrary\"\n"
+        + "\t\t\"contentid\"\t\t\"222\"\n"
+        + "\t\t\"apps\"\n"
+        + "\t\t{\n"
+        + "\t\t}\n"
+        + "\t}\n"
+        + "}\n";
     // ---- diskpart script ----
 
     [Fact]
     public void PartitionScriptCleansAndCreatesOnePrimaryPartition()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             "select disk 3\r\n"
             + "clean\r\n"
             + "create partition primary\r\n",
             SdFormatManager.BuildDiskpartPartitionScript(3));
+    }
 
     [Fact]
     public void PartitionScriptNeverFormats()
@@ -27,11 +52,13 @@ public sealed class SdFormatTests
 
     [Fact]
     public void FormatScriptSelectsTheNewPartitionAndFormatsOnly()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             "select disk 3\r\n"
             + "select partition 1\r\n"
             + "format fs=ntfs quick unit=128k label=\"Games\"\r\n",
             SdFormatManager.BuildDiskpartFormatScript(3));
+    }
 
     [Fact]
     public void FormatScriptNeverCleansOrAssigns()
@@ -44,17 +71,21 @@ public sealed class SdFormatTests
 
     [Fact]
     public void DiskpartScriptQuotesTheGivenLabel()
-        => Assert.Contains(
+    {
+        Assert.Contains(
             "label=\"My Games\"\r\n",
             SdFormatManager.BuildDiskpartFormatScript(1, "My Games"));
+    }
 
     [Fact]
     public void AssignScriptPreservesTheCardsDriveLetter()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             "select disk 3\r\n"
             + "select partition 1\r\n"
             + "assign letter=E\r\n",
             SdFormatManager.BuildDiskpartAssignScript(3, 'E'));
+    }
 
     [Fact]
     public void AssignScriptNeverCleansOrFormats()
@@ -72,7 +103,9 @@ public sealed class SdFormatTests
     [InlineData("Games/2\"; exit", "Games2 exit")]
     [InlineData("0123456789012345678901234567890123456789", "01234567890123456789012345678901")]
     public void LabelsAreSanitizedForDiskpartAndSteam(string? input, string expected)
-        => Assert.Equal(expected, SdFormatManager.SanitizeLabel(input));
+    {
+        Assert.Equal(expected, SdFormatManager.SanitizeLabel(input));
+    }
 
     [Fact]
     public void ALetterlessCardGetsABareAssign()
@@ -85,7 +118,9 @@ public sealed class SdFormatTests
 
     [Fact]
     public void DiskpartScriptNeverIssuesCleanAll()
-        => Assert.DoesNotContain("clean all", SdFormatManager.BuildDiskpartPartitionScript(0));
+    {
+        Assert.DoesNotContain("clean all", SdFormatManager.BuildDiskpartPartitionScript(0));
+    }
 
     // ---- bus labelling ----
 
@@ -95,14 +130,16 @@ public sealed class SdFormatTests
     [InlineData(7, "USB")]
     [InlineData(1, "")]
     public void BusTypesAreLabelledForTheUser(int busType, string expected)
-        => Assert.Equal(expected, SdFormatManager.DescribeBus(busType));
+    {
+        Assert.Equal(expected, SdFormatManager.DescribeBus(busType));
+    }
 
     [Fact]
     public void TargetDetailShowsSizeBusLettersAndTheDeckHint()
     {
         var detail = SdFormatManager.DescribeTarget(new SdFormatManager.FormatTarget(
             "id", 3, "SanDisk", 256_000_000_000L, NativeStorage.BusTypeSd, ['E'],
-            HasLinuxPartitions: true));
+            true));
 
         Assert.Contains("256 GB", detail);
         Assert.Contains("SD card", detail);
@@ -115,7 +152,7 @@ public sealed class SdFormatTests
     {
         var detail = SdFormatManager.DescribeTarget(new SdFormatManager.FormatTarget(
             "id", 3, "Generic", 512_000_000_000L, NativeStorage.BusTypeUsb, [],
-            HasLinuxPartitions: false));
+            false));
 
         Assert.Equal("512 GB — USB", detail);
     }
@@ -128,22 +165,26 @@ public sealed class SdFormatTests
 
     [Fact]
     public void CompareIdentity_SameCapacityAndBus_ReturnsSame()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             SdFormatManager.TargetIdentity.Same,
             SdFormatManager.CompareIdentity(
-                opened: true, systemDisk: false, removable: true,
-                size: 256_000_000_000L, busType: NativeStorage.BusTypeSd,
-                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+                true, false, true,
+                256_000_000_000L, NativeStorage.BusTypeSd,
+                256_000_000_000L, NativeStorage.BusTypeSd));
+    }
 
     [Fact]
     public void CompareIdentity_BusTypeQueryFailed_ReturnsSame()
         // -1 is TryGetDeviceDescriptor's failure sentinel, not a different bus.
-        => Assert.Equal(
+    {
+        Assert.Equal(
             SdFormatManager.TargetIdentity.Same,
             SdFormatManager.CompareIdentity(
-                opened: true, systemDisk: false, removable: true,
-                size: 256_000_000_000L, busType: -1,
-                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+                true, false, true,
+                256_000_000_000L, -1,
+                256_000_000_000L, NativeStorage.BusTypeSd));
+    }
 
     [Fact]
     public void EveryDestructiveDiskpartRunIsPrecededByAnIdentityReverification()
@@ -151,9 +192,11 @@ public sealed class SdFormatTests
         // and CompareIdentity tests cannot see placement. The format flow itself is
         // device-only and is never automated, so this pins the ordered stage list
         // FormatAsync indexes: deleting a guard means deleting its entry here.
-        => Assert.Equal(
+    {
+        Assert.Equal(
             ["clean/partition", "format", "assign"],
             SdFormatManager.ReverifiedStages);
+    }
 
     [Fact]
     public void CompareIdentity_BusTypeUnknownAtPickTime_ReturnsSame()
@@ -161,41 +204,49 @@ public sealed class SdFormatTests
         // enumeration records -1 in the baseline too, and a fact we never had cannot
         // contradict one we just read. Without this, an intermittent
         // IOCTL_STORAGE_QUERY_PROPERTY aborts a healthy format after `clean`.
-        => Assert.Equal(
+    {
+        Assert.Equal(
             SdFormatManager.TargetIdentity.Same,
             SdFormatManager.CompareIdentity(
-                opened: true, systemDisk: false, removable: true,
-                size: 256_000_000_000L, busType: NativeStorage.BusTypeSd,
-                expectedSize: 256_000_000_000L, expectedBusType: -1));
+                true, false, true,
+                256_000_000_000L, NativeStorage.BusTypeSd,
+                256_000_000_000L, -1));
+    }
 
     [Fact]
     public void CompareIdentity_SizeUnknownAtPickTime_ReturnsSame()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             SdFormatManager.TargetIdentity.Same,
             SdFormatManager.CompareIdentity(
-                opened: true, systemDisk: false, removable: true,
-                size: 256_000_000_000L, busType: NativeStorage.BusTypeSd,
-                expectedSize: 0L, expectedBusType: NativeStorage.BusTypeSd));
+                true, false, true,
+                256_000_000_000L, NativeStorage.BusTypeSd,
+                0L, NativeStorage.BusTypeSd));
+    }
 
     [Fact]
     public void CompareIdentity_BothSizesKnownAndDifferent_StillReturnsChanged()
         // The tolerance must not swallow a real swap: two known, differing capacities
         // remain the one discriminator a card reader actually gives us.
-        => Assert.Equal(
+    {
+        Assert.Equal(
             SdFormatManager.TargetIdentity.Changed,
             SdFormatManager.CompareIdentity(
-                opened: true, systemDisk: false, removable: true,
-                size: 128_000_000_000L, busType: NativeStorage.BusTypeSd,
-                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+                true, false, true,
+                128_000_000_000L, NativeStorage.BusTypeSd,
+                256_000_000_000L, NativeStorage.BusTypeSd));
+    }
 
     [Fact]
     public void CompareIdentity_DiskHandleCouldNotBeOpened_ReturnsUnreadable()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             SdFormatManager.TargetIdentity.Unreadable,
             SdFormatManager.CompareIdentity(
-                opened: false, systemDisk: false, removable: false,
-                size: 0L, busType: -1,
-                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+                false, false, false,
+                0L, -1,
+                256_000_000_000L, NativeStorage.BusTypeSd));
+    }
 
     [Fact]
     public void CompareIdentity_OpenedButSizeQueryFailed_ReturnsUnreadable()
@@ -204,68 +255,80 @@ public sealed class SdFormatTests
         // answers the open but reports size 0 and classifies as non-removable. That
         // must NOT abort — the existing waits and retries are what rescue it.
         var identity = SdFormatManager.CompareIdentity(
-            opened: true, systemDisk: false, removable: false,
-            size: 0L, busType: -1,
-            expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd);
+            true, false, false,
+            0L, -1,
+            256_000_000_000L, NativeStorage.BusTypeSd);
 
         Assert.Equal(SdFormatManager.TargetIdentity.Unreadable, identity);
     }
 
     [Fact]
     public void CompareIdentity_NegativeSize_ReturnsUnreadable()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             SdFormatManager.TargetIdentity.Unreadable,
             SdFormatManager.CompareIdentity(
-                opened: true, systemDisk: false, removable: true,
-                size: -1L, busType: NativeStorage.BusTypeSd,
-                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+                true, false, true,
+                -1L, NativeStorage.BusTypeSd,
+                256_000_000_000L, NativeStorage.BusTypeSd));
+    }
 
     [Fact]
     public void CompareIdentity_DifferentCapacity_ReturnsChanged()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             SdFormatManager.TargetIdentity.Changed,
             SdFormatManager.CompareIdentity(
-                opened: true, systemDisk: false, removable: true,
-                size: 512_000_000_000L, busType: NativeStorage.BusTypeSd,
-                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+                true, false, true,
+                512_000_000_000L, NativeStorage.BusTypeSd,
+                256_000_000_000L, NativeStorage.BusTypeSd));
+    }
 
     [Fact]
     public void CompareIdentity_DifferentBusType_ReturnsChanged()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             SdFormatManager.TargetIdentity.Changed,
             SdFormatManager.CompareIdentity(
-                opened: true, systemDisk: false, removable: true,
-                size: 256_000_000_000L, busType: NativeStorage.BusTypeUsb,
-                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+                true, false, true,
+                256_000_000_000L, NativeStorage.BusTypeUsb,
+                256_000_000_000L, NativeStorage.BusTypeSd));
+    }
 
     [Fact]
     public void CompareIdentity_NoLongerRemovableMedia_ReturnsChanged()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             SdFormatManager.TargetIdentity.Changed,
             SdFormatManager.CompareIdentity(
-                opened: true, systemDisk: false, removable: false,
-                size: 256_000_000_000L, busType: NativeStorage.BusTypeSd,
-                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+                true, false, false,
+                256_000_000_000L, NativeStorage.BusTypeSd,
+                256_000_000_000L, NativeStorage.BusTypeSd));
+    }
 
     [Fact]
     public void CompareIdentity_SystemDisk_ReturnsChanged()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             SdFormatManager.TargetIdentity.Changed,
             SdFormatManager.CompareIdentity(
-                opened: true, systemDisk: true, removable: true,
-                size: 256_000_000_000L, busType: NativeStorage.BusTypeSd,
-                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+                true, true, true,
+                256_000_000_000L, NativeStorage.BusTypeSd,
+                256_000_000_000L, NativeStorage.BusTypeSd));
+    }
 
     [Fact]
     public void CompareIdentity_SystemDiskThatCannotBeRead_ReturnsChanged()
         // Ordering: the system-disk check runs first and unconditionally, so it wins
         // over the unreadable case rather than being masked by it.
-        => Assert.Equal(
+    {
+        Assert.Equal(
             SdFormatManager.TargetIdentity.Changed,
             SdFormatManager.CompareIdentity(
-                opened: false, systemDisk: true, removable: false,
-                size: 0L, busType: -1,
-                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+                false, true, false,
+                0L, -1,
+                256_000_000_000L, NativeStorage.BusTypeSd));
+    }
 
     // ---- add-library path resolution ----
 
@@ -277,7 +340,9 @@ public sealed class SdFormatTests
     [InlineData(@"E:\SteamLibrary\", @"E:\SteamLibrary")]
     public void DriveRootsGetTheSteamLibrarySubfolderOthersAreUsedAsIs(
         string picked, string expected)
-        => Assert.Equal(expected, SdFormatManager.ResolveLibraryRoot(picked));
+    {
+        Assert.Equal(expected, SdFormatManager.ResolveLibraryRoot(picked));
+    }
 
     // ---- content id ----
 
@@ -412,33 +477,11 @@ public sealed class SdFormatTests
         Assert.Null(none);
     }
 
-    // ---- config splice ----
-
-    private const string TwoEntryConfig =
-        "\"libraryfolders\"\n"
-        + "{\n"
-        + "\t\"0\"\n"
-        + "\t{\n"
-        + "\t\t\"path\"\t\t\"C:\\\\Program Files (x86)\\\\Steam\"\n"
-        + "\t\t\"contentid\"\t\t\"111\"\n"
-        + "\t\t\"apps\"\n"
-        + "\t\t{\n"
-        + "\t\t\t\"2810\"\t\t\"4586967312\"\n"
-        + "\t\t}\n"
-        + "\t}\n"
-        + "\t\"1\"\n"
-        + "\t{\n"
-        + "\t\t\"path\"\t\t\"D:\\\\SteamLibrary\"\n"
-        + "\t\t\"contentid\"\t\t\"222\"\n"
-        + "\t\t\"apps\"\n"
-        + "\t\t{\n"
-        + "\t\t}\n"
-        + "\t}\n"
-        + "}\n";
-
     [Fact]
     public void NextIndexIsHighestExistingPlusOne()
-        => Assert.Equal(2, SteamLibraryVdf.NextIndex(TwoEntryConfig));
+    {
+        Assert.Equal(2, SteamLibraryVdf.NextIndex(TwoEntryConfig));
+    }
 
     [Fact]
     public void SpliceAppendsBeforeTheFinalBraceAndPreservesExistingBytes()
@@ -627,9 +670,9 @@ public sealed class SdFormatTests
     public void GptLinuxPartitionIsRecognisedAsTheDeckHint()
     {
         var buffer = new byte[NativeStorage.DriveLayoutHeaderSize
-            + NativeStorage.PartitionRecordSize];
-        BitConverter.GetBytes(1).CopyTo(buffer, 0);  // PARTITION_STYLE_GPT
-        BitConverter.GetBytes(1).CopyTo(buffer, 4);  // one partition
+                              + NativeStorage.PartitionRecordSize];
+        BitConverter.GetBytes(1).CopyTo(buffer, 0); // PARTITION_STYLE_GPT
+        BitConverter.GetBytes(1).CopyTo(buffer, 4); // one partition
         // GPT PartitionType GUID lives at record offset 32.
         NativeStorage.LinuxFilesystemGuid.ToByteArray()
             .CopyTo(buffer, NativeStorage.DriveLayoutHeaderSize + 32);
@@ -645,8 +688,8 @@ public sealed class SdFormatTests
     public void MbrLinuxPartitionTypeByteIsRecognised()
     {
         var buffer = new byte[NativeStorage.DriveLayoutHeaderSize
-            + NativeStorage.PartitionRecordSize];
-        BitConverter.GetBytes(0).CopyTo(buffer, 0);  // PARTITION_STYLE_MBR
+                              + NativeStorage.PartitionRecordSize];
+        BitConverter.GetBytes(0).CopyTo(buffer, 0); // PARTITION_STYLE_MBR
         BitConverter.GetBytes(1).CopyTo(buffer, 4);
         buffer[NativeStorage.DriveLayoutHeaderSize + 32] = 0x83; // Linux
 
@@ -660,7 +703,7 @@ public sealed class SdFormatTests
     public void EmptyMbrSlotsAreSkipped()
     {
         var buffer = new byte[NativeStorage.DriveLayoutHeaderSize
-            + 4 * NativeStorage.PartitionRecordSize];
+                              + 4 * NativeStorage.PartitionRecordSize];
         BitConverter.GetBytes(0).CopyTo(buffer, 0);
         BitConverter.GetBytes(4).CopyTo(buffer, 4); // MBR always reports 4 slots
         buffer[NativeStorage.DriveLayoutHeaderSize + 32] = 0x07; // one NTFS slot

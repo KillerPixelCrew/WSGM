@@ -11,6 +11,7 @@ internal static partial class NativeAuthenticode
     private const uint WtdChoiceFile = 1;
     private const uint WtdStateActionIgnore = 0;
     private const uint WtdRevocationCheckChainExcludeRoot = 0x00000080;
+
     private static readonly Guid GenericVerifyV2 = new(
         0x00AAC56B,
         0xCD44,
@@ -66,6 +67,12 @@ internal static partial class NativeAuthenticode
         }
     }
 
+    [LibraryImport("wintrust.dll", EntryPoint = "WinVerifyTrust", SetLastError = true)]
+    private static partial int WinVerifyTrust(
+        nint window,
+        ref Guid actionId,
+        ref WinTrustData trustData);
+
     [StructLayout(LayoutKind.Sequential)]
     private unsafe struct WinTrustFileInfo
     {
@@ -92,10 +99,4 @@ internal static partial class NativeAuthenticode
         public uint UiContext;
         public nint SignatureSettings;
     }
-
-    [LibraryImport("wintrust.dll", EntryPoint = "WinVerifyTrust", SetLastError = true)]
-    private static partial int WinVerifyTrust(
-        nint window,
-        ref Guid actionId,
-        ref WinTrustData trustData);
 }

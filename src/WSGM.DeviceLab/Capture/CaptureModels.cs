@@ -60,7 +60,7 @@ internal enum CapturePrivacy
 }
 
 /// <summary>
-/// Manifest for an unredacted working session kept separately from shareable bundles.
+///     Manifest for an unredacted working session kept separately from shareable bundles.
 /// </summary>
 internal sealed record PrivateCaptureManifest
 {

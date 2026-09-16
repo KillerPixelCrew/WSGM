@@ -8,23 +8,23 @@ namespace WSGM.Input;
 
 /// <summary>Carries canonical controller samples from the plugin runtime's thread to the UI thread.</summary>
 /// <remarks>
-/// One dispatcher post drains everything queued since the previous drain, instead of a post and a
-/// closure per sample. While a sample is still waiting, a newer one holding the same buttons and
-/// triggers is dropped: the router acts only on edges, so it could not change anything. A lost
-/// source is queued in order with the samples, so no sample is delivered ahead of it.
+///     One dispatcher post drains everything queued since the previous drain, instead of a post and a
+///     closure per sample. While a sample is still waiting, a newer one holding the same buttons and
+///     triggers is dropped: the router acts only on edges, so it could not change anything. A lost
+///     source is queued in order with the samples, so no sample is delivered ahead of it.
 /// </remarks>
 internal sealed class CanonicalSampleQueue
 {
-    private readonly Action<CanonicalControllerSample> _submit;
-    private readonly Action _sourceLost;
     private readonly Action _drain;
     private readonly Lock _gate = new();
+    private readonly Action _sourceLost;
+    private readonly Action<CanonicalControllerSample> _submit;
+    private GamepadButtons _lastQueuedHeld;
 
     // Null entries are lost-source signals. Two lists swap between queueing and draining, so the
     // steady state allocates nothing.
     private List<CanonicalControllerSample?> _pending = [];
     private List<CanonicalControllerSample?>? _spare = [];
-    private GamepadButtons _lastQueuedHeld;
 
     /// <summary>Creates a queue that delivers on the UI thread.</summary>
     /// <param name="submit">Receives each delivered sample.</param>

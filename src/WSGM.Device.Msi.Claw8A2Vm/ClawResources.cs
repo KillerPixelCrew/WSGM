@@ -80,7 +80,6 @@ internal abstract class ClawServiceStatus(string serviceId)
         Reason = reason;
         return new ClawServiceResult(state, reason);
     }
-
 }
 
 /// <summary>A service the plugin acquires for a device cycle and releases when the cycle ends.</summary>
@@ -108,10 +107,12 @@ internal sealed class OemEventService(
     IPluginHostAdapter host,
     ClawOemButtonLatch oemButtons) : ClawSuspendableService(ServiceIds.OemEvents)
 {
-    private readonly IMsiOemEventSource _source = source ?? throw new ArgumentNullException(nameof(source));
     private readonly IPluginHostAdapter _host = host ?? throw new ArgumentNullException(nameof(host));
+
     private readonly ClawOemButtonLatch _oemButtons =
         oemButtons ?? throw new ArgumentNullException(nameof(oemButtons));
+
+    private readonly IMsiOemEventSource _source = source ?? throw new ArgumentNullException(nameof(source));
     private long _cycleGeneration;
 
     public override async ValueTask<ClawServiceResult> AcquireAsync(
@@ -129,7 +130,10 @@ internal sealed class OemEventService(
 
     public override ValueTask<ClawServiceResult> SuspendAsync(
         ClawCycleContext context,
-        CancellationToken cancellationToken) => ReleaseAsync(context, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        return ReleaseAsync(context, cancellationToken);
+    }
 
     public override async ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
@@ -184,8 +188,10 @@ internal sealed class PowerService(
     ClawA2VmPowerCapability capability,
     ClawRecoveryJournal journal) : ClawCycleService(ServiceIds.Power)
 {
+    private readonly ClawA2VmPowerCapability _capability =
+        capability ?? throw new ArgumentNullException(nameof(capability));
+
     private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
-    private readonly ClawA2VmPowerCapability _capability = capability ?? throw new ArgumentNullException(nameof(capability));
     private readonly ClawRecoveryJournal _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     public PowerPair? LastObserved { get; private set; }
 
@@ -208,8 +214,10 @@ internal sealed class PowerService(
         return Set(ClawServiceState.Owned);
     }
 
-    public async ValueTask RefreshAsync(CancellationToken cancellationToken) =>
+    public async ValueTask RefreshAsync(CancellationToken cancellationToken)
+    {
         LastObserved = await _capability.ReadAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     public override async ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
@@ -260,22 +268,26 @@ internal sealed class PowerService(
                 "The captured power pair or scenario could not be verified after restoration."));
     }
 
-    private static CapabilityReason FirmwareReason(ClawIdentityState identity) => identity.ExactMachineMatch
-        ? new CapabilityReason(
-            CapabilityReasonCode.FirmwareNotVerified,
-            "MSI_ACPI interface 8.0 and EC firmware 1T52EMS1.109 were not both verified.")
-        : new CapabilityReason(
-            CapabilityReasonCode.GenerationChanged,
-            "The exact MS-1T52 identity no longer matches.");
+    private static CapabilityReason FirmwareReason(ClawIdentityState identity)
+    {
+        return identity.ExactMachineMatch
+            ? new CapabilityReason(
+                CapabilityReasonCode.FirmwareNotVerified,
+                "MSI_ACPI interface 8.0 and EC firmware 1T52EMS1.109 were not both verified.")
+            : new CapabilityReason(
+                CapabilityReasonCode.GenerationChanged,
+                "The exact MS-1T52 identity no longer matches.");
+    }
 }
 
 internal sealed class ChargeLimitService(
     IClawIdentityReader identity,
     ClawA2VmChargeLimitCapability capability) : ClawCycleService(ServiceIds.ChargeLimit)
 {
-    private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
     private readonly ClawA2VmChargeLimitCapability _capability = capability
-        ?? throw new ArgumentNullException(nameof(capability));
+                                                                 ?? throw new ArgumentNullException(nameof(capability));
+
+    private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
 
     public ChargeLimitState? LastObserved { get; private set; }
 
@@ -293,8 +305,10 @@ internal sealed class ChargeLimitService(
         return Set(ClawServiceState.Owned);
     }
 
-    public async ValueTask RefreshAsync(CancellationToken cancellationToken) =>
+    public async ValueTask RefreshAsync(CancellationToken cancellationToken)
+    {
         LastObserved = await _capability.ReadAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     public override ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
@@ -305,13 +319,16 @@ internal sealed class ChargeLimitService(
         return ValueTask.FromResult(Set(ClawServiceState.Idle));
     }
 
-    private static CapabilityReason FirmwareReason(ClawIdentityState identity) => identity.ExactMachineMatch
-        ? new CapabilityReason(
-            CapabilityReasonCode.FirmwareNotVerified,
-            "MSI_ACPI interface 8.0 and EC firmware 1T52EMS1.109 were not both verified.")
-        : new CapabilityReason(
-            CapabilityReasonCode.GenerationChanged,
-            "The exact MS-1T52 identity no longer matches.");
+    private static CapabilityReason FirmwareReason(ClawIdentityState identity)
+    {
+        return identity.ExactMachineMatch
+            ? new CapabilityReason(
+                CapabilityReasonCode.FirmwareNotVerified,
+                "MSI_ACPI interface 8.0 and EC firmware 1T52EMS1.109 were not both verified.")
+            : new CapabilityReason(
+                CapabilityReasonCode.GenerationChanged,
+                "The exact MS-1T52 identity no longer matches.");
+    }
 }
 
 internal sealed class FanService(
@@ -319,8 +336,10 @@ internal sealed class FanService(
     ClawA2VmFanCapability capability,
     ClawRecoveryJournal journal) : ClawCycleService(ServiceIds.Fans)
 {
+    private readonly ClawA2VmFanCapability _capability =
+        capability ?? throw new ArgumentNullException(nameof(capability));
+
     private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
-    private readonly ClawA2VmFanCapability _capability = capability ?? throw new ArgumentNullException(nameof(capability));
     private readonly ClawRecoveryJournal _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     public FanSnapshot? LastObserved { get; private set; }
 
@@ -347,8 +366,10 @@ internal sealed class FanService(
         return Set(ClawServiceState.Owned);
     }
 
-    public async ValueTask RefreshAsync(CancellationToken cancellationToken) =>
+    public async ValueTask RefreshAsync(CancellationToken cancellationToken)
+    {
         LastObserved = await _capability.ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     public override async ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
@@ -404,13 +425,17 @@ internal sealed class TelemetryService(
     IClawIdentityReader identity,
     ClawA2VmFanCapability capability) : ClawCycleService(ServiceIds.Telemetry)
 {
+    private readonly ClawA2VmFanCapability _capability =
+        capability ?? throw new ArgumentNullException(nameof(capability));
+
     private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
-    private readonly ClawA2VmFanCapability _capability = capability ?? throw new ArgumentNullException(nameof(capability));
 
     public FanTelemetry? LastTelemetry { get; private set; }
 
-    public async ValueTask RefreshAsync(CancellationToken cancellationToken) =>
+    public async ValueTask RefreshAsync(CancellationToken cancellationToken)
+    {
         LastTelemetry = await _capability.ReadTelemetryAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     public override async ValueTask<ClawServiceResult> AcquireAsync(
         ClawCycleContext context,
@@ -443,14 +468,18 @@ internal sealed class LightingService(
     IClawMcuTransport transport,
     ClawA2VmLightingCapability capability) : ClawCycleService(ServiceIds.Lighting)
 {
+    private readonly ClawA2VmLightingCapability _capability =
+        capability ?? throw new ArgumentNullException(nameof(capability));
+
     private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
     private readonly IClawMcuTransport _transport = transport ?? throw new ArgumentNullException(nameof(transport));
-    private readonly ClawA2VmLightingCapability _capability = capability ?? throw new ArgumentNullException(nameof(capability));
 
     public LightingState? LastObserved { get; private set; }
 
-    public async ValueTask RefreshAsync(CancellationToken cancellationToken) =>
+    public async ValueTask RefreshAsync(CancellationToken cancellationToken)
+    {
         LastObserved = await _capability.ReadAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     public override async ValueTask<ClawServiceResult> AcquireAsync(
         ClawCycleContext context,
@@ -488,43 +517,42 @@ internal sealed class LightingService(
 
 internal sealed class MotionService(IClawMotionSource source) : ClawSuspendableService(ServiceIds.Motion)
 {
-    private readonly IClawMotionSource _source = source ?? throw new ArgumentNullException(nameof(source));
-    private MotionSample? _latest;
-    private int _staleReported;
-
     /// <summary>How long a sensor reading may still be attached to a controller sample.</summary>
     /// <remarks>
-    /// The physical gyrometer is configured for a 10 ms report interval while the controller reader
-    /// runs at about 125 Hz, so the same reading legitimately rides an adjacent frame. Five sensor
-    /// periods cover ordinary scheduler jitter without replaying a non-zero value after the device
-    /// or its Intel transport stops producing fresh hardware reports.
+    ///     The physical gyrometer is configured for a 10 ms report interval while the controller reader
+    ///     runs at about 125 Hz, so the same reading legitimately rides an adjacent frame. Five sensor
+    ///     periods cover ordinary scheduler jitter without replaying a non-zero value after the device
+    ///     or its Intel transport stops producing fresh hardware reports.
     /// </remarks>
     internal static readonly TimeSpan MaximumMotionAge = TimeSpan.FromMilliseconds(50);
 
     /// <summary>How long staleness must persist before it is worth a line.</summary>
     /// <remarks>
-    /// Crossing <see cref="MaximumMotionAge"/> is not news: measured Intel transport jitter puts a
-    /// dense cluster of readings at 51-59 ms, just past the cap, so reporting each crossing produced
-    /// two alternating lines about 1.3 times a second — 7,619 lines and 40% of one day's log. The
-    /// decay those crossings cause is a couple of milliseconds inside a 52 ms interval and is not
-    /// what anyone is being told about. A pause worth reading about outlasts the jitter by an order
-    /// of magnitude.
+    ///     Crossing <see cref="MaximumMotionAge" /> is not news: measured Intel transport jitter puts a
+    ///     dense cluster of readings at 51-59 ms, just past the cap, so reporting each crossing produced
+    ///     two alternating lines about 1.3 times a second — 7,619 lines and 40% of one day's log. The
+    ///     decay those crossings cause is a couple of milliseconds inside a 52 ms interval and is not
+    ///     what anyone is being told about. A pause worth reading about outlasts the jitter by an order
+    ///     of magnitude.
     /// </remarks>
     internal static readonly TimeSpan StaleReportDelay = TimeSpan.FromMilliseconds(500);
 
     private readonly GyroFrameResampler _resampler = new();
+    private readonly IClawMotionSource _source = source ?? throw new ArgumentNullException(nameof(source));
+    private MotionSample? _latest;
+    private int _staleReported;
 
     /// <summary>The motion to attach to the controller sample being published now.</summary>
     /// <param name="now">Current time, from the caller's clock.</param>
     /// <returns>
-    /// The last reading with its angular velocity replaced by the frame-average since the previous
-    /// call, or null before the first reading arrives.
+    ///     The last reading with its angular velocity replaced by the frame-average since the previous
+    ///     call, or null before the first reading arrives.
     /// </returns>
     /// <remarks>
-    /// The sensor updates at 100 Hz under a ~125 Hz controller reader, so raw values ride frames
-    /// unevenly in a repeating beat that Steam integrates as jagged angular steps. The resampled
-    /// average preserves the exact integrated angle per frame and decays to zero when the sensor
-    /// goes quiet, which is also what keeps a still device from ever reading as freefall.
+    ///     The sensor updates at 100 Hz under a ~125 Hz controller reader, so raw values ride frames
+    ///     unevenly in a repeating beat that Steam integrates as jagged angular steps. The resampled
+    ///     average preserves the exact integrated angle per frame and decays to zero when the sensor
+    ///     goes quiet, which is also what keeps a still device from ever reading as freefall.
     /// </remarks>
     public MotionSample? Current(DateTimeOffset now)
     {
@@ -601,7 +629,10 @@ internal sealed class MotionService(IClawMotionSource source) : ClawSuspendableS
 
     public override ValueTask<ClawServiceResult> SuspendAsync(
         ClawCycleContext context,
-        CancellationToken cancellationToken) => ReleaseAsync(context, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        return ReleaseAsync(context, cancellationToken);
+    }
 
     public override async ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
@@ -615,25 +646,25 @@ internal sealed class MotionService(IClawMotionSource source) : ClawSuspendableS
 }
 
 /// <summary>
-/// Area-preserving resampler from the gyrometer's 100 Hz cadence onto the controller frames.
+///     Area-preserving resampler from the gyrometer's 100 Hz cadence onto the controller frames.
 /// </summary>
 /// <remarks>
-/// Attaching raw readings to ~125 Hz frames makes some frames repeat a stale value and others jump
-/// two sensor periods, in a repeating 40 ms beat that integrates as jagged angular steps. Each
-/// frame instead reports the average angular velocity over exactly the interval since the previous
-/// frame, computed from the zero-order-held sensor integral: the total rotation Steam integrates
-/// stays exact, the beat disappears, and no latency is added. A reading older than
-/// <see cref="MotionService.MaximumMotionAge"/> stops contributing, so the average decays to zero
-/// on a quiet (still) sensor rather than replaying the last angular velocity forever.
+///     Attaching raw readings to ~125 Hz frames makes some frames repeat a stale value and others jump
+///     two sensor periods, in a repeating 40 ms beat that integrates as jagged angular steps. Each
+///     frame instead reports the average angular velocity over exactly the interval since the previous
+///     frame, computed from the zero-order-held sensor integral: the total rotation Steam integrates
+///     stays exact, the beat disappears, and no latency is added. A reading older than
+///     <see cref="MotionService.MaximumMotionAge" /> stops contributing, so the average decays to zero
+///     on a quiet (still) sensor rather than replaying the last angular velocity forever.
 /// </remarks>
 internal sealed class GyroFrameResampler
 {
     private readonly Lock _gate = new();
-    private Vector3 _omega;
-    private DateTimeOffset _quietCap;
     private DateTimeOffset? _accountedTo;
-    private Vector3 _pendingDegrees;
     private DateTimeOffset? _lastFrame;
+    private Vector3 _omega;
+    private Vector3 _pendingDegrees;
+    private DateTimeOffset _quietCap;
 
     /// <summary>Clears all integration state at a device-cycle boundary.</summary>
     public void Reset()
@@ -717,19 +748,44 @@ internal sealed class ControllerService(
     IPluginHostAdapter host,
     ClawRecoveryJournal journal) : ClawSuspendableService(ServiceIds.Controller)
 {
-    private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
-    private readonly IClawMcuTransport _mcu = mcu ?? throw new ArgumentNullException(nameof(mcu));
-    private readonly IClawControllerSource _source = source ?? throw new ArgumentNullException(nameof(source));
-    private readonly MotionService _motion = motion ?? throw new ArgumentNullException(nameof(motion));
+    /// <summary>
+    ///     What the Claw's MCU can actually do with output.
+    /// </summary>
+    /// <remarks>
+    ///     Two motors and no trigger haptics: the rumble report
+    ///     (<see cref="ClawControllerCodec.EncodeRumble" />) carries one weak and one strong byte and
+    ///     nothing else. The frame rate matches this service's own 4 ms write gate below, so WSGM's
+    ///     output router paces frames before they reach this device boundary.
+    /// </remarks>
+    private static readonly HapticCapabilities OutputCapabilities = new()
+    {
+        LowFrequency = OutputChannelSupport.Native,
+        HighFrequency = OutputChannelSupport.Native,
+        LeftTrigger = OutputChannelSupport.Unsupported,
+        RightTrigger = OutputChannelSupport.Unsupported,
+        MaxFramesPerSecond = 250,
+        // ERM motors: LRA-grade haptic ticks must be floored and stretched by the host to be
+        // perceptible at all. Device-measured with the attended A-button sweep (2026-09-02):
+        // 30 ms ticks are felt down to 56/255 and vanish at 48; full-strength pulses stay
+        // reliable to about 10 ms (below that the sleep granularity dominates); continuous
+        // rumble is felt down to 24/255, which is why the floor applies to bounded events only.
+        MinimumStartIntensity = 56f / 255f,
+        MinimumPulse = TimeSpan.FromMilliseconds(10)
+    };
+
+    private readonly Lock _hapticGate = new();
     private readonly IPluginHostAdapter _host = host ?? throw new ArgumentNullException(nameof(host));
+    private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
     private readonly ClawRecoveryJournal _journal = journal ?? throw new ArgumentNullException(nameof(journal));
+    private readonly IClawMcuTransport _mcu = mcu ?? throw new ArgumentNullException(nameof(mcu));
+    private readonly MotionService _motion = motion ?? throw new ArgumentNullException(nameof(motion));
+    private readonly SemaphoreSlim _outputSerializer = new(1, 1);
+    private readonly IClawControllerSource _source = source ?? throw new ArgumentNullException(nameof(source));
+    private DateTimeOffset _lastHapticWrite;
+    private byte _lastStrong;
+    private byte _lastWeak;
     private ControllerTopology? _original;
     private CanonicalButtons _rearButtons;
-    private readonly Lock _hapticGate = new();
-    private readonly SemaphoreSlim _outputSerializer = new(1, 1);
-    private byte _lastWeak;
-    private byte _lastStrong;
-    private DateTimeOffset _lastHapticWrite;
 
     public bool Enabled { get; set; }
 
@@ -762,8 +818,8 @@ internal sealed class ControllerService(
                 DeviceTraceLevel.Warn,
                 "controller",
                 "acquire refused at the identity gate: "
-                    + $"exactMachine={identity.ExactMachineMatch}, "
-                    + $"mcuVerified={identity.McuFirmwareVerified}.");
+                + $"exactMachine={identity.ExactMachineMatch}, "
+                + $"mcuVerified={identity.McuFirmwareVerified}.");
             return Set(ClawServiceState.Passive, new CapabilityReason(
                 CapabilityReasonCode.FirmwareNotVerified,
                 "Controller ownership is gated to exact MS-1T52 firmware 0x0229."));
@@ -781,22 +837,22 @@ internal sealed class ControllerService(
             observed is null
                 ? "discovery found no Claw controller topology."
                 : $"discovered mode={observed.Mode}, product=0x{observed.ProductId}, "
-                    + $"location='{observed.PhysicalLocation}', "
-                    + $"physicalDevices={observed.PhysicalDevices.Count}, "
-                    + $"endpoints=[{observed.ObservedEndpoints}]");
+                  + $"location='{observed.PhysicalLocation}', "
+                  + $"physicalDevices={observed.PhysicalDevices.Count}, "
+                  + $"endpoints=[{observed.ObservedEndpoints}]");
         _original ??= observed;
         if (_original is null || observed is null
-            || string.IsNullOrWhiteSpace(_original.PhysicalLocation)
-            || !HidEndpointEnumerator.SamePhysicalLocation(
-                observed.PhysicalLocation,
-                _original.PhysicalLocation))
+                              || string.IsNullOrWhiteSpace(_original.PhysicalLocation)
+                              || !HidEndpointEnumerator.SamePhysicalLocation(
+                                  observed.PhysicalLocation,
+                                  _original.PhysicalLocation))
         {
             _host.Trace(
                 DeviceTraceLevel.Warn,
                 "controller",
                 "acquire refused: composite USB location did not match the one first observed. "
-                    + $"original='{_original?.PhysicalLocation}', "
-                    + $"observed='{observed?.PhysicalLocation}'.");
+                + $"original='{_original?.PhysicalLocation}', "
+                + $"observed='{observed?.PhysicalLocation}'.");
             return Set(ClawServiceState.Passive, new CapabilityReason(
                 CapabilityReasonCode.PrerequisiteMissing,
                 "The physical controller or its composite USB location was unavailable."));
@@ -843,8 +899,8 @@ internal sealed class ControllerService(
                     : DeviceTraceLevel.Warn,
                 "controller",
                 $"mode switch settled at {CurrentTopology.Mode}, product=0x{CurrentTopology.ProductId}, "
-                    + $"physicalDevices={CurrentTopology.PhysicalDevices.Count}, "
-                    + $"endpoints=[{CurrentTopology.ObservedEndpoints}]");
+                + $"physicalDevices={CurrentTopology.PhysicalDevices.Count}, "
+                + $"endpoints=[{CurrentTopology.ObservedEndpoints}]");
         }
         else
         {
@@ -887,15 +943,16 @@ internal sealed class ControllerService(
                 DeviceTraceLevel.Error,
                 "controller",
                 $"controller acquisition failed before physical-device handoff completed: "
-                    + $"{ex.GetType().Name}: {ex.Message}");
+                + $"{ex.GetType().Name}: {ex.Message}");
             await RestoreAfterFailedAcquireAsync(context.Deadline).ConfigureAwait(false);
             throw;
         }
+
         _host.Trace(
             DeviceTraceLevel.Info,
             "controller",
             $"owned: published {CurrentTopology.PhysicalDevices.Count} physical identities for hiding, "
-                + "haptics=True.");
+            + "haptics=True.");
         return Set(ClawServiceState.Owned);
     }
 
@@ -1037,31 +1094,6 @@ internal sealed class ControllerService(
         return ControllerHandoffResult.ReleasedVerified;
     }
 
-    /// <summary>
-    /// What the Claw's MCU can actually do with output.
-    /// </summary>
-    /// <remarks>
-    /// Two motors and no trigger haptics: the rumble report
-    /// (<see cref="ClawControllerCodec.EncodeRumble"/>) carries one weak and one strong byte and
-    /// nothing else. The frame rate matches this service's own 4 ms write gate below, so WSGM's
-    /// output router paces frames before they reach this device boundary.
-    /// </remarks>
-    private static readonly HapticCapabilities OutputCapabilities = new()
-    {
-        LowFrequency = OutputChannelSupport.Native,
-        HighFrequency = OutputChannelSupport.Native,
-        LeftTrigger = OutputChannelSupport.Unsupported,
-        RightTrigger = OutputChannelSupport.Unsupported,
-        MaxFramesPerSecond = 250,
-        // ERM motors: LRA-grade haptic ticks must be floored and stretched by the host to be
-        // perceptible at all. Device-measured with the attended A-button sweep (2026-09-02):
-        // 30 ms ticks are felt down to 56/255 and vanish at 48; full-strength pulses stay
-        // reliable to about 10 ms (below that the sleep granularity dominates); continuous
-        // rumble is felt down to 24/255, which is why the floor applies to bounded events only.
-        MinimumStartIntensity = 56f / 255f,
-        MinimumPulse = TimeSpan.FromMilliseconds(10)
-    };
-
     public async ValueTask ApplyHapticsAsync(
         HapticOutputFrame frame,
         CancellationToken cancellationToken)
@@ -1156,6 +1188,7 @@ internal sealed class ControllerService(
                 "controller",
                 failure.Detail ?? "The controller source did not stop cleanly.");
         }
+
         lock (_hapticGate)
         {
             _lastWeak = 0;
@@ -1204,8 +1237,9 @@ internal sealed class ControllerService(
         string controlId,
         bool pressed,
         CanonicalControllerSample sample,
-        CancellationToken cancellationToken) =>
-        _host.PublishOemEventAsync(
+        CancellationToken cancellationToken)
+    {
+        return _host.PublishOemEventAsync(
             new OemControlEvent(
                 controlId,
                 OemPressKind.Short,
@@ -1214,6 +1248,7 @@ internal sealed class ControllerService(
                 $"claw-hid-{controlId}-{sample.Sequence}",
                 pressed ? OemControlEdge.Pressed : OemControlEdge.Released),
             cancellationToken);
+    }
 
     private async ValueTask RestoreAfterFailedAcquireAsync(DateTimeOffset deadline)
     {
@@ -1250,8 +1285,10 @@ internal sealed class ControllerService(
         }
     }
 
-    private static byte ToByte(float value) =>
-        checked((byte)Math.Round(Math.Clamp(value, 0, 1) * byte.MaxValue));
+    private static byte ToByte(float value)
+    {
+        return checked((byte)Math.Round(Math.Clamp(value, 0, 1) * byte.MaxValue));
+    }
 }
 
 internal sealed class ChordSuppressorService(
@@ -1259,11 +1296,13 @@ internal sealed class ChordSuppressorService(
     OemEventService oemEvents,
     IPluginHostAdapter host) : ClawSuspendableService(ServiceIds.ChordSuppressor)
 {
-    private readonly IFirmwareChordSuppressor _suppressor = suppressor
-        ?? throw new ArgumentNullException(nameof(suppressor));
-    private readonly OemEventService _oemEvents = oemEvents
-        ?? throw new ArgumentNullException(nameof(oemEvents));
     private readonly IPluginHostAdapter _host = host ?? throw new ArgumentNullException(nameof(host));
+
+    private readonly OemEventService _oemEvents = oemEvents
+                                                  ?? throw new ArgumentNullException(nameof(oemEvents));
+
+    private readonly IFirmwareChordSuppressor _suppressor = suppressor
+                                                            ?? throw new ArgumentNullException(nameof(suppressor));
 
     public override async ValueTask<ClawServiceResult> AcquireAsync(
         ClawCycleContext context,
@@ -1298,7 +1337,10 @@ internal sealed class ChordSuppressorService(
 
     public override ValueTask<ClawServiceResult> SuspendAsync(
         ClawCycleContext context,
-        CancellationToken cancellationToken) => ReleaseAsync(context, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        return ReleaseAsync(context, cancellationToken);
+    }
 
     public override async ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
@@ -1311,9 +1353,9 @@ internal sealed class ChordSuppressorService(
 
 /// <summary>Owns the panel's variable-refresh state for one cycle.</summary>
 /// <remarks>
-/// A service of its own rather than a corner of the lighting or power services, because it is the
-/// only capability driven by the GPU driver rather than by MSI's firmware: it has no firmware
-/// identity to verify, and it must be restored on make-safe even when every WMI and MCU path failed.
+///     A service of its own rather than a corner of the lighting or power services, because it is the
+///     only capability driven by the GPU driver rather than by MSI's firmware: it has no firmware
+///     identity to verify, and it must be restored on make-safe even when every WMI and MCU path failed.
 /// </remarks>
 internal sealed class DisplayService : ClawServiceStatus, IDisposable
 {
@@ -1329,9 +1371,9 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
     // has no firmware identity to verify, and grouping it anywhere else would put a graphics
     // setting behind an MSI WMI or MCU gate that has nothing to do with it.
     private readonly IntelGraphicsMemoryTransport _sharedMemory = new();
+    private bool _disposed;
     private EnduranceGamingState? _enduranceOnAcquire;
     private bool? _shaderOnAcquire;
-    private bool _disposed;
 
     /// <summary>Creates the service without touching the driver.</summary>
     public DisplayService()
@@ -1342,8 +1384,31 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
     /// <summary>Whether a variable-refresh capable panel answered.</summary>
     public bool IsAvailable => _arcSync.IsAvailable;
 
+    /// <summary>Whether the driver answers for Endurance Gaming on this machine.</summary>
+    public bool IsEnduranceGamingAvailable => _enduranceOnAcquire is not null;
+
+    /// <summary>Whether the driver answers for prebuilt shader download on this machine.</summary>
+    public bool IsShaderDownloadAvailable => _shaderOnAcquire is not null;
+
+    /// <summary>Whether this machine's graphics driver stores a shared-memory split.</summary>
+    public bool IsSharedGpuMemoryAvailable => _sharedMemory.IsAvailable;
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _arcSync.Dispose();
+        _endurance.Dispose();
+        State = ClawServiceState.Idle;
+    }
+
     /// <summary>Opens the driver and selects the panel, capturing the profile to restore later.</summary>
-    /// <returns><see langword="true"/> when variable refresh can be driven.</returns>
+    /// <returns><see langword="true" /> when variable refresh can be driven.</returns>
     public bool TryAcquire()
     {
         var available = _arcSync.TryOpen();
@@ -1367,76 +1432,99 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
         return available;
     }
 
-    /// <summary>Whether the driver answers for Endurance Gaming on this machine.</summary>
-    public bool IsEnduranceGamingAvailable => _enduranceOnAcquire is not null;
-
     /// <summary>Reads the current Endurance Gaming state, or null when it cannot be read.</summary>
     /// <returns>The driver's current control and mode.</returns>
-    public EnduranceGamingState? ReadEnduranceGaming() => _endurance.Read();
+    public EnduranceGamingState? ReadEnduranceGaming()
+    {
+        return _endurance.Read();
+    }
 
     /// <summary>Applies an Endurance Gaming control and mode, verifying the result.</summary>
     /// <param name="control">Whether it should be off, on, or left to the driver.</param>
     /// <param name="mode">The frame target it should hold to.</param>
-    /// <returns><see langword="true"/> when the driver reports both back.</returns>
+    /// <returns><see langword="true" /> when the driver reports both back.</returns>
     public bool TryWriteEnduranceGaming(EnduranceGamingControl control, EnduranceGamingMode mode)
-        => _endurance.TryWrite(control, mode);
-
-    /// <summary>Whether the driver answers for prebuilt shader download on this machine.</summary>
-    public bool IsShaderDownloadAvailable => _shaderOnAcquire is not null;
+    {
+        return _endurance.TryWrite(control, mode);
+    }
 
     /// <summary>Reads whether the driver downloads prebuilt shaders.</summary>
     /// <returns>The setting, or null when the driver does not offer it.</returns>
-    public bool? ReadShaderDownload() => _endurance.ReadShaderDownload();
+    public bool? ReadShaderDownload()
+    {
+        return _endurance.ReadShaderDownload();
+    }
 
     /// <summary>Turns prebuilt shader download on or off, verifying the result.</summary>
     /// <param name="enabled">Whether the driver should download prebuilt shaders.</param>
-    /// <returns><see langword="true"/> when the driver reports the value back.</returns>
-    public bool TryWriteShaderDownload(bool enabled) => _endurance.TryWriteShaderDownload(enabled);
-
-    /// <summary>Whether this machine's graphics driver stores a shared-memory split.</summary>
-    public bool IsSharedGpuMemoryAvailable => _sharedMemory.IsAvailable;
+    /// <returns><see langword="true" /> when the driver reports the value back.</returns>
+    public bool TryWriteShaderDownload(bool enabled)
+    {
+        return _endurance.TryWriteShaderDownload(enabled);
+    }
 
     /// <summary>Reads the share of system memory the integrated GPU may use.</summary>
     /// <returns>The stored percentage and the size the driver reports, or null when unreadable.</returns>
-    public IntelGraphicsMemoryState? ReadSharedGpuMemory() => _sharedMemory.Read();
+    public IntelGraphicsMemoryState? ReadSharedGpuMemory()
+    {
+        return _sharedMemory.Read();
+    }
 
     /// <summary>The frame-presentation modes this driver offers, or null when it says nothing.</summary>
     /// <remarks>
-    /// Asked of IGCL, which answers this honestly even though it will not report or change the
-    /// current one. The value itself lives in the driver's own settings store.
+    ///     Asked of IGCL, which answers this honestly even though it will not report or change the
+    ///     current one. The value itself lives in the driver's own settings store.
     /// </remarks>
-    public uint? ReadSupportedFlipModes() => _endurance.ReadSupportedFlipModes();
+    public uint? ReadSupportedFlipModes()
+    {
+        return _endurance.ReadSupportedFlipModes();
+    }
 
     /// <summary>Reads the driver's stored frame-presentation mode.</summary>
     /// <returns>Intel's gaming-flip flag value, or null when none is stored.</returns>
-    public uint? ReadFlipMode() => _sharedMemory.ReadFlipMode();
+    public uint? ReadFlipMode()
+    {
+        return _sharedMemory.ReadFlipMode();
+    }
 
     /// <summary>Stores a frame-presentation mode, verifying the stored value.</summary>
     /// <param name="mode">Intel's gaming-flip flag value.</param>
-    /// <returns><see langword="true"/> when the driver stores the requested value.</returns>
-    public bool TryWriteFlipMode(uint mode) => _sharedMemory.TryWriteFlipMode(mode);
+    /// <returns><see langword="true" /> when the driver stores the requested value.</returns>
+    public bool TryWriteFlipMode(uint mode)
+    {
+        return _sharedMemory.TryWriteFlipMode(mode);
+    }
 
     /// <summary>Sets the share of system memory the integrated GPU may use.</summary>
     /// <param name="percent">The requested percentage, within the offered range.</param>
-    /// <returns><see langword="true"/> when the driver stores the requested value.</returns>
+    /// <returns><see langword="true" /> when the driver stores the requested value.</returns>
     /// <remarks>The split itself changes at the next restart; only the setting is verified here.</remarks>
-    public bool TryWriteSharedGpuMemory(int percent) => _sharedMemory.TryWrite(percent);
+    public bool TryWriteSharedGpuMemory(int percent)
+    {
+        return _sharedMemory.TryWrite(percent);
+    }
 
     /// <summary>Reads the current state, or null when it cannot be read.</summary>
     /// <returns>The panel's variable-refresh state.</returns>
-    public ArcSyncState? Read() => _arcSync.Read();
+    public ArcSyncState? Read()
+    {
+        return _arcSync.Read();
+    }
 
     /// <summary>Turns variable refresh on or off, verifying the result.</summary>
     /// <param name="enabled">Whether variable refresh should be active.</param>
-    /// <returns><see langword="true"/> when the panel reports the requested state afterwards.</returns>
-    public bool TryWrite(bool enabled) => _arcSync.TryWrite(enabled);
+    /// <returns><see langword="true" /> when the panel reports the requested state afterwards.</returns>
+    public bool TryWrite(bool enabled)
+    {
+        return _arcSync.TryWrite(enabled);
+    }
 
     /// <summary>Restores the profile captured when the cycle started.</summary>
-    /// <returns><see langword="true"/> when nothing was left changed.</returns>
+    /// <returns><see langword="true" /> when nothing was left changed.</returns>
     /// <remarks>
-    /// The shared-memory split is deliberately not restored. It is a persistent user choice like the
-    /// charge limit rather than a resource this service borrowed, it only takes effect at the next
-    /// restart, and putting it back on a normal stop would silently undo what the user asked for.
+    ///     The shared-memory split is deliberately not restored. It is a persistent user choice like the
+    ///     charge limit rather than a resource this service borrowed, it only takes effect at the next
+    ///     restart, and putting it back on a normal stop would silently undo what the user asked for.
     /// </remarks>
     public bool Restore()
     {
@@ -1461,20 +1549,6 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
         }
 
         return restored;
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _arcSync.Dispose();
-        _endurance.Dispose();
-        State = ClawServiceState.Idle;
     }
 }
 

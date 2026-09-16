@@ -9,9 +9,12 @@ public sealed class DisplayArrivalWaiterTests
     private static readonly DisplayTargetIdentity Tv = new(@"\\?\tv", null, null, "Living room TV", 0, 0, 1);
     private static readonly DisplayTargetIdentity Desk = new(@"\\?\desk", null, null, "Desk", 0, 0, 2);
 
-    private static DisplayArrangement Seen(string fingerprint, params DisplayTargetIdentity[] available) =>
-        new([.. available.Select(target => new DisplayTargetObservation(target, true, false, null))],
+    private static DisplayArrangement Seen(string fingerprint, params DisplayTargetIdentity[] available)
+    {
+        return new DisplayArrangement(
+            [.. available.Select(target => new DisplayTargetObservation(target, true, false, null))],
             fingerprint, DateTimeOffset.UnixEpoch);
+    }
 
     [Fact]
     public async Task AnAbsentDisplayIsWaitedForUntilItAppearsAndSettles()
@@ -75,8 +78,8 @@ public sealed class DisplayArrivalWaiterTests
         using CancellationTokenSource cancellation = new();
         Signal signal = new() { OnWait = cancellation.Cancel };
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => Waiter(presence, signal).WaitAsync([Tv], cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            Waiter(presence, signal).WaitAsync([Tv], cancellation.Token));
     }
 
     [Fact]
@@ -94,19 +97,22 @@ public sealed class DisplayArrivalWaiterTests
     {
         // Windows enumerates a monitor before it is part of the desktop; the layout apply is what
         // activates it, so waiting for Active would wait forever.
-        DisplayArrangement seen = new([new DisplayTargetObservation(Tv, true, false, null)], "a", DateTimeOffset.UnixEpoch);
+        DisplayArrangement seen = new([new DisplayTargetObservation(Tv, true, false, null)], "a",
+            DateTimeOffset.UnixEpoch);
 
         Assert.True(DisplayArrivalWaiter.Present(seen, [Tv]));
     }
 
-    private static DisplayArrivalWaiter Waiter(Presence presence, Signal signal) =>
+    private static DisplayArrivalWaiter Waiter(Presence presence, Signal signal)
+    {
         // The settle delay is real time in production and nothing here needs to spend it; the
         // waiter's ordering is what these tests are about.
-        new(presence, signal, static (_, token) =>
+        return new DisplayArrivalWaiter(presence, signal, static (_, token) =>
         {
             token.ThrowIfCancellationRequested();
             return Task.CompletedTask;
         });
+    }
 
     private sealed class Presence(IReadOnlyList<DisplayArrangement?> observations) : IDisplayPresence
     {
@@ -125,8 +131,9 @@ public sealed class DisplayArrivalWaiterTests
                 throw new ArgumentOutOfRangeException(nameof(observations),
                     "The waiter looked more times than the test scripted.");
             }
+
             return observations[index]
-                ?? throw new Win32Exception(31, "the driver is mid-change");
+                   ?? throw new Win32Exception(31, "the driver is mid-change");
         }
     }
 

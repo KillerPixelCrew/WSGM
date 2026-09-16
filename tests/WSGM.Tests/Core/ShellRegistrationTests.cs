@@ -14,6 +14,9 @@ public sealed class ShellRegistrationTests
     [InlineData("WSGM.exe", "WSGM.exe")]
     [InlineData("C:\\Tools\\app.exe\t--argument", "C:\\Tools\\app.exe\t--argument")]
     [InlineData(@"""C:\Tools\app.exe""", @"C:\Tools\app.exe")]
-    public void ShellCommandParserReadsOnlyTheExecutableTokenWithWinlogonSpaceSemantics(string? command, string? expected)
-        => Assert.Equal(expected, ShellRegistration.ExtractExecutablePath(command));
+    public void ShellCommandParserReadsOnlyTheExecutableTokenWithWinlogonSpaceSemantics(string? command,
+        string? expected)
+    {
+        Assert.Equal(expected, ShellRegistration.ExtractExecutablePath(command));
+    }
 }

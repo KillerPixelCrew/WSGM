@@ -11,8 +11,10 @@ public enum DevicePowerMode
 {
     /// <summary>Prefer battery life.</summary>
     BetterBattery,
+
     /// <summary>Use balanced performance.</summary>
     Balanced,
+
     /// <summary>Prefer performance.</summary>
     BestPerformance
 }
@@ -23,15 +25,23 @@ public enum DevicePowerMode
 /// <param name="SustainedWatts">Target for the descriptor carrying this preset.</param>
 /// <param name="SlowWatts">Target for the single-instance PowerSlowLimit capability.</param>
 /// <param name="WindowsMode">Windows power mode applied by the host.</param>
-/// <remarks>Declare at most 16 on a single-instance sustained watt limit. Both targets must fit the
-/// current writable descriptors. Presets are shortcuts, never policies to reapply after drift.
-/// Hosts derive Custom from observed values; a failed multi-control application may be partial.</remarks>
+/// <remarks>
+///     Declare at most 16 on a single-instance sustained watt limit. Both targets must fit the
+///     current writable descriptors. Presets are shortcuts, never policies to reapply after drift.
+///     Hosts derive Custom from observed values; a failed multi-control application may be partial.
+/// </remarks>
 public sealed record DevicePowerPreset(
-    string Id, string Name, int SustainedWatts, int SlowWatts, DevicePowerMode WindowsMode)
+    string Id,
+    string Name,
+    int SustainedWatts,
+    int SlowWatts,
+    DevicePowerMode WindowsMode)
 {
     /// <summary>Optional ScenarioMode choice applied before watt limits on AC power.</summary>
-    /// <remarks>Declare both scenario targets or neither. Choices belong to the single readable,
-    /// writable ScenarioMode descriptor; the host must confirm the current power source.</remarks>
+    /// <remarks>
+    ///     Declare both scenario targets or neither. Choices belong to the single readable,
+    ///     writable ScenarioMode descriptor; the host must confirm the current power source.
+    /// </remarks>
     public string? ScenarioOnAc { get; init; }
 
     /// <summary>Optional ScenarioMode choice applied before watt limits on battery power.</summary>
@@ -46,59 +56,84 @@ public sealed record DevicePowerPreset(
         error = "Power presets require one readable, writable sustained/slow watt pair with valid targets.";
         foreach (var descriptor in descriptors)
         {
-            if (descriptor.PowerPresets is null || descriptor.PowerPresets.Count > 16) { return false; }
-            if (descriptor.PowerPresets.Count == 0) { continue; }
+            if (descriptor.PowerPresets is null || descriptor.PowerPresets.Count > 16)
+            {
+                return false;
+            }
+
+            if (descriptor.PowerPresets.Count == 0)
+            {
+                continue;
+            }
+
             var sustained = descriptors.Where(d => d.Role == CapabilityRole.PowerSustainedLimit).ToArray();
             var slow = descriptors.Where(d => d.Role == CapabilityRole.PowerSlowLimit).ToArray();
             if (sustained.Length != 1 || slow.Length != 1 || sustained[0] != descriptor
-                || !IsPowerLimit(descriptor) || !IsPowerLimit(slow[0])) { return false; }
+                || !IsPowerLimit(descriptor) || !IsPowerLimit(slow[0]))
+            {
+                return false;
+            }
+
             HashSet<string> ids = new(StringComparer.Ordinal);
             if (descriptor.PowerPresets.Any(preset =>
                     preset is null || string.IsNullOrEmpty(preset.Id) || preset.Id.Length > 64
-                    || preset.Id == "custom" || !preset.Id.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-')
+                    || preset.Id == "custom" ||
+                    !preset.Id.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-')
                     || !ids.Add(preset.Id) || !PlainText.TryValidate(preset.Name, 120, "preset name", out _)
                     || !Enum.IsDefined(preset.WindowsMode) || preset.SustainedWatts > preset.SlowWatts
                     || !Fits(preset.SustainedWatts, descriptor) || !Fits(preset.SlowWatts, slow[0])
-                    || !ValidScenario(preset, descriptors))) { return false; }
+                    || !ValidScenario(preset, descriptors)))
+            {
+                return false;
+            }
         }
+
         error = null;
         return true;
     }
 
-    private static bool IsPowerLimit(CapabilityDescriptor descriptor) =>
-        descriptor is
-        {
-            InstanceId: null,
-            SupportsRead: true,
-            SupportsWrite: true,
-            ValueKind: CapabilityValueKind.Integer,
-            Unit: CapabilityUnit.Watt,
-            Minimum: > 0,
-            Step: > 0
-        }
-        && descriptor.Maximum >= descriptor.Minimum;
+    private static bool IsPowerLimit(CapabilityDescriptor descriptor)
+    {
+        return descriptor is
+               {
+                   InstanceId: null,
+                   SupportsRead: true,
+                   SupportsWrite: true,
+                   ValueKind: CapabilityValueKind.Integer,
+                   Unit: CapabilityUnit.Watt,
+                   Minimum: > 0,
+                   Step: > 0
+               }
+               && descriptor.Maximum >= descriptor.Minimum;
+    }
 
     private static bool ValidScenario(DevicePowerPreset preset, IReadOnlyList<CapabilityDescriptor> descriptors)
     {
-        if (preset.ScenarioOnAc is null && preset.ScenarioOnDc is null) { return true; }
+        if (preset.ScenarioOnAc is null && preset.ScenarioOnDc is null)
+        {
+            return true;
+        }
+
         var scenarios = descriptors.Where(d => d.Role == CapabilityRole.ScenarioMode).ToArray();
         return scenarios.Length == 1
-            && scenarios[0] is
-            {
-                InstanceId: null,
-                SupportsRead: true,
-                SupportsWrite: true,
-                AvailableOnAc: true,
-                AvailableOnDc: true,
-                ValueKind: CapabilityValueKind.Choice,
-                Choices: not null
-            }
-            && !string.IsNullOrEmpty(preset.ScenarioOnAc) && !string.IsNullOrEmpty(preset.ScenarioOnDc)
-            && scenarios[0].Choices.Any(choice => choice.Value == preset.ScenarioOnAc)
-            && scenarios[0].Choices.Any(choice => choice.Value == preset.ScenarioOnDc);
+               && scenarios[0] is
+               {
+                   InstanceId: null,
+                   SupportsRead: true,
+                   SupportsWrite: true,
+                   AvailableOnAc: true,
+                   AvailableOnDc: true,
+                   ValueKind: CapabilityValueKind.Choice,
+                   Choices: not null
+               }
+               && !string.IsNullOrEmpty(preset.ScenarioOnAc) && !string.IsNullOrEmpty(preset.ScenarioOnDc)
+               && scenarios[0].Choices.Any(choice => choice.Value == preset.ScenarioOnAc)
+               && scenarios[0].Choices.Any(choice => choice.Value == preset.ScenarioOnDc);
     }
 
-    private static bool Fits(int watts, CapabilityDescriptor descriptor) =>
-        watts >= descriptor.Minimum && watts <= descriptor.Maximum
-        && (watts - descriptor.Minimum) % descriptor.Step == 0;
+    private static bool Fits(int watts, CapabilityDescriptor descriptor)
+    {
+        return watts >= descriptor.Minimum && watts <= descriptor.Maximum
+                                           && (watts - descriptor.Minimum) % descriptor.Step == 0;
+    }
 }

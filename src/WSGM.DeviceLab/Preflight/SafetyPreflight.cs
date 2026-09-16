@@ -110,7 +110,7 @@ internal sealed record DeviceLabPreflightDecision
     /// <summary>Overall gate status.</summary>
     public required DeviceLabDoctorStatus Status { get; init; }
 
-    /// <summary>Permitted route, or <see cref="DeviceLabAccessRoute.None"/>.</summary>
+    /// <summary>Permitted route, or <see cref="DeviceLabAccessRoute.None" />.</summary>
     public required DeviceLabAccessRoute Route { get; init; }
 
     /// <summary>Every performed check in stable order.</summary>
@@ -171,7 +171,8 @@ internal static class DeviceLabSafetyPreflight
         {
             if (!snapshot.IsUserInteractive || snapshot.IsContinuousIntegration)
             {
-                Block(checks, "attended.interactive", "The hardware action requires a local interactive session and refuses CI.");
+                Block(checks, "attended.interactive",
+                    "The hardware action requires a local interactive session and refuses CI.");
             }
 
             if (!snapshot.AttendedActionConfirmed)
@@ -213,10 +214,13 @@ internal static class DeviceLabSafetyPreflight
     private static void Block(
         List<DeviceLabPreflightCheck> checks,
         string code,
-        string message) => checks.Add(new DeviceLabPreflightCheck
+        string message)
+    {
+        checks.Add(new DeviceLabPreflightCheck
         {
             Code = code,
             Status = DeviceLabDoctorStatus.Blocked,
             Message = message
         });
+    }
 }

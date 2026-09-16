@@ -10,7 +10,9 @@ internal static class ClawCommands
     internal static CapabilityCommand Command(
         string capabilityId,
         string? instanceId,
-        CapabilityValue value) => new()
+        CapabilityValue value)
+    {
+        return new CapabilityCommand
         {
             CommandId = Guid.NewGuid(),
             CapabilityId = capabilityId,
@@ -20,4 +22,5 @@ internal static class ClawCommands
             ExpectedCycleGeneration = CycleGeneration,
             Deadline = DateTimeOffset.UtcNow.AddMinutes(1)
         };
+    }
 }

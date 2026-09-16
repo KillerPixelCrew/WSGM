@@ -16,44 +16,146 @@ namespace WSGM.Device.Msi.Claw8A2Vm;
 public sealed class Claw8A2VmPlugin : IDevicePlugin
 {
     private const int MaxDiagnosticValueLength = 64;
-    private readonly ClawHardwareServices _services;
-    private readonly SemaphoreSlim _commandSerializer = new(1, 1);
-    private IPluginHostAdapter? _host;
-    private CapabilityDescriptorSet? _descriptorSet;
-    private IReadOnlyList<ClawCycleService> _cycleServices = [];
-    private IReadOnlyList<ClawSuspendableService> _suspendableServices = [];
-    private OemEventService? _oem;
-    private PowerService? _power;
-    private ChargeLimitService? _chargeLimit;
-    private FanService? _fans;
-    private TelemetryService? _telemetry;
-    private LightingService? _lighting;
-    private MotionService? _motion;
-    private ControllerService? _controller;
-    private ChordSuppressorService? _suppressor;
-    private DisplayService? _arcSync;
-    private ClawRecoveryJournal? _journal;
-    private ClawA2VmPowerCapability? _powerCapability;
-    private ClawA2VmChargeLimitCapability? _chargeLimitCapability;
-    private ClawA2VmFanCapability? _fanCapability;
-    private ClawA2VmLightingCapability? _lightingCapability;
-    private long _cycleGeneration;
-    private bool _active;
-    private bool _quiescing;
-    private bool _disposed;
-    private CancellationTokenSource? _observationLoop;
-    private CancellationToken _observationToken;
 
     /// <summary>How often the plugin re-reads and republishes what it observes.</summary>
     /// <remarks>
-    /// Comfortably inside WSGM's 30-second freshness policy, so an observation is replaced twice
-    /// before it can expire. Without this loop the plugin published state at start, at resume, and
-    /// after a command, and never again — so every readable capability went stale thirty seconds
-    /// into the cycle and stayed that way until the user happened to change something. The visible
-    /// form was the QAM's TDP row disappearing, taking AutoTDP ("No primary power limit is
-    /// available to control") with it.
+    ///     Comfortably inside WSGM's 30-second freshness policy, so an observation is replaced twice
+    ///     before it can expire. Without this loop the plugin published state at start, at resume, and
+    ///     after a command, and never again — so every readable capability went stale thirty seconds
+    ///     into the cycle and stayed that way until the user happened to change something. The visible
+    ///     form was the QAM's TDP row disappearing, taking AutoTDP ("No primary power limit is
+    ///     available to control") with it.
     /// </remarks>
     private static readonly TimeSpan ObservationInterval = TimeSpan.FromSeconds(10);
+
+    /// <summary>The Claw's declared Device overlay layout.</summary>
+    /// <remarks>
+    ///     Titles and icons are WSGM-owned vocabulary; only the grouping is this plugin's. A section a
+    ///     firmware variant leaves empty (Display without an ARC Sync panel) is dropped by WSGM rather
+    ///     than declared conditionally, so the layout stays one static fact.
+    /// </remarks>
+    private static readonly IReadOnlyList<CapabilitySection> OverlaySections =
+    [
+        DeviceSections.Power with
+        {
+            Categories =
+            [
+                new CapabilityCategory
+                {
+                    CategoryId = CategoryIds.Limits,
+                    Key = SettingSectionKey.Custom,
+                    CustomTitle = "Limits",
+                    SortOrder = 0
+                },
+                new CapabilityCategory
+                {
+                    CategoryId = CategoryIds.Charging,
+                    Key = SettingSectionKey.Custom,
+                    CustomTitle = "Charging",
+                    SortOrder = 1
+                },
+                // Fans and thermals were their own Cooling section; folded in here so Power is one
+                // page instead of two that both read as "power" to the user (maintainer-directed).
+                // The readings that used to follow them moved to Info for the same reason: this is
+                // the page for changing how the device behaves, not for watching it.
+                new CapabilityCategory
+                {
+                    CategoryId = CategoryIds.Control,
+                    Key = SettingSectionKey.Custom,
+                    CustomTitle = "Fans",
+                    SortOrder = 2
+                }
+            ]
+        },
+        DeviceSections.Rgb with
+        {
+            Categories =
+            [
+                new CapabilityCategory
+                {
+                    CategoryId = CategoryIds.Zones,
+                    Key = SettingSectionKey.Custom,
+                    CustomTitle = "Zones",
+                    SortOrder = 0
+                }
+            ]
+        },
+        DeviceSections.Info with
+        {
+            Categories =
+            [
+                new CapabilityCategory
+                {
+                    CategoryId = CategoryIds.Ownership,
+                    Key = SettingSectionKey.Custom,
+                    CustomTitle = "Plugin ownership",
+                    SortOrder = 0
+                },
+                new CapabilityCategory
+                {
+                    CategoryId = CategoryIds.Readings,
+                    Key = SettingSectionKey.Custom,
+                    CustomTitle = "Readings",
+                    SortOrder = 1
+                }
+            ]
+        }
+    ];
+
+    /// <summary>Intel's gaming-flip flags, in the order a user would read them.</summary>
+    /// <remarks>
+    ///     Keyed by the flag bit, so the stable choice value never depends on Intel's ordering. Only the
+    ///     bits this driver reports supported are offered — measured as <c>0x2d</c> on the reference
+    ///     unit, which is application default, VSync on, Smooth Sync and capped FPS. Notably absent is
+    ///     "VSync off": leaving it off is what the application default already means, so the driver
+    ///     offers forcing it on rather than forcing it off.
+    /// </remarks>
+    private static readonly (uint Bit, string Value)[] FlipModes =
+    [
+        (1u << 0, "application-default"),
+        (1u << 2, "vsync-on"),
+        (1u << 3, "smooth-sync"),
+        (1u << 5, "capped-fps"),
+        (1u << 1, "vsync-off"),
+        (1u << 4, "speed-frame")
+    ];
+
+    /// <summary>Who currently owns a physical input source.</summary>
+    /// <remarks>
+    ///     Ordered so the first value is the resting state. <c>device</c> means the Claw's own firmware
+    ///     still has it, <c>plugin</c> means this plugin acquired it, and <c>unavailable</c> covers both
+    ///     a failed acquisition and a source this unit does not expose — a user reading the row needs
+    ///     those to be distinguishable, which is exactly what the previous boolean threw away.
+    /// </remarks>
+    private static readonly string[] SourceOwnershipChoices = ["device", "plugin", "unavailable"];
+
+    private readonly SemaphoreSlim _commandSerializer = new(1, 1);
+    private readonly ClawHardwareServices _services;
+    private bool _active;
+    private DisplayService? _arcSync;
+    private ChargeLimitService? _chargeLimit;
+    private ClawA2VmChargeLimitCapability? _chargeLimitCapability;
+    private ControllerService? _controller;
+    private long _cycleGeneration;
+    private IReadOnlyList<ClawCycleService> _cycleServices = [];
+    private CapabilityDescriptorSet? _descriptorSet;
+    private bool _disposed;
+    private ClawA2VmFanCapability? _fanCapability;
+    private FanService? _fans;
+    private IPluginHostAdapter? _host;
+    private ClawRecoveryJournal? _journal;
+    private LightingService? _lighting;
+    private ClawA2VmLightingCapability? _lightingCapability;
+    private MotionService? _motion;
+    private CancellationTokenSource? _observationLoop;
+    private CancellationToken _observationToken;
+    private OemEventService? _oem;
+    private PowerService? _power;
+    private ClawA2VmPowerCapability? _powerCapability;
+    private bool _quiescing;
+    private ChordSuppressorService? _suppressor;
+    private IReadOnlyList<ClawSuspendableService> _suspendableServices = [];
+    private TelemetryService? _telemetry;
 
     /// <summary>Creates the production plugin with Windows hardware transports.</summary>
     public Claw8A2VmPlugin()
@@ -478,40 +580,6 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         }
     }
 
-    private async ValueTask<PluginControllerRelease> ReleaseControllerCoreAsync(
-        PluginControllerReleaseContext context,
-        CancellationToken cancellationToken)
-    {
-        if (_controller is null)
-        {
-            return new PluginControllerRelease
-            {
-                Step = ControllerHandoffStep.TopologyVerified,
-                Result = ControllerHandoffResult.ReleasedVerified
-            };
-        }
-
-        var result = await _controller.ReleaseControllerAsync(
-            context.Deadline,
-            cancellationToken).ConfigureAwait(false);
-        await ApplyServiceLifecycleStateAsync(
-            _controller,
-            new ClawServiceResult(
-                result is ControllerHandoffResult.ReleasedVerified
-                    ? ClawServiceState.Idle
-                    : ClawServiceState.ReleasedUnverified,
-                _controller.Reason),
-            cancellationToken).ConfigureAwait(false);
-        return new PluginControllerRelease
-        {
-            Step = result is ControllerHandoffResult.ReleasedVerified
-                ? ControllerHandoffStep.TopologyVerified
-                : ControllerHandoffStep.TopologyUnverified,
-            Result = result,
-            ReleasedDevices = _controller.LastReleasedDevices
-        };
-    }
-
     /// <inheritdoc />
     public async ValueTask<PluginStopResult> StopAsync(
         PluginStopContext context,
@@ -555,6 +623,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                         "The panel's captured variable-refresh profile could not be restored.")
                 };
             }
+
             _active = false;
             _descriptorSet = null;
             _cycleServices = [];
@@ -575,6 +644,74 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         }
     }
 
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        StopObservationLoop();
+        if (_active)
+        {
+            await StopAsync(
+                new PluginStopContext(
+                    PluginStopReason.WsgmExiting,
+                    DateTimeOffset.UtcNow.AddSeconds(12)),
+                CancellationToken.None).ConfigureAwait(false);
+        }
+
+        await _services.ChordSuppressor.DisposeAsync().ConfigureAwait(false);
+        await _services.Motion.DisposeAsync().ConfigureAwait(false);
+        await _services.Controller.DisposeAsync().ConfigureAwait(false);
+        await _services.Mcu.DisposeAsync().ConfigureAwait(false);
+        await _services.OemEvents.DisposeAsync().ConfigureAwait(false);
+        await _services.Wmi.DisposeAsync().ConfigureAwait(false);
+        if (_journal is not null)
+        {
+            await _journal.DisposeAsync().ConfigureAwait(false);
+            _journal = null;
+        }
+
+        _commandSerializer.Dispose();
+    }
+
+    private async ValueTask<PluginControllerRelease> ReleaseControllerCoreAsync(
+        PluginControllerReleaseContext context,
+        CancellationToken cancellationToken)
+    {
+        if (_controller is null)
+        {
+            return new PluginControllerRelease
+            {
+                Step = ControllerHandoffStep.TopologyVerified,
+                Result = ControllerHandoffResult.ReleasedVerified
+            };
+        }
+
+        var result = await _controller.ReleaseControllerAsync(
+            context.Deadline,
+            cancellationToken).ConfigureAwait(false);
+        await ApplyServiceLifecycleStateAsync(
+            _controller,
+            new ClawServiceResult(
+                result is ControllerHandoffResult.ReleasedVerified
+                    ? ClawServiceState.Idle
+                    : ClawServiceState.ReleasedUnverified,
+                _controller.Reason),
+            cancellationToken).ConfigureAwait(false);
+        return new PluginControllerRelease
+        {
+            Step = result is ControllerHandoffResult.ReleasedVerified
+                ? ControllerHandoffStep.TopologyVerified
+                : ControllerHandoffStep.TopologyUnverified,
+            Result = result,
+            ReleasedDevices = _controller.LastReleasedDevices
+        };
+    }
+
     private async ValueTask RollBackFailedStartAsync()
     {
         StopObservationLoop();
@@ -593,7 +730,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                 PluginTrace.Error(
                     "lifecycle",
                     $"startup rollback could not release every service: "
-                        + $"{ex.GetType().Name}: {ex.Message}");
+                    + $"{ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -613,7 +750,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                 PluginTrace.Error(
                     "display",
                     $"startup rollback failed while restoring variable refresh: "
-                        + $"{ex.GetType().Name}: {ex.Message}");
+                    + $"{ex.GetType().Name}: {ex.Message}");
             }
             finally
             {
@@ -633,7 +770,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                 PluginTrace.Error(
                     "recovery",
                     $"startup rollback could not close the recovery journal: "
-                        + $"{ex.GetType().Name}: {ex.Message}");
+                    + $"{ex.GetType().Name}: {ex.Message}");
             }
             finally
             {
@@ -657,27 +794,27 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         }
 
         await TryRetractPublicationAsync(
-            "physical devices",
-            () => _host.PublishPhysicalDevicesAsync([], null, CancellationToken.None))
+                "physical devices",
+                () => _host.PublishPhysicalDevicesAsync([], null, CancellationToken.None))
             .ConfigureAwait(false);
         await TryRetractPublicationAsync(
-            "OEM controls",
-            () => _host.PublishOemControlsAsync([], CancellationToken.None))
+                "OEM controls",
+                () => _host.PublishOemControlsAsync([], CancellationToken.None))
             .ConfigureAwait(false);
 
         if (_descriptorSet is not null)
         {
             var publishedDescriptors = _descriptorSet;
             await TryRetractPublicationAsync(
-                "capability descriptors",
-                () => _host.PublishDescriptorsAsync(
-                    new CapabilityDescriptorSet
-                    {
-                        Generation = checked(publishedDescriptors.Generation + 1),
-                        CycleGeneration = _cycleGeneration,
-                        Descriptors = []
-                    },
-                    CancellationToken.None))
+                    "capability descriptors",
+                    () => _host.PublishDescriptorsAsync(
+                        new CapabilityDescriptorSet
+                        {
+                            Generation = checked(publishedDescriptors.Generation + 1),
+                            CycleGeneration = _cycleGeneration,
+                            Descriptors = []
+                        },
+                        CancellationToken.None))
                 .ConfigureAwait(false);
         }
     }
@@ -695,7 +832,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             PluginTrace.Error(
                 "lifecycle",
                 $"startup rollback could not retract {publication}: "
-                    + $"{ex.GetType().Name}: {ex.Message}");
+                + $"{ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -736,41 +873,9 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         return _journal.OutstandingEntries.Count == 0 ? "healthy" : "pending";
     }
 
-    private static string BoundDiagnosticValue(string value) =>
-        value.Length <= MaxDiagnosticValueLength ? value : value[..MaxDiagnosticValueLength];
-
-    /// <inheritdoc />
-    public async ValueTask DisposeAsync()
+    private static string BoundDiagnosticValue(string value)
     {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        StopObservationLoop();
-        if (_active)
-        {
-            await StopAsync(
-                new PluginStopContext(
-                    PluginStopReason.WsgmExiting,
-                    DateTimeOffset.UtcNow.AddSeconds(12)),
-                CancellationToken.None).ConfigureAwait(false);
-        }
-
-        await _services.ChordSuppressor.DisposeAsync().ConfigureAwait(false);
-        await _services.Motion.DisposeAsync().ConfigureAwait(false);
-        await _services.Controller.DisposeAsync().ConfigureAwait(false);
-        await _services.Mcu.DisposeAsync().ConfigureAwait(false);
-        await _services.OemEvents.DisposeAsync().ConfigureAwait(false);
-        await _services.Wmi.DisposeAsync().ConfigureAwait(false);
-        if (_journal is not null)
-        {
-            await _journal.DisposeAsync().ConfigureAwait(false);
-            _journal = null;
-        }
-
-        _commandSerializer.Dispose();
+        return value.Length <= MaxDiagnosticValueLength ? value : value[..MaxDiagnosticValueLength];
     }
 
     private async ValueTask StartServicesAsync(
@@ -913,7 +1018,9 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     }
 
     private static ClawServiceResult NormalizeAcquisitionResult(
-        ClawServiceResult result) => result.State switch
+        ClawServiceResult result)
+    {
+        return result.State switch
         {
             ClawServiceState.Owned or ClawServiceState.Passive or ClawServiceState.Degraded
                 or ClawServiceState.Faulted => result,
@@ -923,9 +1030,12 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                     CapabilityReasonCode.TransportFaulted,
                     $"Acquisition returned invalid state {result.State}."))
         };
+    }
 
     private static ClawServiceResult NormalizeReleaseResult(
-        ClawServiceResult result) => result.State switch
+        ClawServiceResult result)
+    {
+        return result.State switch
         {
             ClawServiceState.Idle or ClawServiceState.ReleasedUnverified or ClawServiceState.Faulted => result,
             _ => new ClawServiceResult(
@@ -934,6 +1044,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                     CapabilityReasonCode.TransportFaulted,
                     $"Release returned invalid state {result.State}."))
         };
+    }
 
     private void BuildCapabilitySurface()
     {
@@ -947,22 +1058,22 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         IReadOnlyList<CapabilityDescriptor> descriptors =
         [
             IntegerDescriptor(CapabilityIds.PowerSustained, CapabilityRole.PowerSustainedLimit,
-                // 37 W, matching PL2 and the device's actual ceiling, not the 30 W it ships at.
-                DisplayKey.SustainedPowerLimit, 8, 37, CapabilityUnit.Watt, writable: true,
-                section: SectionIds.Power, category: CategoryIds.Limits, order: 0) with
+                    // 37 W, matching PL2 and the device's actual ceiling, not the 30 W it ships at.
+                    DisplayKey.SustainedPowerLimit, 8, 37, CapabilityUnit.Watt, true,
+                    section: SectionIds.Power, category: CategoryIds.Limits, order: 0) with
                 {
                     PowerPresets = ClawPowerPresets.All,
                     PairedPowerLimitId = CapabilityIds.PowerBoost
                 },
             IntegerDescriptor(CapabilityIds.PowerBoost, CapabilityRole.PowerSlowLimit,
-                DisplayKey.BoostPowerLimit, 8, 37, CapabilityUnit.Watt, writable: true,
+                DisplayKey.BoostPowerLimit, 8, 37, CapabilityUnit.Watt, true,
                 section: SectionIds.Power, category: CategoryIds.Limits, order: 1),
             IntegerDescriptor(CapabilityIds.ChargeLimit, CapabilityRole.ChargeLimit,
                 DisplayKey.ChargeLimit,
                 ClawA2VmChargeLimitCapability.MinimumPercent,
                 ClawA2VmChargeLimitCapability.MaximumPercent,
                 CapabilityUnit.Percent,
-                writable: true,
+                true,
                 persistence: CapabilityPersistence.DevicePersistent,
                 section: SectionIds.Power,
                 category: CategoryIds.Charging),
@@ -971,24 +1082,24 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                 CapabilityRole.ScenarioMode,
                 DisplayKey.PerformanceProfile,
                 ["comfort", "green", "eco", "user", "sport", "inactive"],
-                writable: true,
-                section: SectionIds.Power),
+                true,
+                SectionIds.Power),
             ChoiceDescriptor(
                 CapabilityIds.FanMode,
                 CapabilityRole.FanMode,
                 DisplayKey.FanMode,
                 ["automatic", "custom", "full-speed"],
-                writable: true,
-                section: SectionIds.Power,
-                category: CategoryIds.Control),
-            FanCurveDescriptor(order: 1),
+                true,
+                SectionIds.Power,
+                CategoryIds.Control),
+            FanCurveDescriptor(1),
             IntegerDescriptor(CapabilityIds.LightingBrightness, CapabilityRole.LightingBrightness,
-                DisplayKey.Brightness, 0, 100, CapabilityUnit.Percent, writable: true,
+                DisplayKey.Brightness, 0, 100, CapabilityUnit.Percent, true,
                 persistence: CapabilityPersistence.DevicePersistent,
                 section: SectionIds.Lighting),
-            LightingColorDescriptor(CapabilityInstances.LeftRing, "Left ring", order: 0),
-            LightingColorDescriptor(CapabilityInstances.RightRing, "Right ring", order: 1),
-            LightingColorDescriptor(CapabilityInstances.Buttons, "Buttons", order: 2),
+            LightingColorDescriptor(CapabilityInstances.LeftRing, "Left ring", 0),
+            LightingColorDescriptor(CapabilityInstances.RightRing, "Right ring", 1),
+            LightingColorDescriptor(CapabilityInstances.Buttons, "Buttons", 2),
             // These three carry the value kinds their roles require. ControllerSource and
             // MotionSource are choices because "who owns this source" has more than two answers —
             // the plugin can hold it, the device can still have it, or acquisition can have failed —
@@ -1003,40 +1114,39 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                 CapabilityRole.ControllerSource,
                 DisplayKey.Controller,
                 SourceOwnershipChoices,
-                writable: false,
-                section: SectionIds.Info,
-                category: CategoryIds.Ownership,
-                order: 0),
+                false,
+                SectionIds.Info,
+                CategoryIds.Ownership),
             ChoiceDescriptor(
                 CapabilityIds.Motion,
                 CapabilityRole.MotionSource,
                 DisplayKey.Motion,
                 SourceOwnershipChoices,
-                writable: false,
-                section: SectionIds.Info,
-                category: CategoryIds.Ownership,
-                order: 1),
+                false,
+                SectionIds.Info,
+                CategoryIds.Ownership,
+                1),
             ActionDescriptor(
                 CapabilityIds.Rumble,
                 CapabilityRole.HapticSink,
                 DisplayKey.Rumble,
-                section: SectionIds.Info,
-                category: CategoryIds.Ownership,
-                order: 2),
+                SectionIds.Info,
+                CategoryIds.Ownership,
+                2),
             // Readings, not controls. They left the Power page because a person opens it to change
             // how the device behaves, not to watch numbers; the CPU temperature stays published
             // because the fan-curve editor draws the live temperature against the curve.
             IntegerDescriptor(CapabilityIds.Temperature, CapabilityRole.Telemetry,
-                DisplayKey.CpuTemperature, 0, 110, CapabilityUnit.Celsius, writable: false,
+                DisplayKey.CpuTemperature, 0, 110, CapabilityUnit.Celsius, false,
                 section: SectionIds.Info, category: CategoryIds.Readings, order: 0),
             // Both fans are still measured separately even though they are driven together: one
             // failing fan is exactly the fault this page exists to make visible.
             IntegerDescriptor(CapabilityIds.FanRpm, CapabilityRole.FanMeasuredRpm,
-                DisplayKey.FanLeft, 0, 10_000, CapabilityUnit.Rpm, writable: false,
+                DisplayKey.FanLeft, 0, 10_000, CapabilityUnit.Rpm, false,
                 CapabilityInstances.Left,
                 section: SectionIds.Info, category: CategoryIds.Readings, order: 1),
             IntegerDescriptor(CapabilityIds.FanRpm, CapabilityRole.FanMeasuredRpm,
-                DisplayKey.FanRight, 0, 10_000, CapabilityUnit.Rpm, writable: false,
+                DisplayKey.FanRight, 0, 10_000, CapabilityUnit.Rpm, false,
                 CapabilityInstances.Right,
                 section: SectionIds.Info, category: CategoryIds.Readings, order: 2),
             .. _arcSync?.IsAvailable == true
@@ -1051,118 +1161,122 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                     // does not earn a page, and variable refresh is a decision about how the device
                     // performs, which is what Power now holds end to end.
                     BooleanDescriptor(
-                        CapabilityIds.VariableRefreshRate,
-                        CapabilityRole.VariableRefreshRate,
-                        DisplayKey.VariableRefreshRate,
-                        writable: true,
-                        section: SectionIds.Power) with
-                    {
-                        Persistence = CapabilityPersistence.DevicePersistent
-                    }
+                            CapabilityIds.VariableRefreshRate,
+                            CapabilityRole.VariableRefreshRate,
+                            DisplayKey.VariableRefreshRate,
+                            true,
+                            SectionIds.Power) with
+                        {
+                            Persistence = CapabilityPersistence.DevicePersistent
+                        }
                 ]
                 : (IReadOnlyList<CapabilityDescriptor>)[],
             .. _arcSync?.IsEnduranceGamingAvailable == true
-                ? [
+                ?
+                [
                     // Published only when the driver answered for the feature, for the same reason
                     // variable refresh is: a row that always refuses is worse than no row. Also
                     // device-persistent — the driver keeps this across a WSGM restart, and the
                     // Restore path only puts back what it captured at acquire.
                     ChoiceDescriptor(
-                        CapabilityIds.EnduranceGaming,
-                        CapabilityRole.GenericChoice,
-                        DisplayKey.Custom,
-                        ["off", "on", "auto"],
-                        writable: true,
-                        section: SectionIds.Power) with
-                    {
-                        Display = new CapabilityDisplay
+                            CapabilityIds.EnduranceGaming,
+                            CapabilityRole.GenericChoice,
+                            DisplayKey.Custom,
+                            ["off", "on", "auto"],
+                            true,
+                            SectionIds.Power) with
                         {
-                            Key = DisplayKey.Custom,
-                            CustomLabel = "Endurance Gaming"
+                            Display = new CapabilityDisplay
+                            {
+                                Key = DisplayKey.Custom,
+                                CustomLabel = "Endurance Gaming"
+                            },
+                            Persistence = CapabilityPersistence.DevicePersistent
                         },
-                        Persistence = CapabilityPersistence.DevicePersistent
-                    },
                     ChoiceDescriptor(
-                        CapabilityIds.EnduranceGamingMode,
-                        CapabilityRole.GenericChoice,
-                        DisplayKey.Custom,
-                        ["performance", "balanced", "battery"],
-                        writable: true,
-                        section: SectionIds.Power) with
-                    {
-                        Display = new CapabilityDisplay
+                            CapabilityIds.EnduranceGamingMode,
+                            CapabilityRole.GenericChoice,
+                            DisplayKey.Custom,
+                            ["performance", "balanced", "battery"],
+                            true,
+                            SectionIds.Power) with
                         {
-                            Key = DisplayKey.Custom,
-                            CustomLabel = "Endurance Gaming target"
-                        },
-                        Persistence = CapabilityPersistence.DevicePersistent
-                    }
+                            Display = new CapabilityDisplay
+                            {
+                                Key = DisplayKey.Custom,
+                                CustomLabel = "Endurance Gaming target"
+                            },
+                            Persistence = CapabilityPersistence.DevicePersistent
+                        }
                 ]
                 : (IReadOnlyList<CapabilityDescriptor>)[],
             .. _arcSync?.IsShaderDownloadAvailable == true
-                ? [
+                ?
+                [
                     BooleanDescriptor(
-                        CapabilityIds.ShaderDownload,
-                        CapabilityRole.GenericToggle,
-                        DisplayKey.Custom,
-                        writable: true,
-                        section: SectionIds.Power) with
-                    {
-                        Display = new CapabilityDisplay
+                            CapabilityIds.ShaderDownload,
+                            CapabilityRole.GenericToggle,
+                            DisplayKey.Custom,
+                            true,
+                            SectionIds.Power) with
                         {
-                            Key = DisplayKey.Custom,
-                            CustomLabel = "Download prebuilt shaders"
-                        },
-                        Persistence = CapabilityPersistence.DevicePersistent
-                    }
+                            Display = new CapabilityDisplay
+                            {
+                                Key = DisplayKey.Custom,
+                                CustomLabel = "Download prebuilt shaders"
+                            },
+                            Persistence = CapabilityPersistence.DevicePersistent
+                        }
                 ]
                 : (IReadOnlyList<CapabilityDescriptor>)[],
             .. FlipModeChoices() is { Length: > 1 } flipChoices
-                ? [
+                ?
+                [
                     // A choice, not a toggle. Intel has no VSync boolean: it has a presentation
                     // mode whose members include forcing sync on, Smooth Sync and a capped-FPS
                     // mode, and the offered set is whatever this driver reports it supports — so a
                     // future driver that adds one gets it without a contract change, which is the
                     // forward-compatibility this capability was asked for.
                     ChoiceDescriptor(
-                        CapabilityIds.DriverVsync,
-                        CapabilityRole.GenericChoice,
-                        DisplayKey.Custom,
-                        flipChoices,
-                        writable: true,
-                        section: SectionIds.Power) with
-                    {
-                        Display = new CapabilityDisplay
+                            CapabilityIds.DriverVsync,
+                            CapabilityRole.GenericChoice,
+                            DisplayKey.Custom,
+                            flipChoices,
+                            true,
+                            SectionIds.Power) with
                         {
-                            Key = DisplayKey.Custom,
-                            CustomLabel = "Frame presentation (restart)"
-                        },
-                        Persistence = CapabilityPersistence.DevicePersistent
-                    }
+                            Display = new CapabilityDisplay
+                            {
+                                Key = DisplayKey.Custom,
+                                CustomLabel = "Frame presentation (restart)"
+                            },
+                            Persistence = CapabilityPersistence.DevicePersistent
+                        }
                 ]
                 : (IReadOnlyList<CapabilityDescriptor>)[],
             .. _arcSync?.IsSharedGpuMemoryAvailable == true
-                ? [
+                ?
+                [
                     // The restart requirement is in the label because there is nowhere else for it
                     // to go: the SDK has no "takes effect later" field, and a row that appears to do
                     // nothing until the next boot is exactly the silent control the guidance forbids.
                     IntegerDescriptor(
-                        CapabilityIds.SharedGpuMemory,
-                        CapabilityRole.GenericRange,
-                        DisplayKey.Custom,
-                        IntelGraphicsMemoryTransport.MinimumPercent,
-                        IntelGraphicsMemoryTransport.MaximumPercent,
-                        CapabilityUnit.Percent,
-                        writable: true,
-                        persistence: CapabilityPersistence.DevicePersistent,
-                        section: SectionIds.Power) with
-                    {
-                        Display = new CapabilityDisplay
+                            CapabilityIds.SharedGpuMemory,
+                            CapabilityRole.GenericRange,
+                            DisplayKey.Custom,
+                            IntelGraphicsMemoryTransport.MinimumPercent,
+                            IntelGraphicsMemoryTransport.MaximumPercent,
+                            CapabilityUnit.Percent,
+                            true,
+                            persistence: CapabilityPersistence.DevicePersistent,
+                            section: SectionIds.Power) with
                         {
-                            Key = DisplayKey.Custom,
-                            CustomLabel = "GPU memory share (restart)"
+                            Display = new CapabilityDisplay
+                            {
+                                Key = DisplayKey.Custom,
+                                CustomLabel = "GPU memory share (restart)"
+                            }
                         }
-                    }
                 ]
                 : (IReadOnlyList<CapabilityDescriptor>)[]
         ];
@@ -1359,10 +1473,10 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     }
 
     /// <remarks>
-    /// Not journalled, unlike the WMI and MCU writes. The journal exists so a value written into
-    /// firmware can be put back after an abnormal exit; this one is held by the graphics driver,
-    /// restored from the profile captured at cycle start, and reported as verified only because the
-    /// read-back agrees rather than because the call returned success.
+    ///     Not journalled, unlike the WMI and MCU writes. The journal exists so a value written into
+    ///     firmware can be put back after an abnormal exit; this one is held by the graphics driver,
+    ///     restored from the profile captured at cycle start, and reported as verified only because the
+    ///     read-back agrees rather than because the call returned success.
     /// </remarks>
     private ValueTask<CapabilityCommandResult> ApplyVariableRefreshCommand(CapabilityCommand command)
     {
@@ -1389,10 +1503,10 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     }
 
     /// <remarks>
-    /// The driver holds control and target together, so either row's write has to carry the other's
-    /// current value rather than a remembered one. Not journalled, for the same reason variable
-    /// refresh is not: nothing was written into firmware, and Restore puts back what was captured
-    /// when the cycle started.
+    ///     The driver holds control and target together, so either row's write has to carry the other's
+    ///     current value rather than a remembered one. Not journalled, for the same reason variable
+    ///     refresh is not: nothing was written into firmware, and Restore puts back what was captured
+    ///     when the cycle started.
     /// </remarks>
     private ValueTask<CapabilityCommandResult> ApplyEnduranceGamingCommand(CapabilityCommand command)
     {
@@ -1441,8 +1555,8 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     }
 
     /// <remarks>
-    /// Not journalled, for the same reason the other driver-held rows are not: nothing is written
-    /// into firmware, and Restore puts back what was captured when the cycle started.
+    ///     Not journalled, for the same reason the other driver-held rows are not: nothing is written
+    ///     into firmware, and Restore puts back what was captured when the cycle started.
     /// </remarks>
     private ValueTask<CapabilityCommandResult> ApplyShaderDownloadCommand(CapabilityCommand command)
     {
@@ -1467,15 +1581,15 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     }
 
     /// <remarks>
-    /// Not journalled, and deliberately not restored either. The journal is for firmware values that
-    /// have to be put back after an abnormal exit; this one is a persistent user choice the driver
-    /// keeps, in the same class as the charge limit.
-    /// <para>
-    /// The write is verified, the split is not: the driver reads this when it initializes, so the
-    /// memory the adapter reports only follows at the next restart. Reporting
-    /// <see cref="CommandOutcome.AppliedVerified"/> is still honest because the capability's value
-    /// is the requested percentage, and that is exactly what was read back.
-    /// </para>
+    ///     Not journalled, and deliberately not restored either. The journal is for firmware values that
+    ///     have to be put back after an abnormal exit; this one is a persistent user choice the driver
+    ///     keeps, in the same class as the charge limit.
+    ///     <para>
+    ///         The write is verified, the split is not: the driver reads this when it initializes, so the
+    ///         memory the adapter reports only follows at the next restart. Reporting
+    ///         <see cref="CommandOutcome.AppliedVerified" /> is still honest because the capability's value
+    ///         is the requested percentage, and that is exactly what was read back.
+    ///     </para>
     /// </remarks>
     private ValueTask<CapabilityCommandResult> ApplySharedGpuMemoryCommand(CapabilityCommand command)
     {
@@ -1495,7 +1609,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                 command,
                 CapabilityReasonCode.ValueOutOfRange,
                 $"The GPU memory share must be {IntelGraphicsMemoryTransport.MinimumPercent}-"
-                    + $"{IntelGraphicsMemoryTransport.MaximumPercent} percent."));
+                + $"{IntelGraphicsMemoryTransport.MaximumPercent} percent."));
         }
 
         if (!display.TryWriteSharedGpuMemory(requested))
@@ -1510,15 +1624,15 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     }
 
     /// <remarks>
-    /// Written to the driver's own 3D settings store rather than through IGCL. Measured on the
-    /// reference unit: <c>ctlGetSet3DFeature</c> reports success for a feature-9 write and changes
-    /// nothing observable — not its own getter, not the stored value — whether the caller is
-    /// elevated or not and with Intel Graphics Software running. The stored value does move, and it
-    /// carries Intel's own flag values, so that is where this reads and writes.
-    /// <para>
-    /// Not journalled and not restored: like the shared-memory split, this is a persistent user
-    /// choice the driver keeps, not a resource the plugin borrowed.
-    /// </para>
+    ///     Written to the driver's own 3D settings store rather than through IGCL. Measured on the
+    ///     reference unit: <c>ctlGetSet3DFeature</c> reports success for a feature-9 write and changes
+    ///     nothing observable — not its own getter, not the stored value — whether the caller is
+    ///     elevated or not and with Intel Graphics Software running. The stored value does move, and it
+    ///     carries Intel's own flag values, so that is where this reads and writes.
+    ///     <para>
+    ///         Not journalled and not restored: like the shared-memory split, this is a persistent user
+    ///         choice the driver keeps, not a resource the plugin borrowed.
+    ///     </para>
     /// </remarks>
     private ValueTask<CapabilityCommandResult> ApplyDriverVsyncCommand(CapabilityCommand command)
     {
@@ -1569,39 +1683,45 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             cancellationToken);
     }
 
-    private ClawServiceStatus? ServiceForCapability(string capabilityId) => capabilityId switch
+    private ClawServiceStatus? ServiceForCapability(string capabilityId)
     {
-        CapabilityIds.PowerSustained or CapabilityIds.PowerBoost or CapabilityIds.Scenario => _power,
-        CapabilityIds.ChargeLimit => _chargeLimit,
-        CapabilityIds.FanMode or CapabilityIds.FanCurve => _fans,
-        CapabilityIds.FanRpm or CapabilityIds.Temperature => _telemetry,
-        CapabilityIds.LightingBrightness or CapabilityIds.LightingColor => _lighting,
-        CapabilityIds.Controller or CapabilityIds.Rumble => _controller,
-        CapabilityIds.Motion => _motion,
-        CapabilityIds.VariableRefreshRate
-            or CapabilityIds.EnduranceGaming
-            or CapabilityIds.EnduranceGamingMode
-            or CapabilityIds.ShaderDownload
-            or CapabilityIds.SharedGpuMemory
-            or CapabilityIds.DriverVsync => _arcSync,
-        _ => null
-    };
+        return capabilityId switch
+        {
+            CapabilityIds.PowerSustained or CapabilityIds.PowerBoost or CapabilityIds.Scenario => _power,
+            CapabilityIds.ChargeLimit => _chargeLimit,
+            CapabilityIds.FanMode or CapabilityIds.FanCurve => _fans,
+            CapabilityIds.FanRpm or CapabilityIds.Temperature => _telemetry,
+            CapabilityIds.LightingBrightness or CapabilityIds.LightingColor => _lighting,
+            CapabilityIds.Controller or CapabilityIds.Rumble => _controller,
+            CapabilityIds.Motion => _motion,
+            CapabilityIds.VariableRefreshRate
+                or CapabilityIds.EnduranceGaming
+                or CapabilityIds.EnduranceGamingMode
+                or CapabilityIds.ShaderDownload
+                or CapabilityIds.SharedGpuMemory
+                or CapabilityIds.DriverVsync => _arcSync,
+            _ => null
+        };
+    }
 
-    private static FirmwareKind FirmwareForCapability(string capabilityId) => capabilityId switch
+    private static FirmwareKind FirmwareForCapability(string capabilityId)
     {
-        CapabilityIds.LightingBrightness or CapabilityIds.LightingColor
-            or CapabilityIds.Controller or CapabilityIds.Rumble => FirmwareKind.Mcu,
-        // Driven by the GPU driver, not by MSI firmware, so there is no firmware revision to gate
-        // it on and gating it on the WMI one would refuse it whenever that path is degraded.
-        CapabilityIds.Motion
-            or CapabilityIds.VariableRefreshRate
-            or CapabilityIds.EnduranceGaming
-            or CapabilityIds.EnduranceGamingMode
-            or CapabilityIds.ShaderDownload
-            or CapabilityIds.SharedGpuMemory
-            or CapabilityIds.DriverVsync => FirmwareKind.None,
-        _ => FirmwareKind.Wmi
-    };
+        return capabilityId switch
+        {
+            CapabilityIds.LightingBrightness or CapabilityIds.LightingColor
+                or CapabilityIds.Controller or CapabilityIds.Rumble => FirmwareKind.Mcu,
+            // Driven by the GPU driver, not by MSI firmware, so there is no firmware revision to gate
+            // it on and gating it on the WMI one would refuse it whenever that path is degraded.
+            CapabilityIds.Motion
+                or CapabilityIds.VariableRefreshRate
+                or CapabilityIds.EnduranceGaming
+                or CapabilityIds.EnduranceGamingMode
+                or CapabilityIds.ShaderDownload
+                or CapabilityIds.SharedGpuMemory
+                or CapabilityIds.DriverVsync => FirmwareKind.None,
+            _ => FirmwareKind.Wmi
+        };
+    }
 
     private static CapabilityReason? RefusalFor(
         ClawServiceStatus service,
@@ -1613,7 +1733,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             return new CapabilityReason(
                 CapabilityReasonCode.GenerationChanged,
                 "Exact device identity no longer matches the Claw implementation.",
-                Retryable: true);
+                true);
         }
 
         if (!FirmwareVerified(identity, firmwareKind))
@@ -1628,7 +1748,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             ClawServiceState.Owned => null,
             ClawServiceState.Passive => new CapabilityReason(
                 CapabilityReasonCode.ResourceConflict,
-                "The device service is passive or held by another owner.", Retryable: true),
+                "The device service is passive or held by another owner.", true),
             ClawServiceState.Releasing => new CapabilityReason(
                 CapabilityReasonCode.Quiescing,
                 "The device service is being released."),
@@ -1640,7 +1760,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                 "The device service is faulted or its release could not be verified."),
             _ => new CapabilityReason(
                 CapabilityReasonCode.ResourceReleased,
-                "The plugin does not currently own this device service.", Retryable: true)
+                "The plugin does not currently own this device service.", true)
         };
     }
 
@@ -1656,7 +1776,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             return new CapabilityReason(
                 CapabilityReasonCode.GenerationChanged,
                 "Command targets a descriptor or device generation that is no longer current.",
-                Retryable: true);
+                true);
         }
 
         if (command.Deadline <= DateTimeOffset.UtcNow)
@@ -1664,7 +1784,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             return new CapabilityReason(
                 CapabilityReasonCode.Quiescing,
                 "Command deadline passed before it could be applied.",
-                Retryable: true);
+                true);
         }
 
         if (onAcPower ? !descriptor.AvailableOnAc : !descriptor.AvailableOnDc)
@@ -1791,15 +1911,20 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         }
     }
 
-    private static CapabilityReason ValueOutOfRange(string detail) =>
-        new(CapabilityReasonCode.ValueOutOfRange, detail);
-
-    private static bool FirmwareVerified(ClawIdentityState identity, FirmwareKind kind) => kind switch
+    private static CapabilityReason ValueOutOfRange(string detail)
     {
-        FirmwareKind.Wmi => identity.WmiFirmwareVerified,
-        FirmwareKind.Mcu => identity.McuFirmwareVerified,
-        _ => true
-    };
+        return new CapabilityReason(CapabilityReasonCode.ValueOutOfRange, detail);
+    }
+
+    private static bool FirmwareVerified(ClawIdentityState identity, FirmwareKind kind)
+    {
+        return kind switch
+        {
+            FirmwareKind.Wmi => identity.WmiFirmwareVerified,
+            FirmwareKind.Mcu => identity.McuFirmwareVerified,
+            _ => true
+        };
+    }
 
     private static CapabilityCommandResult NormalizeCommandResult(
         CapabilityCommand command,
@@ -1841,116 +1966,49 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         }
     }
 
-    private static string CapabilityKey(string capabilityId, string? instanceId) =>
-        instanceId is null ? capabilityId : $"{capabilityId}/{instanceId}";
-
-    /// <summary>The Claw's declared Device overlay layout.</summary>
-    /// <remarks>
-    /// Titles and icons are WSGM-owned vocabulary; only the grouping is this plugin's. A section a
-    /// firmware variant leaves empty (Display without an ARC Sync panel) is dropped by WSGM rather
-    /// than declared conditionally, so the layout stays one static fact.
-    /// </remarks>
-    private static readonly IReadOnlyList<CapabilitySection> OverlaySections =
-    [
-        DeviceSections.Power with
-        {
-            Categories =
-            [
-                new CapabilityCategory
-                {
-                    CategoryId = CategoryIds.Limits,
-                    Key = SettingSectionKey.Custom,
-                    CustomTitle = "Limits",
-                    SortOrder = 0
-                },
-                new CapabilityCategory
-                {
-                    CategoryId = CategoryIds.Charging,
-                    Key = SettingSectionKey.Custom,
-                    CustomTitle = "Charging",
-                    SortOrder = 1
-                },
-                // Fans and thermals were their own Cooling section; folded in here so Power is one
-                // page instead of two that both read as "power" to the user (maintainer-directed).
-                // The readings that used to follow them moved to Info for the same reason: this is
-                // the page for changing how the device behaves, not for watching it.
-                new CapabilityCategory
-                {
-                    CategoryId = CategoryIds.Control,
-                    Key = SettingSectionKey.Custom,
-                    CustomTitle = "Fans",
-                    SortOrder = 2
-                }
-            ]
-        },
-        DeviceSections.Rgb with
-        {
-            Categories =
-            [
-                new CapabilityCategory
-                {
-                    CategoryId = CategoryIds.Zones,
-                    Key = SettingSectionKey.Custom,
-                    CustomTitle = "Zones",
-                    SortOrder = 0
-                }
-            ]
-        },
-        DeviceSections.Info with
-        {
-            Categories =
-            [
-                new CapabilityCategory
-                {
-                    CategoryId = CategoryIds.Ownership,
-                    Key = SettingSectionKey.Custom,
-                    CustomTitle = "Plugin ownership",
-                    SortOrder = 0
-                },
-                new CapabilityCategory
-                {
-                    CategoryId = CategoryIds.Readings,
-                    Key = SettingSectionKey.Custom,
-                    CustomTitle = "Readings",
-                    SortOrder = 1
-                }
-            ]
-        }
-    ];
+    private static string CapabilityKey(string capabilityId, string? instanceId)
+    {
+        return instanceId is null ? capabilityId : $"{capabilityId}/{instanceId}";
+    }
 
     /// <summary>The one fan curve, applied to both channels.</summary>
     /// <remarks>
-    /// One capability rather than a left and a right instance. The A2VM's fans share a heatsink and
-    /// the firmware ramps them together, so two independently authored curves described a machine
-    /// that does not exist and made the user set the same thing twice.
-    /// <para>
-    /// The 0-100 bounds are declared, not implied: they are what the firmware accepts for a duty
-    /// byte, and WSGM's curve editor needs a stated range to draw an axis and clamp a drag against.
-    /// An undeclared bound means "no limit" to the router, which would let the editor offer values
-    /// the write would then refuse.
-    /// </para>
+    ///     One capability rather than a left and a right instance. The A2VM's fans share a heatsink and
+    ///     the firmware ramps them together, so two independently authored curves described a machine
+    ///     that does not exist and made the user set the same thing twice.
+    ///     <para>
+    ///         The 0-100 bounds are declared, not implied: they are what the firmware accepts for a duty
+    ///         byte, and WSGM's curve editor needs a stated range to draw an axis and clamp a drag against.
+    ///         An undeclared bound means "no limit" to the router, which would let the editor offer values
+    ///         the write would then refuse.
+    ///     </para>
     /// </remarks>
-    private static CapabilityDescriptor FanCurveDescriptor(int order) => new()
+    private static CapabilityDescriptor FanCurveDescriptor(int order)
     {
-        CapabilityId = CapabilityIds.FanCurve,
-        Role = CapabilityRole.FanCurve,
-        SectionId = SectionIds.Power,
-        CategoryId = CategoryIds.Control,
-        SortOrder = order,
-        ValueKind = CapabilityValueKind.Curve,
-        Display = new CapabilityDisplay { Key = DisplayKey.FanCurve },
-        Minimum = 0,
-        Maximum = 100,
-        Unit = CapabilityUnit.Percent,
-        SupportsRead = true,
-        SupportsWrite = true,
-        Persistence = CapabilityPersistence.Volatile
-    };
+        return new CapabilityDescriptor
+        {
+            CapabilityId = CapabilityIds.FanCurve,
+            Role = CapabilityRole.FanCurve,
+            SectionId = SectionIds.Power,
+            CategoryId = CategoryIds.Control,
+            SortOrder = order,
+            ValueKind = CapabilityValueKind.Curve,
+            Display = new CapabilityDisplay { Key = DisplayKey.FanCurve },
+            Minimum = 0,
+            Maximum = 100,
+            Unit = CapabilityUnit.Percent,
+            SupportsRead = true,
+            SupportsWrite = true,
+            Persistence = CapabilityPersistence.Volatile
+        };
+    }
 
     private static CapabilityDescriptor LightingColorDescriptor(
         string instance,
         string label,
-        int order) => new()
+        int order)
+    {
+        return new CapabilityDescriptor
         {
             CapabilityId = CapabilityIds.LightingColor,
             InstanceId = instance,
@@ -1964,6 +2022,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             SupportsWrite = true,
             Persistence = CapabilityPersistence.DevicePersistent
         };
+    }
 
     private async ValueTask PublishCapabilityStatesAsync(CancellationToken cancellationToken)
     {
@@ -2010,118 +2069,118 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         switch (descriptor.CapabilityId)
         {
             case CapabilityIds.PowerSustained:
-                {
-                    return _power!.LastObserved is { } value ? CapabilityValue.Integer(value.SustainedWatts) : null;
-                }
+            {
+                return _power!.LastObserved is { } value ? CapabilityValue.Integer(value.SustainedWatts) : null;
+            }
             case CapabilityIds.PowerBoost:
-                {
-                    return _power!.LastObserved is { } value ? CapabilityValue.Integer(value.BoostWatts) : null;
-                }
+            {
+                return _power!.LastObserved is { } value ? CapabilityValue.Integer(value.BoostWatts) : null;
+            }
             case CapabilityIds.Scenario:
-                {
-                    return _power!.LastObserved is { } value ? Scenario(value.Scenario) : null;
-                }
+            {
+                return _power!.LastObserved is { } value ? Scenario(value.Scenario) : null;
+            }
             case CapabilityIds.ChargeLimit:
-                {
-                    return _chargeLimit!.LastObserved is { } value ? CapabilityValue.Integer(value.Percent) : null;
-                }
+            {
+                return _chargeLimit!.LastObserved is { } value ? CapabilityValue.Integer(value.Percent) : null;
+            }
             case CapabilityIds.FanMode:
-                {
-                    return _fans!.LastObserved is { } value ? FanMode(value) : null;
-                }
+            {
+                return _fans!.LastObserved is { } value ? FanMode(value) : null;
+            }
             case CapabilityIds.FanCurve:
-                {
-                    // The left channel stands for both. Every write installs one curve on the pair, so the
-                    // two tables can only disagree if something outside WSGM wrote one of them, and the
-                    // next write puts them back together.
-                    var value = _fans!.LastObserved;
-                    return value is null ? null : CapabilityValue.Curve(ClawA2VmFanCapability.DecodeCurve(value.Left));
-                }
+            {
+                // The left channel stands for both. Every write installs one curve on the pair, so the
+                // two tables can only disagree if something outside WSGM wrote one of them, and the
+                // next write puts them back together.
+                var value = _fans!.LastObserved;
+                return value is null ? null : CapabilityValue.Curve(ClawA2VmFanCapability.DecodeCurve(value.Left));
+            }
             case CapabilityIds.FanRpm:
-                {
-                    var value = _telemetry!.LastTelemetry;
-                    return value is null
-                        ? null
-                        : CapabilityValue.Integer(
-                            descriptor.InstanceId == CapabilityInstances.Left ? value.LeftRpm : value.RightRpm);
-                }
+            {
+                var value = _telemetry!.LastTelemetry;
+                return value is null
+                    ? null
+                    : CapabilityValue.Integer(
+                        descriptor.InstanceId == CapabilityInstances.Left ? value.LeftRpm : value.RightRpm);
+            }
             case CapabilityIds.Temperature:
-                {
-                    return _telemetry!.LastTelemetry is { } value
-                        ? CapabilityValue.Integer(value.TemperatureCelsius)
-                        : null;
-                }
+            {
+                return _telemetry!.LastTelemetry is { } value
+                    ? CapabilityValue.Integer(value.TemperatureCelsius)
+                    : null;
+            }
             case CapabilityIds.LightingBrightness:
-                {
-                    return _lighting!.LastObserved is { } value ? CapabilityValue.Integer(value.Brightness) : null;
-                }
+            {
+                return _lighting!.LastObserved is { } value ? CapabilityValue.Integer(value.Brightness) : null;
+            }
             case CapabilityIds.LightingColor:
-                {
-                    var value = _lighting!.LastObserved;
-                    return value is null
-                        ? null
-                        : CapabilityValue.Color(descriptor.InstanceId switch
-                        {
-                            CapabilityInstances.RightRing => value.RightRingColor,
-                            CapabilityInstances.LeftRing => value.LeftRingColor,
-                            CapabilityInstances.Buttons => value.ButtonsColor,
-                            _ => 0
-                        });
-                }
+            {
+                var value = _lighting!.LastObserved;
+                return value is null
+                    ? null
+                    : CapabilityValue.Color(descriptor.InstanceId switch
+                    {
+                        CapabilityInstances.RightRing => value.RightRingColor,
+                        CapabilityInstances.LeftRing => value.LeftRingColor,
+                        CapabilityInstances.Buttons => value.ButtonsColor,
+                        _ => 0
+                    });
+            }
             case CapabilityIds.Rumble:
                 // A sink has no value to report. Its descriptor says so, and its state has to agree or
                 // the state is rejected for a kind mismatch the way the descriptor set was.
                 return CapabilityValue.None();
             case CapabilityIds.VariableRefreshRate:
-                {
-                    // This branch was missing, and its absence was invisible until it wasn't: VRR fell
-                    // through to the controller-ownership Choice below, publishing a Choice value against a
-                    // Boolean descriptor. The router rejected every VRR state for the kind mismatch, the
-                    // capability never became available, and Valve's own VRR row — which hides itself
-                    // through exactly that availability — never rendered. One log line every ten seconds
-                    // said all of this; it took a missing row to make anyone read it.
-                    var state = _arcSync?.Read();
-                    return state is { Supported: true } observed ? CapabilityValue.Boolean(observed.Enabled) : null;
-                }
+            {
+                // This branch was missing, and its absence was invisible until it wasn't: VRR fell
+                // through to the controller-ownership Choice below, publishing a Choice value against a
+                // Boolean descriptor. The router rejected every VRR state for the kind mismatch, the
+                // capability never became available, and Valve's own VRR row — which hides itself
+                // through exactly that availability — never rendered. One log line every ten seconds
+                // said all of this; it took a missing row to make anyone read it.
+                var state = _arcSync?.Read();
+                return state is { Supported: true } observed ? CapabilityValue.Boolean(observed.Enabled) : null;
+            }
             case CapabilityIds.EnduranceGaming:
-                {
-                    return _arcSync?.ReadEnduranceGaming() is { } endurance
-                        ? CapabilityValue.Choice(endurance.Control switch
-                        {
-                            EnduranceGamingControl.On => "on",
-                            EnduranceGamingControl.Auto => "auto",
-                            _ => "off"
-                        })
-                        : null;
-                }
+            {
+                return _arcSync?.ReadEnduranceGaming() is { } endurance
+                    ? CapabilityValue.Choice(endurance.Control switch
+                    {
+                        EnduranceGamingControl.On => "on",
+                        EnduranceGamingControl.Auto => "auto",
+                        _ => "off"
+                    })
+                    : null;
+            }
             case CapabilityIds.ShaderDownload:
-                {
-                    return _arcSync?.ReadShaderDownload() is { } shader ? CapabilityValue.Boolean(shader) : null;
-                }
+            {
+                return _arcSync?.ReadShaderDownload() is { } shader ? CapabilityValue.Boolean(shader) : null;
+            }
             case CapabilityIds.DriverVsync:
-                {
-                    // An adapter that stores nothing is at Intel's default, which is application default.
-                    var stored = _arcSync?.ReadFlipMode() ?? 0;
-                    var match = Array.Find(FlipModes, mode => mode.Bit == stored);
-                    return CapabilityValue.Choice(match.Value ?? "application-default");
-                }
+            {
+                // An adapter that stores nothing is at Intel's default, which is application default.
+                var stored = _arcSync?.ReadFlipMode() ?? 0;
+                var match = Array.Find(FlipModes, mode => mode.Bit == stored);
+                return CapabilityValue.Choice(match.Value ?? "application-default");
+            }
             case CapabilityIds.SharedGpuMemory:
-                {
-                    // The stored percentage, not the size the driver currently reports. Those two disagree
-                    // between a write and the next restart, and the row has to show what was asked for.
-                    return _arcSync?.ReadSharedGpuMemory() is { } memory ? CapabilityValue.Integer(memory.Percent) : null;
-                }
+            {
+                // The stored percentage, not the size the driver currently reports. Those two disagree
+                // between a write and the next restart, and the row has to show what was asked for.
+                return _arcSync?.ReadSharedGpuMemory() is { } memory ? CapabilityValue.Integer(memory.Percent) : null;
+            }
             case CapabilityIds.EnduranceGamingMode:
-                {
-                    return _arcSync?.ReadEnduranceGaming() is { } target
-                        ? CapabilityValue.Choice(target.Mode switch
-                        {
-                            EnduranceGamingMode.Balanced => "balanced",
-                            EnduranceGamingMode.Battery => "battery",
-                            _ => "performance"
-                        })
-                        : null;
-                }
+            {
+                return _arcSync?.ReadEnduranceGaming() is { } target
+                    ? CapabilityValue.Choice(target.Mode switch
+                    {
+                        EnduranceGamingMode.Balanced => "balanced",
+                        EnduranceGamingMode.Battery => "battery",
+                        _ => "performance"
+                    })
+                    : null;
+            }
         }
 
         return CapabilityValue.Choice(OwnershipOf(
@@ -2132,16 +2191,19 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     /// <param name="state">The service's current state.</param>
     /// <returns>One of the descriptor's declared choices.</returns>
     /// <remarks>
-    /// Acquiring and Releasing report the ownership they are moving away from rather than inventing
-    /// a transient value: the row is read continuously, and a state that flickers through a fourth
-    /// value on every transition reads as a fault rather than as progress.
+    ///     Acquiring and Releasing report the ownership they are moving away from rather than inventing
+    ///     a transient value: the row is read continuously, and a state that flickers through a fourth
+    ///     value on every transition reads as a fault rather than as progress.
     /// </remarks>
-    private static string OwnershipOf(ClawServiceState state) => state switch
+    private static string OwnershipOf(ClawServiceState state)
     {
-        ClawServiceState.Owned or ClawServiceState.Releasing => "plugin",
-        ClawServiceState.Idle or ClawServiceState.Passive or ClawServiceState.Acquiring => "device",
-        _ => "unavailable"
-    };
+        return state switch
+        {
+            ClawServiceState.Owned or ClawServiceState.Releasing => "plugin",
+            ClawServiceState.Idle or ClawServiceState.Passive or ClawServiceState.Acquiring => "device",
+            _ => "unavailable"
+        };
+    }
 
     /// <summary>Starts the periodic observation refresh for this cycle.</summary>
     private void StartObservationLoop()
@@ -2178,9 +2240,9 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     /// <summary>Re-reads the hardware and republishes state until the cycle ends.</summary>
     /// <param name="cancellationToken">Ends the loop when the cycle does.</param>
     /// <remarks>
-    /// Serialized behind the same gate as commands, so a refresh can never interleave with a
-    /// hardware write. Failures are traced and the loop continues: a device that cannot be read for
-    /// one interval is a stale reading, which WSGM already models, not a reason to stop observing.
+    ///     Serialized behind the same gate as commands, so a refresh can never interleave with a
+    ///     hardware write. Failures are traced and the loop continues: a device that cannot be read for
+    ///     one interval is a stale reading, which WSGM already models, not a reason to stop observing.
     /// </remarks>
     private async Task ObservationLoopAsync(CancellationToken cancellationToken)
     {
@@ -2193,7 +2255,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             }
 
             if (!await _commandSerializer.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken)
-                .ConfigureAwait(false))
+                    .ConfigureAwait(false))
             {
                 // A command is in flight and will republish on its own; skipping is correct.
                 continue;
@@ -2281,12 +2343,13 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
     /// <summary>Publishes best-effort fresh state after a command already verified its own write.</summary>
     /// <remarks>
-    /// Capability handlers own command verification. This secondary refresh updates adjacent rows
-    /// such as paired power and fan telemetry; losing it must not rewrite a verified command result
-    /// or terminate the plugin cycle. Scenario selection requires the resulting pair before a host
-    /// can order its next watt writes, so its caller reports uncertainty when publication fails.
+    ///     Capability handlers own command verification. This secondary refresh updates adjacent rows
+    ///     such as paired power and fan telemetry; losing it must not rewrite a verified command result
+    ///     or terminate the plugin cycle. Scenario selection requires the resulting pair before a host
+    ///     can order its next watt writes, so its caller reports uncertainty when publication fails.
     /// </remarks>
-    private async ValueTask<bool> PublishPostCommandObservationAsync(CapabilityCommand command, CancellationToken cancellationToken)
+    private async ValueTask<bool> PublishPostCommandObservationAsync(CapabilityCommand command,
+        CancellationToken cancellationToken)
     {
         using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _observationToken);
         var remaining = command.Deadline - DateTimeOffset.UtcNow;
@@ -2410,12 +2473,12 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                 restored = entry.ServiceId switch
                 {
                     ServiceIds.Power when ClawRecoveryValues.TryPower(
-                        entry.OriginalState,
-                        out var power) =>
+                            entry.OriginalState,
+                            out var power) =>
                         await powerCapability.RestoreAsync(power!, cancellationToken).ConfigureAwait(false),
                     ServiceIds.Fans when ClawRecoveryValues.TryFans(
-                        entry.OriginalState,
-                        out var fans) =>
+                            entry.OriginalState,
+                            out var fans) =>
                         await fanCapability.RestoreAsync(fans!, cancellationToken).ConfigureAwait(false),
                     ServiceIds.Controller =>
                         await RestoreControllerJournalEntryAsync(entry, cancellationToken)
@@ -2485,9 +2548,9 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             deadline,
             cancellationToken).ConfigureAwait(false);
         return restored.Mode == mode
-            && HidEndpointEnumerator.SamePhysicalLocation(
-                restored.PhysicalLocation,
-                current.PhysicalLocation);
+               && HidEndpointEnumerator.SamePhysicalLocation(
+                   restored.PhysicalLocation,
+                   current.PhysicalLocation);
     }
 
     private void BlockService(string serviceId, CapabilityReason reason)
@@ -2496,30 +2559,35 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         service?.ReconciliationBlockReason = reason;
     }
 
-    private ClawServiceStatus? ServiceFor(string serviceId) => serviceId switch
+    private ClawServiceStatus? ServiceFor(string serviceId)
     {
-        ServiceIds.Power => _power,
-        ServiceIds.Fans => _fans,
-        ServiceIds.Controller => _controller,
-        _ => null
-    };
+        return serviceId switch
+        {
+            ServiceIds.Power => _power,
+            ServiceIds.Fans => _fans,
+            ServiceIds.Controller => _controller,
+            _ => null
+        };
+    }
 
-    private ClawCycleContext OperationContext(DateTimeOffset deadline) =>
-        new(_cycleGeneration, deadline);
+    private ClawCycleContext OperationContext(DateTimeOffset deadline)
+    {
+        return new ClawCycleContext(_cycleGeneration, deadline);
+    }
 
     private PluginStartResult CurrentStartResult()
     {
-        var requiredServices = _cycleServices.Where(
-            service => service != _controller || _controller.Enabled).ToArray();
+        var requiredServices = _cycleServices.Where(service => service != _controller || _controller.Enabled).ToArray();
         var owned = requiredServices.Count(service => service.State is ClawServiceState.Owned);
         var unhealthy = requiredServices.Any(service => service.State is not ClawServiceState.Owned);
-        var firstUnhealthy = requiredServices.FirstOrDefault(
-            service => service.State is not ClawServiceState.Owned);
+        var firstUnhealthy = requiredServices.FirstOrDefault(service => service.State is not ClawServiceState.Owned);
         PluginStartResult result = new()
         {
             State = owned == 0
                 ? PluginOperationalState.Passive
-                : unhealthy ? PluginOperationalState.Degraded : PluginOperationalState.Active,
+                : unhealthy
+                    ? PluginOperationalState.Degraded
+                    : PluginOperationalState.Active,
             Reason = firstUnhealthy?.Reason ?? (owned == 0
                 ? new CapabilityReason(
                     CapabilityReasonCode.PrerequisiteMissing,
@@ -2576,10 +2644,9 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
     private PluginStopResult CurrentStopResult()
     {
-        ClawServiceStatus? failed = _cycleServices.FirstOrDefault(
-            service => service.State is ClawServiceState.Faulted);
-        ClawServiceStatus? unverified = _cycleServices.FirstOrDefault(
-            service => service.State is ClawServiceState.ReleasedUnverified);
+        ClawServiceStatus? failed = _cycleServices.FirstOrDefault(service => service.State is ClawServiceState.Faulted);
+        ClawServiceStatus? unverified =
+            _cycleServices.FirstOrDefault(service => service.State is ClawServiceState.ReleasedUnverified);
         if (failed is not null)
         {
             return new PluginStopResult
@@ -2605,24 +2672,29 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         return new PluginStopResult { Status = PluginStopStatus.Clean };
     }
 
-    private static IReadOnlyList<OemControlDescriptor> CreateOemControls() =>
-    [
-        Oem("oem1", "Claw button", OemControlPlacement.Front, supportsLongPress: false,
-            requiresController: false),
-        Oem("oem2", "Quick Settings", OemControlPlacement.Front, supportsLongPress: true,
-            requiresController: false),
-        Oem("oem3", "M1", OemControlPlacement.Rear, supportsLongPress: false,
-            requiresController: true),
-        Oem("oem4", "M2", OemControlPlacement.Rear, supportsLongPress: false,
-            requiresController: true)
-    ];
+    private static IReadOnlyList<OemControlDescriptor> CreateOemControls()
+    {
+        return
+        [
+            Oem("oem1", "Claw button", OemControlPlacement.Front, false,
+                false),
+            Oem("oem2", "Quick Settings", OemControlPlacement.Front, true,
+                false),
+            Oem("oem3", "M1", OemControlPlacement.Rear, false,
+                true),
+            Oem("oem4", "M2", OemControlPlacement.Rear, false,
+                true)
+        ];
+    }
 
     private static OemControlDescriptor Oem(
         string id,
         string label,
         OemControlPlacement placement,
         bool supportsLongPress,
-        bool requiresController) => new()
+        bool requiresController)
+    {
+        return new OemControlDescriptor
         {
             ControlId = id,
             Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = label },
@@ -2630,6 +2702,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             SupportsLongPress = supportsLongPress,
             RequiresControllerAcquisition = requiresController
         };
+    }
 
     private static CapabilityDescriptor IntegerDescriptor(
         string id,
@@ -2643,7 +2716,9 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         CapabilityPersistence persistence = CapabilityPersistence.Volatile,
         string? section = null,
         string? category = null,
-        int order = 0) => new()
+        int order = 0)
+    {
+        return new CapabilityDescriptor
         {
             CapabilityId = id,
             InstanceId = instance,
@@ -2661,30 +2736,13 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             Unit = unit,
             Persistence = persistence
         };
-
-    /// <summary>Intel's gaming-flip flags, in the order a user would read them.</summary>
-    /// <remarks>
-    /// Keyed by the flag bit, so the stable choice value never depends on Intel's ordering. Only the
-    /// bits this driver reports supported are offered — measured as <c>0x2d</c> on the reference
-    /// unit, which is application default, VSync on, Smooth Sync and capped FPS. Notably absent is
-    /// "VSync off": leaving it off is what the application default already means, so the driver
-    /// offers forcing it on rather than forcing it off.
-    /// </remarks>
-    private static readonly (uint Bit, string Value)[] FlipModes =
-    [
-        (1u << 0, "application-default"),
-        (1u << 2, "vsync-on"),
-        (1u << 3, "smooth-sync"),
-        (1u << 5, "capped-fps"),
-        (1u << 1, "vsync-off"),
-        (1u << 4, "speed-frame")
-    ];
+    }
 
     /// <summary>The flip-mode choices this driver actually offers.</summary>
     /// <returns>The stable choice values, or an empty list when the driver reports none.</returns>
     /// <remarks>
-    /// Fewer than two is not a control: a row offering one option can only ever refuse, which is why
-    /// the descriptor is not published at all in that case.
+    ///     Fewer than two is not a control: a row offering one option can only ever refuse, which is why
+    ///     the descriptor is not published at all in that case.
     /// </remarks>
     private string[] FlipModeChoices()
     {
@@ -2701,7 +2759,9 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         bool writable,
         string? section = null,
         string? category = null,
-        int order = 0) => new()
+        int order = 0)
+    {
+        return new CapabilityDescriptor
         {
             CapabilityId = id,
             Role = role,
@@ -2720,15 +2780,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             ],
             Persistence = CapabilityPersistence.Volatile
         };
-
-    /// <summary>Who currently owns a physical input source.</summary>
-    /// <remarks>
-    /// Ordered so the first value is the resting state. <c>device</c> means the Claw's own firmware
-    /// still has it, <c>plugin</c> means this plugin acquired it, and <c>unavailable</c> covers both
-    /// a failed acquisition and a source this unit does not expose — a user reading the row needs
-    /// those to be distinguishable, which is exactly what the previous boolean threw away.
-    /// </remarks>
-    private static readonly string[] SourceOwnershipChoices = ["device", "plugin", "unavailable"];
+    }
 
     /// <summary>A capability that is invoked rather than read or written.</summary>
     /// <param name="id">Capability id.</param>
@@ -2744,7 +2796,9 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         DisplayKey display,
         string? section = null,
         string? category = null,
-        int order = 0) => new()
+        int order = 0)
+    {
+        return new CapabilityDescriptor
         {
             CapabilityId = id,
             Role = role,
@@ -2760,6 +2814,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             SupportsAction = true,
             Persistence = CapabilityPersistence.Volatile
         };
+    }
 
     private static CapabilityDescriptor BooleanDescriptor(
         string id,
@@ -2767,7 +2822,9 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         DisplayKey display,
         bool writable,
         string? section = null,
-        int order = 0) => new()
+        int order = 0)
+    {
+        return new CapabilityDescriptor
         {
             CapabilityId = id,
             Role = role,
@@ -2779,33 +2836,44 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             SupportsWrite = writable,
             Persistence = CapabilityPersistence.Volatile
         };
+    }
 
-    private static CapabilityValue Scenario(byte raw) => CapabilityValue.Choice(
-        (raw & 0xC0) != 0xC0 ? "inactive" : (raw & 0x3F) switch
-        {
-            0 => "comfort",
-            1 => "green",
-            2 => "eco",
-            3 => "user",
-            4 => "sport",
-            _ => "unknown"
-        });
+    private static CapabilityValue Scenario(byte raw)
+    {
+        return CapabilityValue.Choice(
+            (raw & 0xC0) != 0xC0
+                ? "inactive"
+                : (raw & 0x3F) switch
+                {
+                    0 => "comfort",
+                    1 => "green",
+                    2 => "eco",
+                    3 => "user",
+                    4 => "sport",
+                    _ => "unknown"
+                });
+    }
 
-    private static CapabilityValue FanMode(FanSnapshot snapshot) => CapabilityValue.Choice(
-        (snapshot.CustomFlag & 0x80) != 0
-            ? "custom"
-            : (snapshot.FullSpeedFlag & 0x80) != 0
-                ? "full-speed"
-                : "automatic");
+    private static CapabilityValue FanMode(FanSnapshot snapshot)
+    {
+        return CapabilityValue.Choice(
+            (snapshot.CustomFlag & 0x80) != 0
+                ? "custom"
+                : (snapshot.FullSpeedFlag & 0x80) != 0
+                    ? "full-speed"
+                    : "automatic");
+    }
 
     // Admission succeeded and the handler failed without confirming a rollback. Journalled resources
     // remain outstanding, so claiming any restoration here would be fabricated.
-    private static CapabilityCommandResult Indeterminate(CapabilityCommand command, string detail) =>
-        ClawResults.Indeterminate(
+    private static CapabilityCommandResult Indeterminate(CapabilityCommand command, string detail)
+    {
+        return ClawResults.Indeterminate(
             command,
             CapabilityReasonCode.TransportFaulted,
             detail,
             RollbackResult.RestoreFailed);
+    }
 
     private static ValueTask<CapabilityCommandResult> ReadOnlyHandler(
         CapabilityCommand command,
@@ -2818,15 +2886,18 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             "This capability is read-only."));
     }
 
-    private static CapabilityReason? ReasonFor(ClawServiceState state) => state switch
+    private static CapabilityReason? ReasonFor(ClawServiceState state)
     {
-        ClawServiceState.Owned => null,
-        ClawServiceState.Passive => new CapabilityReason(CapabilityReasonCode.PrerequisiteMissing),
-        ClawServiceState.Degraded or ClawServiceState.Faulted or ClawServiceState.ReleasedUnverified =>
-            new CapabilityReason(CapabilityReasonCode.TransportFaulted),
-        ClawServiceState.Releasing => new CapabilityReason(CapabilityReasonCode.Quiescing),
-        _ => new CapabilityReason(CapabilityReasonCode.ResourceReleased)
-    };
+        return state switch
+        {
+            ClawServiceState.Owned => null,
+            ClawServiceState.Passive => new CapabilityReason(CapabilityReasonCode.PrerequisiteMissing),
+            ClawServiceState.Degraded or ClawServiceState.Faulted or ClawServiceState.ReleasedUnverified =>
+                new CapabilityReason(CapabilityReasonCode.TransportFaulted),
+            ClawServiceState.Releasing => new CapabilityReason(CapabilityReasonCode.Quiescing),
+            _ => new CapabilityReason(CapabilityReasonCode.ResourceReleased)
+        };
+    }
 
     private static ClawHardwareServices CreateWindowsServices()
     {

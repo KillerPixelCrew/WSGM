@@ -8,10 +8,17 @@ namespace WSGM.Tests.Shell;
 
 public sealed class DevicePowerPresetsTests
 {
+    private static readonly DevicePowerPreset Battery = new("battery", "Battery", 8, 9, DevicePowerMode.BetterBattery);
+    private static readonly DevicePowerPreset Balanced = new("balanced", "Balanced", 17, 18, DevicePowerMode.Balanced);
+
+    private static readonly DevicePowerPreset Extreme = new("extreme", "Extreme", 30, 31,
+        DevicePowerMode.BestPerformance);
+
     [Fact]
     public void AutoTdpOwnershipShowsCustomEvenWhenReadbackMatchesTheConfiguredPreset()
     {
-        DeviceCapabilityView[] views = [View(CapabilityRole.PowerSustainedLimit, 17), View(CapabilityRole.PowerSlowLimit, 18)];
+        DeviceCapabilityView[] views =
+            [View(CapabilityRole.PowerSustainedLimit, 17), View(CapabilityRole.PowerSlowLimit, 18)];
         var mode = WindowsPowerModes.Id(DevicePowerMode.Balanced);
         Assert.Equal("balanced", DevicePowerPresets.Project(views, mode).Current);
         var automatic = DevicePowerPresets.Project(views, mode, automaticPowerOwner: true);
@@ -24,155 +31,55 @@ public sealed class DevicePowerPresetsTests
     private static DevicePowerPresetSelection Selection(DevicePowerPresets service, bool readOnly)
     {
         PerformanceConfig config = new();
-        DevicePowerAssignments assignments = new(service, () => new DevicePowerAssignmentContext(config, null, "fixture", 1, true, true),
+        DevicePowerAssignments assignments = new(service,
+            () => new DevicePowerAssignmentContext(config, null, "fixture", 1, true, true),
             (_, ac, reference) =>
             {
-                if (ac) { config.AcPowerPreset = reference; }
-                else { config.BatteryPowerPreset = reference; }
+                if (ac)
+                {
+                    config.AcPowerPreset = reference;
+                }
+                else
+                {
+                    config.BatteryPowerPreset = reference;
+                }
+
                 return Task.CompletedTask;
             });
         return new DevicePowerPresetSelection(service, readOnly, assignments);
     }
 
-    private static readonly DevicePowerPreset Battery = new("battery", "Battery", 8, 9, DevicePowerMode.BetterBattery);
-    private static readonly DevicePowerPreset Balanced = new("balanced", "Balanced", 17, 18, DevicePowerMode.Balanced);
-    private static readonly DevicePowerPreset Extreme = new("extreme", "Extreme", 30, 31, DevicePowerMode.BestPerformance);
-
-    internal sealed class ModeApi : IPowerModeApi
+    private static DeviceCapabilityView View(CapabilityRole role, int watts)
     {
-        internal Guid Mode = Guid.Empty;
-        internal bool FailWrite;
-        internal bool IgnoreWrite;
-        internal bool FailRead;
-        internal Action? AfterWrite;
-        internal Action? AfterRead;
-        internal int Writes;
-        public Guid Read()
-        {
-            if (FailRead) { throw new InvalidOperationException("Windows read failed."); }
-            AfterRead?.Invoke();
-            return Mode;
-        }
-        public void Set(Guid mode)
-        {
-            Writes++;
-            if (FailWrite) { throw new InvalidOperationException("Windows refused the mode."); }
-            if (!IgnoreWrite) { Mode = mode; }
-            AfterWrite?.Invoke();
-        }
-    }
-
-    private static DeviceCapabilityView View(CapabilityRole role, int watts) => new(
-        new CapabilityDescriptor
-        {
-            CapabilityId = role.ToString(),
-            Role = role,
-            ValueKind = CapabilityValueKind.Integer,
-            Display = new CapabilityDisplay { Key = DisplayKey.SustainedPowerLimit },
-            Persistence = CapabilityPersistence.Volatile,
-            Unit = CapabilityUnit.Watt,
-            SupportsRead = true,
-            SupportsWrite = true,
-            Minimum = 8,
-            Maximum = 37,
-            Step = 1,
-            PowerPresets = role == CapabilityRole.PowerSustainedLimit ? [Battery, Balanced, Extreme] : []
-        },
-        new CapabilityProjection
-        {
-            State = new CapabilityState
+        return new DeviceCapabilityView(
+            new CapabilityDescriptor
             {
                 CapabilityId = role.ToString(),
-                Available = true,
-                Quality = HardwareStateQuality.Verified,
-                ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = watts },
-                CycleGeneration = 1,
-                DescriptorGeneration = 1,
-                ObservedAt = DateTimeOffset.UtcNow
-            }
-        }, null);
-
-    internal sealed class Rig
-    {
-        private static readonly string[] ScenarioValues = ["eco", "green", "sport", "comfort"];
-        internal DeviceCapabilityView[] Views = [View(CapabilityRole.PowerSustainedLimit, 17), View(CapabilityRole.PowerSlowLimit, 18)];
-        internal readonly ModeApi Api = new();
-        internal readonly List<(string Id, int Watts)> Calls = [];
-        internal readonly List<bool> Persistence = [];
-        internal int FailAt;
-        internal bool ReplaceGeneration;
-        internal bool? OnAc = true;
-        internal string? LastScenario;
-        internal Action<string>? AfterDeviceWrite;
-        internal Action<int>? OnWriteEntered;
-        internal TaskCompletionSource? WaitForWrite;
-        internal readonly TaskCompletionSource Entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        internal DevicePowerPresets Create() => new(() => Views, async (id, value, cycle, generation, persist, token) =>
-        {
-            var watts = value.IntegerValue ?? 0;
-            Assert.Equal(1, cycle);
-            Assert.Equal(1, generation);
-            Calls.Add((id, watts));
-            Persistence.Add(persist);
-            OnWriteEntered?.Invoke(Calls.Count);
-            Entered.TrySetResult();
-            if (WaitForWrite is not null) { await WaitForWrite.Task.WaitAsync(token); }
-            var fail = FailAt == Calls.Count;
-            if (!fail)
+                Role = role,
+                ValueKind = CapabilityValueKind.Integer,
+                Display = new CapabilityDisplay { Key = DisplayKey.SustainedPowerLimit },
+                Persistence = CapabilityPersistence.Volatile,
+                Unit = CapabilityUnit.Watt,
+                SupportsRead = true,
+                SupportsWrite = true,
+                Minimum = 8,
+                Maximum = 37,
+                Step = 1,
+                PowerPresets = role == CapabilityRole.PowerSustainedLimit ? [Battery, Balanced, Extreme] : []
+            },
+            new CapabilityProjection
             {
-                var index = Array.FindIndex(Views, view => view.Descriptor.CapabilityId == id);
-                LastScenario = value.ChoiceValue ?? LastScenario;
-                Views[index] = Views[index] with
+                State = new CapabilityState
                 {
-                    Projection = Views[index].Projection with
-                    {
-                        State = Views[index].Projection.State with
-                        {
-                            ObservedValue = value,
-                            CycleGeneration = ReplaceGeneration ? 2 : 1
-                        }
-                    }
-                };
-                AfterDeviceWrite?.Invoke(id);
-            }
-            return new CapabilityCommandResult
-            {
-                CommandId = Guid.NewGuid(),
-                Outcome = fail ? CommandOutcome.Indeterminate : CommandOutcome.AppliedVerified,
-                CompletedAt = DateTimeOffset.UtcNow
-            };
-        }, new WindowsPowerModes(Api), () => OnAc);
-
-        internal void AddScenarios()
-        {
-            Views[0] = Views[0] with
-            {
-                Descriptor = Views[0].Descriptor with
-                {
-                    PowerPresets = [Battery with { ScenarioOnAc = "eco", ScenarioOnDc = "comfort" },
-                        Balanced with { ScenarioOnAc = "green", ScenarioOnDc = "comfort" },
-                        Extreme with { ScenarioOnAc = "sport", ScenarioOnDc = "comfort" }]
+                    CapabilityId = role.ToString(),
+                    Available = true,
+                    Quality = HardwareStateQuality.Verified,
+                    ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = watts },
+                    CycleGeneration = 1,
+                    DescriptorGeneration = 1,
+                    ObservedAt = DateTimeOffset.UtcNow
                 }
-            };
-            var scenario = View(CapabilityRole.ScenarioMode, 0);
-            Views = [.. Views, scenario with
-            {
-                Descriptor = scenario.Descriptor with
-                {
-                    ValueKind = CapabilityValueKind.Choice,
-                    Choices =
-                    [
-                        .. ScenarioValues.Select(value =>
-                            new CapabilityChoice(value, new CapabilityDisplay { Key = DisplayKey.PerformanceProfile }))
-                    ]
-                },
-                Projection = scenario.Projection with
-                {
-                    State = scenario.Projection.State with
-                    { ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = "green" } }
-                }
-            }];
-        }
+            }, null);
     }
 
     [Theory]
@@ -184,8 +91,10 @@ public sealed class DevicePowerPresetsTests
     [InlineData(30, 31, 2, "extreme")]
     public void CurrentPresetComesFromEveryObservedValue(int sustained, int slow, int mode, string expected)
     {
-        var state = DevicePowerPresets.Project([View(CapabilityRole.PowerSustainedLimit, sustained),
-            View(CapabilityRole.PowerSlowLimit, slow)], WindowsPowerModes.Id((DevicePowerMode)mode));
+        var state = DevicePowerPresets.Project([
+            View(CapabilityRole.PowerSustainedLimit, sustained),
+            View(CapabilityRole.PowerSlowLimit, slow)
+        ], WindowsPowerModes.Id((DevicePowerMode)mode));
         Assert.Equal(expected, state.Current);
         Assert.True(state.Available);
     }
@@ -268,7 +177,9 @@ public sealed class DevicePowerPresetsTests
         var stale = rig.Views[0] with
         {
             Projection = rig.Views[0].Projection with
-            { State = rig.Views[0].Projection.State with { Quality = HardwareStateQuality.Stale } }
+            {
+                State = rig.Views[0].Projection.State with { Quality = HardwareStateQuality.Stale }
+            }
         };
         Assert.False(DevicePowerPresets.Project([stale, rig.Views[1]], Guid.Empty).Available);
         Assert.False(DevicePowerPresets.Project([.. rig.Views, rig.Views[0]], Guid.Empty).Available);
@@ -295,8 +206,10 @@ public sealed class DevicePowerPresetsTests
     [InlineData(DevicePowerMode.BetterBattery, "961cc777-2547-4f9d-8174-7d86181b8a7a")]
     [InlineData(DevicePowerMode.Balanced, "00000000-0000-0000-0000-000000000000")]
     [InlineData(DevicePowerMode.BestPerformance, "ded574b5-45a0-4f42-8737-46345c09c238")]
-    public void WindowsModesUseHCsOverlayGuids(DevicePowerMode mode, string expected) =>
+    public void WindowsModesUseHCsOverlayGuids(DevicePowerMode mode, string expected)
+    {
         Assert.Equal(Guid.Parse(expected), WindowsPowerModes.Id(mode));
+    }
 
     [Fact]
     public async Task WindowsReadFailureDisablesBothSurfacesAndPreventsDeviceWrites()
@@ -387,7 +300,11 @@ public sealed class DevicePowerPresetsTests
             apply = overlay.AssignAsync(true, "battery");
             Assert.True(overlay.Busy);
         }
-        finally { release.Set(); }
+        finally
+        {
+            release.Set();
+        }
+
         await Task.WhenAll(refresh, apply);
         Assert.Equal("battery", overlay.State.Current);
         Assert.Equal(2, rig.Calls.Count);
@@ -400,7 +317,8 @@ public sealed class DevicePowerPresetsTests
         using CancellationTokenSource cancellation = new();
         rig.Api.AfterRead = cancellation.Cancel;
         var service = rig.Create();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.ApplyAsync("battery", cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            service.ApplyAsync("battery", cancellation.Token));
         Assert.Empty(rig.Calls);
         Assert.Equal(0, rig.Api.Writes);
         rig.Api.AfterRead = null;
@@ -434,7 +352,11 @@ public sealed class DevicePowerPresetsTests
         rig.AddScenarios();
         rig.AfterDeviceWrite = id =>
         {
-            if (id != "ScenarioMode") { return; }
+            if (id != "ScenarioMode")
+            {
+                return;
+            }
+
             for (var i = 0; i < 2; i++)
             {
                 rig.Views[i] = rig.Views[i] with
@@ -442,7 +364,10 @@ public sealed class DevicePowerPresetsTests
                     Projection = rig.Views[i].Projection with
                     {
                         State = rig.Views[i].Projection.State with
-                        { ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 8 } }
+                        {
+                            ObservedValue = new CapabilityValue
+                                { Kind = CapabilityValueKind.Integer, IntegerValue = 8 }
+                        }
                     }
                 };
             }
@@ -480,7 +405,11 @@ public sealed class DevicePowerPresetsTests
     public async Task PowerSourceChangeDuringWriteStopsRemainingSteps(bool scenarios)
     {
         Rig rig = new();
-        if (scenarios) { rig.AddScenarios(); }
+        if (scenarios)
+        {
+            rig.AddScenarios();
+        }
+
         rig.AfterDeviceWrite = _ => rig.OnAc = false;
         Assert.False((await rig.Create().ApplyAsync("extreme", CancellationToken.None)).Succeeded);
         Assert.Single(rig.Calls);
@@ -500,7 +429,9 @@ public sealed class DevicePowerPresetsTests
         rig.Views[2] = rig.Views[2] with
         {
             Projection = rig.Views[2].Projection with
-            { State = rig.Views[2].Projection.State with { Quality = HardwareStateQuality.Stale } }
+            {
+                State = rig.Views[2].Projection.State with { Quality = HardwareStateQuality.Stale }
+            }
         };
         Assert.False((await service.ReadAsync()).Available);
         Assert.False((await service.ApplyAsync("battery", CancellationToken.None)).Succeeded);
@@ -511,7 +442,7 @@ public sealed class DevicePowerPresetsTests
     public async Task AssignmentSourceChangedBeforeApplyRejectsWithoutWriting()
     {
         Rig rig = new() { OnAc = false };
-        Assert.False((await rig.Create().ApplyAsync("extreme", CancellationToken.None, false, expectedOnAc: true)).Succeeded);
+        Assert.False((await rig.Create().ApplyAsync("extreme", CancellationToken.None, false, true)).Succeeded);
         Assert.Empty(rig.Calls);
         Assert.Equal(0, rig.Api.Writes);
     }
@@ -529,6 +460,151 @@ public sealed class DevicePowerPresetsTests
         };
         Assert.True(DeviceCapabilityValidation.TryValidateDescriptorSet(set, 1, 0, out var error), error);
         Assert.False(DeviceCapabilityValidation.TryValidateDescriptorSet(set with
-        { Descriptors = [.. set.Descriptors.Take(2)] }, 1, 0, out _));
+        {
+            Descriptors = [.. set.Descriptors.Take(2)]
+        }, 1, 0, out _));
+    }
+
+    internal sealed class ModeApi : IPowerModeApi
+    {
+        internal Action? AfterRead;
+        internal Action? AfterWrite;
+        internal bool FailRead;
+        internal bool FailWrite;
+        internal bool IgnoreWrite;
+        internal Guid Mode = Guid.Empty;
+        internal int Writes;
+
+        public Guid Read()
+        {
+            if (FailRead)
+            {
+                throw new InvalidOperationException("Windows read failed.");
+            }
+
+            AfterRead?.Invoke();
+            return Mode;
+        }
+
+        public void Set(Guid mode)
+        {
+            Writes++;
+            if (FailWrite)
+            {
+                throw new InvalidOperationException("Windows refused the mode.");
+            }
+
+            if (!IgnoreWrite)
+            {
+                Mode = mode;
+            }
+
+            AfterWrite?.Invoke();
+        }
+    }
+
+    internal sealed class Rig
+    {
+        private static readonly string[] ScenarioValues = ["eco", "green", "sport", "comfort"];
+        internal readonly ModeApi Api = new();
+        internal readonly List<(string Id, int Watts)> Calls = [];
+        internal readonly TaskCompletionSource Entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly List<bool> Persistence = [];
+        internal Action<string>? AfterDeviceWrite;
+        internal int FailAt;
+        internal string? LastScenario;
+        internal bool? OnAc = true;
+        internal Action<int>? OnWriteEntered;
+        internal bool ReplaceGeneration;
+
+        internal DeviceCapabilityView[] Views =
+            [View(CapabilityRole.PowerSustainedLimit, 17), View(CapabilityRole.PowerSlowLimit, 18)];
+
+        internal TaskCompletionSource? WaitForWrite;
+
+        internal DevicePowerPresets Create()
+        {
+            return new DevicePowerPresets(() => Views, async (id, value, cycle, generation, persist, token) =>
+            {
+                var watts = value.IntegerValue ?? 0;
+                Assert.Equal(1, cycle);
+                Assert.Equal(1, generation);
+                Calls.Add((id, watts));
+                Persistence.Add(persist);
+                OnWriteEntered?.Invoke(Calls.Count);
+                Entered.TrySetResult();
+                if (WaitForWrite is not null)
+                {
+                    await WaitForWrite.Task.WaitAsync(token);
+                }
+
+                var fail = FailAt == Calls.Count;
+                if (!fail)
+                {
+                    var index = Array.FindIndex(Views, view => view.Descriptor.CapabilityId == id);
+                    LastScenario = value.ChoiceValue ?? LastScenario;
+                    Views[index] = Views[index] with
+                    {
+                        Projection = Views[index].Projection with
+                        {
+                            State = Views[index].Projection.State with
+                            {
+                                ObservedValue = value,
+                                CycleGeneration = ReplaceGeneration ? 2 : 1
+                            }
+                        }
+                    };
+                    AfterDeviceWrite?.Invoke(id);
+                }
+
+                return new CapabilityCommandResult
+                {
+                    CommandId = Guid.NewGuid(),
+                    Outcome = fail ? CommandOutcome.Indeterminate : CommandOutcome.AppliedVerified,
+                    CompletedAt = DateTimeOffset.UtcNow
+                };
+            }, new WindowsPowerModes(Api), () => OnAc);
+        }
+
+        internal void AddScenarios()
+        {
+            Views[0] = Views[0] with
+            {
+                Descriptor = Views[0].Descriptor with
+                {
+                    PowerPresets =
+                    [
+                        Battery with { ScenarioOnAc = "eco", ScenarioOnDc = "comfort" },
+                        Balanced with { ScenarioOnAc = "green", ScenarioOnDc = "comfort" },
+                        Extreme with { ScenarioOnAc = "sport", ScenarioOnDc = "comfort" }
+                    ]
+                }
+            };
+            var scenario = View(CapabilityRole.ScenarioMode, 0);
+            Views =
+            [
+                .. Views, scenario with
+                {
+                    Descriptor = scenario.Descriptor with
+                    {
+                        ValueKind = CapabilityValueKind.Choice,
+                        Choices =
+                        [
+                            .. ScenarioValues.Select(value =>
+                                new CapabilityChoice(value,
+                                    new CapabilityDisplay { Key = DisplayKey.PerformanceProfile }))
+                        ]
+                    },
+                    Projection = scenario.Projection with
+                    {
+                        State = scenario.Projection.State with
+                        {
+                            ObservedValue = new CapabilityValue
+                                { Kind = CapabilityValueKind.Choice, ChoiceValue = "green" }
+                        }
+                    }
+                }
+            ];
+        }
     }
 }

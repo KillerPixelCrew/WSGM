@@ -84,7 +84,7 @@ public sealed class PerformanceOverlayBridgeTests
             new PerformancePolicy(
                 PerformanceValues.Empty,
                 [],
-                Enabled: false));
+                false));
         using PerformanceOverlayBridge bridge = new(service);
 
         var snapshot = bridge.Snapshot();

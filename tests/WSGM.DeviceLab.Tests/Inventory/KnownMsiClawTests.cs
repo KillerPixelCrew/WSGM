@@ -89,35 +89,38 @@ public sealed class KnownMsiClawTests
         Assert.Equal(expected, DeviceLabApplication.ToPluginIdentity(accessDenied).WmiProviderSignatures);
     }
 
-    private static MachineInventory Inventory(KnownDeviceFingerprint fingerprint) => new()
+    private static MachineInventory Inventory(KnownDeviceFingerprint fingerprint)
     {
-        SchemaVersion = 1,
-        Firmware = new FirmwareInventory
+        return new MachineInventory
         {
-            SystemManufacturer = fingerprint.SystemManufacturer,
-            BaseboardProduct = fingerprint.BaseboardProduct,
-            SystemSku = fingerprint.SystemSku
-        },
-        UsbInterfaces =
-        [
-            new UsbInterfaceInventory
+            SchemaVersion = 1,
+            Firmware = new FirmwareInventory
             {
-                InstanceId = "synthetic-instance",
-                VendorId = fingerprint.UsbVendorId,
-                ProductId = fingerprint.UsbProductIds[0],
-                DeviceRelease = fingerprint.UsbDeviceRelease,
-                Present = true
-            }
-        ],
-        WmiClasses =
-        [
-            new WmiClassInventory
-            {
-                Namespace = fingerprint.WmiNamespace,
-                ClassName = fingerprint.WmiClass,
-                Access = WmiAccess.Available
-            }
-        ],
-        CapturedAt = DateTimeOffset.UnixEpoch
-    };
+                SystemManufacturer = fingerprint.SystemManufacturer,
+                BaseboardProduct = fingerprint.BaseboardProduct,
+                SystemSku = fingerprint.SystemSku
+            },
+            UsbInterfaces =
+            [
+                new UsbInterfaceInventory
+                {
+                    InstanceId = "synthetic-instance",
+                    VendorId = fingerprint.UsbVendorId,
+                    ProductId = fingerprint.UsbProductIds[0],
+                    DeviceRelease = fingerprint.UsbDeviceRelease,
+                    Present = true
+                }
+            ],
+            WmiClasses =
+            [
+                new WmiClassInventory
+                {
+                    Namespace = fingerprint.WmiNamespace,
+                    ClassName = fingerprint.WmiClass,
+                    Access = WmiAccess.Available
+                }
+            ],
+            CapturedAt = DateTimeOffset.UnixEpoch
+        };
+    }
 }

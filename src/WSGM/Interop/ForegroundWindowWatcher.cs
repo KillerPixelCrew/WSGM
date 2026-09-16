@@ -7,19 +7,19 @@ using WSGM.Core;
 namespace WSGM.Interop;
 
 /// <summary>
-/// Reports which application is in the foreground, so per-application policy can follow the user
-/// rather than only what Steam says is running.
+///     Reports which application is in the foreground, so per-application policy can follow the user
+///     rather than only what Steam says is running.
 /// </summary>
 /// <remarks>
-/// A WinEvent hook plus a slow poll, because neither alone is enough: the hook is what makes a
-/// switch immediate, and the poll is what covers the switches a hook misses — it does not fire for
-/// a window that gains focus while the desktop is locked, during some elevation transitions, or if
-/// the hook is silently torn down. HandheldCompanion pairs them for the same reason.
-/// <para>
-/// The callback does the least possible work: it records the window handle and signals. Resolving
-/// the process opens a handle and reads a path, which must not happen inside a system-installed
-/// hook callback.
-/// </para>
+///     A WinEvent hook plus a slow poll, because neither alone is enough: the hook is what makes a
+///     switch immediate, and the poll is what covers the switches a hook misses — it does not fire for
+///     a window that gains focus while the desktop is locked, during some elevation transitions, or if
+///     the hook is silently torn down. HandheldCompanion pairs them for the same reason.
+///     <para>
+///         The callback does the least possible work: it records the window handle and signals. Resolving
+///         the process opens a handle and reads a path, which must not happen inside a system-installed
+///         hook callback.
+///     </para>
 /// </remarks>
 internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
 {
@@ -27,21 +27,25 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
     private const uint WinEventOutOfContext = 0x0000;
     private const uint WinEventSkipOwnProcess = 0x0002;
 
-    private readonly Lock _gate = new();
+    /// <summary>How often the safety-net poll runs.</summary>
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
+
     private readonly WinEventProc _callback;
+
+    private readonly Lock _gate = new();
     private readonly Timer _poll;
+    private string _current = string.Empty;
+    private bool _disposed;
+    private int _evaluationQueued;
     private nint _hook;
     private nint _lastWindow;
     private nint _pendingWindow;
-    private string _current = string.Empty;
-    private int _evaluationQueued;
-    private bool _disposed;
 
     /// <summary>Creates the watcher and begins observing.</summary>
     /// <remarks>
-    /// The poll interval is deliberately slow. The hook carries every ordinary switch, so this only
-    /// has to notice the ones it missed, and a fast poll would read a process path several times a
-    /// second for a value that changes when the user alt-tabs.
+    ///     The poll interval is deliberately slow. The hook carries every ordinary switch, so this only
+    ///     has to notice the ones it missed, and a fast poll would read a process path several times a
+    ///     second for a value that changes when the user alt-tabs.
     /// </remarks>
     internal ForegroundWindowWatcher()
     {
@@ -61,19 +65,6 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
 
         _poll = new Timer(_ => Evaluate(), null, TimeSpan.Zero, PollInterval);
     }
-
-    /// <summary>
-    /// Raised when the foreground application changes, with its executable name and, when the
-    /// process was readable, its full image path.
-    /// </summary>
-    /// <remarks>
-    /// Only for a window classified as an application. A restricted foreground leaves the last
-    /// application in force, so no event is raised and the running game keeps its profile.
-    /// </remarks>
-    internal event Action<string, string?, uint>? ApplicationChanged;
-
-    /// <summary>How often the safety-net poll runs.</summary>
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
 
     /// <inheritdoc />
     public void Dispose()
@@ -98,8 +89,19 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
         {
             Log.Warn("Foreground watcher: WinEvent hook could not be removed.");
         }
+
         _hook = 0;
     }
+
+    /// <summary>
+    ///     Raised when the foreground application changes, with its executable name and, when the
+    ///     process was readable, its full image path.
+    /// </summary>
+    /// <remarks>
+    ///     Only for a window classified as an application. A restricted foreground leaves the last
+    ///     application in force, so no event is raised and the running game keeps its profile.
+    /// </remarks>
+    internal event Action<string, string?, uint>? ApplicationChanged;
 
     private void OnWinEvent(
         nint hook,
@@ -123,7 +125,7 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
             ThreadPool.UnsafeQueueUserWorkItem(
                 static watcher => watcher.DrainWinEvents(),
                 this,
-                preferLocal: false);
+                false);
         }
     }
 
@@ -197,11 +199,11 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
     }
 
     /// <remarks>
-    /// A UWP application's visible window belongs to the shared host, so the real process is found
-    /// by looking for a child window owned by a different one. HandheldCompanion reads it through
-    /// WinRT's process diagnostics; that is COM, which this executable cannot use, and the child
-    /// walk needs no new dependency. Without it every UWP application reports as the host and they
-    /// would all share one profile.
+    ///     A UWP application's visible window belongs to the shared host, so the real process is found
+    ///     by looking for a child window owned by a different one. HandheldCompanion reads it through
+    ///     WinRT's process diagnostics; that is COM, which this executable cannot use, and the child
+    ///     walk needs no new dependency. Without it every UWP application reports as the host and they
+    ///     would all share one profile.
     /// </remarks>
     private static (string Name, string? Path, uint ProcessId) ResolveExecutable(nint window)
     {
@@ -265,20 +267,11 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
     // empty name as restricted, so an unreadable foreground keeps the previous application.
     // The identifier travels with the path because the RTSS rendering proof matches on it.
     private static (string Name, string? Path, uint ProcessId) ExecutableIdentity(uint processId)
-        => NativeShellProcess.TryGetImagePath(processId) is { } path
+    {
+        return NativeShellProcess.TryGetImagePath(processId) is { } path
             ? (Path.GetFileName(path), path, processId)
             : (string.Empty, null, 0);
-
-    private delegate void WinEventProc(
-        nint hook,
-        uint eventType,
-        nint window,
-        int objectId,
-        int childId,
-        uint thread,
-        uint time);
-
-    private delegate bool EnumChildProc(nint window, nint parameter);
+    }
 
     [LibraryImport("user32.dll", SetLastError = true)]
     private static partial nint SetWinEventHook(
@@ -300,4 +293,15 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
     // The result is ambiguous once the callback stops the walk early, so it is not returned.
     [LibraryImport("user32.dll")]
     private static partial void EnumChildWindows(nint parent, EnumChildProc callback, nint parameter);
+
+    private delegate void WinEventProc(
+        nint hook,
+        uint eventType,
+        nint window,
+        int objectId,
+        int childId,
+        uint thread,
+        uint time);
+
+    private delegate bool EnumChildProc(nint window, nint parameter);
 }

@@ -15,13 +15,21 @@ namespace WSGM.UiTests.Settings;
 
 public sealed class GameModeDisplayPageTests
 {
+    private static readonly DisplayTargetIdentity Tv =
+        new(@"\\?\DISPLAY#TV0001", null, null, "Living room TV", 0, 0, 3);
+
+    private static readonly DisplayTargetIdentity Desk =
+        new(@"\\?\DISPLAY#DESK01", null, null, "Desk monitor", 0, 0, 4);
+
     [AvaloniaFact]
     public void WindowsDisabledDisplayOffersModesAndKeepsTheSelectedResolutionAndRefresh()
     {
         using UiFixture fixture = new();
-        fixture.Displays = new DisplayArrangement([new DisplayTargetObservation(Tv, Available: true, Active: false, Current: null)], "disabled", DateTimeOffset.UnixEpoch);
+        fixture.Displays = new DisplayArrangement([new DisplayTargetObservation(Tv, true, false, null)], "disabled",
+            DateTimeOffset.UnixEpoch);
         fixture.DisplayFacts[Tv.DevicePath] = new DisplayCatalogFacts(
-            [new DisplayMode(3840, 2160, 120), new DisplayMode(1920, 1080, 120), new DisplayMode(1920, 1080, 60)], true, 225);
+            [new DisplayMode(3840, 2160, 120), new DisplayMode(1920, 1080, 120), new DisplayMode(1920, 1080, 60)], true,
+            225);
         var window = Open(fixture);
         var model = Model(window);
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
@@ -29,12 +37,14 @@ public sealed class GameModeDisplayPageTests
         var row = Assert.Single(model.GameLayout.Rows);
         Assert.False(row.Active);
         Assert.True(row.HasModes);
-        var resolution = window.GetVisualDescendants().OfType<ComboBox>().Single(control => control.Name == "ResolutionChoice");
+        var resolution = window.GetVisualDescendants().OfType<ComboBox>()
+            .Single(control => control.Name == "ResolutionChoice");
         UiFixture.Click(window, resolution);
         UiFixture.Key(window, Key.Down);
         UiFixture.Key(window, Key.Enter);
         Assert.Equal(new DisplayResolution(1920, 1080), row.Resolution);
-        var refresh = window.GetVisualDescendants().OfType<ComboBox>().Single(control => control.Name == "RefreshChoice");
+        var refresh = window.GetVisualDescendants().OfType<ComboBox>()
+            .Single(control => control.Name == "RefreshChoice");
         UiFixture.Click(window, refresh);
         UiFixture.Key(window, Key.Down);
         UiFixture.Key(window, Key.Enter);
@@ -53,7 +63,8 @@ public sealed class GameModeDisplayPageTests
     {
         using UiFixture fixture = new();
         fixture.Displays = Desktop(Tv);
-        fixture.DisplayFacts[Tv.DevicePath] = new DisplayCatalogFacts([new DisplayMode(3840, 2160, 120), new DisplayMode(1920, 1080, 60)], true, 225);
+        fixture.DisplayFacts[Tv.DevicePath] =
+            new DisplayCatalogFacts([new DisplayMode(3840, 2160, 120), new DisplayMode(1920, 1080, 60)], true, 225);
         var window = Open(fixture);
         var model = Model(window);
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
@@ -61,10 +72,12 @@ public sealed class GameModeDisplayPageTests
         var row = Assert.Single(model.GameLayout.Rows);
         Assert.True(row.Active);
         Assert.Equal(100, row.DpiPercent);
-        var resolution = window.GetVisualDescendants().OfType<ComboBox>().Single(control => control.Name == "ResolutionChoice");
+        var resolution = window.GetVisualDescendants().OfType<ComboBox>()
+            .Single(control => control.Name == "ResolutionChoice");
         Assert.True(resolution.IsEffectivelyEnabled);
         Assert.Equal(2, resolution.ItemCount);
-        var enabled = window.GetVisualDescendants().OfType<CheckBox>().Single(control => Equals(control.Content, "Use in this layout"));
+        var enabled = window.GetVisualDescendants().OfType<CheckBox>()
+            .Single(control => Equals(control.Content, "Use in this layout"));
         UiFixture.Click(window, enabled);
         Assert.False(row.Active);
         Assert.True(resolution.IsEffectivelyVisible);
@@ -138,7 +151,8 @@ public sealed class GameModeDisplayPageTests
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
         Dispatcher.UIThread.RunJobs();
         var tv = model.GameLayout.Rows[1];
-        var screen = window.GetVisualDescendants().OfType<Button>().Single(button => button.Classes.Contains("display-monitor") && ReferenceEquals(button.Tag, tv));
+        var screen = window.GetVisualDescendants().OfType<Button>().Single(button =>
+            button.Classes.Contains("display-monitor") && ReferenceEquals(button.Tag, tv));
         screen.BringIntoView();
         Dispatcher.UIThread.RunJobs();
         var start = screen.TranslatePoint(new Point(screen.Bounds.Width / 2, screen.Bounds.Height / 2), window)!.Value;
@@ -153,19 +167,21 @@ public sealed class GameModeDisplayPageTests
         Assert.Equal(3840, tv.X);
     }
 
-    private static readonly DisplayTargetIdentity Tv =
-        new(@"\\?\DISPLAY#TV0001", null, null, "Living room TV", 0, 0, 3);
+    private static DisplayLayoutOutput Output(DisplayTargetIdentity target, int x = 0)
+    {
+        return new DisplayLayoutOutput(target, x, 0, 3840, 2160, DisplayRefresh.FromHertz(120), DpiPercent: 150,
+            Hdr: true);
+    }
 
-    private static readonly DisplayTargetIdentity Desk =
-        new(@"\\?\DISPLAY#DESK01", null, null, "Desk monitor", 0, 0, 4);
-
-    private static DisplayLayoutOutput Output(DisplayTargetIdentity target, int x = 0) =>
-        new(target, x, 0, 3840, 2160, DisplayRefresh.FromHertz(120), DpiPercent: 150, Hdr: true);
-
-    private static DisplayArrangement Desktop(params DisplayTargetIdentity[] targets) => new(
-        [.. targets.Select((target, index) =>
-            new DisplayTargetObservation(target, true, true, Output(target, index * 3840)))],
-        "desktop", DateTimeOffset.UnixEpoch);
+    private static DisplayArrangement Desktop(params DisplayTargetIdentity[] targets)
+    {
+        return new DisplayArrangement(
+            [
+                .. targets.Select((target, index) =>
+                    new DisplayTargetObservation(target, true, true, Output(target, index * 3840)))
+            ],
+            "desktop", DateTimeOffset.UnixEpoch);
+    }
 
     private static SettingsWindow Open(UiFixture fixture)
     {
@@ -174,8 +190,10 @@ public sealed class GameModeDisplayPageTests
         return window;
     }
 
-    private static SettingsViewModel Model(SettingsWindow window) =>
-        Assert.IsType<SettingsViewModel>(window.DataContext);
+    private static SettingsViewModel Model(SettingsWindow window)
+    {
+        return Assert.IsType<SettingsViewModel>(window.DataContext);
+    }
 
     [AvaloniaFact]
     public void TheCustomLayoutFieldsAppearOnlyForACustomLaunch()
@@ -196,7 +214,8 @@ public sealed class GameModeDisplayPageTests
     {
         using UiFixture fixture = new();
         fixture.Displays = Desktop(Tv);
-        fixture.DisplayFacts[Tv.DevicePath] = new DisplayCatalogFacts([new DisplayMode(3840, 2160, 120), new DisplayMode(1920, 1080, 60)], true, 225);
+        fixture.DisplayFacts[Tv.DevicePath] =
+            new DisplayCatalogFacts([new DisplayMode(3840, 2160, 120), new DisplayMode(1920, 1080, 60)], true, 225);
         var model = Model(Open(fixture));
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
 
@@ -223,7 +242,10 @@ public sealed class GameModeDisplayPageTests
         fixture.Saved.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
         fixture.Saved.GameModeLaunch.KnownDisplays =
         [
-            new KnownDisplay { Target = Tv, Modes = [new DisplayMode(3840, 2160, 120)], HdrSupported = true, MaximumDpiPercent = 225 }
+            new KnownDisplay
+            {
+                Target = Tv, Modes = [new DisplayMode(3840, 2160, 120)], HdrSupported = true, MaximumDpiPercent = 225
+            }
         ];
 
         var model = Model(Open(fixture));
@@ -287,8 +309,10 @@ public sealed class GameModeDisplayPageTests
         // What the retired per-monitor profiles migrate into: real values, no resolvable identity.
         fixture.Saved.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
         fixture.Saved.GameModeLaunch.GameLayout = new DisplayLayout([
-            new DisplayLayoutOutput(new DisplayTargetIdentity("", null, null, "Internal panel", 0, 0, 0), 0, 0, 1280, 720,
-                DisplayRefresh.FromHertz(120))]);
+            new DisplayLayoutOutput(new DisplayTargetIdentity("", null, null, "Internal panel", 0, 0, 0), 0, 0, 1280,
+                720,
+                DisplayRefresh.FromHertz(120))
+        ]);
 
         var model = Model(Open(fixture));
         var row = model.GameLayout.Rows.Single(candidate => candidate.NeedsRebind);
@@ -334,11 +358,13 @@ public sealed class GameModeDisplayPageTests
     public void SavingForgetPreservesASeparateDisplayDiscoveredByTheRunningSession()
     {
         using UiFixture fixture = new();
-        fixture.Saved.GameModeLaunch.KnownDisplays = [new KnownDisplay { Target = Tv, Modes = [new DisplayMode(3840, 2160, 120)] }];
+        fixture.Saved.GameModeLaunch.KnownDisplays =
+            [new KnownDisplay { Target = Tv, Modes = [new DisplayMode(3840, 2160, 120)] }];
         var window = Open(fixture);
         var model = Model(window);
         model.ForgetDisplayCommand.Execute(model.GameLayout.Rows[0]);
-        fixture.Saved.GameModeLaunch.KnownDisplays.Add(new KnownDisplay { Target = Desk, Modes = [new DisplayMode(1920, 1080, 60)] });
+        fixture.Saved.GameModeLaunch.KnownDisplays.Add(new KnownDisplay
+            { Target = Desk, Modes = [new DisplayMode(1920, 1080, 60)] });
         UiFixture.Click(window, window.GetVisualDescendants().OfType<Button>()
             .Single(button => Equals(button.Content, "Save changes")));
         Assert.Equal("Desk monitor", Assert.Single(fixture.Saved.GameModeLaunch.KnownDisplays).Target!.FriendlyName);
@@ -370,7 +396,8 @@ public sealed class GameModeDisplayPageTests
     {
         SettingsViewModel.PluginActionOption[] actions =
         [
-            Option("switch-to-pc", new PluginSetting("port", "Port", PluginSettingKind.Text, new PluginValue(Text: "1"))),
+            Option("switch-to-pc",
+                new PluginSetting("port", "Port", PluginSettingKind.Text, new PluginValue(Text: "1"))),
             Option("tv-on")
         ];
         using UiFixture fixture = new() { PluginActions = actions };
@@ -401,7 +428,8 @@ public sealed class GameModeDisplayPageTests
     {
         SettingsViewModel.PluginActionOption[] actions =
         [
-            Option("dwell", new PluginSetting("seconds", "Seconds", PluginSettingKind.Number, new PluginValue(Number: 2), 1, 10))
+            Option("dwell",
+                new PluginSetting("seconds", "Seconds", PluginSettingKind.Number, new PluginValue(Number: 2), 1, 10))
         ];
         using UiFixture fixture = new() { PluginActions = actions };
         var model = Model(Open(fixture));
@@ -420,7 +448,8 @@ public sealed class GameModeDisplayPageTests
     {
         SettingsViewModel.PluginActionOption[] actions =
         [
-            Option("remote-press", new PluginSetting("remote", "Remote", PluginSettingKind.Text, new PluginValue(Text: "tv")))
+            Option("remote-press",
+                new PluginSetting("remote", "Remote", PluginSettingKind.Text, new PluginValue(Text: "tv")))
         ];
         using UiFixture fixture = new() { PluginActions = actions };
         var window = Open(fixture);
@@ -471,6 +500,10 @@ public sealed class GameModeDisplayPageTests
         Assert.Empty(enter.Rows);
     }
 
-    private static SettingsViewModel.PluginActionOption Option(string id, params PluginSetting[] arguments) =>
-        new(new PluginInstanceIdentity("wsgm.ir", "blaster"), new PluginAction(id, id, arguments), $"IR / blaster: {id}");
+    private static SettingsViewModel.PluginActionOption Option(string id, params PluginSetting[] arguments)
+    {
+        return new SettingsViewModel.PluginActionOption(new PluginInstanceIdentity("wsgm.ir", "blaster"),
+            new PluginAction(id, id, arguments),
+            $"IR / blaster: {id}");
+    }
 }

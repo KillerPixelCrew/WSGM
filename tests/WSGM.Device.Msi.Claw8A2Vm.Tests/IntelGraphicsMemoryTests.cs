@@ -3,18 +3,17 @@ using Microsoft.Win32;
 namespace WSGM.Device.Msi.Claw8A2Vm.Tests;
 
 /// <summary>
-/// The Intel shared-memory split, exercised against a disposable HKCU subtree.
+///     The Intel shared-memory split, exercised against a disposable HKCU subtree.
 /// </summary>
 /// <remarks>
-/// The real key is machine-wide under HKLM and no test may write it, which is what the transport's
-/// root seam exists for. Every fact these tests assert about the shape of that key was measured on
-/// the reference unit on 2026-09-10: <c>GMM\GpuSystemMemoryPinninglimit</c> as the only value the
-/// driver reads, an unreadable sibling adapter subkey alongside the Intel one, and Intel Graphics
-/// Software writing 44 into exactly that value and nothing else.
-///
-/// The transport traces its writes, and <c>PluginTrace</c> has one process-wide sink, so these
-/// tests share the collection that installs it. Without that, a write here lands in whichever
-/// trace host another class installed and fails that class's assertion instead.
+///     The real key is machine-wide under HKLM and no test may write it, which is what the transport's
+///     root seam exists for. Every fact these tests assert about the shape of that key was measured on
+///     the reference unit on 2026-09-10: <c>GMM\GpuSystemMemoryPinninglimit</c> as the only value the
+///     driver reads, an unreadable sibling adapter subkey alongside the Intel one, and Intel Graphics
+///     Software writing 44 into exactly that value and nothing else.
+///     The transport traces its writes, and <c>PluginTrace</c> has one process-wide sink, so these
+///     tests share the collection that installs it. Without that, a write here lands in whichever
+///     trace host another class installed and fails that class's assertion instead.
 /// </remarks>
 [Collection("plugin-trace")]
 public sealed class IntelGraphicsMemoryTests : IDisposable
@@ -29,7 +28,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     {
         try
         {
-            Registry.CurrentUser.DeleteSubKeyTree(_scope, throwOnMissingSubKey: false);
+            Registry.CurrentUser.DeleteSubKeyTree(_scope, false);
         }
         catch (Exception error) when (error is UnauthorizedAccessException or IOException)
         {
@@ -40,7 +39,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [Fact]
     public void AnIntelAdapterWithThePinningLimitIsFound()
     {
-        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 19_327_352_832);
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 19_327_352_832);
 
         var transport = Open();
 
@@ -58,7 +57,8 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
         {
             bare.SetValue("DriverDesc", "Something else");
         }
-        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 0);
+
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 0);
 
         Assert.True(Open().IsAvailable);
     }
@@ -70,7 +70,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     {
         // Intel shipped Shared GPU Memory Override in 32.0.101.6974. An older driver that happens
         // to carry the value would not act on a change, so offering the row would be a lie.
-        WriteAdapter("0001", "Intel Corporation", version, percent: 57, reportedBytes: 0);
+        WriteAdapter("0001", "Intel Corporation", version, 57, 0);
 
         Assert.False(Open().IsAvailable);
     }
@@ -78,7 +78,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [Fact]
     public void ANonIntelAdapterIsNotOffered()
     {
-        WriteAdapter("0001", "Advanced Micro Devices, Inc.", "32.0.101.8992", percent: 57, reportedBytes: 0);
+        WriteAdapter("0001", "Advanced Micro Devices, Inc.", "32.0.101.8992", 57, 0);
 
         Assert.False(Open().IsAvailable);
     }
@@ -87,10 +87,10 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     public void TooLittleSystemMemoryIsNotOffered()
     {
         // Intel documents a 10 GB floor for the feature.
-        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 0);
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 0);
 
         IntelGraphicsMemoryTransport transport = new(
-            Registry.CurrentUser, _scope, totalPhysicalBytes: 8UL * 1024 * 1024 * 1024);
+            Registry.CurrentUser, _scope, 8UL * 1024 * 1024 * 1024);
 
         Assert.False(transport.IsAvailable);
     }
@@ -98,8 +98,8 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [Fact]
     public void TwoAdaptersStoringTheLimitAreAmbiguousRatherThanAGuess()
     {
-        WriteAdapter("0000", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 0);
-        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 44, reportedBytes: 0);
+        WriteAdapter("0000", "Intel Corporation", "32.0.101.8992", 57, 0);
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 44, 0);
 
         Assert.False(Open().IsAvailable);
     }
@@ -107,7 +107,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [Fact]
     public void AWriteIsStoredAndReadBack()
     {
-        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 19_327_352_832);
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 19_327_352_832);
         var transport = Open();
 
         Assert.True(transport.TryWrite(44));
@@ -125,7 +125,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [InlineData(-1)]
     public void AWriteOutsideTheOfferedRangeIsRefused(int percent)
     {
-        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 0);
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 0);
         var transport = Open();
 
         Assert.False(transport.TryWrite(percent));
@@ -138,7 +138,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [InlineData(IntelGraphicsMemoryTransport.MaximumPercent)]
     public void EveryOfferedBoundIsAccepted(int percent)
     {
-        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 0);
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 0);
         var transport = Open();
 
         Assert.True(transport.TryWrite(percent));
@@ -156,7 +156,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [Fact]
     public void APercentageMapsToTheMemoryTheDriverReports()
     {
-        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 19_327_352_832);
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 19_327_352_832);
 
         // 57 percent of the reference unit's total physical memory is 19,303,994,889 bytes and its
         // adapter reports 19,327,352,832 — the driver rounds its own figure to a whole 18.00 GiB.
@@ -194,6 +194,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
             adapter.SetValue("ProviderName", "Intel Corporation");
             adapter.SetValue("DriverVersion", "32.0.101.8992");
         }
+
         var transport = Open();
 
         Assert.True(transport.TryWrite(44));
@@ -210,7 +211,8 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
             other.SetValue("ProviderName", "Intel Corporation");
             other.SetValue("DriverVersion", "32.0.101.8992");
         }
-        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 44, reportedBytes: 0);
+
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 44, 0);
 
         var transport = Open();
 
@@ -227,7 +229,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     {
         // Intel's own gaming-flip flag values: 1 application default, 4 VSync on, 8 Smooth Sync,
         // 32 capped FPS. Confirmed on the reference unit, where each wrote and read back exactly.
-        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 0);
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 0);
         var transport = Open();
 
         Assert.True(transport.TryWriteFlipMode(mode));
@@ -239,7 +241,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     {
         // Zero is not a flag Intel defines, so it must not be invented as a value. The caller reads
         // an absent mode as the application default, which is what an untouched driver does.
-        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 0);
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 0);
 
         Assert.Null(Open().ReadFlipMode());
     }
@@ -249,7 +251,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     {
         // The 3D settings key exists on a configured driver but need not on a fresh one, and a
         // capability that only works after Intel's software has run once is not a capability.
-        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 0);
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57, 0);
         var transport = Open();
 
         Assert.True(transport.TryWriteFlipMode(4));
@@ -278,8 +280,10 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
         Assert.False(transport.TryWrite(44));
     }
 
-    private IntelGraphicsMemoryTransport Open() =>
-        new(Registry.CurrentUser, _scope, ThirtyTwoGigabytes);
+    private IntelGraphicsMemoryTransport Open()
+    {
+        return new IntelGraphicsMemoryTransport(Registry.CurrentUser, _scope, ThirtyTwoGigabytes);
+    }
 
     private void WriteAdapter(string index, string provider, string version, int percent, long reportedBytes)
     {

@@ -126,11 +126,17 @@ public sealed class DevicePlugin : IDevicePlugin
     }
 
     /// <inheritdoc />
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-
-    private static PluginStartResult PassiveResult() => new()
+    public ValueTask DisposeAsync()
     {
-        State = PluginOperationalState.Passive,
-        Reason = ScaffoldReason
-    };
+        return ValueTask.CompletedTask;
+    }
+
+    private static PluginStartResult PassiveResult()
+    {
+        return new PluginStartResult
+        {
+            State = PluginOperationalState.Passive,
+            Reason = ScaffoldReason
+        };
+    }
 }

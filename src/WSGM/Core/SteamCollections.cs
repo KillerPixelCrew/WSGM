@@ -8,16 +8,20 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-/// <summary>One Steam user collection (which Steam renders as a library
-/// category/tab).</summary>
+/// <summary>
+///     One Steam user collection (which Steam renders as a library
+///     category/tab).
+/// </summary>
 /// <param name="Id">Steam's collection id (e.g. <c>uc-…</c>).</param>
 /// <param name="Name">The display name.</param>
 /// <param name="AppIds">The app ids currently in the collection.</param>
 public sealed record SteamCollectionInfo(string Id, string Name, IReadOnlyList<long> AppIds);
 
-/// <summary>Reads Steam library data and cleans up collection IDs created by the
-/// retired collection-backed tab implementation. New tabs are injected by
-/// <see cref="SteamLibraryTabs"/> and never create user collections.</summary>
+/// <summary>
+///     Reads Steam library data and cleans up collection IDs created by the
+///     retired collection-backed tab implementation. New tabs are injected by
+///     <see cref="SteamLibraryTabs" /> and never create user collections.
+/// </summary>
 public static class SteamCollections
 {
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(12);
@@ -40,15 +44,17 @@ public static class SteamCollections
         {
             return [];
         }
+
         try
         {
             using var document = JsonDocument.Parse(result.Value);
             var root = document.RootElement;
             if (!root.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True
-                || !root.TryGetProperty("collections", out var cols))
+                                                       || !root.TryGetProperty("collections", out var cols))
             {
                 return [];
             }
+
             var list = new List<SteamCollectionInfo>();
             foreach (var col in cols.EnumerateArray())
             {
@@ -62,8 +68,10 @@ public static class SteamCollections
                         appIds.Add(value);
                     }
                 }
+
                 list.Add(new SteamCollectionInfo(id, name, appIds));
             }
+
             return list;
         }
         catch (Exception ex)
@@ -72,12 +80,6 @@ public static class SteamCollections
             return [];
         }
     }
-
-    /// <summary>Outcome of evaluating a compiled filter over the library.</summary>
-    /// <param name="Reachable">Whether Steam's debug port answered.</param>
-    /// <param name="Ok">Whether Steam evaluated and returned a valid result.</param>
-    /// <param name="AppIds">The matching app ids (empty is a valid successful result).</param>
-    public readonly record struct FilterEvalResult(bool Reachable, bool Ok, IReadOnlyList<long> AppIds);
 
     /// <summary>Evaluates multiple compiled filters in one CEF exchange.</summary>
     /// <param name="filterExpressions">Self-contained filter IIFEs.</param>
@@ -89,6 +91,7 @@ public static class SteamCollections
         {
             return [];
         }
+
         var expression = "(()=>JSON.stringify({values:[" + string.Join(",", filterExpressions
             .Select(static value => "JSON.parse((" + value + "))")) + "]}))()";
         var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
@@ -97,6 +100,7 @@ public static class SteamCollections
         {
             return [.. Enumerable.Repeat(new FilterEvalResult(false, false, []), filterExpressions.Count)];
         }
+
         try
         {
             using var document = JsonDocument.Parse(result.Value);
@@ -105,11 +109,12 @@ public static class SteamCollections
             foreach (var value in values.EnumerateArray())
             {
                 if (!value.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True
-                    || !value.TryGetProperty("appids", out var appids))
+                                                            || !value.TryGetProperty("appids", out var appids))
                 {
                     output.Add(new FilterEvalResult(true, false, []));
                     continue;
                 }
+
                 var ids = new List<long>();
                 foreach (var appid in appids.EnumerateArray())
                 {
@@ -118,12 +123,15 @@ public static class SteamCollections
                         ids.Add(id);
                     }
                 }
+
                 output.Add(new FilterEvalResult(true, true, ids));
             }
+
             while (output.Count < filterExpressions.Count)
             {
                 output.Add(new FilterEvalResult(true, false, []));
             }
+
             return output;
         }
         catch (Exception ex)
@@ -133,19 +141,13 @@ public static class SteamCollections
         }
     }
 
-    /// <summary>One app's id and display name (for whitelist/blacklist pickers,
-    /// card "view games" name resolution, and the artwork changer's target list).</summary>
-    /// <param name="AppId">The Steam app id (a shortcut's generated id for shortcuts).</param>
-    /// <param name="Name">The display name.</param>
-    /// <param name="Shortcut">True for a non-Steam shortcut, whose id has no Steam
-    /// store page (SteamGridDB lookups must go by name instead).</param>
-    public sealed record AppInfo(long AppId, string Name, bool Shortcut = false);
-
-    /// <summary>Lists the user's games AND non-Steam shortcuts (id + name), sorted by
-    /// name — the source for the whitelist/blacklist app pickers, for resolving a
-    /// card's installed ids to names, and for the artwork changer. Shortcuts come from
-    /// the all-apps collection (the type-games collection excludes them) and are
-    /// flagged, since their generated ids mean nothing outside this machine.</summary>
+    /// <summary>
+    ///     Lists the user's games AND non-Steam shortcuts (id + name), sorted by
+    ///     name — the source for the whitelist/blacklist app pickers, for resolving a
+    ///     card's installed ids to names, and for the artwork changer. Shortcuts come from
+    ///     the all-apps collection (the type-games collection excludes them) and are
+    ///     flagged, since their generated ids mean nothing outside this machine.
+    /// </summary>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     public static async Task<IReadOnlyList<AppInfo>> GetGamesAsync(
         CancellationToken cancellationToken = default)
@@ -172,15 +174,17 @@ public static class SteamCollections
         {
             return [];
         }
+
         try
         {
             using var document = JsonDocument.Parse(result.Value);
             var root = document.RootElement;
             if (!root.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True
-                || !root.TryGetProperty("apps", out var apps))
+                                                       || !root.TryGetProperty("apps", out var apps))
             {
                 return [];
             }
+
             var list = new List<AppInfo>();
             foreach (var app in apps.EnumerateArray())
             {
@@ -188,13 +192,15 @@ public static class SteamCollections
                 {
                     continue;
                 }
+
                 var shortcut = app.TryGetProperty("sc", out var sc)
-                    && sc.ValueKind == JsonValueKind.True;
+                               && sc.ValueKind == JsonValueKind.True;
                 list.Add(new AppInfo(
                     id,
                     app.GetProperty("name").GetString() ?? id.ToString(CultureInfo.InvariantCulture),
                     shortcut));
             }
+
             list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
             return list;
         }
@@ -205,15 +211,11 @@ public static class SteamCollections
         }
     }
 
-    /// <summary>One store tag (genre) present in the library.</summary>
-    /// <param name="TagId">Steam's numeric tag id.</param>
-    /// <param name="Name">The localized tag name.</param>
-    /// <param name="Count">How many library games carry it.</param>
-    public sealed record TagInfo(int TagId, string Name, int Count);
-
-    /// <summary>Lists the store tags (genres) actually used in the library, with their
-    /// localized names and game counts, most-used first — the source for the Tag
-    /// filter's multi-select.</summary>
+    /// <summary>
+    ///     Lists the store tags (genres) actually used in the library, with their
+    ///     localized names and game counts, most-used first — the source for the Tag
+    ///     filter's multi-select.
+    /// </summary>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     public static async Task<IReadOnlyList<TagInfo>> GetLibraryTagsAsync(
         CancellationToken cancellationToken = default)
@@ -235,15 +237,17 @@ public static class SteamCollections
         {
             return [];
         }
+
         try
         {
             using var document = JsonDocument.Parse(result.Value);
             var root = document.RootElement;
             if (!root.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True
-                || !root.TryGetProperty("tags", out var tags))
+                                                       || !root.TryGetProperty("tags", out var tags))
             {
                 return [];
             }
+
             var list = new List<TagInfo>();
             foreach (var tag in tags.EnumerateArray())
             {
@@ -251,6 +255,7 @@ public static class SteamCollections
                 {
                     continue;
                 }
+
                 var name = tag.GetProperty("name").GetString() ?? "";
                 var count = tag.TryGetProperty("count", out var c) && c.TryGetInt32(out var cv) ? cv : 0;
                 if (name.Length > 0)
@@ -258,6 +263,7 @@ public static class SteamCollections
                     list.Add(new TagInfo(id, name, count));
                 }
             }
+
             return list;
         }
         catch (Exception ex)
@@ -267,4 +273,27 @@ public static class SteamCollections
         }
     }
 
+    /// <summary>Outcome of evaluating a compiled filter over the library.</summary>
+    /// <param name="Reachable">Whether Steam's debug port answered.</param>
+    /// <param name="Ok">Whether Steam evaluated and returned a valid result.</param>
+    /// <param name="AppIds">The matching app ids (empty is a valid successful result).</param>
+    public readonly record struct FilterEvalResult(bool Reachable, bool Ok, IReadOnlyList<long> AppIds);
+
+    /// <summary>
+    ///     One app's id and display name (for whitelist/blacklist pickers,
+    ///     card "view games" name resolution, and the artwork changer's target list).
+    /// </summary>
+    /// <param name="AppId">The Steam app id (a shortcut's generated id for shortcuts).</param>
+    /// <param name="Name">The display name.</param>
+    /// <param name="Shortcut">
+    ///     True for a non-Steam shortcut, whose id has no Steam
+    ///     store page (SteamGridDB lookups must go by name instead).
+    /// </param>
+    public sealed record AppInfo(long AppId, string Name, bool Shortcut = false);
+
+    /// <summary>One store tag (genre) present in the library.</summary>
+    /// <param name="TagId">Steam's numeric tag id.</param>
+    /// <param name="Name">The localized tag name.</param>
+    /// <param name="Count">How many library games carry it.</param>
+    public sealed record TagInfo(int TagId, string Name, int Count);
 }

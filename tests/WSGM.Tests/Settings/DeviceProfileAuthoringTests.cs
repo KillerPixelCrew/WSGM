@@ -10,34 +10,40 @@ public sealed class DeviceProfileAuthoringTests
     private const string Device = "msi.claw8";
     private const string Plugin = "wsgm.device.msi";
 
-    private static AppConfig Config(params DeviceAuthoredProfile[] profiles) => new()
+    private static AppConfig Config(params DeviceAuthoredProfile[] profiles)
     {
-        DeviceIntegration = new DeviceIntegrationConfig
+        return new AppConfig
         {
-            PluginSettings =
-            [
-                new PluginSettingsScope
-                {
-                    DeviceDefinitionId = Device,
-                    PluginId = Plugin,
-                    Declaration = new PluginSettingsManifest(),
-                    Profiles = [.. profiles]
-                }
-            ]
-        }
-    };
+            DeviceIntegration = new DeviceIntegrationConfig
+            {
+                PluginSettings =
+                [
+                    new PluginSettingsScope
+                    {
+                        DeviceDefinitionId = Device,
+                        PluginId = Plugin,
+                        Declaration = new PluginSettingsManifest(),
+                        Profiles = [.. profiles]
+                    }
+                ]
+            }
+        };
+    }
 
-    private static DeviceAuthoredProfile Stored(string id, string name) => new()
+    private static DeviceAuthoredProfile Stored(string id, string name)
     {
-        ProfileId = id,
-        Name = name,
-        CapabilityId = "thermal.fan-curve",
-        Curve =
-        [
-            new AuthoredCurvePoint { Input = 0, Output = 10 },
-            new AuthoredCurvePoint { Input = 100, Output = 90 }
-        ]
-    };
+        return new DeviceAuthoredProfile
+        {
+            ProfileId = id,
+            Name = name,
+            CapabilityId = "thermal.fan-curve",
+            Curve =
+            [
+                new AuthoredCurvePoint { Input = 0, Output = 10 },
+                new AuthoredCurvePoint { Input = 100, Output = 90 }
+            ]
+        };
+    }
 
     [Fact]
     public void StoredProfilesLoadIntoTheEditor()
@@ -162,7 +168,7 @@ public sealed class DeviceProfileAuthoringTests
         // change silently resurrect a value the user set for something else.
         SettingsViewModel viewModel = new(Config());
 
-        viewModel.AddDeviceProfile("lighting.color", color: true);
+        viewModel.AddDeviceProfile("lighting.color", true);
 
         var row = Assert.Single(viewModel.DeviceProfiles);
         Assert.True(row.IsColorProfile);
@@ -188,7 +194,7 @@ public sealed class DeviceProfileAuthoringTests
         // The picker hands back an alpha channel WSGM has no use for, and a stored value carrying
         // one reads as a wildly different colour when it is later unpacked as RGB.
         SettingsViewModel viewModel = new(Config());
-        viewModel.AddDeviceProfile("lighting.color", color: true);
+        viewModel.AddDeviceProfile("lighting.color", true);
 
         viewModel.DeviceProfiles[0].Color = unchecked((int)0xFFFF9D3D);
 
@@ -199,7 +205,7 @@ public sealed class DeviceProfileAuthoringTests
     public void AColourProfileRoundTripsThroughTheStoredShape()
     {
         SettingsViewModel viewModel = new(Config());
-        viewModel.AddDeviceProfile("lighting.color", color: true);
+        viewModel.AddDeviceProfile("lighting.color", true);
         viewModel.DeviceProfiles[0].Color = 0x102030;
 
         Assert.Equal(0x102030, viewModel.DeviceProfiles[0].ToStored().Color);
@@ -209,7 +215,7 @@ public sealed class DeviceProfileAuthoringTests
     public void AColourProfileCanBeEditedThroughItsHexControllerPath()
     {
         SettingsViewModel viewModel = new(Config());
-        viewModel.AddDeviceProfile("lighting.color", color: true);
+        viewModel.AddDeviceProfile("lighting.color", true);
 
         viewModel.DeviceProfiles[0].ColorHex = "#123ABC";
 

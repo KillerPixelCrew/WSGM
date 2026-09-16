@@ -29,13 +29,15 @@ internal static partial class Elevation
         }
     }
 
-    /// <summary>Reports whether this process runs with a FULL token that has a linked
-    /// limited token — i.e. TOKEN_ELEVATION_TYPE is TokenElevationTypeFull, which only
-    /// a split-token elevation produces. Returns <c>null</c> when the token cannot be
-    /// queried. A UAC-disabled machine, a built-in Administrator and a standard user all
-    /// report TokenElevationTypeDefault and therefore <c>false</c>: there is no limited
-    /// token for Task Scheduler to hand out on any of them, which is exactly the
-    /// condition the de-elevation fail-open exists to serve.</summary>
+    /// <summary>
+    ///     Reports whether this process runs with a FULL token that has a linked
+    ///     limited token — i.e. TOKEN_ELEVATION_TYPE is TokenElevationTypeFull, which only
+    ///     a split-token elevation produces. Returns <c>null</c> when the token cannot be
+    ///     queried. A UAC-disabled machine, a built-in Administrator and a standard user all
+    ///     report TokenElevationTypeDefault and therefore <c>false</c>: there is no limited
+    ///     token for Task Scheduler to hand out on any of them, which is exactly the
+    ///     condition the de-elevation fail-open exists to serve.
+    /// </summary>
     internal static bool? HasLinkedLimitedToken()
     {
         if (OpenProcessToken(GetCurrentProcess(), TokenQuery, out var token) == 0)

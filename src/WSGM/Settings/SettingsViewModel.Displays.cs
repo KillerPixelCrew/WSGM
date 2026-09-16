@@ -9,18 +9,21 @@ namespace WSGM.Settings;
 
 public sealed partial class SettingsViewModel
 {
-    private readonly bool _queryDisplaysOnWorker;
-    private bool _launchLoaded;
-    private bool _displayDiscoveryClosed;
-    private DisplayArrangement? _observedDisplays;
     private readonly List<DisplayTargetIdentity> _forgottenDisplays = [];
+    private readonly bool _queryDisplaysOnWorker;
+    private bool _displayDiscoveryClosed;
+    private bool _launchLoaded;
+    private DisplayArrangement? _observedDisplays;
 
     /// <summary>Gets the read-only display discovery command.</summary>
     public AsyncRelayCommand RefreshDisplaysCommand { get; }
+
     /// <summary>Gets the command that copies today's arrangement into the selected draft.</summary>
     public AsyncRelayCommand CopyCurrentLayoutCommand { get; }
+
     /// <summary>Gets the command that selects the Game Mode draft.</summary>
     public RelayCommand EditGameLayoutCommand { get; }
+
     /// <summary>Gets the command that selects the Desktop draft.</summary>
     public RelayCommand EditDesktopLayoutCommand { get; }
 
@@ -30,49 +33,81 @@ public sealed partial class SettingsViewModel
         get;
         set
         {
-            if (field == value) { return; }
+            if (field == value)
+            {
+                return;
+            }
+
             field = value;
-            foreach (var name in new[] { nameof(EditingDesktopLayout), nameof(CurrentDisplayLayout), nameof(ShowLayoutEditor), nameof(DisplayPolicySummary) })
-            { Raise(name); }
+            foreach (var name in new[]
+                     {
+                         nameof(EditingDesktopLayout), nameof(CurrentDisplayLayout), nameof(ShowLayoutEditor),
+                         nameof(DisplayPolicySummary)
+                     })
+            {
+                Raise(name);
+            }
         }
     }
 
     /// <summary>Gets the currently selected layout draft.</summary>
     public DisplayLayoutEditor CurrentDisplayLayout => EditingDesktopLayout ? DesktopLayout : GameLayout;
+
     /// <summary>Gets whether the current transition uses a saved layout.</summary>
     public bool ShowLayoutEditor => EditingDesktopLayout ? ShowDesktopLayout : ShowCustomLaunch;
+
     /// <summary>Gets the explanation for the selected transition's automatic policy.</summary>
     public string DisplayPolicySummary => EditingDesktopLayout
         ? "Restore the desktop arrangement WSGM saved when entering Game Mode."
         : "Keep the current display arrangement and use 100% scaling in Game Mode.";
+
     /// <summary>Gets whether display discovery is running.</summary>
     public bool ReadingDisplays { get; private set; }
 
     /// <summary>Gets whether discovery has a message to display.</summary>
     public bool HasDisplayDiscoveryMessage => DisplayDiscoveryText.Length > 0;
+
     /// <summary>Gets a discovery error or progress message without discarding saved displays.</summary>
     public string DisplayDiscoveryText
     {
         get;
-        private set { field = value; Raise(nameof(DisplayDiscoveryText)); Raise(nameof(HasDisplayDiscoveryMessage)); }
+        private set
+        {
+            field = value;
+            Raise(nameof(DisplayDiscoveryText));
+            Raise(nameof(HasDisplayDiscoveryMessage));
+        }
     } = "";
 
     internal void StartDisplayDiscovery()
     {
-        if (_queryDisplaysOnWorker) { RefreshDisplaysCommand.Execute(null); }
+        if (_queryDisplaysOnWorker)
+        {
+            RefreshDisplaysCommand.Execute(null);
+        }
     }
 
-    internal void StopDisplayDiscovery() => _displayDiscoveryClosed = true;
+    internal void StopDisplayDiscovery()
+    {
+        _displayDiscoveryClosed = true;
+    }
 
     private void SeedDisplayLayout(DisplayLayoutEditor editor, bool game)
     {
-        if (_observedDisplays is not { } observed) { return; }
-        DisplayLayout layout = new([.. observed.Targets.Where(target => target is { Active: true, Current: not null })
-            .Select(target => game ? target.Current! with { DpiPercent = 100 } : target.Current!)]);
-        if (layout.Outputs.Count > 0 && DisplayLayouts.Describe(layout) is null) { editor.CopyFrom(layout); }
-    }
+        if (_observedDisplays is not { } observed)
+        {
+            return;
+        }
 
-    private sealed record DisplayRead(DisplayArrangement Arrangement, IReadOnlyDictionary<string, DisplayCatalogFacts?> Facts);
+        DisplayLayout layout = new([
+            .. observed.Targets.Where(target => target is { Active: true, Current: not null })
+                .Select(target => game ? target.Current! with { DpiPercent = 100 } : target.Current!)
+        ]);
+        if (layout.Outputs.Count > 0 && DisplayLayouts.Describe(layout) is null)
+        {
+            editor.CopyFrom(layout);
+        }
+    }
 
     private DisplayRead ReadDisplayCatalog()
     {
@@ -80,19 +115,36 @@ public sealed partial class SettingsViewModel
         Dictionary<string, DisplayCatalogFacts?> facts = [];
         foreach (var display in arrangement.Targets.Where(target => target.Available))
         {
-            try { facts[display.Target.DevicePath] = _services.ReadDisplayFacts(display.Target); }
+            try
+            {
+                facts[display.Target.DevicePath] = _services.ReadDisplayFacts(display.Target);
+            }
             catch (Exception ex) when (ex is not OutOfMemoryException)
-            { _services.Report("Could not read capabilities for " + display.Target.FriendlyName, ex); }
+            {
+                _services.Report("Could not read capabilities for " + display.Target.FriendlyName, ex);
+            }
         }
+
         return new DisplayRead(arrangement, facts);
     }
 
-    private Task RefreshDisplaysAsync() => ReadDisplaysAsync(copy: false);
-    private Task CopyCurrentLayoutAsync() => ReadDisplaysAsync(copy: true);
+    private Task RefreshDisplaysAsync()
+    {
+        return ReadDisplaysAsync(false);
+    }
+
+    private Task CopyCurrentLayoutAsync()
+    {
+        return ReadDisplaysAsync(true);
+    }
 
     private async Task ReadDisplaysAsync(bool copy)
     {
-        if (ReadingDisplays || _displayDiscoveryClosed) { return; }
+        if (ReadingDisplays || _displayDiscoveryClosed)
+        {
+            return;
+        }
+
         ReadingDisplays = true;
         Raise(nameof(ReadingDisplays));
         var destination = CurrentDisplayLayout;
@@ -100,44 +152,76 @@ public sealed partial class SettingsViewModel
         try
         {
             var read = _queryDisplaysOnWorker ? await Task.Run(ReadDisplayCatalog) : ReadDisplayCatalog();
-            if (_displayDiscoveryClosed) { return; }
+            if (_displayDiscoveryClosed)
+            {
+                return;
+            }
+
             bool gameWasEmpty = !GameLayout.HasDisplays, desktopWasEmpty = !DesktopLayout.HasDisplays;
             _observedDisplays = read.Arrangement;
             // Preserve wait selection and every draft, including disabled outputs and invalid edits.
             _waitForDisplay = WaitForDisplayIndex > 0 && WaitForDisplayIndex <= KnownDisplays.Count
-                ? KnownDisplays[WaitForDisplayIndex - 1].Target : null;
+                ? KnownDisplays[WaitForDisplayIndex - 1].Target
+                : null;
             MergeCatalog(read.Arrangement, read.Facts);
             GameLayout.RefreshCatalog(KnownDisplays, _present);
             DesktopLayout.RefreshCatalog(KnownDisplays, _present);
             RefreshDisplayChoices();
             if (copy)
             {
-                DisplayLayout layout = new([.. read.Arrangement.Targets.Where(target => target is { Active: true, Current: not null })
-                    .Select(target => target.Current!)]);
+                DisplayLayout layout = new([
+                    .. read.Arrangement.Targets.Where(target => target is { Active: true, Current: not null })
+                        .Select(target => target.Current!)
+                ]);
                 if (layout.Outputs.Count == 0 || DisplayLayouts.Describe(layout) is not null)
-                { DisplayDiscoveryText = "The current desktop could not be copied. Your draft has been kept."; return; }
+                {
+                    DisplayDiscoveryText = "The current desktop could not be copied. Your draft has been kept.";
+                    return;
+                }
+
                 destination.CopyFrom(layout);
                 StatusText = "Current desktop copied into the draft. Undo is available; save to keep it.";
             }
             else
             {
-                if (gameWasEmpty && ShowCustomLaunch) { SeedDisplayLayout(GameLayout, game: true); }
-                if (desktopWasEmpty && ShowDesktopLayout) { SeedDisplayLayout(DesktopLayout, game: false); }
+                if (gameWasEmpty && ShowCustomLaunch)
+                {
+                    SeedDisplayLayout(GameLayout, true);
+                }
+
+                if (desktopWasEmpty && ShowDesktopLayout)
+                {
+                    SeedDisplayLayout(DesktopLayout, false);
+                }
             }
+
             DisplayDiscoveryText = _present.Count == 0
-                ? "No connected displays could be read. Check the connection, then refresh. Saved displays are kept." : "";
+                ? "No connected displays could be read. Check the connection, then refresh. Saved displays are kept."
+                : "";
             RefreshLaunchSummary();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            if (_displayDiscoveryClosed) { return; }
-            DisplayDiscoveryText = "Displays could not be read. Your drafts are kept. Refresh the display list to try again.";
+            if (_displayDiscoveryClosed)
+            {
+                return;
+            }
+
+            DisplayDiscoveryText =
+                "Displays could not be read. Your drafts are kept. Refresh the display list to try again.";
             _services.Report("Reading displays for Settings failed", ex);
         }
         finally
         {
             ReadingDisplays = false;
-            if (!_displayDiscoveryClosed) { Raise(nameof(ReadingDisplays)); }
+            if (!_displayDiscoveryClosed)
+            {
+                Raise(nameof(ReadingDisplays));
+            }
         }
     }
+
+    private sealed record DisplayRead(
+        DisplayArrangement Arrangement,
+        IReadOnlyDictionary<string, DisplayCatalogFacts?> Facts);
 }

@@ -20,7 +20,9 @@ public class RadioManagerTests
     [InlineData(RadioPower.On, WifiConnectionState.Disconnected, "Not connected")]
     public void WifiWordingCoversEveryRadioAndInterfaceState(
         RadioPower power, WifiConnectionState state, string expected)
-        => Assert.Equal(expected, RadioManager.DescribeWifi(power, state));
+    {
+        Assert.Equal(expected, RadioManager.DescribeWifi(power, state));
+    }
 
     [Fact]
     public void APoweredOffWifiRadioNeverClaimsAConnection()
@@ -39,7 +41,9 @@ public class RadioManagerTests
     [InlineData(RadioPower.On, 2, "On, 2 device(s)")]
     public void BluetoothWordingCoversEveryRadioState(
         RadioPower power, int devices, string expected)
-        => Assert.Equal(expected, RadioManager.DescribeBluetooth(power, devices));
+    {
+        Assert.Equal(expected, RadioManager.DescribeBluetooth(power, devices));
+    }
 
     [Theory]
     [InlineData(RadioPower.Off, "is off")]
@@ -99,13 +103,17 @@ public class RadioManagerTests
     [InlineData(PairingOutcome.AlreadyPaired, "Pad was already paired.")]
     [InlineData(PairingOutcome.Cancelled, "Pairing with Pad was cancelled.")]
     public void PairOutcomeWordingNamesTheDevice(PairingOutcome outcome, string expected)
-        => Assert.Equal(expected, RadioManager.DescribePairOutcome(outcome, "Pad", ""));
+    {
+        Assert.Equal(expected, RadioManager.DescribePairOutcome(outcome, "Pad", ""));
+    }
 
     [Fact]
     public void AFailedPairingSuggestsPairingMode()
-        => Assert.Contains(
+    {
+        Assert.Contains(
             "pairing mode",
             RadioManager.DescribePairOutcome(PairingOutcome.Failed, "Pad", ""));
+    }
 
     [Fact]
     public void AStartupErrorUsesTheWindowsMessageWhenThereIsOne()
@@ -117,13 +125,17 @@ public class RadioManagerTests
 
     [Fact]
     public void OneLiveRadioWinsTheAggregateState()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             RadioPower.On,
             WindowsRadio.AggregatePower([RadioPower.Off, RadioPower.On]));
+    }
 
     [Fact]
     public void NoRadioIsReportedAsAbsent()
-        => Assert.Equal(RadioPower.Absent, WindowsRadio.AggregatePower([]));
+    {
+        Assert.Equal(RadioPower.Absent, WindowsRadio.AggregatePower([]));
+    }
 
     [Theory]
     [InlineData(294932u, WifiFailureKind.KeyRejected)] // MSMSEC_PSK_MISMATCH_SUSPECTED
@@ -133,7 +145,9 @@ public class RadioManagerTests
     public void WlanReasonFamiliesKeepPasswordAndReachabilityFailuresDistinct(
         uint reason,
         WifiFailureKind expected)
-        => Assert.Equal(expected, WindowsRadio.GetReasonVerdict(reason));
+    {
+        Assert.Equal(expected, WindowsRadio.GetReasonVerdict(reason));
+    }
 
     [Fact]
     public void ARawPskUsesTheNetworkKeyProfileShape()
@@ -202,7 +216,9 @@ public class RadioManagerTests
     [InlineData("pass\tword", false)]
     [InlineData("pässword", false)]
     public void PassphraseValidationUses80211Bounds(string passphrase, bool expected)
-        => Assert.Equal(expected, WifiProfile.PassphraseIsValid(passphrase));
+    {
+        Assert.Equal(expected, WifiProfile.PassphraseIsValid(passphrase));
+    }
 }
 
 public class RadioEntryTests

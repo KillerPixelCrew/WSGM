@@ -4,17 +4,17 @@ using System.Runtime.InteropServices;
 namespace WSGM.Interop;
 
 /// <summary>
-/// The flat C ABI of <c>libviiper</c>, WSGM's virtual-USB controller backend.
+///     The flat C ABI of <c>libviiper</c>, WSGM's virtual-USB controller backend.
 /// </summary>
 /// <remarks>
-/// VIIPER runs its USBIP server in-process behind this ABI, so a virtual controller needs no helper
-/// process. Every signature here is blittable, keeping the native ownership boundary small and
-/// explicit.
-/// <para>
-/// The kernel side is <c>usbip-win2</c>'s generic signed driver, installed once by the installer.
-/// Nothing in this file installs, repairs, or elevates anything; a missing library or driver simply
-/// makes controller management unavailable.
-/// </para>
+///     VIIPER runs its USBIP server in-process behind this ABI, so a virtual controller needs no helper
+///     process. Every signature here is blittable, keeping the native ownership boundary small and
+///     explicit.
+///     <para>
+///         The kernel side is <c>usbip-win2</c>'s generic signed driver, installed once by the installer.
+///         Nothing in this file installs, repairs, or elevates anything; a missing library or driver simply
+///         makes controller management unavailable.
+///     </para>
 /// </remarks>
 internal static partial class NativeViiper
 {
@@ -47,8 +47,8 @@ internal static partial class NativeViiper
 
     /// <summary>Opens the lock-free submission handle for a device.</summary>
     /// <remarks>
-    /// The fast path exists because the ordinary submission entry point takes the library's global
-    /// mutex, which is the wrong cost on a path that runs at the controller's poll rate.
+    ///     The fast path exists because the ordinary submission entry point takes the library's global
+    ///     mutex, which is the wrong cost on a path that runs at the controller's poll rate.
     /// </remarks>
     [LibraryImport(Library, EntryPoint = "viiper_device_open_fast")]
     internal static partial int DeviceOpenFast(uint busId, uint deviceId, out uint handle);
@@ -66,7 +66,7 @@ internal static partial class NativeViiper
         delegate* unmanaged[Cdecl]<uint, uint, byte*, int, void*, void> callback,
         void* userData);
 
-    /// <summary>Returns the last error text, or null; release it with <see cref="FreeString"/>.</summary>
+    /// <summary>Returns the last error text, or null; release it with <see cref="FreeString" />.</summary>
     [LibraryImport(Library, EntryPoint = "viiper_last_error")]
     private static partial IntPtr LastError();
 

@@ -25,9 +25,9 @@ public enum LogLevel
 
 /// <summary>How much detail the log records, as a user-facing choice.</summary>
 /// <remarks>
-/// Two states rather than a full level picker: the only useful question is whether debug detail is
-/// wanted. Hiding warnings or failures is never a reasonable choice, because this log is the whole
-/// of remote diagnosis.
+///     Two states rather than a full level picker: the only useful question is whether debug detail is
+///     wanted. Hiding warnings or failures is never a reasonable choice, because this log is the whole
+///     of remote diagnosis.
 /// </remarks>
 public enum LogVerbosity
 {
@@ -38,18 +38,12 @@ public enum LogVerbosity
     Verbose
 }
 
-/// <summary>Tiny synchronized file logger. No toasts/taskbar exist in shell mode,
-/// so the log file is the primary diagnostic surface.</summary>
+/// <summary>
+///     Tiny synchronized file logger. No toasts/taskbar exist in shell mode,
+///     so the log file is the primary diagnostic surface.
+/// </summary>
 public static class Log
 {
-    private static readonly Lock Gate = new();
-    private static string? _path;
-    private static string _name = "wsgm";
-
-    // Below this level a line is not written and does not touch the file. Diagnosis depends on
-    // this log, so the default keeps every transition, warning and failure; only Debug is off.
-    private static volatile LogLevel _minimum = LogLevel.Info;
-
     // A single shell process runs for the whole game-mode session and never
     // re-runs Init, so startup-only rotation let the live file grow without bound
     // (observed ~100 MB). Cap it and re-check on write, throttled to avoid a stat
@@ -62,7 +56,6 @@ public static class Log
     // log write behind another process.
     private const string RotationMutexName = @"Local\WSGM.LogRotate";
     private const int RotationMutexTimeoutMs = 1000;
-    private static long _bytesSinceRotationCheck;
 
     // Last state written for each Change() key, with the number of identical polls suppressed
     // since. Most keys are compile-time constants, but some are per-subject (one window's tray
@@ -70,6 +63,14 @@ public static class Log
     // poll of each key writes one line again. Losing suppression is the correct failure — a
     // diagnostic must never be the thing that grows without bound.
     private const int MaxChangeKeys = 512;
+    private static readonly Lock Gate = new();
+    private static string? _path;
+    private static string _name = "wsgm";
+
+    // Below this level a line is not written and does not touch the file. Diagnosis depends on
+    // this log, so the default keeps every transition, warning and failure; only Debug is off.
+    private static volatile LogLevel _minimum = LogLevel.Info;
+    private static long _bytesSinceRotationCheck;
     private static readonly Dictionary<string, (string Message, long Repeats)> LastByKey = [];
 
     /// <summary>Gets the lowest level currently reaching the file.</summary>
@@ -105,50 +106,72 @@ public static class Log
     /// <summary>Sets the lowest level that reaches the file.</summary>
     /// <param name="minimum">Lowest level to record; lines below it are dropped before any I/O.</param>
     /// <remarks>
-    /// Applied at startup and again whenever configuration reloads, so raising verbosity does not
-    /// need a restart. Suppressed <see cref="Change"/> repeats are still counted, so a later
-    /// visible line reports how long a state really held rather than only the part that was
-    /// recorded.
+    ///     Applied at startup and again whenever configuration reloads, so raising verbosity does not
+    ///     need a restart. Suppressed <see cref="Change" /> repeats are still counted, so a later
+    ///     visible line reports how long a state really held rather than only the part that was
+    ///     recorded.
     /// </remarks>
-    private static void SetMinimumLevel(LogLevel minimum) => _minimum = minimum;
+    private static void SetMinimumLevel(LogLevel minimum)
+    {
+        _minimum = minimum;
+    }
 
     /// <summary>Applies a configured verbosity choice.</summary>
     /// <param name="verbosity">The user's choice; verbose adds the debug level.</param>
-    public static void SetVerbosity(LogVerbosity verbosity) =>
+    public static void SetVerbosity(LogVerbosity verbosity)
+    {
         SetMinimumLevel(verbosity == LogVerbosity.Verbose ? LogLevel.Debug : LogLevel.Info);
+    }
 
     /// <summary>Writes detail that only matters while investigating a specific problem.</summary>
     /// <param name="message">The message to record.</param>
     /// <remarks>
-    /// Suppressed unless verbose diagnostics are on. This is the level for values that would
-    /// otherwise drown the log — not a licence to write per frame, because a suppressed line still
-    /// costs the call and the string that built it.
+    ///     Suppressed unless verbose diagnostics are on. This is the level for values that would
+    ///     otherwise drown the log — not a licence to write per frame, because a suppressed line still
+    ///     costs the call and the string that built it.
     /// </remarks>
-    public static void Debug(string message) => Write(LogLevel.Debug, message);
+    public static void Debug(string message)
+    {
+        Write(LogLevel.Debug, message);
+    }
 
     /// <summary>Writes an informational diagnostic message.</summary>
     /// <param name="message">The message to record.</param>
-    public static void Info(string message) => Write(LogLevel.Info, message);
+    public static void Info(string message)
+    {
+        Write(LogLevel.Info, message);
+    }
 
     /// <summary>Writes a warning diagnostic message.</summary>
     /// <param name="message">The message to record.</param>
-    public static void Warn(string message) => Write(LogLevel.Warn, message);
+    public static void Warn(string message)
+    {
+        Write(LogLevel.Warn, message);
+    }
 
     /// <summary>Writes an error diagnostic message.</summary>
     /// <param name="message">The message to record.</param>
-    public static void Error(string message) => Write(LogLevel.Error, message);
+    public static void Error(string message)
+    {
+        Write(LogLevel.Error, message);
+    }
 
     /// <summary>Writes an error diagnostic message with exception details.</summary>
     /// <param name="message">The context describing the failure.</param>
     /// <param name="ex">The exception to record.</param>
-    public static void Error(string message, Exception ex) => Write(LogLevel.Error, $"{message}: {ex}");
+    public static void Error(string message, Exception ex)
+    {
+        Write(LogLevel.Error, $"{message}: {ex}");
+    }
 
     /// <summary>Observes a detached operation and records any non-cancellation failure.</summary>
     /// <param name="task">Operation whose exception must be observed.</param>
     /// <param name="operation">Diagnostic name of the operation.</param>
     /// <param name="error">Records the failure as an error with its exception instead of a warning.</param>
-    internal static void Observe(Task task, string operation, bool error = false) =>
+    internal static void Observe(Task task, string operation, bool error = false)
+    {
         _ = ObserveAsync(task, operation, error);
+    }
 
     private static async Task ObserveAsync(Task task, string operation, bool error)
     {
@@ -173,24 +196,24 @@ public static class Log
     }
 
     /// <summary>
-    /// Records a polled state under a key, writing only when it differs from what that key last
-    /// recorded.
+    ///     Records a polled state under a key, writing only when it differs from what that key last
+    ///     recorded.
     /// </summary>
     /// <param name="key">Stable identity of the thing being observed, e.g. "steam.cef".</param>
     /// <param name="message">The current state, written verbatim when it changed.</param>
     /// <param name="level">Level for the line when it is written.</param>
     /// <remarks>
-    /// Poll loops are the reason the log stops being readable. One session measured 43,392 lines of
-    /// which 22,000 were five messages a timer kept re-stating — "Steam CEF: nothing is listening on
-    /// port 8080" alone appeared 8,044 times — and the overlay work being diagnosed that day was
-    /// buried under it. Every repeat after the first says only "still", which the timestamps already
-    /// imply.
-    /// <para>
-    /// Suppressed repeats are counted, not discarded: the next line that does change carries
-    /// "(previous state held for N more polls)", so the log still shows that the poll kept running
-    /// and for how long. A silent drop would be worse than the spam, because it turns a stalled
-    /// timer and a steady state into the same log.
-    /// </para>
+    ///     Poll loops are the reason the log stops being readable. One session measured 43,392 lines of
+    ///     which 22,000 were five messages a timer kept re-stating — "Steam CEF: nothing is listening on
+    ///     port 8080" alone appeared 8,044 times — and the overlay work being diagnosed that day was
+    ///     buried under it. Every repeat after the first says only "still", which the timestamps already
+    ///     imply.
+    ///     <para>
+    ///         Suppressed repeats are counted, not discarded: the next line that does change carries
+    ///         "(previous state held for N more polls)", so the log still shows that the poll kept running
+    ///         and for how long. A silent drop would be worse than the spam, because it turns a stalled
+    ///         timer and a steady state into the same log.
+    ///     </para>
     /// </remarks>
     public static void Change(string key, string message, LogLevel level = LogLevel.Info)
     {
@@ -221,10 +244,12 @@ public static class Log
         }
     }
 
-    /// <summary>Moves the live log aside when it passes <see cref="MaxLogBytes"/>,
-    /// keeping one previous file. Rotation is best effort so an open file never blocks
-    /// later appends. A named mutex and an in-lock size check serialize the shell,
-    /// Settings and elevated processes that share the log.</summary>
+    /// <summary>
+    ///     Moves the live log aside when it passes <see cref="MaxLogBytes" />,
+    ///     keeping one previous file. Rotation is best effort so an open file never blocks
+    ///     later appends. A named mutex and an in-lock size check serialize the shell,
+    ///     Settings and elevated processes that share the log.
+    /// </summary>
     private static void RotateIfLarge()
     {
         var path = _path;
@@ -232,6 +257,7 @@ public static class Log
         {
             return;
         }
+
         Mutex? mutex = null;
         var owned = false;
         var lockUnavailable = false;
@@ -239,7 +265,7 @@ public static class Log
         {
             try
             {
-                mutex = new Mutex(initiallyOwned: false, RotationMutexName);
+                mutex = new Mutex(false, RotationMutexName);
                 owned = mutex.WaitOne(RotationMutexTimeoutMs);
             }
             catch (AbandonedMutexException)
@@ -290,19 +316,23 @@ public static class Log
                     // Releasing a mutex this thread no longer owns must not throw here.
                 }
             }
+
             mutex?.Dispose();
         }
     }
 
     // The rendered token stays a padded five characters: the [level] column is what existing greps
     // and every log excerpt in docs\ are written against.
-    private static string Token(LogLevel level) => level switch
+    private static string Token(LogLevel level)
     {
-        LogLevel.Debug => "debug",
-        LogLevel.Info => "info ",
-        LogLevel.Warn => "warn ",
-        _ => "error"
-    };
+        return level switch
+        {
+            LogLevel.Debug => "debug",
+            LogLevel.Info => "info ",
+            LogLevel.Warn => "warn ",
+            _ => "error"
+        };
+    }
 
     private static void Write(LogLevel level, string message)
     {
@@ -324,6 +354,7 @@ public static class Log
                 _bytesSinceRotationCheck = 0;
                 RotateIfLarge();
             }
+
             // Shell and settings are separate processes sharing this file. File.AppendAllText
             // shares it for reading only, so their concurrent appends collided with sharing
             // violations and this retried with 15 ms sleeps under the process-wide lock, which
@@ -331,7 +362,7 @@ public static class Log
             // lets both processes append at once and rotation rename the file; a violation from
             // some other exclusive opener is retried only briefly.
             var bytes = Encoding.UTF8.GetBytes(line);
-            for (var attempt = 0; ; attempt++)
+            for (var attempt = 0;; attempt++)
             {
                 try
                 {

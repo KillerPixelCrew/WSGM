@@ -17,10 +17,10 @@ public class DisplayMuteTests
     public void Reconcile_DarkDisplayWithActiveDownload_Mutes()
     {
         var action = DisplayMuteDecider.Reconcile(
-            enabled: true,
-            displayOff: true,
-            downloadActive: true,
-            mutedByUs: false);
+            true,
+            true,
+            true,
+            false);
 
         Assert.Equal(DisplayMuteAction.Mute, action);
     }
@@ -29,10 +29,10 @@ public class DisplayMuteTests
     public void Reconcile_DarkDisplayWithoutActiveDownload_DoesNothing()
     {
         var action = DisplayMuteDecider.Reconcile(
-            enabled: true,
-            displayOff: true,
-            downloadActive: false,
-            mutedByUs: false);
+            true,
+            true,
+            false,
+            false);
 
         Assert.Equal(DisplayMuteAction.NoChange, action);
     }
@@ -41,10 +41,10 @@ public class DisplayMuteTests
     public void Reconcile_LitDisplayWithActiveDownload_DoesNothing()
     {
         var action = DisplayMuteDecider.Reconcile(
-            enabled: true,
-            displayOff: false,
-            downloadActive: true,
-            mutedByUs: false);
+            true,
+            false,
+            true,
+            false);
 
         Assert.Equal(DisplayMuteAction.NoChange, action);
     }
@@ -53,10 +53,10 @@ public class DisplayMuteTests
     public void Reconcile_DisabledSettingWithDarkDownload_DoesNothing()
     {
         var action = DisplayMuteDecider.Reconcile(
-            enabled: false,
-            displayOff: true,
-            downloadActive: true,
-            mutedByUs: false);
+            false,
+            true,
+            true,
+            false);
 
         Assert.Equal(DisplayMuteAction.NoChange, action);
     }
@@ -65,10 +65,10 @@ public class DisplayMuteTests
     public void Reconcile_LastDownloadFinishesWhileDark_DelaysRestore()
     {
         var action = DisplayMuteDecider.Reconcile(
-            enabled: true,
-            displayOff: true,
-            downloadActive: false,
-            mutedByUs: true);
+            true,
+            true,
+            false,
+            true);
 
         Assert.Equal(DisplayMuteAction.DelayRestore, action);
     }
@@ -77,10 +77,10 @@ public class DisplayMuteTests
     public void Reconcile_DisplayReturnsWhileMuted_RestoresImmediately()
     {
         var action = DisplayMuteDecider.Reconcile(
-            enabled: true,
-            displayOff: false,
-            downloadActive: true,
-            mutedByUs: true);
+            true,
+            false,
+            true,
+            true);
 
         Assert.Equal(DisplayMuteAction.Restore, action);
     }
@@ -89,10 +89,10 @@ public class DisplayMuteTests
     public void Reconcile_DownloadRestartsDuringDelayedRestore_KeepsMute()
     {
         var action = DisplayMuteDecider.Reconcile(
-            enabled: true,
-            displayOff: true,
-            downloadActive: true,
-            mutedByUs: true);
+            true,
+            true,
+            true,
+            true);
 
         Assert.Equal(DisplayMuteAction.NoChange, action);
     }
@@ -101,10 +101,10 @@ public class DisplayMuteTests
     public void Reconcile_SettingDisabledWhileMuted_RestoresImmediately()
     {
         var action = DisplayMuteDecider.Reconcile(
-            enabled: false,
-            displayOff: true,
-            downloadActive: true,
-            mutedByUs: true);
+            false,
+            true,
+            true,
+            true);
 
         Assert.Equal(DisplayMuteAction.Restore, action);
     }

@@ -5,6 +5,12 @@ namespace WSGM.Tests.Shell;
 
 public sealed class SteamControllerHandoffTests
 {
+    private static SteamSideMenuSnapshot Closed => new(default,
+        [new SteamWindowSideMenu(0, 0, SteamSideMenu.None, false)]);
+
+    private static SteamSideMenuSnapshot Open => new(default,
+        [new SteamWindowSideMenu(0, 0, SteamSideMenu.QuickAccess, false)]);
+
     [Fact]
     public async Task ManualOverrideSurvivesClosureAndSteamRestartUntilExplicitReacquire()
     {
@@ -13,16 +19,34 @@ public sealed class SteamControllerHandoffTests
         var alive = true;
         TaskCompletionSource released = new(TaskCreationOptions.RunContinuationsAsynchronously);
         await using SteamControllerHandoff owner = new(
-            _ => { releases++; return Task.FromResult(true); },
-            _ => { restores++; return Task.FromResult(true); },
+            _ =>
+            {
+                releases++;
+                return Task.FromResult(true);
+            },
+            _ =>
+            {
+                restores++;
+                return Task.FromResult(true);
+            },
             _ => Task.FromResult(Closed), () => alive,
-            message => { if (message.Contains("physical controller released", StringComparison.Ordinal)) { released.TrySetResult(); } });
+            message =>
+            {
+                if (message.Contains("physical controller released", StringComparison.Ordinal))
+                {
+                    released.TrySetResult();
+                }
+            });
         Assert.True(owner.ReleaseManually());
         Assert.False(owner.ReleaseManually());
         await released.Task.WaitAsync(TimeSpan.FromSeconds(3));
         alive = false;
         TaskCompletionSource replayed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        Assert.True(owner.TryStart(_ => { replayed.TrySetResult(); return Task.FromResult(true); }));
+        Assert.True(owner.TryStart(_ =>
+        {
+            replayed.TrySetResult();
+            return Task.FromResult(true);
+        }));
         await replayed.Task.WaitAsync(TimeSpan.FromSeconds(3));
         Assert.Equal(0, restores);
         Assert.True(owner.ManualRelease);
@@ -34,16 +58,17 @@ public sealed class SteamControllerHandoffTests
         Assert.Equal(SteamControllerOwnership.Wsgm, owner.State);
     }
 
-    private static SteamSideMenuSnapshot Closed => new(default,
-        [new SteamWindowSideMenu(0, 0, SteamSideMenu.None, false)]);
-
     [Fact]
     public async Task FailedReleaseAllowsOneExplicitRecovery()
     {
         var restores = 0;
         await using SteamControllerHandoff owner = new(
             _ => Task.FromResult(false),
-            _ => { restores++; return Task.FromResult(true); },
+            _ =>
+            {
+                restores++;
+                return Task.FromResult(true);
+            },
             _ => Task.FromResult(Closed), () => true, _ => { });
         Assert.True(owner.ReleaseManually());
         await owner.Completion.WaitAsync(TimeSpan.FromSeconds(3));
@@ -53,8 +78,6 @@ public sealed class SteamControllerHandoffTests
         Assert.Equal(1, restores);
         Assert.Equal(SteamControllerOwnership.Wsgm, owner.State);
     }
-    private static SteamSideMenuSnapshot Open => new(default,
-        [new SteamWindowSideMenu(0, 0, SteamSideMenu.QuickAccess, false)]);
 
     [Fact]
     public void TargetSelectionRequiresOneExactGameOverlayAndNeverGuessesBetweenGames()
@@ -63,9 +86,11 @@ public sealed class SteamControllerHandoffTests
         SteamWindowSideMenu game = new(42, 123, SteamSideMenu.None, false);
         Assert.Equal(main, SteamControllerHandoff.SelectReplayTarget(new SteamSideMenuSnapshot(default, [main]), true));
         Assert.Null(SteamControllerHandoff.SelectReplayTarget(new SteamSideMenuSnapshot(default, [main]), false));
-        Assert.Equal(game, SteamControllerHandoff.SelectReplayTarget(new SteamSideMenuSnapshot(default, [main, game]), true));
+        Assert.Equal(game,
+            SteamControllerHandoff.SelectReplayTarget(new SteamSideMenuSnapshot(default, [main, game]), true));
         Assert.Null(SteamControllerHandoff.SelectReplayTarget(
-            new SteamSideMenuSnapshot(default, [main, game, new SteamWindowSideMenu(43, 456, SteamSideMenu.None, false)]), true));
+            new SteamSideMenuSnapshot(default,
+                [main, game, new SteamWindowSideMenu(43, 456, SteamSideMenu.None, false)]), true));
         Assert.Null(SteamControllerHandoff.SelectReplayTarget(new SteamSideMenuSnapshot(default, null), true));
     }
 
@@ -75,12 +100,28 @@ public sealed class SteamControllerHandoffTests
         List<string> calls = [];
         var observations = 0;
         await using SteamControllerHandoff owner = new(
-            _ => { calls.Add("release"); return Task.FromResult(true); },
-            _ => { calls.Add("restore"); return Task.FromResult(true); },
-            _ => { calls.Add("observe"); return Task.FromResult(observations++ == 0 ? Open : Closed); },
+            _ =>
+            {
+                calls.Add("release");
+                return Task.FromResult(true);
+            },
+            _ =>
+            {
+                calls.Add("restore");
+                return Task.FromResult(true);
+            },
+            _ =>
+            {
+                calls.Add("observe");
+                return Task.FromResult(observations++ == 0 ? Open : Closed);
+            },
             () => true, _ => { });
 
-        Assert.True(owner.TryStart(_ => { calls.Add("replay"); return Task.FromResult(true); }));
+        Assert.True(owner.TryStart(_ =>
+        {
+            calls.Add("replay");
+            return Task.FromResult(true);
+        }));
         Assert.False(owner.TryStart(_ => throw new InvalidOperationException("duplicate replay")));
         await owner.Completion.WaitAsync(TimeSpan.FromSeconds(3));
         Assert.Equal(["release", "replay", "observe", "observe", "restore"], calls);
@@ -94,8 +135,16 @@ public sealed class SteamControllerHandoffTests
         var restores = 0;
         SteamControllerHandoff owner = new(
             _ => Task.FromResult(true),
-            _ => { restores++; return Task.FromResult(true); },
-            _ => { observed.TrySetResult(); return Task.FromResult(new SteamSideMenuSnapshot(default, null)); },
+            _ =>
+            {
+                restores++;
+                return Task.FromResult(true);
+            },
+            _ =>
+            {
+                observed.TrySetResult();
+                return Task.FromResult(new SteamSideMenuSnapshot(default, null));
+            },
             () => true, _ => { }, openTimeout: TimeSpan.Zero);
 
         try
@@ -107,6 +156,7 @@ public sealed class SteamControllerHandoffTests
         {
             await owner.DisposeAsync();
         }
+
         Assert.Equal(0, restores);
         Assert.Equal(SteamControllerOwnership.RecoveryRequired, owner.State);
     }
@@ -117,13 +167,22 @@ public sealed class SteamControllerHandoffTests
         Queue<SteamSideMenuSnapshot> states = new([
             Open,
             new SteamSideMenuSnapshot(default, null),
-            new SteamSideMenuSnapshot(default, [new SteamWindowSideMenu(0, 0, SteamSideMenu.None, false), new SteamWindowSideMenu(42, 5, SteamSideMenu.None, true)]),
+            new SteamSideMenuSnapshot(default,
+            [
+                new SteamWindowSideMenu(0, 0, SteamSideMenu.None, false),
+                new SteamWindowSideMenu(42, 5, SteamSideMenu.None, true)
+            ]),
             Closed
         ]);
         var restores = 0;
         await using SteamControllerHandoff owner = new(
             _ => Task.FromResult(true),
-            _ => { Assert.Empty(states); restores++; return Task.FromResult(true); },
+            _ =>
+            {
+                Assert.Empty(states);
+                restores++;
+                return Task.FromResult(true);
+            },
             _ => Task.FromResult(states.Dequeue()), () => true, _ => { }, openTimeout: TimeSpan.Zero);
         owner.TryStart(_ => Task.FromResult(true));
         await owner.Completion.WaitAsync(TimeSpan.FromSeconds(3));
@@ -137,7 +196,11 @@ public sealed class SteamControllerHandoffTests
         var restores = 0;
         await using SteamControllerHandoff owner = new(
             _ => Task.FromResult(true),
-            _ => { restores++; return Task.FromResult(true); },
+            _ =>
+            {
+                restores++;
+                return Task.FromResult(true);
+            },
             _ => Task.FromResult(Closed), () => true, _ => { }, openTimeout: TimeSpan.Zero);
 
         owner.TryStart(_ => Task.FromResult(true));
@@ -152,7 +215,11 @@ public sealed class SteamControllerHandoffTests
         var restores = 0;
         await using SteamControllerHandoff owner = new(
             _ => Task.FromResult(true),
-            _ => { restores++; return Task.FromResult(true); },
+            _ =>
+            {
+                restores++;
+                return Task.FromResult(true);
+            },
             _ => throw new InvalidOperationException("The replacement CEF must not extend the old interaction"),
             () => true, _ => { }, originalSteamExited: () => true);
 
@@ -168,7 +235,11 @@ public sealed class SteamControllerHandoffTests
         var retired = 0;
         await using SteamControllerHandoff owner = new(
             _ => Task.FromResult(true),
-            _ => { retired++; return Task.FromResult(true); },
+            _ =>
+            {
+                retired++;
+                return Task.FromResult(true);
+            },
             _ => throw new InvalidOperationException("No CEF read is needed for an obsolete owner"),
             () => true, _ => { }, ownerIsCurrent: _ => Task.FromResult(false));
         owner.TryStart(_ => throw new InvalidOperationException("A retired owner must not replay input"));
@@ -183,7 +254,11 @@ public sealed class SteamControllerHandoffTests
         var restores = 0;
         await using SteamControllerHandoff owner = new(
             _ => Task.FromResult(true),
-            _ => { restores++; return Task.FromResult(true); },
+            _ =>
+            {
+                restores++;
+                return Task.FromResult(true);
+            },
             _ => throw new InvalidOperationException("Steam is gone"), () => false, _ => { });
 
         owner.TryStart(_ => Task.FromResult(true));
@@ -199,8 +274,16 @@ public sealed class SteamControllerHandoffTests
         var releases = 0;
         var restores = 0;
         await using SteamControllerHandoff owner = new(
-            _ => { releases++; return Task.FromResult(releaseSucceeds); },
-            _ => { restores++; return Task.FromResult(false); },
+            _ =>
+            {
+                releases++;
+                return Task.FromResult(releaseSucceeds);
+            },
+            _ =>
+            {
+                restores++;
+                return Task.FromResult(false);
+            },
             _ => Task.FromResult(Closed), () => false, _ => { });
 
         owner.TryStart(_ => Task.FromResult(true));

@@ -7,56 +7,56 @@
      does not use these class names. -->
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Styles.Resources>
-        <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <ResourceInclude Source="/Themes/Palette.axaml" />
-            </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
-    </Styles.Resources>
+  <Styles.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="/Themes/Palette.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Styles.Resources>
 
-    <Style Selector="Border.section-header">
-        <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
-        <Setter Property="BorderThickness" Value="0,0,0,1" />
-        <Setter Property="Padding" Value="2,0,0,4" />
-        <Setter Property="Margin" Value="0,8,0,4" />
-    </Style>
-    <Style Selector="Border.section-header TextBlock">
-        <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />
-        <Setter Property="FontSize" Value="11" />
-        <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="LetterSpacing" Value="1.5" />
-    </Style>
+  <Style Selector="Border.section-header">
+    <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="Padding" Value="2,0,0,4" />
+    <Setter Property="Margin" Value="0,8,0,4" />
+  </Style>
+  <Style Selector="Border.section-header TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="LetterSpacing" Value="1.5" />
+  </Style>
 
-    <Style Selector="Border.setting-row">
-        <Setter Property="MinHeight" Value="38" />
-        <Setter Property="Padding" Value="10,5" />
-        <Setter Property="CornerRadius" Value="4" />
-        <Setter Property="Background" Value="Transparent" />
-        <Setter Property="BorderThickness" Value="2" />
-        <Setter Property="BorderBrush" Value="Transparent" />
-    </Style>
-    <Style Selector="Border.setting-row.alt">
-        <Setter Property="Background" Value="{StaticResource HcBackgroundBrush}" />
-    </Style>
-    <Style Selector="Border.setting-row:focus-within">
-        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
-    </Style>
+  <Style Selector="Border.setting-row">
+    <Setter Property="MinHeight" Value="38" />
+    <Setter Property="Padding" Value="10,5" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+  <Style Selector="Border.setting-row.alt">
+    <Setter Property="Background" Value="{StaticResource HcBackgroundBrush}" />
+  </Style>
+  <Style Selector="Border.setting-row:focus-within">
+    <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
 
-    <!-- Mini controls inside rows: one step tighter than the app-wide metrics. -->
-    <Style Selector="Border.setting-row TextBlock.setting-title">
-        <Setter Property="FontSize" Value="13" />
-    </Style>
-    <Style Selector="Border.setting-row Button">
-        <Setter Property="MinHeight" Value="24" />
-        <Setter Property="Padding" Value="8,1" />
-        <Setter Property="FontSize" Value="12" />
-    </Style>
-    <Style Selector="Border.setting-row TextBox, Border.setting-row ComboBox, Border.setting-row NumericUpDown">
-        <Setter Property="MinHeight" Value="26" />
-        <Setter Property="FontSize" Value="12" />
-    </Style>
-    <Style Selector="Border.setting-row ToggleSwitch, Border.setting-row CheckBox">
-        <Setter Property="FontSize" Value="12" />
-    </Style>
+  <!-- Mini controls inside rows: one step tighter than the app-wide metrics. -->
+  <Style Selector="Border.setting-row TextBlock.setting-title">
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+  <Style Selector="Border.setting-row Button">
+    <Setter Property="MinHeight" Value="24" />
+    <Setter Property="Padding" Value="8,1" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+  <Style Selector="Border.setting-row TextBox, Border.setting-row ComboBox, Border.setting-row NumericUpDown">
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+  <Style Selector="Border.setting-row ToggleSwitch, Border.setting-row CheckBox">
+    <Setter Property="FontSize" Value="12" />
+  </Style>
 </Styles>

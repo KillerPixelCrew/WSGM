@@ -16,7 +16,9 @@ public sealed class DeviceWidgetSourceTests
     [Fact]
     public void ChoiceReadbackIsPreservedAndMissingStateDoesNotBecomeZero()
     {
-        Assert.Equal("quiet", DeviceWidgetSource.Value(new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = "quiet" }).Text);
+        Assert.Equal("quiet",
+            DeviceWidgetSource.Value(new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = "quiet" })
+                .Text);
         Assert.Null(DeviceWidgetSource.Value(null).Number);
         Assert.Equal("Unavailable", DeviceWidgetSource.Value(null).Text);
     }

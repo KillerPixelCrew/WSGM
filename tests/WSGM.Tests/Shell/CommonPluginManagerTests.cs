@@ -18,7 +18,12 @@ public sealed class CommonPluginManagerTests
         PluginHost host = new(action => action());
         List<FakePlugin> created = [];
         CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
-            (package, _) => { FakePlugin plugin = new(package.Manifest.Id); created.Add(plugin); return Task.FromResult<IPlugin>(plugin); });
+            (package, _) =>
+            {
+                FakePlugin plugin = new(package.Manifest.Id);
+                created.Add(plugin);
+                return Task.FromResult<IPlugin>(plugin);
+            });
         var first = new CommonPluginInstanceConfig { PluginId = "test.plugin", InstanceId = "one", Enabled = false };
         await manager.ReconcileAsync([first], CancellationToken.None);
         Assert.Empty(created);
@@ -57,7 +62,8 @@ public sealed class CommonPluginManagerTests
         await manager.ReconcileAsync(configuration, CancellationToken.None);
         Assert.Equal(2, loads);
         Assert.NotNull(manager.Snapshot().Single(instance => instance.Identity.PluginId == "a.bad").Error);
-        Assert.Equal(PluginHealth.Ready, manager.Snapshot().Single(instance => instance.Identity.PluginId == "b.good").Registration!.Health.Health);
+        Assert.Equal(PluginHealth.Ready,
+            manager.Snapshot().Single(instance => instance.Identity.PluginId == "b.good").Registration!.Health.Health);
         await manager.StopAsync(Deadline);
     }
 
@@ -69,7 +75,11 @@ public sealed class CommonPluginManagerTests
         var loads = 0;
         FakePlugin plugin = new("test.plugin") { Released = false };
         CommonPluginManager manager = new(new PluginHost(action => action()), installed, temporary.GetPath("state"),
-            (_, _) => { loads++; return Task.FromResult<IPlugin>(plugin); });
+            (_, _) =>
+            {
+                loads++;
+                return Task.FromResult<IPlugin>(plugin);
+            });
         var configuration = new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true };
         await manager.ReconcileAsync([configuration], CancellationToken.None);
         configuration.Enabled = false;
@@ -92,13 +102,20 @@ public sealed class CommonPluginManagerTests
         TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         FakePlugin plugin = new("test.plugin");
         CommonPluginManager manager = new(new PluginHost(action => action()), installed, temporary.GetPath("state"),
-            async (_, _) => { entered.SetResult(); await release.Task; return plugin; });
+            async (_, _) =>
+            {
+                entered.SetResult();
+                await release.Task;
+                return plugin;
+            });
         using CancellationTokenSource cancellation = new();
-        var start = manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }], cancellation.Token);
+        var start = manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }],
+            cancellation.Token);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await cancellation.CancelAsync();
         await start;
-        await Assert.ThrowsAsync<AggregateException>(() => manager.StopAsync(DateTimeOffset.UtcNow.AddMilliseconds(100)));
+        await Assert.ThrowsAsync<AggregateException>(() =>
+            manager.StopAsync(DateTimeOffset.UtcNow.AddMilliseconds(100)));
         Assert.Equal(0, plugin.Disposals);
         release.SetResult();
         await manager.StopAsync(Deadline);
@@ -116,10 +133,11 @@ public sealed class CommonPluginManagerTests
             Directory.CreateDirectory(root);
             await File.WriteAllTextAsync(Path.Combine(root, "Fixture.dll"), "Metadata fixture");
             await File.WriteAllTextAsync(Path.Combine(root, "plugin.wsgm.json"), $$"""
-                {"id":"{{id}}","name":"Fixture","version":"1.0","category":"example.status",
-                 "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin"}
-                """);
+                  {"id":"{{id}}","name":"Fixture","version":"1.0","category":"example.status",
+                   "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin"}
+                  """);
         }
+
         return installed;
     }
 
@@ -138,7 +156,11 @@ public sealed class CommonPluginManagerTests
         {
             FakePlugin plugin = new("test.plugin");
             created.Add(plugin);
-            if (created.Count != 1) { return plugin; }
+            if (created.Count != 1)
+            {
+                return plugin;
+            }
+
             entered.SetResult();
             await release.Task;
             return plugin;
@@ -153,7 +175,11 @@ public sealed class CommonPluginManagerTests
         Assert.Equal(0, created[0].Starts);
         Assert.Equal(1, created[0].Disposals);
         Assert.Equal(reenable ? 1 : 0, host.Snapshot().Length);
-        if (reenable) { Assert.Equal(1, created[1].Starts); }
+        if (reenable)
+        {
+            Assert.Equal(1, created[1].Starts);
+        }
+
         await manager.StopAsync(Deadline);
     }
 
@@ -165,7 +191,8 @@ public sealed class CommonPluginManagerTests
         FakePlugin plugin = new("test.plugin");
         CommonPluginManager manager = new(new PluginHost(action => action()), installed, temporary.GetPath("state"),
             (_, _) => Task.FromResult<IPlugin>(plugin));
-        await manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }], CancellationToken.None);
+        await manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }],
+            CancellationToken.None);
         await manager.PowerTransitionAsync(true, CancellationToken.None);
         await manager.PowerTransitionAsync(true, CancellationToken.None);
         await manager.PowerTransitionAsync(false, CancellationToken.None);

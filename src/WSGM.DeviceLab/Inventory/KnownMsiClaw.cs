@@ -150,46 +150,52 @@ internal static class KnownMsiClaw
 {
     /// <summary>Creates the MS-1T52 fingerprint with five compiled MSI read probes.</summary>
     /// <returns>The exact known-device fingerprint.</returns>
-    public static KnownDeviceFingerprint Create() => new()
+    public static KnownDeviceFingerprint Create()
     {
-        DeviceId = "ms-1t52",
-        DisplayName = "MSI Claw 8 AI+ A2VM",
-        SystemManufacturer = "Micro-Star International Co., Ltd.",
-        BaseboardProduct = "MS-1T52",
-        SystemSku = "1T52.1",
-        UsbVendorId = "0DB0",
-        UsbProductIds = ["1901", "1902"],
-        UsbDeviceRelease = "0229",
-        WmiNamespace = "root\\WMI",
-        WmiClass = "MSI_ACPI",
-        ReadProbes = MsiReadProbes(),
-        NonInheritableValues =
-        [
-            "WMI addresses and response offsets",
-            "power limits and scenario policy",
-            "fan table width, conversion, and safe minimum duty",
-            "controller profile-memory offsets and mode topology",
-            "RGB zone order and persistence"
-        ]
-    };
+        return new KnownDeviceFingerprint
+        {
+            DeviceId = "ms-1t52",
+            DisplayName = "MSI Claw 8 AI+ A2VM",
+            SystemManufacturer = "Micro-Star International Co., Ltd.",
+            BaseboardProduct = "MS-1T52",
+            SystemSku = "1T52.1",
+            UsbVendorId = "0DB0",
+            UsbProductIds = ["1901", "1902"],
+            UsbDeviceRelease = "0229",
+            WmiNamespace = "root\\WMI",
+            WmiClass = "MSI_ACPI",
+            ReadProbes = MsiReadProbes(),
+            NonInheritableValues =
+            [
+                "WMI addresses and response offsets",
+                "power limits and scenario policy",
+                "fan table width, conversion, and safe minimum duty",
+                "controller profile-memory offsets and mode topology",
+                "RGB zone order and persistence"
+            ]
+        };
+    }
 
-    private static IReadOnlyList<ReadProbeMetadata> MsiReadProbes() =>
-    [
-        Probe("msi.claw-a2vm.wmi-version", ReadProbeFamily.Version,
-            "root/WMI:MSI_ACPI.Get_WMI", "vendor-wmi", ReadProbeValueKind.Version, 4, 4,
-            0, 255),
-        Probe("msi.claw-a2vm.ec-version", ReadProbeFamily.EmbeddedController,
-            "root/WMI:MSI_ACPI.Get_EC", "vendor-wmi", ReadProbeValueKind.Bytes, 32, 32),
-        Probe("msi.claw-a2vm.scenario-status", ReadProbeFamily.WmiStatus,
-            "root/WMI:MSI_ACPI.Get_Data:0xd2", "power-policy", ReadProbeValueKind.Integer, 2, 2,
-            0, 255),
-        Probe("msi.claw-a2vm.fan-rpm", ReadProbeFamily.FanRpm,
-            "root/WMI:MSI_ACPI.Get_Fan:0", "fan-control", ReadProbeValueKind.Text, 5, 5,
-            stable: false, crossCheck: ReadProbeCrossCheckKind.Present),
-        Probe("msi.claw-a2vm.charge-limit", ReadProbeFamily.ChargeState,
-            "root/WMI:MSI_ACPI.Get_Data:0xd7", "charge-policy", ReadProbeValueKind.Integer, 2, 2,
-            0, 100)
-    ];
+    private static IReadOnlyList<ReadProbeMetadata> MsiReadProbes()
+    {
+        return
+        [
+            Probe("msi.claw-a2vm.wmi-version", ReadProbeFamily.Version,
+                "root/WMI:MSI_ACPI.Get_WMI", "vendor-wmi", ReadProbeValueKind.Version, 4, 4,
+                0, 255),
+            Probe("msi.claw-a2vm.ec-version", ReadProbeFamily.EmbeddedController,
+                "root/WMI:MSI_ACPI.Get_EC", "vendor-wmi", ReadProbeValueKind.Bytes, 32, 32),
+            Probe("msi.claw-a2vm.scenario-status", ReadProbeFamily.WmiStatus,
+                "root/WMI:MSI_ACPI.Get_Data:0xd2", "power-policy", ReadProbeValueKind.Integer, 2, 2,
+                0, 255),
+            Probe("msi.claw-a2vm.fan-rpm", ReadProbeFamily.FanRpm,
+                "root/WMI:MSI_ACPI.Get_Fan:0", "fan-control", ReadProbeValueKind.Text, 5, 5,
+                stable: false, crossCheck: ReadProbeCrossCheckKind.Present),
+            Probe("msi.claw-a2vm.charge-limit", ReadProbeFamily.ChargeState,
+                "root/WMI:MSI_ACPI.Get_Data:0xd7", "charge-policy", ReadProbeValueKind.Integer, 2, 2,
+                0, 100)
+        ];
+    }
 
     private static ReadProbeMetadata Probe(
         string id,
@@ -202,7 +208,9 @@ internal static class KnownMsiClaw
         long? minimum = null,
         long? maximum = null,
         bool stable = true,
-        ReadProbeCrossCheckKind crossCheck = ReadProbeCrossCheckKind.Equal) => new()
+        ReadProbeCrossCheckKind crossCheck = ReadProbeCrossCheckKind.Equal)
+    {
+        return new ReadProbeMetadata
         {
             Id = id,
             Version = 1,
@@ -230,4 +238,5 @@ internal static class KnownMsiClaw
             },
             RequiresElevation = true
         };
+    }
 }

@@ -66,8 +66,8 @@ internal static class GlyphPackageImportWorkflow
             snapshot = DeviceLabPackageSnapshot.Capture(root, issues, cancellationToken);
         }
         catch (Exception exception) when (exception is UnauthorizedAccessException
-            or InvalidDataException
-            or IOException)
+                                              or InvalidDataException
+                                              or IOException)
         {
             return Failure("invalid-root", string.Empty, exception.GetType().Name);
         }
@@ -86,12 +86,14 @@ internal static class GlyphPackageImportWorkflow
         {
             return Report(
                 [],
-                [.. imported.Errors.Select(error => new PluginPackageValidationIssue(
-                    $"glyph-{PluginPackageWorkflow.StableCode(error.Code)}",
-                    error.Path,
-                    $"{error.ProfileId}: {error.Message}"))
-                    .OrderBy(issue => issue.Path, StringComparer.Ordinal)
-                    .ThenBy(issue => issue.Code, StringComparer.Ordinal)]);
+                [
+                    .. imported.Errors.Select(error => new PluginPackageValidationIssue(
+                            $"glyph-{PluginPackageWorkflow.StableCode(error.Code)}",
+                            error.Path,
+                            $"{error.ProfileId}: {error.Message}"))
+                        .OrderBy(issue => issue.Path, StringComparer.Ordinal)
+                        .ThenBy(issue => issue.Code, StringComparer.Ordinal)
+                ]);
         }
 
         if (imported.Profiles.Count == 0)
@@ -116,15 +118,20 @@ internal static class GlyphPackageImportWorkflow
         return Report(profiles, []);
     }
 
-    private static GlyphPackageImportReport Failure(string code, string path, string message) =>
-        Report([], [new PluginPackageValidationIssue(code, path, message)]);
+    private static GlyphPackageImportReport Failure(string code, string path, string message)
+    {
+        return Report([], [new PluginPackageValidationIssue(code, path, message)]);
+    }
 
     private static GlyphPackageImportReport Report(
         IReadOnlyList<ImportedGlyphProfileSummary> profiles,
-        List<PluginPackageValidationIssue> issues) => new()
+        List<PluginPackageValidationIssue> issues)
+    {
+        return new GlyphPackageImportReport
         {
             Valid = issues.Count == 0,
             Issues = issues,
             Profiles = profiles
         };
+    }
 }

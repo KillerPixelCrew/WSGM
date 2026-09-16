@@ -2,8 +2,10 @@ using WSGM.Core;
 
 namespace WSGM.Tests.Core;
 
-/// <summary>A startup surface made of dictionaries. Every write is recorded, so a test can assert
-/// what WSGM changed without going near this machine's registry or task scheduler.</summary>
+/// <summary>
+///     A startup surface made of dictionaries. Every write is recorded, so a test can assert
+///     what WSGM changed without going near this machine's registry or task scheduler.
+/// </summary>
 internal sealed class FakeAutostartSystem : IAutostartSystem
 {
     internal Dictionary<(SteamAutostartScope Scope, bool Wow64), Dictionary<string, string>> Run { get; } = [];
@@ -14,30 +16,52 @@ internal sealed class FakeAutostartSystem : IAutostartSystem
     internal List<string> Writes { get; } = [];
     internal bool TaskWritesFail { get; init; }
 
-    public IReadOnlyDictionary<string, string> ReadRunValues(SteamAutostartScope scope, bool wow64) =>
-        Run.TryGetValue((scope, wow64), out var values) ? values : [];
+    public IReadOnlyDictionary<string, string> ReadRunValues(SteamAutostartScope scope, bool wow64)
+    {
+        return Run.TryGetValue((scope, wow64), out var values) ? values : [];
+    }
 
-    public byte[]? ReadApproval(SteamAutostartScope scope, string list, string name) =>
-        Approvals.GetValueOrDefault((scope, list, name));
+    public byte[]? ReadApproval(SteamAutostartScope scope, string list, string name)
+    {
+        return Approvals.GetValueOrDefault((scope, list, name));
+    }
 
     public void WriteApproval(SteamAutostartScope scope, string list, string name, byte[]? value)
     {
         Writes.Add($"{scope}/{list}/{name}={(value is null ? "removed" : value[0].ToString())}");
-        if (value is null) { Approvals.Remove((scope, list, name)); }
-        else { Approvals[(scope, list, name)] = value; }
+        if (value is null)
+        {
+            Approvals.Remove((scope, list, name));
+        }
+        else
+        {
+            Approvals[(scope, list, name)] = value;
+        }
     }
 
-    public IReadOnlyDictionary<string, string> ReadStartupShortcuts(SteamAutostartScope scope) =>
-        Shortcuts.TryGetValue(scope, out var values) ? values : [];
+    public IReadOnlyDictionary<string, string> ReadStartupShortcuts(SteamAutostartScope scope)
+    {
+        return Shortcuts.TryGetValue(scope, out var values) ? values : [];
+    }
 
-    public IReadOnlyDictionary<string, string> ReadLogonTasks() => Tasks;
+    public IReadOnlyDictionary<string, string> ReadLogonTasks()
+    {
+        return Tasks;
+    }
 
-    public bool IsTaskEnabled(string taskPath) => TaskEnabled.TryGetValue(taskPath, out var enabled) && enabled;
+    public bool IsTaskEnabled(string taskPath)
+    {
+        return TaskEnabled.TryGetValue(taskPath, out var enabled) && enabled;
+    }
 
     public bool SetTaskEnabled(string taskPath, bool enabled)
     {
         Writes.Add($"task/{taskPath}={enabled}");
-        if (TaskWritesFail) { return false; }
+        if (TaskWritesFail)
+        {
+            return false;
+        }
+
         TaskEnabled[taskPath] = enabled;
         return true;
     }
@@ -47,8 +71,11 @@ public sealed class SteamAutostartScannerTests
 {
     private const string SteamExe = @"C:\Program Files (x86)\Steam\steam.exe";
 
-    private static FakeAutostartSystem WithRunValue(string name, string command) =>
-        new() { Run = { [(SteamAutostartScope.User, false)] = new Dictionary<string, string> { [name] = command } } };
+    private static FakeAutostartSystem WithRunValue(string name, string command)
+    {
+        return new FakeAutostartSystem
+            { Run = { [(SteamAutostartScope.User, false)] = new Dictionary<string, string> { [name] = command } } };
+    }
 
     [Theory]
     [InlineData("\"C:\\Program Files (x86)\\Steam\\steam.exe\" -silent")]
@@ -70,12 +97,16 @@ public sealed class SteamAutostartScannerTests
     [InlineData(@"C:\Program Files (x86)\Steam\steamerrorreporter.exe")]
     [InlineData("")]
     public void SomethingElseIsLeftAlone(string command)
-        => Assert.Empty(SteamAutostartScanner.Scan(WithRunValue("Other", command), SteamExe));
+    {
+        Assert.Empty(SteamAutostartScanner.Scan(WithRunValue("Other", command), SteamExe));
+    }
 
     [Fact]
     public void ASecondSteamInstallationIsNotThisOne()
-        => Assert.Empty(SteamAutostartScanner.Scan(
+    {
+        Assert.Empty(SteamAutostartScanner.Scan(
             WithRunValue("Steam", @"D:\Games\Steam\steam.exe"), SteamExe));
+    }
 
     [Fact]
     public void WithoutAKnownInstallationAnySteamCounts()
@@ -101,7 +132,10 @@ public sealed class SteamAutostartScannerTests
     public void WindowsOwnApprovalStateIsRead(byte[]? approval, bool expected)
     {
         var system = WithRunValue("Steam", SteamExe);
-        if (approval is not null) { system.Approvals[(SteamAutostartScope.User, "Run", "Steam")] = approval; }
+        if (approval is not null)
+        {
+            system.Approvals[(SteamAutostartScope.User, "Run", "Steam")] = approval;
+        }
 
         Assert.Equal(expected, Assert.Single(SteamAutostartScanner.Scan(system, SteamExe)).Enabled);
     }
@@ -144,21 +178,21 @@ public sealed class SteamAutostartScannerTests
     public void TaskDefinitionsAreSplitAndNamedByTheirOwnUri()
     {
         const string output = """
-            <?xml version="1.0" encoding="UTF-16"?>
-            <!-- \Other -->
-            <Task xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-              <RegistrationInfo><URI>\Other</URI></RegistrationInfo>
-              <Actions><Exec><Command>C:\other.exe</Command></Exec></Actions>
-            </Task>
-            <?xml version="1.0" encoding="UTF-16"?>
-            <!-- \Steam -->
-            <Task xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-              <RegistrationInfo><URI>\Steam</URI></RegistrationInfo>
-              <Triggers><LogonTrigger /></Triggers>
-              <Settings><Enabled>false</Enabled></Settings>
-              <Actions><Exec><Command>C:\steam.exe</Command></Exec></Actions>
-            </Task>
-            """;
+                              <?xml version="1.0" encoding="UTF-16"?>
+                              <!-- \Other -->
+                              <Task xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+                                <RegistrationInfo><URI>\Other</URI></RegistrationInfo>
+                                <Actions><Exec><Command>C:\other.exe</Command></Exec></Actions>
+                              </Task>
+                              <?xml version="1.0" encoding="UTF-16"?>
+                              <!-- \Steam -->
+                              <Task xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+                                <RegistrationInfo><URI>\Steam</URI></RegistrationInfo>
+                                <Triggers><LogonTrigger /></Triggers>
+                                <Settings><Enabled>false</Enabled></Settings>
+                                <Actions><Exec><Command>C:\steam.exe</Command></Exec></Actions>
+                              </Task>
+                              """;
 
         var definitions = AutostartSystem.SplitTaskDefinitions(output).ToArray();
 
@@ -172,16 +206,32 @@ public sealed class SteamAutostartTakeoverTests
 {
     private const string SteamExe = @"C:\Steam\steam.exe";
 
-    private static SteamAutostartSource RunSource(bool enabled = true) =>
-        new(SteamAutostartKind.RunValue, SteamAutostartScope.User, @"HKCU\...\Run", "Steam", enabled);
+    private static SteamAutostartSource RunSource(bool enabled = true)
+    {
+        return new SteamAutostartSource(SteamAutostartKind.RunValue, SteamAutostartScope.User, @"HKCU\...\Run", "Steam",
+            enabled);
+    }
 
-    private static SteamAutostartSource TaskSource() =>
-        new(SteamAutostartKind.ScheduledTask, SteamAutostartScope.Machine, @"\Steam", @"\Steam", true);
+    private static SteamAutostartSource TaskSource()
+    {
+        return new SteamAutostartSource(SteamAutostartKind.ScheduledTask, SteamAutostartScope.Machine, @"\Steam",
+            @"\Steam", true);
+    }
 
-    /// <summary>Collects records the way the configuration does: one per entry, updated in place.
-    /// The takeover records the same entry twice, pending and then confirmed.</summary>
-    private static Action<SteamAutostartRecord> Collect(List<SteamAutostartRecord> records) =>
-        record => { if (!records.Contains(record)) { records.Add(record); } };
+    /// <summary>
+    ///     Collects records the way the configuration does: one per entry, updated in place.
+    ///     The takeover records the same entry twice, pending and then confirmed.
+    /// </summary>
+    private static Action<SteamAutostartRecord> Collect(List<SteamAutostartRecord> records)
+    {
+        return record =>
+        {
+            if (!records.Contains(record))
+            {
+                records.Add(record);
+            }
+        };
+    }
 
     [Fact]
     public void ThePreviousStateIsRecordedBeforeTheWrite()
@@ -192,7 +242,7 @@ public sealed class SteamAutostartTakeoverTests
         };
         List<(string Write, bool Pending)> order = [];
 
-        var result = SteamAutostartTakeover.Disable(system, [RunSource()], elevated: false, record =>
+        var result = SteamAutostartTakeover.Disable(system, [RunSource()], false, record =>
             order.Add((system.Writes.Count == 0 ? "before" : "after", record.Pending)));
 
         Assert.Single(result.Disabled);
@@ -209,7 +259,7 @@ public sealed class SteamAutostartTakeoverTests
         system.Approvals[(SteamAutostartScope.User, "Run", "Steam")] = [2, 0, 0, 0, 0, 0, 0, 0];
         FakeRefusingSystem refusing = new(system);
 
-        var result = SteamAutostartTakeover.Disable(refusing, [RunSource()], elevated: false, Collect(records));
+        var result = SteamAutostartTakeover.Disable(refusing, [RunSource()], false, Collect(records));
 
         Assert.Empty(result.Disabled);
         Assert.Single(result.Pending);
@@ -221,7 +271,7 @@ public sealed class SteamAutostartTakeoverTests
     {
         FakeAutostartSystem system = new();
 
-        var result = SteamAutostartTakeover.Disable(system, [TaskSource()], elevated: false, _ => { });
+        var result = SteamAutostartTakeover.Disable(system, [TaskSource()], false, _ => { });
 
         Assert.Single(result.NeedsElevation);
         Assert.Empty(system.Writes);
@@ -233,7 +283,7 @@ public sealed class SteamAutostartTakeoverTests
     {
         FakeAutostartSystem system = new();
 
-        var result = SteamAutostartTakeover.Disable(system, [RunSource(enabled: false)], elevated: false, _ => { });
+        var result = SteamAutostartTakeover.Disable(system, [RunSource(false)], false, _ => { });
 
         Assert.Empty(result.Disabled);
         Assert.Empty(system.Writes);
@@ -248,9 +298,9 @@ public sealed class SteamAutostartTakeoverTests
             Approvals = { [(SteamAutostartScope.User, "Run", "Steam")] = [2, 0, 0, 0, 0, 0, 0, 0] }
         };
         List<SteamAutostartRecord> records = [];
-        SteamAutostartTakeover.Disable(system, [RunSource()], elevated: false, Collect(records));
+        SteamAutostartTakeover.Disable(system, [RunSource()], false, Collect(records));
 
-        var restored = SteamAutostartTakeover.Restore(system, records, elevated: false);
+        var restored = SteamAutostartTakeover.Restore(system, records, false);
 
         Assert.Single(restored);
         Assert.Equal([2, 0, 0, 0, 0, 0, 0, 0], system.Approvals[(SteamAutostartScope.User, "Run", "Steam")]);
@@ -261,9 +311,9 @@ public sealed class SteamAutostartTakeoverTests
     {
         FakeAutostartSystem system = new();
         List<SteamAutostartRecord> records = [];
-        SteamAutostartTakeover.Disable(system, [RunSource()], elevated: false, Collect(records));
+        SteamAutostartTakeover.Disable(system, [RunSource()], false, Collect(records));
 
-        SteamAutostartTakeover.Restore(system, records, elevated: false);
+        SteamAutostartTakeover.Restore(system, records, false);
 
         Assert.False(system.Approvals.ContainsKey((SteamAutostartScope.User, "Run", "Steam")));
     }
@@ -273,12 +323,12 @@ public sealed class SteamAutostartTakeoverTests
     {
         FakeAutostartSystem system = new();
         List<SteamAutostartRecord> records = [];
-        SteamAutostartTakeover.Disable(system, [RunSource()], elevated: false, Collect(records));
+        SteamAutostartTakeover.Disable(system, [RunSource()], false, Collect(records));
         // The user turned it back on in Task Manager; those are not WSGM's bytes any more.
         system.Approvals[(SteamAutostartScope.User, "Run", "Steam")] = [2, 0, 0, 0, 0, 0, 0, 0];
         system.Writes.Clear();
 
-        var restored = SteamAutostartTakeover.Restore(system, records, elevated: false);
+        var restored = SteamAutostartTakeover.Restore(system, records, false);
 
         Assert.Single(restored);
         Assert.Empty(system.Writes);
@@ -291,11 +341,11 @@ public sealed class SteamAutostartTakeoverTests
         FakeAutostartSystem system = new() { TaskEnabled = { [@"\Steam"] = true } };
         List<SteamAutostartRecord> records = [];
 
-        var result = SteamAutostartTakeover.Disable(system, [TaskSource()], elevated: true, Collect(records));
+        var result = SteamAutostartTakeover.Disable(system, [TaskSource()], true, Collect(records));
         Assert.Single(result.Disabled);
         Assert.False(system.TaskEnabled[@"\Steam"]);
 
-        SteamAutostartTakeover.Restore(system, records, elevated: true);
+        SteamAutostartTakeover.Restore(system, records, true);
         Assert.True(system.TaskEnabled[@"\Steam"]);
     }
 
@@ -304,7 +354,7 @@ public sealed class SteamAutostartTakeoverTests
     {
         FakeAutostartSystem system = new() { TaskEnabled = { [@"\Steam"] = true }, TaskWritesFail = true };
 
-        var result = SteamAutostartTakeover.Disable(system, [TaskSource()], elevated: true, _ => { });
+        var result = SteamAutostartTakeover.Disable(system, [TaskSource()], true, _ => { });
 
         Assert.Single(result.Pending);
         Assert.True(system.TaskEnabled[@"\Steam"]);
@@ -322,24 +372,49 @@ public sealed class SteamAutostartTakeoverTests
             Name = @"\Steam"
         };
 
-        Assert.Empty(SteamAutostartTakeover.Restore(system, [record], elevated: false));
+        Assert.Empty(SteamAutostartTakeover.Restore(system, [record], false));
         Assert.Empty(system.Writes);
     }
 
-    /// <summary>A surface whose approval write does not take, standing in for a policy or a tool
-    /// that puts the entry straight back.</summary>
+    /// <summary>
+    ///     A surface whose approval write does not take, standing in for a policy or a tool
+    ///     that puts the entry straight back.
+    /// </summary>
     private sealed class FakeRefusingSystem(FakeAutostartSystem inner) : IAutostartSystem
     {
-        public IReadOnlyDictionary<string, string> ReadRunValues(SteamAutostartScope scope, bool wow64) =>
-            inner.ReadRunValues(scope, wow64);
-        public byte[]? ReadApproval(SteamAutostartScope scope, string list, string name) =>
-            inner.ReadApproval(scope, list, name);
-        public void WriteApproval(SteamAutostartScope scope, string list, string name, byte[]? value) =>
+        public IReadOnlyDictionary<string, string> ReadRunValues(SteamAutostartScope scope, bool wow64)
+        {
+            return inner.ReadRunValues(scope, wow64);
+        }
+
+        public byte[]? ReadApproval(SteamAutostartScope scope, string list, string name)
+        {
+            return inner.ReadApproval(scope, list, name);
+        }
+
+        public void WriteApproval(SteamAutostartScope scope, string list, string name, byte[]? value)
+        {
             inner.Writes.Add($"{scope}/{list}/{name}=refused");
-        public IReadOnlyDictionary<string, string> ReadStartupShortcuts(SteamAutostartScope scope) =>
-            inner.ReadStartupShortcuts(scope);
-        public IReadOnlyDictionary<string, string> ReadLogonTasks() => inner.ReadLogonTasks();
-        public bool IsTaskEnabled(string taskPath) => inner.IsTaskEnabled(taskPath);
-        public bool SetTaskEnabled(string taskPath, bool enabled) => inner.SetTaskEnabled(taskPath, enabled);
+        }
+
+        public IReadOnlyDictionary<string, string> ReadStartupShortcuts(SteamAutostartScope scope)
+        {
+            return inner.ReadStartupShortcuts(scope);
+        }
+
+        public IReadOnlyDictionary<string, string> ReadLogonTasks()
+        {
+            return inner.ReadLogonTasks();
+        }
+
+        public bool IsTaskEnabled(string taskPath)
+        {
+            return inner.IsTaskEnabled(taskPath);
+        }
+
+        public bool SetTaskEnabled(string taskPath, bool enabled)
+        {
+            return inner.SetTaskEnabled(taskPath, enabled);
+        }
     }
 }

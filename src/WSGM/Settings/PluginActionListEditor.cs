@@ -11,9 +11,9 @@ namespace WSGM.Settings;
 /// <summary>One argument of one configured step, typed the way the plugin declared it.</summary>
 public sealed class PluginArgumentRow : ObservableObject
 {
-    private readonly PluginActionStep _step;
-    private readonly PluginSetting _field;
     private readonly Action _changed;
+    private readonly PluginSetting _field;
+    private readonly PluginActionStep _step;
 
     internal PluginArgumentRow(PluginActionStep step, PluginSetting field, Action changed)
     {
@@ -41,7 +41,7 @@ public sealed class PluginArgumentRow : ObservableObject
     public bool BooleanValue
     {
         get => Current.Boolean ?? false;
-        set => Write(new PluginValue(Boolean: value), nameof(BooleanValue));
+        set => Write(new PluginValue(value), nameof(BooleanValue));
     }
 
     /// <summary>Gets or sets the text or chosen value.</summary>
@@ -50,7 +50,7 @@ public sealed class PluginArgumentRow : ObservableObject
         get => Current.Text ?? Current.Number?.ToString(CultureInfo.InvariantCulture) ?? "";
         set => Write(
             _field.Kind == PluginSettingKind.Number
-                && double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
+            && double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
                 ? new PluginValue(Number: number)
                 : new PluginValue(Text: value),
             nameof(TextValue));
@@ -79,8 +79,10 @@ public sealed class PluginArgumentRow : ObservableObject
     }
 }
 
-/// <summary>One configured step, with its arguments when the plugin that declares them is
-/// running.</summary>
+/// <summary>
+///     One configured step, with its arguments when the plugin that declares them is
+///     running.
+/// </summary>
 public sealed class PluginActionStepEditorRow : ObservableObject
 {
     private readonly Action _changed;
@@ -90,8 +92,7 @@ public sealed class PluginActionStepEditorRow : ObservableObject
     {
         Step = step;
         _changed = changed;
-        Arguments = [.. (option?.Action.Arguments ?? []).Select(
-            field => new PluginArgumentRow(step, field, changed))];
+        Arguments = [.. (option?.Action.Arguments ?? []).Select(field => new PluginArgumentRow(step, field, changed))];
         Available = option is not null;
     }
 
@@ -123,7 +124,11 @@ public sealed class PluginActionStepEditorRow : ObservableObject
         get => Step.TimeoutSeconds;
         set
         {
-            if (Step.TimeoutSeconds == value) { return; }
+            if (Step.TimeoutSeconds == value)
+            {
+                return;
+            }
+
             Step.TimeoutSeconds = Math.Clamp(value, 1, 120);
             Raise(nameof(TimeoutSeconds));
             _changed();
@@ -133,23 +138,25 @@ public sealed class PluginActionStepEditorRow : ObservableObject
     /// <summary>Gets whether any argument would be refused.</summary>
     public bool HasValidationError => Arguments.Any(argument => argument.HasValidationError);
 
-    private static string Describe(PluginValue value) =>
-        value.Text is { Length: > 0 } text ? text
-        : value.Number is { } number ? number.ToString(CultureInfo.InvariantCulture)
-        : value.Boolean is { } flag ? flag ? "on" : "off"
-        : "";
+    private static string Describe(PluginValue value)
+    {
+        return value.Text is { Length: > 0 } text ? text
+            : value.Number is { } number ? number.ToString(CultureInfo.InvariantCulture)
+            : value.Boolean is { } flag ? flag ? "on" : "off"
+            : "";
+    }
 }
 
-/// <summary>Edits one ordered list of plugin action steps.
-///
-/// Order is the whole point of a list here: the HDMI switch has to select this PC before the
-/// television is told to turn on, or the television turns on showing the wrong input. So steps move
-/// up and down rather than being a set.
-///
-/// A step whose plugin is not running keeps its saved values and cannot be edited. Its argument
-/// schema comes from the plugin, and the host captures that schema before the plugin starts, so
-/// there is nothing truthful to render for one that is not there. Deleting it is still allowed:
-/// removing a step you no longer want must not require starting a plugin.</summary>
+/// <summary>
+///     Edits one ordered list of plugin action steps.
+///     Order is the whole point of a list here: the HDMI switch has to select this PC before the
+///     television is told to turn on, or the television turns on showing the wrong input. So steps move
+///     up and down rather than being a set.
+///     A step whose plugin is not running keeps its saved values and cannot be edited. Its argument
+///     schema comes from the plugin, and the host captures that schema before the plugin starts, so
+///     there is nothing truthful to render for one that is not there. Deleting it is still allowed:
+///     removing a step you no longer want must not require starting a plugin.
+/// </summary>
 public sealed class PluginActionListEditor : ObservableObject
 {
     private readonly Action _changed;
@@ -200,22 +207,37 @@ public sealed class PluginActionListEditor : ObservableObject
     {
         _options = options;
         Choices.Clear();
-        foreach (var option in options) { Choices.Add(option); }
+        foreach (var option in options)
+        {
+            Choices.Add(option);
+        }
+
         ChoiceIndex = Choices.Count > 0 ? 0 : -1;
 
         Rows.Clear();
-        foreach (var step in steps) { Rows.Add(Build(step)); }
+        foreach (var step in steps)
+        {
+            Rows.Add(Build(step));
+        }
+
         RaiseState();
     }
 
     /// <summary>The steps this list currently describes.</summary>
     /// <returns>A fresh list in run order.</returns>
-    internal List<PluginActionStep> Build() => [.. Rows.Select(row => row.Step)];
+    internal List<PluginActionStep> Build()
+    {
+        return [.. Rows.Select(row => row.Step)];
+    }
 
     /// <summary>Appends the selected action, with every argument at its declared default.</summary>
     internal void Add()
     {
-        if (ChoiceIndex < 0 || ChoiceIndex >= Choices.Count) { return; }
+        if (ChoiceIndex < 0 || ChoiceIndex >= Choices.Count)
+        {
+            return;
+        }
+
         var option = Choices[ChoiceIndex];
         PluginActionStep step = new()
         {
@@ -233,7 +255,11 @@ public sealed class PluginActionListEditor : ObservableObject
     /// <param name="row">The step to remove.</param>
     internal void Remove(PluginActionStepEditorRow row)
     {
-        if (!Rows.Remove(row)) { return; }
+        if (!Rows.Remove(row))
+        {
+            return;
+        }
+
         RaiseState();
         _changed();
     }
@@ -245,16 +271,22 @@ public sealed class PluginActionListEditor : ObservableObject
     {
         var index = Rows.IndexOf(row);
         var target = index + delta;
-        if (index < 0 || target < 0 || target >= Rows.Count) { return; }
+        if (index < 0 || target < 0 || target >= Rows.Count)
+        {
+            return;
+        }
+
         Rows.Move(index, target);
         _changed();
     }
 
-    private PluginActionStepEditorRow Build(PluginActionStep step) =>
-        new(step,
+    private PluginActionStepEditorRow Build(PluginActionStep step)
+    {
+        return new PluginActionStepEditorRow(step,
             _options.FirstOrDefault(option =>
                 step.Plugin is { } plugin && option.Identity == plugin && option.Action.Id == step.ActionId),
             OnRowChanged);
+    }
 
     private void OnRowChanged()
     {

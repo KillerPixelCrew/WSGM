@@ -44,13 +44,16 @@ public sealed class DeviceCoordinatorDiagnosticsTests
         Assert.Null(restored.InstalledPackage);
     }
 
-    private static DeviceCoordinatorDiagnosticsSnapshot Snapshot() => new()
+    private static DeviceCoordinatorDiagnosticsSnapshot Snapshot()
     {
-        State = DeviceCycleState.Active,
-        CycleGeneration = 9,
-        CapabilityCount = 3,
-        HealthyCapabilityCount = 2,
-        FaultedCapabilityCount = 1,
-        CapturedAt = DateTimeOffset.UnixEpoch
-    };
+        return new DeviceCoordinatorDiagnosticsSnapshot
+        {
+            State = DeviceCycleState.Active,
+            CycleGeneration = 9,
+            CapabilityCount = 3,
+            HealthyCapabilityCount = 2,
+            FaultedCapabilityCount = 1,
+            CapturedAt = DateTimeOffset.UnixEpoch
+        };
+    }
 }

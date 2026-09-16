@@ -23,18 +23,37 @@ internal sealed unsafe class SettingsActivation : IDisposable
         {
             throw new InvalidOperationException("Settings activation already has an owner.");
         }
+
         _open = open;
         _window = MessageWindow.CreateMessageOnlyWindow(
             windowClass, &WindowProc, "Could not create Settings activation window.");
         if (!NativeMethods.ChangeWindowMessageFilterEx(
-            _window, OpenSettingsMessage, NativeMethods.MsgfltAllow, 0))
+                _window, OpenSettingsMessage, NativeMethods.MsgfltAllow, 0))
         {
             var error = Marshal.GetLastWin32Error();
             NativeMethods.DestroyWindow(_window);
             _window = 0;
             throw new Win32Exception(error, "Could not allow desktop Settings activation.");
         }
+
         _instance = this;
+    }
+
+    public void Dispose()
+    {
+        Dispatcher.UIThread.VerifyAccess();
+        if (_window == 0)
+        {
+            return;
+        }
+
+        if (!NativeMethods.DestroyWindow(_window))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not close Settings activation window.");
+        }
+
+        _window = 0;
+        _instance = null;
     }
 
     internal static bool TryRequest(string windowClass = WindowClass)
@@ -44,6 +63,7 @@ internal sealed unsafe class SettingsActivation : IDisposable
         {
             return false;
         }
+
         NativeMethods.GetWindowThreadProcessId(window, out var processId);
         // Transfer this user launch's foreground permission to the existing UI owner.
         NativeMethods.AllowSetForegroundWindow(processId);
@@ -59,6 +79,7 @@ internal sealed unsafe class SettingsActivation : IDisposable
         {
             return NativeMethods.DefWindowProcW(window, message, wParam, lParam);
         }
+
         // Acknowledge promptly. Constructing Settings may involve a cold XAML load.
         Dispatcher.UIThread.Post(() =>
         {
@@ -66,21 +87,16 @@ internal sealed unsafe class SettingsActivation : IDisposable
             {
                 return;
             }
-            try { owner._open(); }
-            catch (Exception ex) { Log.Error("Resident Settings could not open", ex); }
+
+            try
+            {
+                owner._open();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Resident Settings could not open", ex);
+            }
         });
         return 1;
-    }
-
-    public void Dispose()
-    {
-        Dispatcher.UIThread.VerifyAccess();
-        if (_window == 0) { return; }
-        if (!NativeMethods.DestroyWindow(_window))
-        {
-            throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not close Settings activation window.");
-        }
-        _window = 0;
-        _instance = null;
     }
 }

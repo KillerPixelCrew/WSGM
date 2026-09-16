@@ -7,21 +7,20 @@ using WSGM.Device.Sdk.Testing;
 namespace WSGM.Device.Sdk.Tests.Plugin;
 
 /// <summary>
-/// The diagnostic channel plugins write through, and the guarantees the layers above it rely on.
+///     The diagnostic channel plugins write through, and the guarantees the layers above it rely on.
 /// </summary>
 /// <remarks>
-/// These matter more than their size suggests. The channel exists because five separate device
-/// faults were diagnosed by adding temporary instrumentation and rebuilding — the shipped plugin
-/// could not say why it had done nothing. Instrumentation that throws, or that a plugin can use to
-/// flood the log, would put the log back to being unreadable in the other direction.
+///     These matter more than their size suggests. The channel exists because five separate device
+///     faults were diagnosed by adding temporary instrumentation and rebuilding — the shipped plugin
+///     could not say why it had done nothing. Instrumentation that throws, or that a plugin can use to
+///     flood the log, would put the log back to being unreadable in the other direction.
 /// </remarks>
 public sealed class PluginTraceTests
 {
     [Fact]
     public void ChangeReachesTheHostWithItsScopeKeyAndLevel()
     {
-        var adapter = Record(
-            () => PluginTrace.Change("motion", "freshness", "holding rest", DeviceTraceLevel.Debug));
+        var adapter = Record(() => PluginTrace.Change("motion", "freshness", "holding rest", DeviceTraceLevel.Debug));
 
         var line = Assert.Single(adapter.Changes);
         Assert.Equal(DeviceTraceLevel.Debug, line.Level);
@@ -34,8 +33,7 @@ public sealed class PluginTraceTests
     [Fact]
     public void ChangeDefaultsToInfo()
     {
-        var adapter = Record(
-            () => PluginTrace.Change("motion", "freshness", "resumed"));
+        var adapter = Record(() => PluginTrace.Change("motion", "freshness", "resumed"));
 
         Assert.Equal(DeviceTraceLevel.Info, Assert.Single(adapter.Changes).Level);
     }
@@ -58,8 +56,7 @@ public sealed class PluginTraceTests
     [Fact]
     public void ChangeIsSilentForAnEmptyMessage()
     {
-        var adapter = Record(
-            () => PluginTrace.Change("motion", "freshness", string.Empty));
+        var adapter = Record(() => PluginTrace.Change("motion", "freshness", string.Empty));
 
         Assert.Empty(adapter.Changes);
     }
@@ -82,8 +79,7 @@ public sealed class PluginTraceTests
         PluginTrace.Install(adapter);
         try
         {
-            Assert.ThrowsAny<ArgumentException>(
-                () => PluginTrace.Change("motion", string.Empty, "holding rest"));
+            Assert.ThrowsAny<ArgumentException>(() => PluginTrace.Change("motion", string.Empty, "holding rest"));
         }
         finally
         {
@@ -210,36 +206,59 @@ public sealed class PluginTraceTests
 
         public long CycleGeneration => 1;
 
-        public void Trace(DeviceTraceLevel level, string scope, string message) =>
+        public void Trace(DeviceTraceLevel level, string scope, string message)
+        {
             Lines.Add((level, scope, message));
+        }
 
         public ValueTask PublishDescriptorsAsync(
             CapabilityDescriptorSet descriptors,
-            CancellationToken cancellationToken) => ValueTask.CompletedTask;
+            CancellationToken cancellationToken)
+        {
+            return ValueTask.CompletedTask;
+        }
 
         public ValueTask PublishCapabilityStateAsync(
             CapabilityState state,
-            CancellationToken cancellationToken) => ValueTask.CompletedTask;
+            CancellationToken cancellationToken)
+        {
+            return ValueTask.CompletedTask;
+        }
 
         public ValueTask PublishPhysicalDevicesAsync(
             IReadOnlyList<PhysicalDeviceIdentity> devices,
             HapticCapabilities? output,
-            CancellationToken cancellationToken) => ValueTask.CompletedTask;
+            CancellationToken cancellationToken)
+        {
+            return ValueTask.CompletedTask;
+        }
 
         public ValueTask PublishControllerSampleAsync(
             CanonicalControllerSample sample,
-            CancellationToken cancellationToken) => ValueTask.CompletedTask;
+            CancellationToken cancellationToken)
+        {
+            return ValueTask.CompletedTask;
+        }
 
         public ValueTask PublishOemControlsAsync(
             IReadOnlyList<OemControlDescriptor> controls,
-            CancellationToken cancellationToken) => ValueTask.CompletedTask;
+            CancellationToken cancellationToken)
+        {
+            return ValueTask.CompletedTask;
+        }
 
         public ValueTask PublishOemEventAsync(
             OemControlEvent controlEvent,
-            CancellationToken cancellationToken) => ValueTask.CompletedTask;
+            CancellationToken cancellationToken)
+        {
+            return ValueTask.CompletedTask;
+        }
 
         public ValueTask PublishSettingsManifestAsync(
             PluginSettingsManifest manifest,
-            CancellationToken cancellationToken) => ValueTask.CompletedTask;
+            CancellationToken cancellationToken)
+        {
+            return ValueTask.CompletedTask;
+        }
     }
 }

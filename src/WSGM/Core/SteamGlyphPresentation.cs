@@ -7,12 +7,12 @@ using WSGM.Device.Sdk.Glyphs;
 namespace WSGM.Core;
 
 /// <summary>
-/// The active handheld glyph profile, resolved into what Steam needs.
+///     The active handheld glyph profile, resolved into what Steam needs.
 /// </summary>
 /// <remarks>
-/// Holds the plugin's profile, never WSGM artwork. <see cref="SteamGlyphCss"/> turns whatever is
-/// here into a stylesheet; this type owns only the resolution from a plugin package to Valve
-/// resource names and data URIs.
+///     Holds the plugin's profile, never WSGM artwork. <see cref="SteamGlyphCss" /> turns whatever is
+///     here into a stylesheet; this type owns only the resolution from a plugin package to Valve
+///     resource names and data URIs.
 /// </remarks>
 internal sealed class SteamInputGlyphDeliveryState
 {
@@ -28,7 +28,8 @@ internal sealed class SteamInputGlyphDeliveryState
     {
         var presentation = SteamInputGlyphPresentation.Create(profile);
         Volatile.Write(ref _presentation, nativeArtwork && presentation is not null
-            ? presentation with { StableResources = [], ControllerImages = [] } : presentation);
+            ? presentation with { StableResources = [], ControllerImages = [] }
+            : presentation);
     }
 }
 
@@ -51,12 +52,12 @@ internal sealed record SteamInputGlyphPresentation(
     IReadOnlyList<GlyphControlId> AbsentControls)
 {
     /// <summary>
-    /// Valve's glyph resource names, mapped to the physical control each one depicts.
+    ///     Valve's glyph resource names, mapped to the physical control each one depicts.
     /// </summary>
     /// <remarks>
-    /// WSGM's half of the contract: the plugin says which artwork belongs to which control, and this
-    /// map says which Valve resources that control is drawn with. Several Valve names share a
-    /// control because Steam picks a different resource per controller family for the same button.
+    ///     WSGM's half of the contract: the plugin says which artwork belongs to which control, and this
+    ///     map says which Valve resources that control is drawn with. Several Valve names share a
+    ///     control because Steam picks a different resource per controller family for the same button.
     /// </remarks>
     private static readonly (string Path, GlyphControlId Control)[] StableResourceMap =
     [
@@ -154,6 +155,7 @@ internal sealed record SteamInputGlyphPresentation(
             {
                 continue;
             }
+
             resources.Add(new SteamInputGlyphResourceMapping(path, logicalControl, asset));
         }
 
@@ -194,6 +196,7 @@ internal sealed record SteamInputGlyphPresentation(
                 present.Add(alias.LogicalControl);
             }
         }
+
         var absent = Enum.GetValues<GlyphControlId>()
             .Where(control => !present.Contains(control))
             .OrderBy(control => control)
@@ -233,12 +236,13 @@ internal sealed record SteamInputGlyphPresentation(
     {
         reference = null!;
         if (assetReferences.TryGetValue(
-            assetHash,
-            out var existing))
+                assetHash,
+                out var existing))
         {
             reference = existing;
             return true;
         }
+
         if (!profile.Assets.TryGetValue(assetHash, out var asset)
             || !string.Equals(asset.Lock.Sha256, assetHash, StringComparison.Ordinal))
         {

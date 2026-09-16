@@ -7,18 +7,26 @@ using static WSGM.Plugin.Ir.Tests.Builders.IrActions;
 
 namespace WSGM.Plugin.Ir.Tests;
 
-/// <summary>The endpoint owns its built-in remotes, so these check that the plugin only ever asks
-/// for ids the endpoint declares, and that a refusal is explained rather than emitted.</summary>
+/// <summary>
+///     The endpoint owns its built-in remotes, so these check that the plugin only ever asks
+///     for ids the endpoint declares, and that a refusal is explained rather than emitted.
+/// </summary>
 public sealed class IrRemoteActionTests
 {
-    private static IrRemoteCatalog Catalog() => new([
-        new IrRemote("hdmi-switch", "HDMI switch",
-            [new IrRemoteButton("port-1", "Port 1 (PC)"), new IrRemoteButton("port-3", "Port 3 (Android box)"), new IrRemoteButton("power", "Power")],
-            [new IrRemoteButton("android-audio-reset", "Android box with audio reset")]),
-        new IrRemote("koenic-ac", "Koenic KAC 12020", [new IrRemoteButton("off", "Off")], [],
-            new IrRemoteClimate("MIDEA", ["cool", "auto", "fan", "dry"], ["auto", "low", "medium", "high"], 17, 30,
-                Celsius: true, Swing: "toggle"))
-    ]);
+    private static IrRemoteCatalog Catalog()
+    {
+        return new IrRemoteCatalog([
+            new IrRemote("hdmi-switch", "HDMI switch",
+                [
+                    new IrRemoteButton("port-1", "Port 1 (PC)"), new IrRemoteButton("port-3", "Port 3 (Android box)"),
+                    new IrRemoteButton("power", "Power")
+                ],
+                [new IrRemoteButton("android-audio-reset", "Android box with audio reset")]),
+            new IrRemote("koenic-ac", "Koenic KAC 12020", [new IrRemoteButton("off", "Off")], [],
+                new IrRemoteClimate("MIDEA", ["cool", "auto", "fan", "dry"], ["auto", "low", "medium", "high"], 17, 30,
+                    true, "toggle"))
+        ]);
+    }
 
     private static async Task WithPlugin(FakeEndpoint endpoint,
         Func<IrPlugin, PluginContext, Task> body)
@@ -27,7 +35,7 @@ public sealed class IrRemoteActionTests
         var context = Context(temporary.Root);
         await using IrPlugin plugin = new(_ => endpoint);
         await plugin.StartAsync(new RecordingPluginHost(), context, CancellationToken.None);
-        await plugin.ConfigureAsync(Configuration(port: "COM3"), context, CancellationToken.None);
+        await plugin.ConfigureAsync(Configuration("COM3"), context, CancellationToken.None);
         await body(plugin, context);
     }
 
@@ -212,7 +220,7 @@ public sealed class IrRemoteActionTests
             var result = await InvokeAutomated(plugin, context, "remote-climate",
                 ("remote", new PluginValue(Text: "koenic-ac")), ("mode", new PluginValue(Text: "cool")),
                 ("degrees", new PluginValue(Number: 20)), ("fan", new PluginValue(Text: "medium")),
-                ("toggle-swing", new PluginValue(Boolean: true)));
+                ("toggle-swing", new PluginValue(true)));
 
             Assert.Equal(PluginActionOutcome.Dispatched, result.Outcome);
             Assert.Equal(["climate koenic-ac power=True cool 20 medium swing=True"], endpoint.RemoteCalls);
@@ -227,7 +235,8 @@ public sealed class IrRemoteActionTests
         await WithPlugin(endpoint, async (plugin, context) =>
         {
             var result = await InvokeAutomated(plugin, context, "remote-run",
-                ("remote", new PluginValue(Text: "hdmi-switch")), ("sequence", new PluginValue(Text: "android-audio-reset")));
+                ("remote", new PluginValue(Text: "hdmi-switch")),
+                ("sequence", new PluginValue(Text: "android-audio-reset")));
 
             Assert.Equal(PluginActionOutcome.Dispatched, result.Outcome);
             Assert.Equal(["run hdmi-switch/android-audio-reset"], endpoint.RemoteCalls);
@@ -245,7 +254,8 @@ public sealed class IrRemoteActionTests
         await WithPlugin(endpoint, async (plugin, context) =>
         {
             var arguments = Arguments(plugin, "remote-run",
-                ("remote", new PluginValue(Text: "hdmi-switch")), ("sequence", new PluginValue(Text: "android-audio-reset")));
+                ("remote", new PluginValue(Text: "hdmi-switch")),
+                ("sequence", new PluginValue(Text: "android-audio-reset")));
             var running = plugin.ExecuteActionAsync(
                 new PluginActionRequest(Guid.NewGuid(), "remote-run", PluginActionOrigin.SessionAutomation, arguments),
                 context, cancellation.Token);
@@ -266,7 +276,7 @@ public sealed class IrRemoteActionTests
         var context = Context(temporary.Root);
         await using IrPlugin plugin = new(_ => endpoint);
         await plugin.StartAsync(host, context, CancellationToken.None);
-        await plugin.ConfigureAsync(Configuration(port: "COM3"), context, CancellationToken.None);
+        await plugin.ConfigureAsync(Configuration("COM3"), context, CancellationToken.None);
 
         Assert.Equal(PluginActionOutcome.AppliedVerified,
             (await InvokeAutomated(plugin, context, "remote-refresh")).Outcome);

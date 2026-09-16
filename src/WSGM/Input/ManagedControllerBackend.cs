@@ -118,8 +118,9 @@ internal static class ManagedControllerSampleValidator
         return true;
     }
 
-    internal static bool IsNeutral(CanonicalControllerSample sample) =>
-        sample is
+    internal static bool IsNeutral(CanonicalControllerSample sample)
+    {
+        return sample is
         {
             Buttons: CanonicalButtons.None,
             LeftStickX: 0,
@@ -130,19 +131,29 @@ internal static class ManagedControllerSampleValidator
             RightTrigger: 0,
             Motion: null
         };
+    }
 
-    private static bool Axis(float value) => float.IsFinite(value) && value is >= -1 and <= 1;
+    private static bool Axis(float value)
+    {
+        return float.IsFinite(value) && value is >= -1 and <= 1;
+    }
 
     /// <summary>Whether the value is a finite 0..1 unit, as triggers and haptic channels require.</summary>
-    internal static bool FiniteUnit(float value) => float.IsFinite(value) && value is >= 0 and <= 1;
+    internal static bool FiniteUnit(float value)
+    {
+        return float.IsFinite(value) && value is >= 0 and <= 1;
+    }
 
-    private static bool Motion(MotionSample? motion) => motion is null
-        || ((!motion.HasGyro
-            || (float.IsFinite(motion.GyroX)
-                && float.IsFinite(motion.GyroY)
-                && float.IsFinite(motion.GyroZ)))
-            && (!motion.HasAccelerometer
-                || (float.IsFinite(motion.AccelX)
-                    && float.IsFinite(motion.AccelY)
-                    && float.IsFinite(motion.AccelZ))));
+    private static bool Motion(MotionSample? motion)
+    {
+        return motion is null
+               || ((!motion.HasGyro
+                    || (float.IsFinite(motion.GyroX)
+                        && float.IsFinite(motion.GyroY)
+                        && float.IsFinite(motion.GyroZ)))
+                   && (!motion.HasAccelerometer
+                       || (float.IsFinite(motion.AccelX)
+                           && float.IsFinite(motion.AccelY)
+                           && float.IsFinite(motion.AccelZ))));
+    }
 }

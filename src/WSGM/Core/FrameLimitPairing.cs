@@ -5,51 +5,51 @@ namespace WSGM.Core;
 
 /// <summary>How a frame limit relates to the panel's refresh rate.</summary>
 /// <remarks>
-/// A user setting rather than a fixed policy, because the right answer differs per device and per
-/// tolerance for mode changes. A mode change is not free: an exclusive-fullscreen title can hitch,
-/// minimize, or drop out across one.
+///     A user setting rather than a fixed policy, because the right answer differs per device and per
+///     tolerance for mode changes. A mode change is not free: an exclusive-fullscreen title can hitch,
+///     minimize, or drop out across one.
 /// </remarks>
 public enum FrameLimitStrategy
 {
     /// <summary>
-    /// Cap frames and never touch the refresh rate. The default, and the right answer wherever
-    /// variable refresh covers the range, because it changes no display state at all.
+    ///     Cap frames and never touch the refresh rate. The default, and the right answer wherever
+    ///     variable refresh covers the range, because it changes no display state at all.
     /// </summary>
     FrameLimitOnly,
 
     /// <summary>
-    /// Cap frames, and switch refresh only among the panel's own advertised modes.
+    ///     Cap frames, and switch refresh only among the panel's own advertised modes.
     /// </summary>
     NativeModes,
 
     /// <summary>
-    /// Cap frames, and pick the lowest driver-accepted mode that shows every frame at least twice —
-    /// including modes synthesized beyond what the panel advertises. A doubled cadence is what lets
-    /// adaptive sync's low-framerate compensation smooth the presentation; holding a 30 FPS cap at
-    /// 30 Hz keeps that machinery out of reach. When no doubled multiple exists the lowest exact
-    /// multiple still wins, and failing that the lowest mode that can present the cap.
+    ///     Cap frames, and pick the lowest driver-accepted mode that shows every frame at least twice —
+    ///     including modes synthesized beyond what the panel advertises. A doubled cadence is what lets
+    ///     adaptive sync's low-framerate compensation smooth the presentation; holding a 30 FPS cap at
+    ///     30 Hz keeps that machinery out of reach. When no doubled multiple exists the lowest exact
+    ///     multiple still wins, and failing that the lowest mode that can present the cap.
     /// </summary>
     FrameDoubling
 }
 
 /// <summary>
-/// Chooses the refresh rate that goes with a frame cap, and the caps worth offering.
+///     Chooses the refresh rate that goes with a frame cap, and the caps worth offering.
 /// </summary>
 /// <remarks>
-/// In SteamOS the compositor resolves this pairing and the UI only displays the result. WSGM is the
-/// backend on Windows, so the pairing is decided here and the refresh row shows what was chosen.
-/// <para>
-/// Every rate handed in must already have been discovered at runtime and accepted by the driver.
-/// Nothing here may be hardcoded: the reference Claw accepts 30/48/60/75/100/120 while advertising
-/// only 60 and 120, and a panel without variable refresh will likely accept only what it advertises.
-/// </para>
+///     In SteamOS the compositor resolves this pairing and the UI only displays the result. WSGM is the
+///     backend on Windows, so the pairing is decided here and the refresh row shows what was chosen.
+///     <para>
+///         Every rate handed in must already have been discovered at runtime and accepted by the driver.
+///         Nothing here may be hardcoded: the reference Claw accepts 30/48/60/75/100/120 while advertising
+///         only 60 and 120, and a panel without variable refresh will likely accept only what it advertises.
+///     </para>
 /// </remarks>
 public static class FrameLimitPairing
 {
     /// <summary>Lowest cap the slider offers, under every strategy.</summary>
     /// <remarks>
-    /// Higher than <see cref="MinimumCap"/> on purpose. The cap is a free number rather than a
-    /// cadence stop, so the only question left is what is worth playing at: below 30 FPS is not.
+    ///     Higher than <see cref="MinimumCap" /> on purpose. The cap is a free number rather than a
+    ///     cadence stop, so the only question left is what is worth playing at: below 30 FPS is not.
     /// </remarks>
     private const int UncoupledFloor = 30;
 
@@ -57,16 +57,16 @@ public static class FrameLimitPairing
     private const int MinimumCap = 15;
 
     /// <summary>
-    /// The refresh rate to apply alongside a frame cap.
+    ///     The refresh rate to apply alongside a frame cap.
     /// </summary>
     /// <param name="strategy">The user's chosen strategy.</param>
     /// <param name="capFps">The frame cap, or zero for uncapped.</param>
     /// <param name="nativeHz">Refresh rates the panel itself advertises.</param>
     /// <param name="acceptedHz">Every rate the driver accepted, including synthesized ones.</param>
     /// <returns>
-    /// The rate to set, or <see langword="null"/> when the refresh rate must be left alone — which
-    /// is always the answer under <see cref="FrameLimitStrategy.FrameLimitOnly"/>, and the answer
-    /// anywhere else when no available mode is an exact multiple of the cap.
+    ///     The rate to set, or <see langword="null" /> when the refresh rate must be left alone — which
+    ///     is always the answer under <see cref="FrameLimitStrategy.FrameLimitOnly" />, and the answer
+    ///     anywhere else when no available mode is an exact multiple of the cap.
     /// </returns>
     public static int? SelectRefreshHz(
         FrameLimitStrategy strategy,
@@ -136,12 +136,12 @@ public static class FrameLimitPairing
     /// <param name="acceptedHz">Every rate the driver accepted, including synthesized ones.</param>
     /// <returns>The inclusive range, or null when the panel cannot hold a cap worth offering.</returns>
     /// <remarks>
-    /// A RANGE, not a set of stops, under every strategy. SteamOS's own Frame Limit row is one
-    /// continuous slider bookended by the panel's limits — verified against a Steam Deck showing
-    /// "60 FPS (60 Hz)" between bookends 10 and 60 — and the pairing is what snaps, not the cap:
-    /// the user picks any number and <see cref="SelectRefreshHz"/> answers with the mode that
-    /// presents it. Offering only cadence-exact stops made the coupled strategies feel like a
-    /// different control from the uncoupled one, which is precisely what Valve merged away.
+    ///     A RANGE, not a set of stops, under every strategy. SteamOS's own Frame Limit row is one
+    ///     continuous slider bookended by the panel's limits — verified against a Steam Deck showing
+    ///     "60 FPS (60 Hz)" between bookends 10 and 60 — and the pairing is what snaps, not the cap:
+    ///     the user picks any number and <see cref="SelectRefreshHz" /> answers with the mode that
+    ///     presents it. Offering only cadence-exact stops made the coupled strategies feel like a
+    ///     different control from the uncoupled one, which is precisely what Valve merged away.
     /// </remarks>
     public static (int Minimum, int Maximum)? FrameLimitRange(
         FrameLimitStrategy strategy,
@@ -160,15 +160,15 @@ public static class FrameLimitPairing
     }
 
     /// <summary>
-    /// The frame caps worth offering under a strategy.
+    ///     The frame caps worth offering under a strategy.
     /// </summary>
     /// <param name="strategy">The user's chosen strategy.</param>
     /// <param name="nativeHz">Refresh rates the panel itself advertises.</param>
     /// <param name="acceptedHz">Every rate the driver accepted, including synthesized ones.</param>
     /// <returns>
-    /// The caps, ascending, with zero first for "off". Under a coupled strategy only caps that have
-    /// an exact-cadence mode behind them appear, so every stop on the slider is one the backend can
-    /// honour exactly.
+    ///     The caps, ascending, with zero first for "off". Under a coupled strategy only caps that have
+    ///     an exact-cadence mode behind them appear, so every stop on the slider is one the backend can
+    ///     honour exactly.
     /// </returns>
     public static IReadOnlyList<int> FrameLimitOptions(
         FrameLimitStrategy strategy,
@@ -195,15 +195,17 @@ public static class FrameLimitPairing
     }
 
     /// <summary>
-    /// Whether the refresh-rate control should be offered to the user.
+    ///     Whether the refresh-rate control should be offered to the user.
     /// </summary>
     /// <param name="strategy">The user's chosen strategy.</param>
-    /// <returns><see langword="true"/> when the user owns the refresh rate.</returns>
+    /// <returns><see langword="true" /> when the user owns the refresh rate.</returns>
     /// <remarks>
-    /// Only under <see cref="FrameLimitStrategy.FrameLimitOnly"/>. Under the coupled strategies the
-    /// pairing policy owns the refresh rate, and a second control would fight it — the user would
-    /// set a rate and watch the next cap change overwrite it.
+    ///     Only under <see cref="FrameLimitStrategy.FrameLimitOnly" />. Under the coupled strategies the
+    ///     pairing policy owns the refresh rate, and a second control would fight it — the user would
+    ///     set a rate and watch the next cap change overwrite it.
     /// </remarks>
-    public static bool RefreshRateIsUserOwned(FrameLimitStrategy strategy) =>
-        strategy is FrameLimitStrategy.FrameLimitOnly;
+    public static bool RefreshRateIsUserOwned(FrameLimitStrategy strategy)
+    {
+        return strategy is FrameLimitStrategy.FrameLimitOnly;
+    }
 }

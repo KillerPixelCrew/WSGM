@@ -9,15 +9,18 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>Session-mode coordinator: owns the game/desktop mode transitions
-/// (explorer, display scale, Steam open/close, monitor pause) and
-/// the shared Steam start + warning flow. ShellSession uses it at boot, the
-/// overlay's buttons drive it at runtime; OverlayController stays the UI owner
-/// (lease lifecycle, window) and surfaces warnings via <see cref="SteamStartFailed"/>.</summary>
+/// <summary>
+///     Session-mode coordinator: owns the game/desktop mode transitions
+///     (explorer, display scale, Steam open/close, monitor pause) and
+///     the shared Steam start + warning flow. ShellSession uses it at boot, the
+///     overlay's buttons drive it at runtime; OverlayController stays the UI owner
+///     (lease lifecycle, window) and surfaces warnings via <see cref="SteamStartFailed" />.
+/// </summary>
 public sealed class SessionModes
 {
     /// <summary>The warning shown when the required Steam installation cannot be found.</summary>
-    private const string SteamNotFoundWarning = "Steam was not found on this PC. Install Steam — WSGM is Steam-exclusive.";
+    private const string SteamNotFoundWarning =
+        "Steam was not found on this PC. Install Steam — WSGM is Steam-exclusive.";
 
     /// <summary>The warning shown when Steam Big Picture could not be started.</summary>
     public const string BigPictureStartFailedWarning = "Couldn't start Steam Big Picture.";
@@ -25,79 +28,62 @@ public sealed class SessionModes
     /// <summary>The warning shown when the windowed desktop Steam client could not be started.</summary>
     private const string SteamStartFailedWarning = "Couldn't start Steam.";
 
-    private AppConfig _config;
-    private CancellationTokenSource? _entryCancellation;
-    private readonly SteamMonitor? _monitor;
-    private readonly ExplorerDesktopHost? _desktopHost;
-    private readonly Lock _homeLaunchGate = new();
-    private bool _homeLaunchInProgress;
-    private DateTime _lastHomeLaunchUtc;
-
-    private static readonly TimeSpan HomeLaunchCooldown = TimeSpan.FromSeconds(5);
-    // Upper bound for an unresponsive exit. Healthy and retired-shell paths finish on observation.
-    internal static readonly TimeSpan ExplorerExitTimeout = TimeSpan.FromSeconds(30);
-
-    /// <summary>The warning shown when explorer refused its orderly exit and the
-    /// session stayed in desktop mode (fail open, never a half game mode).</summary>
+    /// <summary>
+    ///     The warning shown when explorer refused its orderly exit and the
+    ///     session stayed in desktop mode (fail open, never a half game mode).
+    /// </summary>
     public const string ExplorerExitFailedWarning =
         "Game Mode entry stopped because Explorer did not finish leaving. Desktop recovery was requested.";
 
-    /// <summary>The warning shown when a dispatched Explorer may still be initializing, so WSGM
-    /// deliberately avoids creating a competing replacement taskbar.</summary>
+    /// <summary>
+    ///     The warning shown when a dispatched Explorer may still be initializing, so WSGM
+    ///     deliberately avoids creating a competing replacement taskbar.
+    /// </summary>
     public const string ExplorerDesktopPendingWarning =
         "Windows Explorer did not finish starting. WSGM will not create a competing taskbar; sign out or reboot to recover the desktop.";
 
-    /// <summary>The warning shown when the current desktop cannot safely supply a normal shell
-    /// launch owner, most commonly after upgrading beside an older job-bound Explorer.</summary>
+    /// <summary>
+    ///     The warning shown when the current desktop cannot safely supply a normal shell
+    ///     launch owner, most commonly after upgrading beside an older job-bound Explorer.
+    /// </summary>
     public const string ExplorerTakeoverRefusedWarning =
         "Game Mode could not safely take over this Windows Explorer. Desktop mode was preserved; sign out or reboot once before retrying.";
 
-    /// <summary>Raised (on the caller's thread) when <see cref="StartOrFocusSteam"/>
-    /// could not bring Steam up, with the user-facing warning text.</summary>
-    public event Action<string>? SteamStartFailed;
+    private static readonly TimeSpan HomeLaunchCooldown = TimeSpan.FromSeconds(5);
 
-    /// <summary>Raised (on the UI thread — the transition posts back there after the
-    /// off-thread Big Picture close) during a desktop-mode transition, after Steam
-    /// left Big Picture but BEFORE explorer starts. Listeners that own per-game-mode
-    /// resources which must not coexist with explorer (the tray host's Shell_TrayWnd
-    /// — explorer's taskbar creates its own) tear down here.</summary>
-    public event Action? DesktopModeStarting;
+    // Upper bound for an unresponsive exit. Healthy and retired-shell paths finish on observation.
+    internal static readonly TimeSpan ExplorerExitTimeout = TimeSpan.FromSeconds(30);
 
-    /// <summary>Raised (on the UI thread — the transition completes there after the
-    /// off-thread explorer shutdown) after a game-mode transition has removed
-    /// explorer from the session. Listeners recreate per-game-mode resources
-    /// (tray host) here.</summary>
-    public event Action? GameModeEntered;
-
-    /// <summary>Awaited (bounded) immediately before a transition asks Steam for Big Picture, so
-    /// the owner can retract injected Steam UI state and close its transport first: the request
-    /// rebuilds Steam's whole front-end, and that rebuild must see stock client state (see
-    /// <c>ShellSession.PrepareSteamUiForBigPictureAsync</c>).</summary>
-    internal Func<Task>? PrepareSteamUiForBigPictureAsync { get; set; }
-
-    /// <summary>Invoked when a transition worker that may have requested Big Picture has settled,
-    /// on every outcome path, so the owner can lift the hold above. Idempotent by contract; also
-    /// invoked by transitions that never fired the request.</summary>
-    internal Action? SteamUiBigPictureRequestSettled { get; set; }
-
-    /// <summary>The displays, plugin actions and splash half of the entry transaction. Null in
-    /// overlay-test mode, where entry runs its Default posture only.
+    /// <summary>
+    ///     Requests or focuses Big Picture without changing monitor state.
+    ///     The serialized game-mode transition uses this while the monitor remains
+    ///     paused, so it must not take the unrelated Home-button cooldown.
     /// </summary>
-    internal IGameModeEntryServices? GameModeEntryServices { get; set; }
+    /// <summary>
+    ///     How long the Steam UI retraction may delay the Big Picture request. Bounded so a
+    ///     broken CEF session can never block the mode switch itself.
+    /// </summary>
+    private static readonly TimeSpan SteamUiPrepareTimeout = TimeSpan.FromSeconds(5);
 
-    /// <summary>Invoked once an entry transaction has settled, on every outcome, so the owner can
-    /// dismiss the splash. Idempotent by contract.</summary>
-    internal Action? GameModeEntrySettled { get; set; }
-    internal Action? DesktopReady { get; set; }
-    internal Func<bool>? IsGameMode { get; set; }
+    private readonly ExplorerDesktopHost? _desktopHost;
+    private readonly Lock _homeLaunchGate = new();
+    private readonly SteamMonitor? _monitor;
+
+    private AppConfig _config;
     private int _desktopRequested;
     private bool _desktopReturnComplete;
+    private CancellationTokenSource? _entryCancellation;
 
-    /// <summary>Surfaces a shell-transition warning through the overlay's existing warning path.</summary>
-    internal void ReportWarning(string warning) => SteamStartFailed?.Invoke(warning);
+    private int _explorerTransition;
+    private bool _homeLaunchInProgress;
+    private DateTime _lastHomeLaunchUtc;
+    private int _shutdownRequested;
+    private int _steamClosedByUser;
 
-    /// <summary>Creates a preview-only coordinator. Desktop/game transition requests are inert
-    /// because Settings and other safe previews do not own an Explorer recovery host.</summary>
+    /// <summary>
+    ///     Creates a preview-only coordinator. Desktop/game transition requests are inert
+    ///     because Settings and other safe previews do not own an Explorer recovery host.
+    /// </summary>
     /// <param name="config">The initial configuration controlling display posture and launch behavior.</param>
     /// <param name="monitor">The optional Steam monitor to pause or resume during transitions.</param>
     public SessionModes(AppConfig config, SteamMonitor? monitor)
@@ -118,49 +104,122 @@ public sealed class SessionModes
         _desktopHost = desktopHost;
     }
 
-    /// <summary>Applies a freshly loaded config (settings saved in another process).
-    /// Reloads replace the config wholesale, so no runtime state may live on it.</summary>
+    /// <summary>
+    ///     Awaited (bounded) immediately before a transition asks Steam for Big Picture, so
+    ///     the owner can retract injected Steam UI state and close its transport first: the request
+    ///     rebuilds Steam's whole front-end, and that rebuild must see stock client state (see
+    ///     <c>ShellSession.PrepareSteamUiForBigPictureAsync</c>).
+    /// </summary>
+    internal Func<Task>? PrepareSteamUiForBigPictureAsync { get; set; }
+
+    /// <summary>
+    ///     Invoked when a transition worker that may have requested Big Picture has settled,
+    ///     on every outcome path, so the owner can lift the hold above. Idempotent by contract; also
+    ///     invoked by transitions that never fired the request.
+    /// </summary>
+    internal Action? SteamUiBigPictureRequestSettled { get; set; }
+
+    /// <summary>
+    ///     The displays, plugin actions and splash half of the entry transaction. Null in
+    ///     overlay-test mode, where entry runs its Default posture only.
+    /// </summary>
+    internal IGameModeEntryServices? GameModeEntryServices { get; set; }
+
+    /// <summary>
+    ///     Invoked once an entry transaction has settled, on every outcome, so the owner can
+    ///     dismiss the splash. Idempotent by contract.
+    /// </summary>
+    internal Action? GameModeEntrySettled { get; set; }
+
+    internal Action? DesktopReady { get; set; }
+    internal Func<bool>? IsGameMode { get; set; }
+
+    /// <summary>
+    ///     Whether the user closed Steam deliberately. The monitor's pause only covers a
+    ///     transition, so this is what keeps the desktop session from starting Steam straight back up
+    ///     after an explicit Close Steam. Cleared by any request that wants Steam running again.
+    /// </summary>
+    public bool SteamClosedByUser => Volatile.Read(ref _steamClosedByUser) != 0;
+
+    /// <summary>
+    ///     True while explorer is being brought up or down (mode switch or the
+    ///     boot takeover). Mode-switch requests arriving in that window are ignored —
+    ///     two concurrent explorer transitions produced exactly the device-observed
+    ///     mess of duplicate shutdowns and refused tray hosts (2026-08-07).
+    /// </summary>
+    public bool TransitionInProgress => Volatile.Read(ref _explorerTransition) != 0;
+
+    /// <summary>
+    ///     Raised (on the caller's thread) when <see cref="StartOrFocusSteam" />
+    ///     could not bring Steam up, with the user-facing warning text.
+    /// </summary>
+    public event Action<string>? SteamStartFailed;
+
+    /// <summary>
+    ///     Raised (on the UI thread — the transition posts back there after the
+    ///     off-thread Big Picture close) during a desktop-mode transition, after Steam
+    ///     left Big Picture but BEFORE explorer starts. Listeners that own per-game-mode
+    ///     resources which must not coexist with explorer (the tray host's Shell_TrayWnd
+    ///     — explorer's taskbar creates its own) tear down here.
+    /// </summary>
+    public event Action? DesktopModeStarting;
+
+    /// <summary>
+    ///     Raised (on the UI thread — the transition completes there after the
+    ///     off-thread explorer shutdown) after a game-mode transition has removed
+    ///     explorer from the session. Listeners recreate per-game-mode resources
+    ///     (tray host) here.
+    /// </summary>
+    public event Action? GameModeEntered;
+
+    /// <summary>Surfaces a shell-transition warning through the overlay's existing warning path.</summary>
+    internal void ReportWarning(string warning)
+    {
+        SteamStartFailed?.Invoke(warning);
+    }
+
+    /// <summary>
+    ///     Applies a freshly loaded config (settings saved in another process).
+    ///     Reloads replace the config wholesale, so no runtime state may live on it.
+    /// </summary>
     public void ApplyConfig(AppConfig config)
     {
         _config = config;
     }
 
-    /// <summary>Applies game mode's 100% display scaling. Windows exclusively
-    /// owns device posture and touch-keyboard policy.</summary>
+    /// <summary>
+    ///     Applies game mode's 100% display scaling. Windows exclusively
+    ///     owns device posture and touch-keyboard policy.
+    /// </summary>
     public void ApplyGameModePosture()
     {
         DisplayScale.ApplyGameMode(_config);
     }
 
-    /// <summary>Brings up the game-mode surfaces and lets the Steam monitor react again. Called on
-    /// the UI thread once the entry transaction has committed.</summary>
+    /// <summary>
+    ///     Brings up the game-mode surfaces and lets the Steam monitor react again. Called on
+    ///     the UI thread once the entry transaction has committed.
+    /// </summary>
     internal void CommitGameMode()
     {
         GameModeEntered?.Invoke();
         _monitor?.Paused = false;
     }
 
-    private int _explorerTransition;
-    private int _shutdownRequested;
-    private int _steamClosedByUser;
-
-    /// <summary>Whether the user closed Steam deliberately. The monitor's pause only covers a
-    /// transition, so this is what keeps the desktop session from starting Steam straight back up
-    /// after an explicit Close Steam. Cleared by any request that wants Steam running again.</summary>
-    public bool SteamClosedByUser => Volatile.Read(ref _steamClosedByUser) != 0;
-
-    /// <summary>True while explorer is being brought up or down (mode switch or the
-    /// boot takeover). Mode-switch requests arriving in that window are ignored —
-    /// two concurrent explorer transitions produced exactly the device-observed
-    /// mess of duplicate shutdowns and refused tray hosts (2026-08-07).</summary>
-    public bool TransitionInProgress => Volatile.Read(ref _explorerTransition) != 0;
-
-    /// <summary>Marks an explorer transition as running (boot takeover uses this
-    /// directly; the mode switches go through <see cref="TryBeginTransition"/>).</summary>
-    internal void BeginTransition() => Volatile.Write(ref _explorerTransition, 1);
+    /// <summary>
+    ///     Marks an explorer transition as running (boot takeover uses this
+    ///     directly; the mode switches go through <see cref="TryBeginTransition" />).
+    /// </summary>
+    internal void BeginTransition()
+    {
+        Volatile.Write(ref _explorerTransition, 1);
+    }
 
     /// <summary>Clears the transition flag. Always pair with Begin/TryBegin.</summary>
-    internal void EndTransition() => Volatile.Write(ref _explorerTransition, 0);
+    internal void EndTransition()
+    {
+        Volatile.Write(ref _explorerTransition, 0);
+    }
 
     /// <summary>Prevents another shell transition from starting during application teardown.</summary>
     internal void RequestShutdown()
@@ -169,8 +228,10 @@ public sealed class SessionModes
         CancelGameModeEntry();
     }
 
-    /// <summary>Waits for the one already-running shell transition to leave its Explorer and UI
-    /// boundaries. The application shutdown coordinator supplies the sole outer deadline.</summary>
+    /// <summary>
+    ///     Waits for the one already-running shell transition to leave its Explorer and UI
+    ///     boundaries. The application shutdown coordinator supplies the sole outer deadline.
+    /// </summary>
     internal async Task WaitForTransitionAsync()
     {
         while (TransitionInProgress)
@@ -186,26 +247,31 @@ public sealed class SessionModes
             Log.Warn($"Ignoring {reason}: application shutdown is in progress.");
             return false;
         }
+
         if (Interlocked.CompareExchange(ref _explorerTransition, 1, 0) != 0)
         {
             Log.Warn($"Ignoring {reason}: an explorer transition is already in progress.");
             return false;
         }
+
         if (Volatile.Read(ref _shutdownRequested) == 0)
         {
             return true;
         }
+
         EndTransition();
         Log.Warn($"Ignoring {reason}: application shutdown is in progress.");
         return false;
     }
 
-    /// <summary>Desktop mode: stop reacting to Steam (no auto-relaunch, no overlay
-    /// pop), drop Steam out of Big Picture, bring the desktop up. Returns
-    /// immediately — the blocking Big Picture close, display-scale restore and
-    /// explorer start run off the UI thread so the overlay never freezes; only the
-    /// monitor pause (before anything can react to Steam leaving) and
-    /// <see cref="DesktopModeStarting"/> stay UI-thread work.</summary>
+    /// <summary>
+    ///     Desktop mode: stop reacting to Steam (no auto-relaunch, no overlay
+    ///     pop), drop Steam out of Big Picture, bring the desktop up. Returns
+    ///     immediately — the blocking Big Picture close, display-scale restore and
+    ///     explorer start run off the UI thread so the overlay never freezes; only the
+    ///     monitor pause (before anything can react to Steam leaving) and
+    ///     <see cref="DesktopModeStarting" /> stay UI-thread work.
+    /// </summary>
     public void EnterDesktopMode()
     {
         var desktopHost = _desktopHost;
@@ -214,24 +280,40 @@ public sealed class SessionModes
             Log.Info("Ignoring desktop-mode switch in preview-only SessionModes.");
             return;
         }
+
         if (_entryCancellation is not null)
         {
             Interlocked.Exchange(ref _desktopRequested, 1);
             CancelGameModeEntry();
             return;
         }
-        if (_desktopReturnComplete) { return; }
+
+        if (_desktopReturnComplete)
+        {
+            return;
+        }
+
         if (!TryBeginTransition("desktop-mode switch"))
         {
             return;
         }
+
         Log.Info("Entering desktop mode.");
         _monitor?.Paused = true;
         _ = Task.Run(async () =>
         {
-            try { await ReturnToDesktopAsync(null, runLeaveActions: true).ConfigureAwait(false); }
-            catch (Exception ex) { Log.Error("Desktop-mode transition failed", ex); }
-            finally { EndTransition(); }
+            try
+            {
+                await ReturnToDesktopAsync(null, true).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Desktop-mode transition failed", ex);
+            }
+            finally
+            {
+                EndTransition();
+            }
         });
     }
 
@@ -251,66 +333,34 @@ public sealed class SessionModes
             {
                 _desktopReturnComplete = restored && warnings.Count == 0;
                 _monitor?.Paused = !restored;
-                if (restored) { EnsureSteamDesktop(); }
-                else { warnings.Add(ExplorerDesktopPendingWarning); }
-                if (warnings.Count > 0) { SteamStartFailed?.Invoke(string.Join(" ", warnings)); }
+                if (restored)
+                {
+                    EnsureSteamDesktop();
+                }
+                else
+                {
+                    warnings.Add(ExplorerDesktopPendingWarning);
+                }
+
+                if (warnings.Count > 0)
+                {
+                    SteamStartFailed?.Invoke(string.Join(" ", warnings));
+                }
             });
         }
-        finally { SteamUiBigPictureRequestSettled?.Invoke(); }
+        finally
+        {
+            SteamUiBigPictureRequestSettled?.Invoke();
+        }
+
         return restored;
     }
 
-    private sealed class DesktopReturnBackend(
-        SessionModes modes, ExplorerDesktopHost host, DisplayLayout? layout,
-        List<string> warnings) : IDesktopReturnBackend
-    {
-        public Task ExitBigPictureAsync()
-        {
-            ExitBigPicture();
-            return Task.CompletedTask;
-        }
-        public async Task<bool> RestoreLayoutAsync()
-        {
-            DisplayScale.ApplyDesktopMode(modes._config);
-            if (modes.GameModeEntryServices is not { } services) { return true; }
-            if (layout is not null)
-            {
-                var result = await services.ApplyLayoutAsync(layout, CancellationToken.None)
-                    .ConfigureAwait(false);
-                if (!result.Applied) { warnings.Add("Desktop display layout: " + result.Detail); }
-                return result.Applied;
-            }
-            var warning = await services.ApplyReturnLayoutAsync().ConfigureAwait(false);
-            if (warning is not null) { warnings.Add(warning); }
-            return warning is null;
-        }
-        public async Task RetireGameModeAsync() =>
-            await Dispatcher.UIThread.InvokeAsync(() => modes.DesktopModeStarting?.Invoke());
-        public async Task<bool> RestoreExplorerAsync()
-        {
-            var result = await RestoreDesktopSafelyAsync(host, "Explorer desktop restoration failed")
-                .ConfigureAwait(false);
-            var restored = result.Outcome is not ExplorerDesktopOutcome.Failed;
-            if (restored)
-            {
-                await Dispatcher.UIThread.InvokeAsync(() => modes.DesktopReady?.Invoke());
-            }
-            return restored;
-        }
-        public async Task RunLeaveActionsAsync()
-        {
-            if (modes.GameModeEntryServices is not { } services) { return; }
-            var steps = await services.RunLeaveActionsAsync().ConfigureAwait(false);
-            warnings.AddRange(steps.Where(step => !step.Succeeded)
-                .Select(step => "Leave Game Mode action: " + step.Detail));
-        }
-        public Task ClearPendingReturnAsync() =>
-            modes.GameModeEntryServices?.PersistPendingReturnAsync(null) ?? Task.CompletedTask;
-    }
-
-    /// <summary>Starts the windowed Steam client a desktop session is expected to have, so it
-    /// inherits WSGM's integrity instead of the user's own autostart. No-op while shutting down,
-    /// when Steam already runs, or after the user closed Steam deliberately.</summary>
+    /// <summary>
+    ///     Starts the windowed Steam client a desktop session is expected to have, so it
+    ///     inherits WSGM's integrity instead of the user's own autostart. No-op while shutting down,
+    ///     when Steam already runs, or after the user closed Steam deliberately.
+    /// </summary>
     public void EnsureSteamDesktop()
     {
         if (Volatile.Read(ref _shutdownRequested) != 0)
@@ -318,15 +368,18 @@ public sealed class SessionModes
             Log.Info("Ignoring desktop Steam start: application shutdown is in progress.");
             return;
         }
+
         if (Volatile.Read(ref _steamClosedByUser) != 0)
         {
             Log.Info("Skipping desktop Steam start: Steam was closed deliberately.");
             return;
         }
+
         if (Steam.IsRunning)
         {
             return;
         }
+
         if (!Steam.IsInstalled)
         {
             Log.Warn("Desktop Steam start skipped: no Steam installation was detected.");
@@ -341,12 +394,13 @@ public sealed class SessionModes
         }
     }
 
-    /// <summary>Game mode: runs the entry transaction on a worker and returns immediately.
-    ///
-    /// Monitoring stays paused and game-mode resources are not created until Explorer is verifiably
-    /// gone. Every step before that exit is undoable and cancellable; see
-    /// <see cref="GameModeEntryTransaction"/> for the order and why Big Picture now follows the
-    /// exit rather than preceding it.</summary>
+    /// <summary>
+    ///     Game mode: runs the entry transaction on a worker and returns immediately.
+    ///     Monitoring stays paused and game-mode resources are not created until Explorer is verifiably
+    ///     gone. Every step before that exit is undoable and cancellable; see
+    ///     <see cref="GameModeEntryTransaction" /> for the order and why Big Picture now follows the
+    ///     exit rather than preceding it.
+    /// </summary>
     public void EnterGameMode()
     {
         var desktopHost = _desktopHost;
@@ -355,11 +409,18 @@ public sealed class SessionModes
             Log.Info("Ignoring game-mode switch in preview-only SessionModes.");
             return;
         }
-        if (IsGameMode?.Invoke() == true) { StartOrFocusSteam(); return; }
+
+        if (IsGameMode?.Invoke() == true)
+        {
+            StartOrFocusSteam();
+            return;
+        }
+
         if (!TryBeginTransition("game-mode switch"))
         {
             return;
         }
+
         _desktopReturnComplete = false;
         Log.Info("Entering game mode.");
         // Desktop mode already pauses it, but make the transition transactional:
@@ -373,7 +434,8 @@ public sealed class SessionModes
             var entered = false;
             try
             {
-                GameModeEntryTransaction transaction = new(backend, GameModeEntryServices?.ReadLaunch() ?? new GameModeLaunchConfiguration());
+                GameModeEntryTransaction transaction = new(backend,
+                    GameModeEntryServices?.ReadLaunch() ?? new GameModeLaunchConfiguration());
                 var result = await transaction.RunAsync(cancellation.Token).ConfigureAwait(false);
                 entered = result.Outcome == GameModeEntryOutcome.Entered;
                 if (result.Warning is { } warning)
@@ -409,18 +471,27 @@ public sealed class SessionModes
         });
     }
 
-    /// <summary>Requests desktop recovery from an active entry. An in-flight Explorer/display
-    /// operation settles first, then cancellation returns through the shared recovery sequence.</summary>
+    /// <summary>
+    ///     Requests desktop recovery from an active entry. An in-flight Explorer/display
+    ///     operation settles first, then cancellation returns through the shared recovery sequence.
+    /// </summary>
     internal void CancelGameModeEntry()
     {
-        try { _entryCancellation?.Cancel(); }
-        catch (ObjectDisposedException) { }
+        try
+        {
+            _entryCancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
-    /// <summary>Runs the verified desktop restore, converting an exception into the fail-open
-    /// result. The exception may have happened after an anchor/scheduler launch crossed its
-    /// boundary, so it reports the launch as dispatched — Unknown is unsafe for recreating a
-    /// competing Shell_TrayWnd.</summary>
+    /// <summary>
+    ///     Runs the verified desktop restore, converting an exception into the fail-open
+    ///     result. The exception may have happened after an anchor/scheduler launch crossed its
+    ///     boundary, so it reports the launch as dispatched — Unknown is unsafe for recreating a
+    ///     competing Shell_TrayWnd.
+    /// </summary>
     private static async Task<ExplorerDesktopResult> RestoreDesktopSafelyAsync(
         ExplorerDesktopHost desktopHost,
         string failureContext)
@@ -439,14 +510,16 @@ public sealed class SessionModes
                 0,
                 0,
                 ex.Message,
-                launchDispatched: true,
-                shellSurfacePresent: false,
-                elapsed: TimeSpan.Zero);
+                true,
+                false,
+                TimeSpan.Zero);
         }
     }
 
-    /// <summary>Asks Steam to leave Big Picture (Steam keeps running). No-op if
-    /// Steam isn't running.</summary>
+    /// <summary>
+    ///     Asks Steam to leave Big Picture (Steam keeps running). No-op if
+    ///     Steam isn't running.
+    /// </summary>
     public static void ExitBigPicture()
     {
         // Live check, not the up-to-5 s-stale monitor poll: entering desktop mode
@@ -455,12 +528,15 @@ public sealed class SessionModes
         {
             return;
         }
+
         Log.Info("Exiting Steam Big Picture.");
         AppLauncher.StartProtocol(Steam.CloseBigPictureUrl);
     }
 
-    /// <summary>Deliberately stops Steam (graceful steam://exit). Pauses the monitor
-    /// first so neither auto-relaunch nor the exit-overlay reaction fires.</summary>
+    /// <summary>
+    ///     Deliberately stops Steam (graceful steam://exit). Pauses the monitor
+    ///     first so neither auto-relaunch nor the exit-overlay reaction fires.
+    /// </summary>
     public void CloseSteam()
     {
         Volatile.Write(ref _steamClosedByUser, 1);
@@ -469,10 +545,12 @@ public sealed class SessionModes
         AppLauncher.StartProtocol(Steam.ExitUrl);
     }
 
-    /// <summary>Start and focus are the same operation: steam://open/bigpicture
-    /// re-activates a running Big Picture (UIPI-proof) and boots Steam when it
-    /// isn't running. Re-arms the monitor (desktop mode and close-Steam pause it).
-    /// Failures surface through <see cref="SteamStartFailed"/>.</summary>
+    /// <summary>
+    ///     Start and focus are the same operation: steam://open/bigpicture
+    ///     re-activates a running Big Picture (UIPI-proof) and boots Steam when it
+    ///     isn't running. Re-arms the monitor (desktop mode and close-Steam pause it).
+    ///     Failures surface through <see cref="SteamStartFailed" />.
+    /// </summary>
     public void StartOrFocusSteam()
     {
         if (Volatile.Read(ref _shutdownRequested) != 0)
@@ -480,6 +558,7 @@ public sealed class SessionModes
             Log.Info("Ignoring Steam start/focus: application shutdown is in progress.");
             return;
         }
+
         Volatile.Write(ref _steamClosedByUser, 0);
         _monitor?.Paused = false;
         if (_monitor?.IsAlive == true)
@@ -507,13 +586,6 @@ public sealed class SessionModes
         }
     }
 
-    /// <summary>Requests or focuses Big Picture without changing monitor state.
-    /// The serialized game-mode transition uses this while the monitor remains
-    /// paused, so it must not take the unrelated Home-button cooldown.</summary>
-    /// <summary>How long the Steam UI retraction may delay the Big Picture request. Bounded so a
-    /// broken CEF session can never block the mode switch itself.</summary>
-    private static readonly TimeSpan SteamUiPrepareTimeout = TimeSpan.FromSeconds(5);
-
     internal async Task<string?> RequestBigPictureWhilePausedAsync()
     {
         Volatile.Write(ref _steamClosedByUser, 0);
@@ -532,7 +604,7 @@ public sealed class SessionModes
                 else
                 {
                     Log.Warn("Steam UI retraction did not finish before the Big Picture request; "
-                        + "continuing with the transition.");
+                             + "continuing with the transition.");
                 }
             }
             catch (Exception ex)
@@ -540,6 +612,7 @@ public sealed class SessionModes
                 Log.Warn($"Steam UI retraction before the Big Picture request failed: {ex.Message}");
             }
         }
+
         // Live check, not the up-to-5 s-stale monitor poll: a desktop session leaves Steam running
         // windowed, so the protocol has to re-activate that client into Big Picture rather than
         // start a second cold one.
@@ -547,13 +620,16 @@ public sealed class SessionModes
         {
             return StartBigPicture();
         }
-        FocusSteam(force: true);
+
+        FocusSteam(true);
         return null;
     }
 
-    /// <summary>The one Steam start + warning flow (shared by boot and the overlay):
-    /// install check, then Big Picture launch. Returns the user-facing warning to
-    /// surface, or null on success.</summary>
+    /// <summary>
+    ///     The one Steam start + warning flow (shared by boot and the overlay):
+    ///     install check, then Big Picture launch. Returns the user-facing warning to
+    ///     surface, or null on success.
+    /// </summary>
     public string? StartBigPicture()
     {
         if (Volatile.Read(ref _shutdownRequested) != 0)
@@ -561,11 +637,13 @@ public sealed class SessionModes
             Log.Info("Ignoring Big Picture start: application shutdown is in progress.");
             return null;
         }
+
         if (!Steam.IsInstalled)
         {
             Log.Warn("Steam is not installed — showing overlay instead.");
             return SteamNotFoundWarning;
         }
+
         Log.Info("Starting Steam Big Picture.");
         // Read at launch time, not captured: a config reload replaces _config wholesale, and both
         // the cold start and the auto-relaunch after Steam exits come through here.
@@ -574,8 +652,10 @@ public sealed class SessionModes
     }
 
     /// <summary>Brings Steam Big Picture to the foreground when the monitor sees it alive.</summary>
-    /// <param name="force">Whether to skip the monitor's up-to-5 s-stale liveness poll because the
-    /// caller has already established that Steam is running.</param>
+    /// <param name="force">
+    ///     Whether to skip the monitor's up-to-5 s-stale liveness poll because the
+    ///     caller has already established that Steam is running.
+    /// </param>
     public void FocusSteam(bool force = false)
     {
         if (Volatile.Read(ref _shutdownRequested) != 0)
@@ -583,6 +663,7 @@ public sealed class SessionModes
             Log.Info("Ignoring Steam focus: application shutdown is in progress.");
             return;
         }
+
         if (force || _monitor?.IsAlive == true)
         {
             // Protocol re-activation self-focuses even against an elevated target.
@@ -599,6 +680,7 @@ public sealed class SessionModes
                 Log.Warn("Skipping duplicate home-app start request.");
                 return false;
             }
+
             _homeLaunchInProgress = true;
             return true;
         }
@@ -613,4 +695,80 @@ public sealed class SessionModes
         }
     }
 
+    private sealed class DesktopReturnBackend(
+        SessionModes modes,
+        ExplorerDesktopHost host,
+        DisplayLayout? layout,
+        List<string> warnings) : IDesktopReturnBackend
+    {
+        public Task ExitBigPictureAsync()
+        {
+            ExitBigPicture();
+            return Task.CompletedTask;
+        }
+
+        public async Task<bool> RestoreLayoutAsync()
+        {
+            DisplayScale.ApplyDesktopMode(modes._config);
+            if (modes.GameModeEntryServices is not { } services)
+            {
+                return true;
+            }
+
+            if (layout is not null)
+            {
+                var result = await services.ApplyLayoutAsync(layout, CancellationToken.None)
+                    .ConfigureAwait(false);
+                if (!result.Applied)
+                {
+                    warnings.Add("Desktop display layout: " + result.Detail);
+                }
+
+                return result.Applied;
+            }
+
+            var warning = await services.ApplyReturnLayoutAsync().ConfigureAwait(false);
+            if (warning is not null)
+            {
+                warnings.Add(warning);
+            }
+
+            return warning is null;
+        }
+
+        public async Task RetireGameModeAsync()
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => modes.DesktopModeStarting?.Invoke());
+        }
+
+        public async Task<bool> RestoreExplorerAsync()
+        {
+            var result = await RestoreDesktopSafelyAsync(host, "Explorer desktop restoration failed")
+                .ConfigureAwait(false);
+            var restored = result.Outcome is not ExplorerDesktopOutcome.Failed;
+            if (restored)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => modes.DesktopReady?.Invoke());
+            }
+
+            return restored;
+        }
+
+        public async Task RunLeaveActionsAsync()
+        {
+            if (modes.GameModeEntryServices is not { } services)
+            {
+                return;
+            }
+
+            var steps = await services.RunLeaveActionsAsync().ConfigureAwait(false);
+            warnings.AddRange(steps.Where(step => !step.Succeeded)
+                .Select(step => "Leave Game Mode action: " + step.Detail));
+        }
+
+        public Task ClearPendingReturnAsync()
+        {
+            return modes.GameModeEntryServices?.PersistPendingReturnAsync(null) ?? Task.CompletedTask;
+        }
+    }
 }

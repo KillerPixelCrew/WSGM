@@ -18,8 +18,8 @@ public class App : Application
     // Deliberate root for the headless shell session — without it the session
     // (and its config watcher) would survive only via incidental GC reachability.
     private ShellSession? _session;
-    private bool _shutdownInProgress;
     private bool _sessionStopped;
+    private bool _shutdownInProgress;
     private ApplicationShutdownOutcome? _shutdownOutcome;
 
     /// <inheritdoc />
@@ -45,13 +45,14 @@ public class App : Application
                     // No main window — the shell session runs headless until the
                     // overlay is summoned. Keep the app alive explicitly.
                     desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-                    _session = new ShellSession(config, serviceBoot: Program.ServiceBoot, desktopResident: Program.DesktopResident);
+                    _session = new ShellSession(config, serviceBoot: Program.ServiceBoot,
+                        desktopResident: Program.DesktopResident);
                     _ = ObserveSessionStartupAsync(_session.StartAsync(), desktop);
                     break;
 
                 case RunMode.OverlayTest:
                     desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-                    _session = new ShellSession(config, overlayTestOnly: true);
+                    _session = new ShellSession(config, true);
                     _ = ObserveSessionStartupAsync(_session.StartAsync(), desktop);
                     break;
 
@@ -64,6 +65,7 @@ public class App : Application
                     break;
             }
         }
+
         base.OnFrameworkInitializationCompleted();
     }
 

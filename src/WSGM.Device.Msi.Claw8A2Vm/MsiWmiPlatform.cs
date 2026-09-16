@@ -19,8 +19,9 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
     private readonly SemaphoreSlim _serializer = new(1, 1);
     private bool _disposed;
 
-    public ValueTask<bool> IsProviderAvailableAsync(CancellationToken cancellationToken) =>
-        RunSerializedAsync(
+    public ValueTask<bool> IsProviderAvailableAsync(CancellationToken cancellationToken)
+    {
+        return RunSerializedAsync(
             static () =>
             {
                 using ManagementClass definition = new("root\\WMI", "MSI_ACPI", null);
@@ -33,6 +34,7 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
                 return instance is not null;
             },
             cancellationToken);
+    }
 
     public ValueTask<byte[]> InvokeGetterAsync(
         string methodName,
@@ -75,7 +77,10 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
             },
             cancellationToken));
 
-        static async ValueTask Complete(ValueTask<bool> pending) => _ = await pending.ConfigureAwait(false);
+        static async ValueTask Complete(ValueTask<bool> pending)
+        {
+            _ = await pending.ConfigureAwait(false);
+        }
     }
 
     public ValueTask DisposeAsync()
@@ -191,7 +196,8 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
             {
                 candidate.Dispose();
                 found.Dispose();
-                throw new InvalidDataException("The reviewed definition requires exactly one active MSI_ACPI instance.");
+                throw new InvalidDataException(
+                    "The reviewed definition requires exactly one active MSI_ACPI instance.");
             }
 
             found = (ManagementObject)candidate;
@@ -210,10 +216,10 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
 
 internal sealed class WindowsClawIdentityReader : IClawIdentityReader
 {
-    private readonly IMsiWmiTransport _wmi;
     private readonly Func<DeviceIdentitySnapshot> _readBaseIdentity;
     private readonly Func<IReadOnlyList<UsbEndpointObservation>> _readControllerEndpoints;
     private readonly Func<bool> _readOnAcPower;
+    private readonly IMsiWmiTransport _wmi;
 
     public WindowsClawIdentityReader(IMsiWmiTransport wmi)
         : this(wmi, ReadBaseMachineIdentity, ReadControllerEndpoints, ReadOnAcPower)
@@ -229,7 +235,7 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
         _wmi = wmi ?? throw new ArgumentNullException(nameof(wmi));
         _readBaseIdentity = readBaseIdentity ?? throw new ArgumentNullException(nameof(readBaseIdentity));
         _readControllerEndpoints = readControllerEndpoints
-            ?? throw new ArgumentNullException(nameof(readControllerEndpoints));
+                                   ?? throw new ArgumentNullException(nameof(readControllerEndpoints));
         _readOnAcPower = readOnAcPower ?? throw new ArgumentNullException(nameof(readOnAcPower));
     }
 
@@ -288,9 +294,10 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
                 // The full field is still what the snapshot carries, because the build stamp is
                 // exactly the sort of thing a remote diagnosis needs and nothing else records it.
                 wmiFirmwareVerified = wmiVersion[2] == 8
-                    && wmiVersion[3] == 0
-                    && ecFirmware is not null
-                    && ecFirmware.StartsWith(ClawHardwareFacts.EcFirmware, StringComparison.OrdinalIgnoreCase);
+                                      && wmiVersion[3] == 0
+                                      && ecFirmware is not null
+                                      && ecFirmware.StartsWith(ClawHardwareFacts.EcFirmware,
+                                          StringComparison.OrdinalIgnoreCase);
             }
         }
         // InvalidDataException is in this list because this class throws it: an invalid Package_32
@@ -300,8 +307,8 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
         // motion and OEM services included, none of which need WMI — instead of degrading the
         // WMI-backed power and fan capabilities alone.
         catch (Exception ex) when (ex is ManagementException or IOException
-            or InvalidDataException or UnauthorizedAccessException
-            || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
+                                       or InvalidDataException or UnauthorizedAccessException
+                                   || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
         {
             // A permissions refusal, a missing instance and a malformed response all became this
             // one flag, and all three reached the user as the same partially-available device.
@@ -320,7 +327,8 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
         var mcuFirmwareVerified = snapshot.UsbEndpoints.Any(endpoint =>
             string.Equals(endpoint.VendorId, ClawHardwareFacts.UsbVendorId, StringComparison.OrdinalIgnoreCase)
             && IsControllerProduct(endpoint.ProductId)
-            && string.Equals(endpoint.DeviceRelease, ClawHardwareFacts.McuFirmware, StringComparison.OrdinalIgnoreCase));
+            && string.Equals(endpoint.DeviceRelease, ClawHardwareFacts.McuFirmware,
+                StringComparison.OrdinalIgnoreCase));
 
         bool onAcPower;
         try
@@ -329,8 +337,8 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
                 .WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is ManagementException or IOException
-            or InvalidDataException or UnauthorizedAccessException or COMException
-            || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
+                                       or InvalidDataException or UnauthorizedAccessException or COMException
+                                   || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
         {
             PluginTrace.Failure("power", "AC-power observation failed", ex);
             onAcPower = false;
@@ -346,10 +354,14 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
         };
     }
 
-    internal static bool IsExactMachine(DeviceIdentitySnapshot identity) =>
-        string.Equals(identity.SystemManufacturer, ClawHardwareFacts.Manufacturer, StringComparison.OrdinalIgnoreCase)
-        && string.Equals(identity.BaseboardProduct, ClawHardwareFacts.BoardProduct, StringComparison.OrdinalIgnoreCase)
-        && string.Equals(identity.SystemSku, ClawHardwareFacts.SystemSku, StringComparison.OrdinalIgnoreCase);
+    internal static bool IsExactMachine(DeviceIdentitySnapshot identity)
+    {
+        return string.Equals(identity.SystemManufacturer, ClawHardwareFacts.Manufacturer,
+                   StringComparison.OrdinalIgnoreCase)
+               && string.Equals(identity.BaseboardProduct, ClawHardwareFacts.BoardProduct,
+                   StringComparison.OrdinalIgnoreCase)
+               && string.Equals(identity.SystemSku, ClawHardwareFacts.SystemSku, StringComparison.OrdinalIgnoreCase);
+    }
 
     private static DeviceIdentitySnapshot ReadBaseMachineIdentity()
     {
@@ -415,7 +427,7 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
         using ManagementObjectSearcher searcher = new(scope, query);
         using var candidates = searcher.Get();
         return candidates.Cast<ManagementObject>().FirstOrDefault()
-            ?? throw new FileNotFoundException($"Inventory query returned no rows: {query}");
+               ?? throw new FileNotFoundException($"Inventory query returned no rows: {query}");
     }
 
     private static bool ReadOnAcPower()
@@ -446,8 +458,11 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
         return result.All(Uri.IsHexDigit) ? result.ToUpperInvariant() : null;
     }
 
-    private static bool IsControllerProduct(string value) => value is
-        ClawHardwareFacts.XInputProductId or ClawHardwareFacts.DirectInputProductId;
+    private static bool IsControllerProduct(string value)
+    {
+        return value is
+            ClawHardwareFacts.XInputProductId or ClawHardwareFacts.DirectInputProductId;
+    }
 
     private static string? DecodeEcFirmware(byte[] response)
     {
@@ -471,8 +486,8 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
 internal sealed class MsiOemEventSource : IMsiOemEventSource
 {
     private readonly Lock _gate = new();
-    private ManagementEventWatcher? _watcher;
     private Func<byte, DateTimeOffset, ValueTask>? _callback;
+    private ManagementEventWatcher? _watcher;
 
     public ValueTask<bool> StartAsync(
         Func<byte, DateTimeOffset, ValueTask> callback,
@@ -538,7 +553,10 @@ internal sealed class MsiOemEventSource : IMsiOemEventSource
         return ValueTask.CompletedTask;
     }
 
-    public async ValueTask DisposeAsync() => await StopAsync(CancellationToken.None).ConfigureAwait(false);
+    public async ValueTask DisposeAsync()
+    {
+        await StopAsync(CancellationToken.None).ConfigureAwait(false);
+    }
 
     private void OnEventArrived(object sender, EventArrivedEventArgs args)
     {

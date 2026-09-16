@@ -10,24 +10,24 @@ namespace WSGM.Settings;
 
 /// <summary>One editable plugin setting on the plugin settings page.</summary>
 /// <remarks>
-/// One row type for every value kind rather than a type per kind, because the page templates by
-/// visibility: each control binds to the one property its kind uses and shows itself through the
-/// matching <c>Is…</c> flag. Keeping that shape in one row also keeps refresh and edit publication
-/// identical for every setting kind.
-/// <para>
-/// The row never writes to the device or to configuration. It reports an edit and the owning page
-/// decides what to do with it, which keeps the Settings/overlay boundary intact — a setting
-/// configures how the plugin behaves and WSGM keeps the value.
-/// </para>
+///     One row type for every value kind rather than a type per kind, because the page templates by
+///     visibility: each control binds to the one property its kind uses and shows itself through the
+///     matching <c>Is…</c> flag. Keeping that shape in one row also keeps refresh and edit publication
+///     identical for every setting kind.
+///     <para>
+///         The row never writes to the device or to configuration. It reports an edit and the owning page
+///         decides what to do with it, which keeps the Settings/overlay boundary intact — a setting
+///         configures how the plugin behaves and WSGM keeps the value.
+///     </para>
 /// </remarks>
 public sealed class PluginSettingRowViewModel : ObservableObject
 {
     private readonly PluginSettingDescriptor _descriptor;
     private bool _booleanValue;
-    private int _integerValue;
     private int _colorValue;
-    private string _textValue = string.Empty;
+    private int _integerValue;
     private PluginSettingChoiceViewModel? _selectedChoice;
+    private string _textValue = string.Empty;
 
     /// <summary>Creates a row for one declared setting.</summary>
     /// <param name="descriptor">The plugin's declaration.</param>
@@ -48,16 +48,13 @@ public sealed class PluginSettingRowViewModel : ObservableObject
         Adopt(value);
     }
 
-    /// <summary>Raised after an edit, carrying the setting id and its new value.</summary>
-    public event Action<string, CapabilityValue>? Edited;
-
     /// <summary>The declared setting this row edits.</summary>
     public string SettingId => _descriptor.SettingId;
 
     /// <summary>Label text. A custom label is bounded plugin-supplied plain text.</summary>
     /// <remarks>
-    /// Rendered as text and never as markup. <see cref="CapabilityDisplay"/> already bounds and
-    /// validates it; this only chooses between the localized key and the custom string.
+    ///     Rendered as text and never as markup. <see cref="CapabilityDisplay" /> already bounds and
+    ///     validates it; this only chooses between the localized key and the custom string.
     /// </remarks>
     public string Label => DisplayLabel(_descriptor.Display, _descriptor.SettingId);
 
@@ -231,12 +228,15 @@ public sealed class PluginSettingRowViewModel : ObservableObject
         }
     }
 
+    /// <summary>Raised after an edit, carrying the setting id and its new value.</summary>
+    public event Action<string, CapabilityValue>? Edited;
+
     /// <summary>Replaces the shown value without reporting an edit.</summary>
     /// <param name="value">The value to adopt.</param>
     /// <remarks>
-    /// Used when the page refreshes from configuration. It must not raise <see cref="Edited"/>, or a
-    /// refresh would write the value it just read straight back and every reload would look like a
-    /// user edit in the log.
+    ///     Used when the page refreshes from configuration. It must not raise <see cref="Edited" />, or a
+    ///     refresh would write the value it just read straight back and every reload would look like a
+    ///     user edit in the log.
     /// </remarks>
     public void Adopt(CapabilityValue value)
     {
@@ -245,8 +245,8 @@ public sealed class PluginSettingRowViewModel : ObservableObject
         _integerValue = value.IntegerValue ?? Minimum;
         _colorValue = (value.ColorValue ?? 0) & 0xFFFFFF;
         _textValue = value.TextValue ?? string.Empty;
-        _selectedChoice = Choices.FirstOrDefault(
-            choice => string.Equals(choice.Value, value.ChoiceValue, StringComparison.Ordinal));
+        _selectedChoice = Choices.FirstOrDefault(choice =>
+            string.Equals(choice.Value, value.ChoiceValue, StringComparison.Ordinal));
         Raise(nameof(BooleanValue));
         Raise(nameof(IntegerValue));
         Raise(nameof(PickerColor));
@@ -255,35 +255,40 @@ public sealed class PluginSettingRowViewModel : ObservableObject
         Raise(nameof(SelectedChoice));
     }
 
-    private static string DisplayLabel(CapabilityDisplay display, string fallback) => display.Key switch
+    private static string DisplayLabel(CapabilityDisplay display, string fallback)
     {
-        DisplayKey.Custom => display.CustomLabel ?? fallback,
-        DisplayKey.Tdp => "TDP",
-        DisplayKey.SustainedPowerLimit => "Sustained power limit",
-        DisplayKey.BoostPowerLimit => "Boost power limit",
-        DisplayKey.PerformanceProfile => "Performance profile",
-        DisplayKey.FanMode => "Fan mode",
-        DisplayKey.FanSpeed => "Fan speed",
-        DisplayKey.FanCurve => "Fan curve",
-        DisplayKey.FanLeft => "Left fan",
-        DisplayKey.FanRight => "Right fan",
-        DisplayKey.ChargeLimit => "Charge limit",
-        DisplayKey.BypassCharging => "Bypass charging",
-        DisplayKey.Lighting => "Lighting",
-        DisplayKey.Brightness => "Brightness",
-        DisplayKey.LightingEffect => "Lighting effect",
-        DisplayKey.LightingEffectSpeed => "Effect speed",
-        DisplayKey.CpuTemperature => "CPU temperature",
-        DisplayKey.Battery => "Battery",
-        DisplayKey.Controller => "Controller",
-        DisplayKey.Motion => "Motion",
-        DisplayKey.Rumble => "Rumble",
-        DisplayKey.VariableRefreshRate => "Variable refresh rate",
-        _ => fallback
-    };
+        return display.Key switch
+        {
+            DisplayKey.Custom => display.CustomLabel ?? fallback,
+            DisplayKey.Tdp => "TDP",
+            DisplayKey.SustainedPowerLimit => "Sustained power limit",
+            DisplayKey.BoostPowerLimit => "Boost power limit",
+            DisplayKey.PerformanceProfile => "Performance profile",
+            DisplayKey.FanMode => "Fan mode",
+            DisplayKey.FanSpeed => "Fan speed",
+            DisplayKey.FanCurve => "Fan curve",
+            DisplayKey.FanLeft => "Left fan",
+            DisplayKey.FanRight => "Right fan",
+            DisplayKey.ChargeLimit => "Charge limit",
+            DisplayKey.BypassCharging => "Bypass charging",
+            DisplayKey.Lighting => "Lighting",
+            DisplayKey.Brightness => "Brightness",
+            DisplayKey.LightingEffect => "Lighting effect",
+            DisplayKey.LightingEffectSpeed => "Effect speed",
+            DisplayKey.CpuTemperature => "CPU temperature",
+            DisplayKey.Battery => "Battery",
+            DisplayKey.Controller => "Controller",
+            DisplayKey.Motion => "Motion",
+            DisplayKey.Rumble => "Rumble",
+            DisplayKey.VariableRefreshRate => "Variable refresh rate",
+            _ => fallback
+        };
+    }
 
-    private void Publish(CapabilityValue value) => Edited?.Invoke(SettingId, value);
-
+    private void Publish(CapabilityValue value)
+    {
+        Edited?.Invoke(SettingId, value);
+    }
 }
 
 /// <summary>One choice option with separate persisted identity and user-facing label.</summary>
@@ -307,8 +312,8 @@ public sealed class PluginSettingSectionViewModel
     }
 
     /// <summary>
-    /// Stable key. Focus and scroll restoration key off this, so it survives a refresh rather than
-    /// being an index into a list that changed.
+    ///     Stable key. Focus and scroll restoration key off this, so it survives a refresh rather than
+    ///     being an index into a list that changed.
     /// </summary>
     public string SectionId { get; }
 

@@ -21,9 +21,9 @@ namespace WSGM.Shell;
 
 /// <summary>Stable final-overlay section selected from a semantic capability role.</summary>
 /// <remarks>
-/// Each section is a page in the Device destination, not a heading in one long list. The split is
-/// driven by capability role alone, so a plugin that publishes nothing for a section simply causes
-/// that page to be absent — no section is a fixed fixture of the UI.
+///     Each section is a page in the Device destination, not a heading in one long list. The split is
+///     driven by capability role alone, so a plugin that publishes nothing for a section simply causes
+///     that page to be absent — no section is a fixed fixture of the UI.
 /// </remarks>
 internal enum DeviceOverlaySection
 {
@@ -37,13 +37,13 @@ internal enum DeviceOverlaySection
     PowerAndThermals,
 
     /// <summary>
-    /// The physical controller and everything that describes it, glyph artwork included.
+    ///     The physical controller and everything that describes it, glyph artwork included.
     /// </summary>
     /// <remarks>
-    /// Glyphs were a page of their own next to this one, which meant a user looking for controller
-    /// settings had two cards to guess between and neither held all of it. The preview and input
-    /// test still render here; they are a picture of this controller's buttons, not a separate
-    /// subject.
+    ///     Glyphs were a page of their own next to this one, which meant a user looking for controller
+    ///     settings had two cards to guess between and neither held all of it. The preview and input
+    ///     test still render here; they are a picture of this controller's buttons, not a separate
+    ///     subject.
     /// </remarks>
     ControllerAndMotion,
 
@@ -82,13 +82,17 @@ internal sealed record DeviceOverlayCapability(
     /// <summary>Placement within its section and category.</summary>
     public int SortOrder { get; init; }
 
-    /// <summary>What kind of value this capability carries, so the overlay picks a control:
-    /// integer range → slider, choice → dropdown, boolean → toggle, text → textbox, color →
-    /// swatch/editor, otherwise a plain action button.</summary>
+    /// <summary>
+    ///     What kind of value this capability carries, so the overlay picks a control:
+    ///     integer range → slider, choice → dropdown, boolean → toggle, text → textbox, color →
+    ///     swatch/editor, otherwise a plain action button.
+    /// </summary>
     public CapabilityValueKind ValueKind { get; init; } = CapabilityValueKind.None;
 
-    /// <summary>Whether the current value may be written. A read-only ranged capability still shows
-    /// its value but renders as a reading, not an adjustable control.</summary>
+    /// <summary>
+    ///     Whether the current value may be written. A read-only ranged capability still shows
+    ///     its value but renders as a reading, not an adjustable control.
+    /// </summary>
     public bool Writable { get; init; }
 
     /// <summary>Inclusive lower bound of an integer capability, or null when it has no range.</summary>
@@ -115,8 +119,8 @@ internal sealed record DeviceOverlayCategory(string Id, string Title);
 
 /// <summary>One plugin-declared overlay section, projected for presentation.</summary>
 /// <remarks>
-/// Presentation-only: titles are already resolved from the WSGM-owned key vocabulary or bounded
-/// plugin text, so no consumer of this record touches SDK display metadata again.
+///     Presentation-only: titles are already resolved from the WSGM-owned key vocabulary or bounded
+///     plugin text, so no consumer of this record touches SDK display metadata again.
 /// </remarks>
 internal sealed record DeviceOverlayPluginSection(
     string SectionId,
@@ -127,9 +131,9 @@ internal sealed record DeviceOverlayPluginSection(
 {
     /// <summary>The subject this section claims, which is how a WSGM-owned section finds its home.</summary>
     /// <remarks>
-    /// Carried through from the declaration rather than inferred from the title: a plugin may call
-    /// its power page anything, and the key is the only part of the declaration that means the same
-    /// thing to WSGM. <see cref="SettingSectionKey.Custom"/> claims no subject and absorbs nothing.
+    ///     Carried through from the declaration rather than inferred from the title: a plugin may call
+    ///     its power page anything, and the key is the only part of the declaration that means the same
+    ///     thing to WSGM. <see cref="SettingSectionKey.Custom" /> claims no subject and absorbs nothing.
     /// </remarks>
     public SettingSectionKey Key { get; init; } = SettingSectionKey.Custom;
 }
@@ -145,9 +149,9 @@ internal sealed record DeviceOverlayGlyphPreviewItem(
 
 /// <summary>The glyph preview and its live input test.</summary>
 /// <remarks>
-/// One projection for both, because they are the same picture answering two questions: whether the
-/// plugin's artwork resolves at all, and whether pressing a control reaches WSGM as the control the
-/// artwork claims. Separating them would mean drawing the same map twice.
+///     One projection for both, because they are the same picture answering two questions: whether the
+///     plugin's artwork resolves at all, and whether pressing a control reaches WSGM as the control the
+///     artwork claims. Separating them would mean drawing the same map twice.
 /// </remarks>
 /// <param name="ProfileName">The profile supplying the artwork, or why none is.</param>
 /// <param name="Detail">One line about the profile's provenance.</param>
@@ -161,10 +165,10 @@ internal sealed record DeviceOverlayGlyphPreview(
 
 /// <summary>Complete bounded Device-surface snapshot produced from coordinator-owned state.</summary>
 /// <remarks>
-/// The direct rows are WSGM's own controls — AutoTDP moves the plugin's power limit rather than
-/// being one, the controller target and glyph selection are WSGM settings, the profile rows are
-/// stored configuration, and recovery is an action on the cycle itself. Each carries its stable
-/// focus key as the <see cref="DescriptorRow.Id"/>, and a null row is simply not shown.
+///     The direct rows are WSGM's own controls — AutoTDP moves the plugin's power limit rather than
+///     being one, the controller target and glyph selection are WSGM settings, the profile rows are
+///     stored configuration, and recovery is an action on the cycle itself. Each carries its stable
+///     focus key as the <see cref="DescriptorRow.Id" />, and a null row is simply not shown.
 /// </remarks>
 internal sealed record DeviceOverlaySnapshot(
     bool Visible,
@@ -194,8 +198,8 @@ internal interface IDeviceOverlaySource : IDisposable
 
     /// <summary>Raised for each physical sample while the glyph input test is observing.</summary>
     /// <remarks>
-    /// Separate from <see cref="Changed"/> because it fires at input rate. A consumer must treat it
-    /// as a hint to update one visual state, never as a reason to rebuild a page.
+    ///     Separate from <see cref="Changed" /> because it fires at input rate. A consumer must treat it
+    ///     as a hint to update one visual state, never as a reason to rebuild a page.
     /// </remarks>
     event Action<CanonicalControllerSample>? PhysicalSampleReceived;
 
@@ -203,18 +207,18 @@ internal interface IDeviceOverlaySource : IDisposable
     /// <param name="control">The control the hint names.</param>
     /// <returns>The glyph to draw, or null to keep the written letter.</returns>
     /// <remarks>
-    /// Null is the normal answer on most machines, and the caller must treat it as "show the letter"
-    /// rather than "show nothing". The hint is only replaced when the input actually reaching WSGM
-    /// is the managed handheld's, because a hint showing a Claw button while the user is holding an
-    /// Xbox pad is worse than the letter it replaced.
+    ///     Null is the normal answer on most machines, and the caller must treat it as "show the letter"
+    ///     rather than "show nothing". The hint is only replaced when the input actually reaching WSGM
+    ///     is the managed handheld's, because a hint showing a Claw button while the user is holding an
+    ///     Xbox pad is worse than the letter it replaced.
     /// </remarks>
     PhysicalGlyphRenderPlan? NavigationHint(GlyphControlId control);
 
     /// <summary>Starts delivering physical samples for the glyph input test.</summary>
     /// <returns>A lease that stops delivery when disposed.</returns>
     /// <remarks>
-    /// Leased rather than always-on: the samples exist to light a preview that is on one page, and
-    /// nothing else on the Device surface wants an input-rate event.
+    ///     Leased rather than always-on: the samples exist to light a preview that is on one page, and
+    ///     nothing else on the Device surface wants an input-rate event.
     /// </remarks>
     IDisposable ObservePhysicalSamples();
 
@@ -250,25 +254,25 @@ internal interface IDeviceOverlaySource : IDisposable
     /// <param name="cancellationToken">Cancels the change.</param>
     /// <returns>A task completing once the new selection is persisted and applied.</returns>
     /// <remarks>
-    /// Scoped to the running application when there is one, and global otherwise. That is the
-    /// choice a user makes by opening this row mid-game: they are changing the profile for what they
-    /// are playing, and silently changing it for everything would be the wrong reading — while on
-    /// the desktop, with nothing running, there is no per-game scope to mean.
+    ///     Scoped to the running application when there is one, and global otherwise. That is the
+    ///     choice a user makes by opening this row mid-game: they are changing the profile for what they
+    ///     are playing, and silently changing it for everything would be the wrong reading — while on
+    ///     the desktop, with nothing running, there is no per-game scope to mean.
     /// </remarks>
     Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>
-/// Adapts the authoritative coordinator to the overlay without exposing transport or plugin data.
+///     Adapts the authoritative coordinator to the overlay without exposing transport or plugin data.
 /// </summary>
 internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 {
-    private readonly DeviceCoordinator _coordinator;
     private readonly AutoTdpService? _autoTdp;
+    private readonly DeviceCoordinator _coordinator;
     private readonly PhysicalGlyphService _glyphs;
     private readonly Lock _sampleGate = new();
-    private int _sampleObservers;
     private bool _disposed;
+    private int _sampleObservers;
 
     internal DeviceOverlayBridge(DeviceCoordinator coordinator, AutoTdpService? autoTdp)
     {
@@ -291,17 +295,11 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     public event Action? Changed;
 
-    /// <inheritdoc/>
-    public Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default) =>
-        _coordinator.CycleAuthoredProfileAsync(cancellationToken);
-
-    internal static DeviceOverlayCapability ProjectManualTdp(DeviceOverlayCapability capability, bool unified) =>
-        !unified ? capability : capability.Role switch
-        {
-            CapabilityRole.PowerSustainedLimit => capability with { Title = "TDP" },
-            CapabilityRole.PowerSlowLimit => capability with { Writable = false, CanInvoke = false },
-            _ => capability
-        };
+    /// <inheritdoc />
+    public Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default)
+    {
+        return _coordinator.CycleAuthoredProfileAsync(cancellationToken);
+    }
 
     public DeviceOverlaySnapshot Snapshot()
     {
@@ -323,6 +321,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 capabilities[index] = ProjectManualTdp(capabilities[index], true);
             }
         }
+
         var glyphSelectionState = _coordinator.PhysicalGlyphSelectionSnapshot();
         var glyphSelection = PhysicalGlyphSelectionView(
             _coordinator.PhysicalGlyphSelection,
@@ -374,6 +373,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     discovery.ErrorCode ?? "MULTIPLE",
                     false)));
         }
+
         // OrderBy is stable, so rows keep their order within a section.
         capabilities = [.. capabilities.OrderBy(capability => capability.Section)];
         var detail = package is null
@@ -404,14 +404,145 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         };
     }
 
+    public async Task InvokeAsync(
+        DeviceOverlayCapability capability,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(capability);
+        if (!capability.CanInvoke)
+        {
+            return;
+        }
+
+        await _coordinator.ExecuteCapabilityAsync(
+            capability.CapabilityId,
+            capability.InstanceId,
+            capability.NextValue,
+            TimeSpan.FromSeconds(5),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection,
+        CancellationToken cancellationToken = default)
+    {
+        return _coordinator.SetPhysicalGlyphSelectionAsync(selection, cancellationToken);
+    }
+
+    public Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default)
+    {
+        return _coordinator.ToggleAutoTdpAsync(cancellationToken);
+    }
+
+    public Task CycleControllerTargetAsync(CancellationToken cancellationToken = default)
+    {
+        return _coordinator.SetControllerTargetAsync(
+            NextTarget(
+                _coordinator.Controllers.Snapshot().Target,
+                _coordinator.Controllers.SupportedTargets),
+            cancellationToken);
+    }
+
+    public Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default)
+    {
+        return _coordinator.RetryAfterFaultAsync(cancellationToken);
+    }
+
+    public Task CycleHardwareProfileAsync(CancellationToken cancellationToken = default)
+    {
+        return _coordinator.SelectHardwareProfileAsync(
+            NextProfile(_coordinator.HardwareProfileIds, _coordinator.SelectedHardwareProfileId),
+            cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public PhysicalGlyphRenderPlan? NavigationHint(GlyphControlId control)
+    {
+        if (_disposed)
+        {
+            return null;
+        }
+
+        // The NavigationHint surface carries its own authorization: the service refuses it unless
+        // the active input source is the managed handheld, which is exactly the condition under
+        // which replacing a written letter with a device glyph is correct.
+        var plan = _glyphs.Resolve(
+            _coordinator.PhysicalGlyphSelectionSnapshot(),
+            control,
+            PhysicalGlyphSurface.NavigationHint,
+            _coordinator.Controllers.Snapshot().UiSource is UiInputSource.ManagedCanonical,
+            PhysicalGlyphTheme.Dark,
+            1);
+        return plan.UsesDeviceArtwork ? plan : null;
+    }
+
+    /// <inheritdoc />
+    public event Action<CanonicalControllerSample>? PhysicalSampleReceived;
+
+    /// <inheritdoc />
+    public IDisposable ObservePhysicalSamples()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        lock (_sampleGate)
+        {
+            if (_sampleObservers++ == 0)
+            {
+                _coordinator.Controllers.PhysicalSampleObserved += OnPhysicalSample;
+            }
+        }
+
+        return new SampleLease(this);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _coordinator.StateChanged -= OnStateChanged;
+        _coordinator.Capabilities.Changed -= OnCapabilityViewsChanged;
+        _coordinator.ConfigurationChanged -= OnConfigurationChanged;
+        if (_autoTdp is not null)
+        {
+            _autoTdp.StatusChanged -= OnAutoTdpStatusChanged;
+        }
+
+        lock (_sampleGate)
+        {
+            if (_sampleObservers > 0)
+            {
+                _coordinator.Controllers.PhysicalSampleObserved -= OnPhysicalSample;
+                _sampleObservers = 0;
+            }
+        }
+
+        // The service subscribed to the catalog's change event, so it has to be released here or it
+        // keeps this bridge's geometry cache alive for the rest of the session.
+        _glyphs.Dispose();
+    }
+
+    internal static DeviceOverlayCapability ProjectManualTdp(DeviceOverlayCapability capability, bool unified)
+    {
+        return !unified
+            ? capability
+            : capability.Role switch
+            {
+                CapabilityRole.PowerSustainedLimit => capability with { Title = "TDP" },
+                CapabilityRole.PowerSlowLimit => capability with { Writable = false, CanInvoke = false },
+                _ => capability
+            };
+    }
+
     /// <summary>Projects controller management into the Controller and motion page's own row.</summary>
     /// <param name="enabled">Whether management may run at all.</param>
     /// <param name="status">The manager's truthful state.</param>
     /// <returns>The row, or null when management is off and there is nothing to show.</returns>
     /// <remarks>
-    /// A direct row rather than a synthesized capability, like the AutoTDP and glyph rows: the target
-    /// is WSGM's own setting, so routing it through the plugin capability dispatch would mean a
-    /// second meaning for a capability id and a branch inside the one invoke path.
+    ///     A direct row rather than a synthesized capability, like the AutoTDP and glyph rows: the target
+    ///     is WSGM's own setting, so routing it through the plugin capability dispatch would mean a
+    ///     second meaning for a capability id and a branch inside the one invoke path.
     /// </remarks>
     internal static DescriptorRow? ControllerView(
         bool enabled,
@@ -459,7 +590,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             trailing,
             // Only when a change can actually take effect. Cycling into a target the backend cannot
             // bring up would replace one broken state with another.
-            CanInvoke: status.State is not ControllerManagementState.Unavailable,
+            status.State is not ControllerManagementState.Unavailable,
             health);
     }
 
@@ -469,15 +600,15 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// <param name="inputTestAvailable">Whether physical input is reaching the surface.</param>
     /// <returns>The preview, or null when no profile supplies anything to draw.</returns>
     /// <remarks>
-    /// Only controls the profile says are present are shown. A profile that declares a control
-    /// absent is describing the hardware — an MSI Claw has no trackpads — so drawing a placeholder
-    /// for it would contradict the thing the preview exists to confirm.
-    /// <para>
-    /// The service is asked with the <c>DeviceDescription</c> surface, which is authorized
-    /// unconditionally, because this preview is a description of the device rather than a
-    /// navigation hint or a Steam route: it has to render the plugin's artwork even when the active
-    /// input source is not the managed handheld, which is exactly when someone is checking it.
-    /// </para>
+    ///     Only controls the profile says are present are shown. A profile that declares a control
+    ///     absent is describing the hardware — an MSI Claw has no trackpads — so drawing a placeholder
+    ///     for it would contradict the thing the preview exists to confirm.
+    ///     <para>
+    ///         The service is asked with the <c>DeviceDescription</c> surface, which is authorized
+    ///         unconditionally, because this preview is a description of the device rather than a
+    ///         navigation hint or a Steam route: it has to render the plugin's artwork even when the active
+    ///         input source is not the managed handheld, which is exactly when someone is checking it.
+    ///     </para>
     /// </remarks>
     private static DeviceOverlayGlyphPreview? GlyphPreview(
         PhysicalGlyphSelectionResult selection,
@@ -503,9 +634,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 selection,
                 mapping.Control,
                 PhysicalGlyphSurface.DeviceDescription,
-                activeInputSourceIsManagedHandheld: true,
+                true,
                 PhysicalGlyphTheme.Dark,
-                scale: 1);
+                1);
             if (!plan.UsesDeviceArtwork)
             {
                 continue;
@@ -537,9 +668,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// <param name="control">The control.</param>
     /// <returns>The name, with word boundaries restored.</returns>
     /// <remarks>
-    /// Derived from the enum rather than tabulated, so a control added to the SDK gets a sensible
-    /// name here without a second list to forget to update. A profile that prints its own label on
-    /// the device overrides this anyway.
+    ///     Derived from the enum rather than tabulated, so a control added to the SDK gets a sensible
+    ///     name here without a second list to forget to update. A profile that prints its own label on
+    ///     the device overrides this anyway.
     /// </remarks>
     private static string ControlLabel(GlyphControlId control)
     {
@@ -559,9 +690,12 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         return text.ToString();
     }
 
-    private static string Short(string revision) => revision.Length <= 12
-        ? revision
-        : revision[..12];
+    private static string Short(string revision)
+    {
+        return revision.Length <= 12
+            ? revision
+            : revision[..12];
+    }
 
     /// <summary>Projects the authored profile in force into its overlay row.</summary>
     /// <param name="profiles">Profiles authored for this device.</param>
@@ -569,15 +703,15 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// <param name="applicationScoped">Whether that choice came from an application override.</param>
     /// <returns>The row, or null when the device has no authored profiles at all.</returns>
     /// <remarks>
-    /// Null when nothing has been authored, unlike the hardware-profile row above. That row is
-    /// always present because hardware profiles come from the plugin and a user cannot create one;
-    /// these are created in Settings, and a row offering a choice between nothing would be an
-    /// invitation to press a button that cannot do anything.
-    /// <para>
-    /// The scope is in the description rather than implied, because a profile chosen for one game
-    /// and the same profile chosen for everything read identically otherwise — and the difference is
-    /// what the user changes when they open this row mid-game.
-    /// </para>
+    ///     Null when nothing has been authored, unlike the hardware-profile row above. That row is
+    ///     always present because hardware profiles come from the plugin and a user cannot create one;
+    ///     these are created in Settings, and a row offering a choice between nothing would be an
+    ///     invitation to press a button that cannot do anything.
+    ///     <para>
+    ///         The scope is in the description rather than implied, because a profile chosen for one game
+    ///         and the same profile chosen for everything read identically otherwise — and the difference is
+    ///         what the user changes when they open this row mid-game.
+    ///     </para>
     /// </remarks>
     internal static DescriptorRow? AuthoredProfileView(
         IReadOnlyList<DeviceAuthoredProfile> profiles,
@@ -608,7 +742,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 // fastest way out of the state for a user who is mid-game.
                 "The selected profile was deleted · press to choose another",
                 "MISSING",
-                CanInvoke: true,
+                true,
                 DescriptorStatus.Warning);
         }
 
@@ -623,7 +757,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             "Fan profile",
             scope,
             selected is null ? "NONE" : selected.Name.ToUpperInvariant(),
-            CanInvoke: true,
+            true,
             selected is null ? DescriptorStatus.None : DescriptorStatus.Available);
     }
 
@@ -632,9 +766,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// <param name="selected">The profile currently selected, or null for none.</param>
     /// <returns>The row.</returns>
     /// <remarks>
-    /// Always present, unlike the recovery row. Profiles are a feature a user has to find before
-    /// they can use it, so the row says where to author one when none exists yet — an absent row
-    /// would just look like the feature is missing.
+    ///     Always present, unlike the recovery row. Profiles are a feature a user has to find before
+    ///     they can use it, so the row says where to author one when none exists yet — an absent row
+    ///     would just look like the feature is missing.
     /// </remarks>
     internal static DescriptorRow ProfileView(
         IReadOnlyList<string> profileIds,
@@ -648,7 +782,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 "Hardware profile",
                 "No profiles are defined · add profile values in Settings",
                 "NONE",
-                CanInvoke: false);
+                false);
         }
 
         var active = selected is { Length: > 0 } && profileIds.Contains(selected, StringComparer.Ordinal);
@@ -662,7 +796,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             // A selection naming a profile that no longer defines anything reads as NONE, which is
             // what it now behaves as: the resolver finds no value under that name and falls through.
             active ? selected!.ToUpperInvariant() : "NONE",
-            CanInvoke: true,
+            true,
             active ? DescriptorStatus.Available : DescriptorStatus.None);
     }
 
@@ -671,8 +805,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// <param name="selected">The current selection.</param>
     /// <returns>The next selection, or null for none.</returns>
     /// <remarks>
-    /// None is a position in the cycle rather than a separate control, so a user can always get back
-    /// to unmodified defaults with the same button that got them here.
+    ///     None is a position in the cycle rather than a separate control, so a user can always get back
+    ///     to unmodified defaults with the same button that got them here.
     /// </remarks>
     internal static string? NextProfile(IReadOnlyList<string> profileIds, string? selected)
     {
@@ -709,8 +843,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// <param name="state">The current cycle state.</param>
     /// <returns>The row, or null when the cycle is healthy and there is nothing to recover.</returns>
     /// <remarks>
-    /// Absent when healthy. A recovery control that is always present but almost always inert trains
-    /// a user to ignore it, which is the opposite of what it is for.
+    ///     Absent when healthy. A recovery control that is always present but almost always inert trains
+    ///     a user to ignore it, which is the opposite of what it is for.
     /// </remarks>
     internal static DescriptorRow? RecoveryView(DeviceCycleState state)
     {
@@ -724,17 +858,20 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             "Retry device integration",
             $"{LifecycleLabel(state)} · starts one manual recovery attempt",
             "READY",
-            CanInvoke: true,
+            true,
             DescriptorStatus.Warning);
     }
 
-    private static string TargetLabel(ManagedControllerTarget target) => target switch
+    private static string TargetLabel(ManagedControllerTarget target)
     {
-        ManagedControllerTarget.SteamDeckComposite => "DECK",
-        ManagedControllerTarget.Xbox360 => "XBOX",
-        ManagedControllerTarget.DualShock4 => "DS4",
-        _ => "NONE"
-    };
+        return target switch
+        {
+            ManagedControllerTarget.SteamDeckComposite => "DECK",
+            ManagedControllerTarget.Xbox360 => "XBOX",
+            ManagedControllerTarget.DualShock4 => "DS4",
+            _ => "NONE"
+        };
+    }
 
     /// <summary>Projects AutoTDP's switch and live state into one row.</summary>
     /// <param name="enabled">The persisted setting.</param>
@@ -742,9 +879,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// <param name="availability">The service's authoritative admission state.</param>
     /// <returns>The row.</returns>
     /// <remarks>
-    /// The row reports what AutoTDP is actually doing, not merely that it is switched on. A user who
-    /// turned it on and sees nothing happening needs to know whether it is waiting for a game, held
-    /// by a manual power change, or unable to find a power limit at all.
+    ///     The row reports what AutoTDP is actually doing, not merely that it is switched on. A user who
+    ///     turned it on and sees nothing happening needs to know whether it is waiting for a game, held
+    ///     by a manual power change, or unable to find a power limit at all.
     /// </remarks>
     internal static DescriptorRow AutoTdpView(
         bool enabled, AutoTdpStatus? status, AutoTdpAvailability? availability = null)
@@ -753,8 +890,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         if (availability is { Available: false })
         {
             return new DescriptorRow(autoTdpKey, "AutoTDP", availability.Detail, "OFF",
-                CanInvoke: false, DescriptorStatus.Unsupported);
+                false, DescriptorStatus.Unsupported);
         }
+
         if (!enabled)
         {
             return new DescriptorRow(
@@ -762,7 +900,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 "AutoTDP",
                 "Move the power limit from measured frame delivery",
                 "OFF",
-                CanInvoke: true);
+                true);
         }
 
         var detail = status?.Detail ?? "Starting.";
@@ -787,88 +925,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 $"{frametime:F1} ms against a {target:F1} ms deadline · {detail}");
         }
 
-        return new DescriptorRow(autoTdpKey, "AutoTDP", detail, trailing, CanInvoke: true, health);
-    }
-
-    public async Task InvokeAsync(
-        DeviceOverlayCapability capability,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(capability);
-        if (!capability.CanInvoke)
-        {
-            return;
-        }
-
-        await _coordinator.ExecuteCapabilityAsync(
-            capability.CapabilityId,
-            capability.InstanceId,
-            capability.NextValue,
-            TimeSpan.FromSeconds(5),
-            // Every row here is something a person just pressed, so a power-limit change from this
-            // path pauses AutoTDP instead of being overwritten by its next tick.
-            CapabilityCommandOrigin.User,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-    }
-
-    public Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection, CancellationToken cancellationToken = default) =>
-        _coordinator.SetPhysicalGlyphSelectionAsync(selection, cancellationToken);
-
-    public Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default) =>
-        _coordinator.ToggleAutoTdpAsync(cancellationToken);
-
-    public Task CycleControllerTargetAsync(CancellationToken cancellationToken = default) =>
-        _coordinator.SetControllerTargetAsync(
-            NextTarget(
-                _coordinator.Controllers.Snapshot().Target,
-                _coordinator.Controllers.SupportedTargets),
-            cancellationToken);
-
-    public Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default) =>
-        _coordinator.RetryAfterFaultAsync(cancellationToken);
-
-    public Task CycleHardwareProfileAsync(CancellationToken cancellationToken = default) =>
-        _coordinator.SelectHardwareProfileAsync(
-            NextProfile(_coordinator.HardwareProfileIds, _coordinator.SelectedHardwareProfileId),
-            cancellationToken);
-
-    /// <inheritdoc/>
-    public PhysicalGlyphRenderPlan? NavigationHint(GlyphControlId control)
-    {
-        if (_disposed)
-        {
-            return null;
-        }
-
-        // The NavigationHint surface carries its own authorization: the service refuses it unless
-        // the active input source is the managed handheld, which is exactly the condition under
-        // which replacing a written letter with a device glyph is correct.
-        var plan = _glyphs.Resolve(
-            _coordinator.PhysicalGlyphSelectionSnapshot(),
-            control,
-            PhysicalGlyphSurface.NavigationHint,
-            _coordinator.Controllers.Snapshot().UiSource is UiInputSource.ManagedCanonical,
-            PhysicalGlyphTheme.Dark,
-            scale: 1);
-        return plan.UsesDeviceArtwork ? plan : null;
-    }
-
-    /// <inheritdoc/>
-    public event Action<CanonicalControllerSample>? PhysicalSampleReceived;
-
-    /// <inheritdoc/>
-    public IDisposable ObservePhysicalSamples()
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        lock (_sampleGate)
-        {
-            if (_sampleObservers++ == 0)
-            {
-                _coordinator.Controllers.PhysicalSampleObserved += OnPhysicalSample;
-            }
-        }
-
-        return new SampleLease(this);
+        return new DescriptorRow(autoTdpKey, "AutoTDP", detail, trailing, true, health);
     }
 
     private void ReleasePhysicalSamples()
@@ -884,42 +941,23 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         }
     }
 
-    private void OnPhysicalSample(CanonicalControllerSample sample) =>
-        PhysicalSampleReceived?.Invoke(sample);
-
-    /// <summary>One observer's claim on the physical sample stream.</summary>
-    /// <remarks>
-    /// Idempotent, because a surface torn down twice — closed and then disposed — must not push the
-    /// count below zero and detach a subscription another surface still holds.
-    /// </remarks>
-    private sealed class SampleLease(DeviceOverlayBridge owner) : IDisposable
+    private void OnPhysicalSample(CanonicalControllerSample sample)
     {
-        private bool _released;
-
-        public void Dispose()
-        {
-            if (_released)
-            {
-                return;
-            }
-
-            _released = true;
-            owner.ReleasePhysicalSamples();
-        }
+        PhysicalSampleReceived?.Invoke(sample);
     }
 
     /// <summary>The next target in the cycle order.</summary>
     /// <param name="current">The target in effect, or null when none is.</param>
     /// <param name="supported">
-    /// Targets the backend can build. An empty list means nothing has been discovered yet and the
-    /// full order is used, which is also the order the tests pin.
+    ///     Targets the backend can build. An empty list means nothing has been discovered yet and the
+    ///     full order is used, which is also the order the tests pin.
     /// </param>
     /// <returns>The target the row moves to.</returns>
     /// <remarks>
-    /// Steam Deck first from nothing, because it is the target that carries every control the
-    /// canonical model defines; the other two exist for compatibility with software that does not
-    /// understand it. Unsupported targets are skipped rather than offered: selecting one persists a
-    /// target the backend then refuses to create, which leaves controller management unavailable.
+    ///     Steam Deck first from nothing, because it is the target that carries every control the
+    ///     canonical model defines; the other two exist for compatibility with software that does not
+    ///     understand it. Unsupported targets are skipped rather than offered: selecting one persists a
+    ///     target the backend then refuses to create, which leaves controller management unavailable.
     /// </remarks>
     internal static ManagedControllerTarget NextTarget(
         ManagedControllerTarget? current,
@@ -943,45 +981,26 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         return offered[(index + 1) % offered.Length];
     }
 
-    public void Dispose()
+    private void OnStateChanged(DeviceCycleState _)
     {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _coordinator.StateChanged -= OnStateChanged;
-        _coordinator.Capabilities.Changed -= OnCapabilityViewsChanged;
-        _coordinator.ConfigurationChanged -= OnConfigurationChanged;
-        if (_autoTdp is not null)
-        {
-            _autoTdp.StatusChanged -= OnAutoTdpStatusChanged;
-        }
-
-        lock (_sampleGate)
-        {
-            if (_sampleObservers > 0)
-            {
-                _coordinator.Controllers.PhysicalSampleObserved -= OnPhysicalSample;
-                _sampleObservers = 0;
-            }
-        }
-
-        // The service subscribed to the catalog's change event, so it has to be released here or it
-        // keeps this bridge's geometry cache alive for the rest of the session.
-        _glyphs.Dispose();
+        Changed?.Invoke();
     }
 
-    private void OnStateChanged(DeviceCycleState _) => Changed?.Invoke();
+    private void OnCapabilityViewsChanged(IReadOnlyList<DeviceCapabilityView> _)
+    {
+        Changed?.Invoke();
+    }
 
-    private void OnCapabilityViewsChanged(IReadOnlyList<DeviceCapabilityView> _) => Changed?.Invoke();
-
-    private void OnConfigurationChanged() => Changed?.Invoke();
+    private void OnConfigurationChanged()
+    {
+        Changed?.Invoke();
+    }
 
     // Raised from AutoTDP's own tick loop; the overlay consumer is UI-owned, so marshal first.
-    private void OnAutoTdpStatusChanged(AutoTdpStatus _) =>
+    private void OnAutoTdpStatusChanged(AutoTdpStatus _)
+    {
         Dispatcher.UIThread.Post(() => Changed?.Invoke());
+    }
 
     internal static DeviceOverlayCapability ToOverlayCapability(
         DeviceCapabilityView view,
@@ -1006,7 +1025,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                          && displayed?.ColorValue is not null;
         var canInvoke = current
                         && (descriptor.SupportsAction
-                            || descriptor.SupportsWrite && (next is not null || colorWrite));
+                            || (descriptor.SupportsWrite && (next is not null || colorWrite)));
         var description = projection.Progress switch
         {
             CommandProgress.Pending => "Applying requested value…",
@@ -1032,11 +1051,11 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         {
             Role = descriptor.Role,
             PluginSectionId = descriptor.SectionId is { } sectionId
-                && declaredSections.Contains(sectionId)
+                              && declaredSections.Contains(sectionId)
                 ? sectionId
                 : null,
             CategoryId = descriptor.SectionId is { } declared
-                && declaredSections.Contains(declared)
+                         && declaredSections.Contains(declared)
                 ? descriptor.CategoryId
                 : null,
             SortOrder = descriptor.SortOrder,
@@ -1067,10 +1086,10 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         if (selection.Profile is { } profile)
         {
             description = $"{profile.Manifest.DisplayName} · revision {profile.Manifest.Revision} · "
-                + $"source {profile.Manifest.SourceRevision}"
-                + (selection.FellBackFromMissingManualProfile
-                    ? " · selected reviewed profile is missing; Automatic fallback"
-                    : string.Empty);
+                          + $"source {profile.Manifest.SourceRevision}"
+                          + (selection.FellBackFromMissingManualProfile
+                              ? " · selected reviewed profile is missing; Automatic fallback"
+                              : string.Empty);
             status = selection.FellBackFromMissingManualProfile
                 ? DescriptorStatus.Warning
                 : DescriptorStatus.Available;
@@ -1098,98 +1117,110 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             "Physical glyphs",
             description,
             trailing,
-            CanInvoke: true,
+            true,
             status);
     }
 
     /// <summary>Projects the declared overlay sections for presentation, in declared order.</summary>
     internal static IReadOnlyList<DeviceOverlayPluginSection> ProjectSections(
-        IReadOnlyList<CapabilitySection> sections) =>
-    [
-        .. DeviceSections.IncludePredefined(sections)
-            .Select((section, index) => (Section: section, Index: index))
-            .OrderBy(item => item.Section.SortOrder)
-            .ThenBy(item => item.Index)
-            .Select(item => new DeviceOverlayPluginSection(
-                item.Section.SectionId,
-                item.Section.SectionId switch
+        IReadOnlyList<CapabilitySection> sections)
+    {
+        return
+        [
+            .. DeviceSections.IncludePredefined(sections)
+                .Select((section, index) => (Section: section, Index: index))
+                .OrderBy(item => item.Section.SortOrder)
+                .ThenBy(item => item.Index)
+                .Select(item => new DeviceOverlayPluginSection(
+                    item.Section.SectionId,
+                    item.Section.SectionId switch
+                    {
+                        DeviceSections.RgbId => "RGB",
+                        DeviceSections.InfoId => "Info",
+                        _ => SectionTitle(item.Section.Key, item.Section.CustomTitle)
+                    },
+                    item.Section.CustomDescription ?? SectionDescription(item.Section.Key),
+                    item.Section.Icon,
+                    [
+                        .. item.Section.Categories
+                            .Select((category, categoryIndex) => (Category: category, Index: categoryIndex))
+                            .OrderBy(entry => entry.Category.SortOrder)
+                            .ThenBy(entry => entry.Index)
+                            .Select(entry => new DeviceOverlayCategory(
+                                entry.Category.CategoryId,
+                                SectionTitle(entry.Category.Key, entry.Category.CustomTitle)))
+                    ])
                 {
-                    DeviceSections.RgbId => "RGB",
-                    DeviceSections.InfoId => "Info",
-                    _ => SectionTitle(item.Section.Key, item.Section.CustomTitle)
-                },
-                item.Section.CustomDescription ?? SectionDescription(item.Section.Key),
-                item.Section.Icon,
-                [
-                    .. item.Section.Categories
-                        .Select((category, categoryIndex) => (Category: category, Index: categoryIndex))
-                        .OrderBy(entry => entry.Category.SortOrder)
-                        .ThenBy(entry => entry.Index)
-                        .Select(entry => new DeviceOverlayCategory(
-                            entry.Category.CategoryId,
-                            SectionTitle(entry.Category.Key, entry.Category.CustomTitle)))
-                ])
-            {
-                Key = item.Section.Key
-            })
-    ];
+                    Key = item.Section.Key
+                })
+        ];
+    }
 
     /// <summary>The WSGM-owned title behind a section key; custom text is bounded plugin text.</summary>
-    private static string SectionTitle(SettingSectionKey key, string? custom) => key switch
+    private static string SectionTitle(SettingSectionKey key, string? custom)
     {
-        SettingSectionKey.Custom => custom ?? "Device",
-        SettingSectionKey.General => "General",
-        SettingSectionKey.Power => "Power",
-        SettingSectionKey.Fans => "Fans",
-        SettingSectionKey.Lighting => "Lighting",
-        SettingSectionKey.Controller => "Controller",
-        SettingSectionKey.Display => "Display",
-        SettingSectionKey.Advanced => "Advanced",
-        SettingSectionKey.Diagnostics => "Diagnostics",
-        _ => key.ToString()
-    };
+        return key switch
+        {
+            SettingSectionKey.Custom => custom ?? "Device",
+            SettingSectionKey.General => "General",
+            SettingSectionKey.Power => "Power",
+            SettingSectionKey.Fans => "Fans",
+            SettingSectionKey.Lighting => "Lighting",
+            SettingSectionKey.Controller => "Controller",
+            SettingSectionKey.Display => "Display",
+            SettingSectionKey.Advanced => "Advanced",
+            SettingSectionKey.Diagnostics => "Diagnostics",
+            _ => key.ToString()
+        };
+    }
 
     /// <summary>WSGM's own card description for a keyed section that supplies none.</summary>
-    private static string SectionDescription(SettingSectionKey key) => key switch
+    private static string SectionDescription(SettingSectionKey key)
     {
-        SettingSectionKey.Power => "Power and performance controls",
-        SettingSectionKey.Fans => "Cooling control and readings",
-        SettingSectionKey.Lighting => "Device lighting",
-        SettingSectionKey.Controller => "Controller, motion, and rumble",
-        SettingSectionKey.Display => "Display features",
-        SettingSectionKey.Diagnostics => "Health and readings",
-        _ => "Device controls"
-    };
+        return key switch
+        {
+            SettingSectionKey.Power => "Power and performance controls",
+            SettingSectionKey.Fans => "Cooling control and readings",
+            SettingSectionKey.Lighting => "Device lighting",
+            SettingSectionKey.Controller => "Controller, motion, and rumble",
+            SettingSectionKey.Display => "Display features",
+            SettingSectionKey.Diagnostics => "Health and readings",
+            _ => "Device controls"
+        };
+    }
 
-    private static DeviceOverlaySection SectionFor(CapabilityRole role) => role switch
+    private static DeviceOverlaySection SectionFor(CapabilityRole role)
     {
-        CapabilityRole.ScenarioMode => DeviceOverlaySection.Overview,
-        CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit
-            or CapabilityRole.PowerFastLimit or CapabilityRole.PowerPeakLimit
-            or CapabilityRole.FanMode or CapabilityRole.FanDuty
-            or CapabilityRole.FanTargetRpm or CapabilityRole.FanCurve
-            or CapabilityRole.FanMeasuredRpm or CapabilityRole.ChargeLimit
-            or CapabilityRole.ChargeProtectionMode or CapabilityRole.ChargeBypass
-            or CapabilityRole.Telemetry
-            // Variable refresh sits with the frame limit and power controls it interacts with,
-            // not among the lighting oddments, because that is where a user goes to change how the
-            // device performs.
-            or CapabilityRole.VariableRefreshRate => DeviceOverlaySection.PowerAndThermals,
-        CapabilityRole.ControllerSource or CapabilityRole.MotionSource
-            or CapabilityRole.HapticSink => DeviceOverlaySection.ControllerAndMotion,
-        CapabilityRole.OemControl => DeviceOverlaySection.Oem,
-        CapabilityRole.LightingPower or CapabilityRole.LightingBrightness
-            or CapabilityRole.LightingZoneColor or CapabilityRole.LightingEffect
-            or CapabilityRole.LightingEffectSpeed
-            or CapabilityRole.GenericToggle or CapabilityRole.GenericRange
-            or CapabilityRole.GenericChoice or CapabilityRole.GenericAction
-            or CapabilityRole.GenericText
-            => DeviceOverlaySection.LightingAndFeatures,
-        // A read-only value is something to consult, not to set, so it belongs with the rest of the
-        // diagnostics rather than among the controls a user came to change.
-        CapabilityRole.GenericReadOnly => DeviceOverlaySection.Diagnostics,
-        _ => DeviceOverlaySection.Overview
-    };
+        return role switch
+        {
+            CapabilityRole.ScenarioMode => DeviceOverlaySection.Overview,
+            CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit
+                or CapabilityRole.PowerFastLimit or CapabilityRole.PowerPeakLimit
+                or CapabilityRole.FanMode or CapabilityRole.FanDuty
+                or CapabilityRole.FanTargetRpm or CapabilityRole.FanCurve
+                or CapabilityRole.FanMeasuredRpm or CapabilityRole.ChargeLimit
+                or CapabilityRole.ChargeProtectionMode or CapabilityRole.ChargeBypass
+                or CapabilityRole.Telemetry
+                // Variable refresh sits with the frame limit and power controls it interacts with,
+                // not among the lighting oddments, because that is where a user goes to change how the
+                // device performs.
+                or CapabilityRole.VariableRefreshRate => DeviceOverlaySection.PowerAndThermals,
+            CapabilityRole.ControllerSource or CapabilityRole.MotionSource
+                or CapabilityRole.HapticSink => DeviceOverlaySection.ControllerAndMotion,
+            CapabilityRole.OemControl => DeviceOverlaySection.Oem,
+            CapabilityRole.LightingPower or CapabilityRole.LightingBrightness
+                or CapabilityRole.LightingZoneColor or CapabilityRole.LightingEffect
+                or CapabilityRole.LightingEffectSpeed
+                or CapabilityRole.GenericToggle or CapabilityRole.GenericRange
+                or CapabilityRole.GenericChoice or CapabilityRole.GenericAction
+                or CapabilityRole.GenericText
+                => DeviceOverlaySection.LightingAndFeatures,
+            // A read-only value is something to consult, not to set, so it belongs with the rest of the
+            // diagnostics rather than among the controls a user came to change.
+            CapabilityRole.GenericReadOnly => DeviceOverlaySection.Diagnostics,
+            _ => DeviceOverlaySection.Overview
+        };
+    }
 
     private static DescriptorStatus StatusFor(CapabilityProjection projection)
     {
@@ -1232,7 +1263,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     private static CapabilityValue? NextValue(
         CapabilityDescriptor descriptor,
-        CapabilityValue? current) => descriptor.ValueKind switch
+        CapabilityValue? current)
+    {
+        return descriptor.ValueKind switch
         {
             CapabilityValueKind.Boolean => new CapabilityValue
             {
@@ -1248,8 +1281,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             {
                 Kind = CapabilityValueKind.Integer,
                 IntegerValue = current?.IntegerValue is { } value && value + step <= maximum
-                        ? value + step
-                        : minimum
+                    ? value + step
+                    : minimum
             },
             CapabilityValueKind.Choice when descriptor.Choices.Count > 0 => new CapabilityValue
             {
@@ -1258,6 +1291,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             },
             _ => null
         };
+    }
 
     private static string NextChoice(CapabilityDescriptor descriptor, string? current)
     {
@@ -1268,35 +1302,38 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         return descriptor.Choices[(index + 1) % descriptor.Choices.Count].Value;
     }
 
-    private static string DisplayLabel(CapabilityDisplay display) => display.Key switch
+    private static string DisplayLabel(CapabilityDisplay display)
     {
-        DisplayKey.Custom => display.CustomLabel ?? "Device control",
-        DisplayKey.Tdp => "TDP",
-        DisplayKey.SustainedPowerLimit => "Sustained power limit",
-        DisplayKey.BoostPowerLimit => "Boost power limit",
-        DisplayKey.PerformanceProfile => "Performance profile",
-        DisplayKey.FanMode => "Fan mode",
-        DisplayKey.FanSpeed => "Fan speed",
-        DisplayKey.FanCurve => "Fan curve",
-        DisplayKey.FanLeft => "Left fan",
-        DisplayKey.FanRight => "Right fan",
-        DisplayKey.ChargeLimit => "Charge limit",
-        DisplayKey.BypassCharging => "Bypass charging",
-        DisplayKey.Lighting => "Lighting",
-        DisplayKey.Brightness => "Brightness",
-        DisplayKey.LightingEffect => "Lighting effect",
-        DisplayKey.LightingEffectSpeed => "Effect speed",
-        DisplayKey.CpuTemperature => "CPU temperature",
-        DisplayKey.Battery => "Battery",
-        DisplayKey.Controller => "Controller",
-        DisplayKey.Motion => "Motion",
-        DisplayKey.Rumble => "Rumble",
-        DisplayKey.VariableRefreshRate => "Variable refresh rate",
-        // Reached only by a key this build does not know, which means a plugin compiled against a
-        // newer SDK. A missing arm here is invisible in the worst way — the row renders, with a
-        // label that describes nothing — so every key the SDK declares belongs above.
-        _ => "Device control"
-    };
+        return display.Key switch
+        {
+            DisplayKey.Custom => display.CustomLabel ?? "Device control",
+            DisplayKey.Tdp => "TDP",
+            DisplayKey.SustainedPowerLimit => "Sustained power limit",
+            DisplayKey.BoostPowerLimit => "Boost power limit",
+            DisplayKey.PerformanceProfile => "Performance profile",
+            DisplayKey.FanMode => "Fan mode",
+            DisplayKey.FanSpeed => "Fan speed",
+            DisplayKey.FanCurve => "Fan curve",
+            DisplayKey.FanLeft => "Left fan",
+            DisplayKey.FanRight => "Right fan",
+            DisplayKey.ChargeLimit => "Charge limit",
+            DisplayKey.BypassCharging => "Bypass charging",
+            DisplayKey.Lighting => "Lighting",
+            DisplayKey.Brightness => "Brightness",
+            DisplayKey.LightingEffect => "Lighting effect",
+            DisplayKey.LightingEffectSpeed => "Effect speed",
+            DisplayKey.CpuTemperature => "CPU temperature",
+            DisplayKey.Battery => "Battery",
+            DisplayKey.Controller => "Controller",
+            DisplayKey.Motion => "Motion",
+            DisplayKey.Rumble => "Rumble",
+            DisplayKey.VariableRefreshRate => "Variable refresh rate",
+            // Reached only by a key this build does not know, which means a plugin compiled against a
+            // newer SDK. A missing arm here is invisible in the worst way — the row renders, with a
+            // label that describes nothing — so every key the SDK declares belongs above.
+            _ => "Device control"
+        };
+    }
 
     private static string FormatValue(CapabilityValue? value, CapabilityUnit unit)
     {
@@ -1322,46 +1359,79 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         };
     }
 
-    private static string UnitSuffix(CapabilityUnit unit) => unit switch
+    private static string UnitSuffix(CapabilityUnit unit)
     {
-        CapabilityUnit.Watt => " W",
-        CapabilityUnit.Percent => "%",
-        CapabilityUnit.Celsius => " °C",
-        CapabilityUnit.Rpm => " RPM",
-        CapabilityUnit.Milliampere => " mA",
-        CapabilityUnit.Millivolt => " mV",
-        CapabilityUnit.Megahertz => " MHz",
-        CapabilityUnit.Millisecond => " ms",
-        _ => string.Empty
-    };
+        return unit switch
+        {
+            CapabilityUnit.Watt => " W",
+            CapabilityUnit.Percent => "%",
+            CapabilityUnit.Celsius => " °C",
+            CapabilityUnit.Rpm => " RPM",
+            CapabilityUnit.Milliampere => " mA",
+            CapabilityUnit.Millivolt => " mV",
+            CapabilityUnit.Megahertz => " MHz",
+            CapabilityUnit.Millisecond => " ms",
+            _ => string.Empty
+        };
+    }
 
-    private static string LifecycleLabel(DeviceCycleState state) => state switch
+    private static string LifecycleLabel(DeviceCycleState state)
     {
-        DeviceCycleState.Disabled => "Device integration off",
-        DeviceCycleState.Detected => "Device detected",
-        DeviceCycleState.Passive => "Device passive",
-        DeviceCycleState.Activating => "Device activating",
-        DeviceCycleState.Active => "Device active",
-        DeviceCycleState.Degraded => "Device partly available",
-        DeviceCycleState.Suspended => "Device suspended",
-        DeviceCycleState.Deactivating => "Device deactivating",
-        DeviceCycleState.Faulted => "Device faulted",
-        _ => state.ToString()
-    };
+        return state switch
+        {
+            DeviceCycleState.Disabled => "Device integration off",
+            DeviceCycleState.Detected => "Device detected",
+            DeviceCycleState.Passive => "Device passive",
+            DeviceCycleState.Activating => "Device activating",
+            DeviceCycleState.Active => "Device active",
+            DeviceCycleState.Degraded => "Device partly available",
+            DeviceCycleState.Suspended => "Device suspended",
+            DeviceCycleState.Deactivating => "Device deactivating",
+            DeviceCycleState.Faulted => "Device faulted",
+            _ => state.ToString()
+        };
+    }
 
-    private static string QualityLabel(HardwareStateQuality quality) => quality switch
+    private static string QualityLabel(HardwareStateQuality quality)
     {
-        HardwareStateQuality.Verified => "Verified readback",
-        HardwareStateQuality.Observed => "Observed",
-        HardwareStateQuality.Stale => "Stale",
-        HardwareStateQuality.Faulted => "Faulted",
-        _ => "Unknown"
-    };
+        return quality switch
+        {
+            HardwareStateQuality.Verified => "Verified readback",
+            HardwareStateQuality.Observed => "Observed",
+            HardwareStateQuality.Stale => "Stale",
+            HardwareStateQuality.Faulted => "Faulted",
+            _ => "Unknown"
+        };
+    }
 
-    private static string PersistenceLabel(CapabilityPersistence persistence) => persistence switch
+    private static string PersistenceLabel(CapabilityPersistence persistence)
     {
-        CapabilityPersistence.Volatile => "resets on device power loss",
-        CapabilityPersistence.DevicePersistent => "stored on device",
-        _ => "persistence unknown"
-    };
+        return persistence switch
+        {
+            CapabilityPersistence.Volatile => "resets on device power loss",
+            CapabilityPersistence.DevicePersistent => "stored on device",
+            _ => "persistence unknown"
+        };
+    }
+
+    /// <summary>One observer's claim on the physical sample stream.</summary>
+    /// <remarks>
+    ///     Idempotent, because a surface torn down twice — closed and then disposed — must not push the
+    ///     count below zero and detach a subscription another surface still holds.
+    /// </remarks>
+    private sealed class SampleLease(DeviceOverlayBridge owner) : IDisposable
+    {
+        private bool _released;
+
+        public void Dispose()
+        {
+            if (_released)
+            {
+                return;
+            }
+
+            _released = true;
+            owner.ReleasePhysicalSamples();
+        }
+    }
 }

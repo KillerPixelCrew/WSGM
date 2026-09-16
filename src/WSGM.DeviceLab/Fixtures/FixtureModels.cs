@@ -48,7 +48,6 @@ internal sealed record FixtureManifest
 
     /// <summary>Reviewable semantic outputs under <c>expected/</c>.</summary>
     public IReadOnlyList<FixtureArtifact> ExpectedOutputs { get; init; } = [];
-
 }
 
 /// <summary>The only execution environment admitted by a fixture manifest.</summary>
@@ -97,7 +96,8 @@ internal static class FixtureSchemaValidator
 
         if (manifest.ReplayPolicy is not FixtureReplayPolicy.SimulatorOnly)
         {
-            errors.Add(new CaptureValidationError("fixture.replayPolicy", "Fixture replay must remain simulator-only."));
+            errors.Add(new CaptureValidationError("fixture.replayPolicy",
+                "Fixture replay must remain simulator-only."));
         }
 
         if (manifest.Inputs.Count + manifest.ExpectedOutputs.Count > FixtureSchema.MaximumArtifacts)
@@ -110,7 +110,8 @@ internal static class FixtureSchemaValidator
         ValidateArtifacts(manifest.ExpectedOutputs, FixtureSchema.ExpectedPrefix, errors);
 
         HashSet<string> allPaths = new(StringComparer.OrdinalIgnoreCase);
-        foreach (var artifact in manifest.Inputs.Concat(manifest.ExpectedOutputs).Where(artifact => !allPaths.Add(artifact.Path)))
+        foreach (var artifact in manifest.Inputs.Concat(manifest.ExpectedOutputs)
+                     .Where(artifact => !allPaths.Add(artifact.Path)))
         {
             errors.Add(new CaptureValidationError(artifact.Path, "Fixture path is duplicated."));
         }
@@ -128,7 +129,8 @@ internal static class FixtureSchemaValidator
             if (!CaptureBundleLayout.IsSafeRelativePath(artifact.Path)
                 || !artifact.Path.StartsWith(requiredPrefix, StringComparison.Ordinal))
             {
-                errors.Add(new CaptureValidationError(artifact.Path, $"Fixture artifact must be below '{requiredPrefix}'."));
+                errors.Add(new CaptureValidationError(artifact.Path,
+                    $"Fixture artifact must be below '{requiredPrefix}'."));
             }
 
             if (artifact.Length is < 0 or > CaptureSchema.MaximumBlobBytes)

@@ -9,14 +9,14 @@ using WSGM.Core;
 namespace WSGM.Shell;
 
 /// <summary>
-/// Projects <see cref="AudioManager"/> into the state Steam's audio surface renders, and answers
-/// its writes.
+///     Projects <see cref="AudioManager" /> into the state Steam's audio surface renders, and answers
+///     its writes.
 /// </summary>
 /// <remarks>
-/// The backend already exists and is the same one the custom taskbar drives, so this is an adapter
-/// rather than an implementation. Keeping it an adapter is the point: a second audio path would
-/// eventually disagree with the taskbar about which endpoint is default. The shape Steam sees and
-/// the mapping into Steam's own field names are the toolkit's (<see cref="SteamAudioSurface"/>).
+///     The backend already exists and is the same one the custom taskbar drives, so this is an adapter
+///     rather than an implementation. Keeping it an adapter is the point: a second audio path would
+///     eventually disagree with the taskbar about which endpoint is default. The shape Steam sees and
+///     the mapping into Steam's own field names are the toolkit's (<see cref="SteamAudioSurface" />).
 /// </remarks>
 internal sealed class AudioManagerNativeQamAudioService : ISteamAudioBackend, IDisposable
 {
@@ -36,9 +36,6 @@ internal sealed class AudioManagerNativeQamAudioService : ISteamAudioBackend, ID
         _audio.InputEndpoints.CollectionChanged += OnEndpointsChanged;
     }
 
-    /// <summary>Raised when the projected state changes.</summary>
-    public event Action? StateChanged;
-
     /// <summary>The state Steam should currently be rendering.</summary>
     public SteamAudioState Current
     {
@@ -49,6 +46,20 @@ internal sealed class AudioManagerNativeQamAudioService : ISteamAudioBackend, ID
                 return _current;
             }
         }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _audio.PropertyChanged -= OnAudioChanged;
+        _audio.OutputEndpoints.CollectionChanged -= OnEndpointsChanged;
+        _audio.InputEndpoints.CollectionChanged -= OnEndpointsChanged;
     }
 
     /// <inheritdoc />
@@ -108,7 +119,7 @@ internal sealed class AudioManagerNativeQamAudioService : ISteamAudioBackend, ID
         {
             Log.Info(
                 $"Native QAM audio: {(input ? "microphone " : string.Empty)}volume "
-                    + $"{percent} clamped to {clamped}.");
+                + $"{percent} clamped to {clamped}.");
         }
 
         await NativeQamUi.RunAsync(() =>
@@ -121,34 +132,24 @@ internal sealed class AudioManagerNativeQamAudioService : ISteamAudioBackend, ID
             {
                 _audio.VolumePercent = clamped;
             }
+
             Publish();
         }, cancellationToken).ConfigureAwait(false);
         return new SteamUiCommandResult(true, string.Empty);
     }
 
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _audio.PropertyChanged -= OnAudioChanged;
-        _audio.OutputEndpoints.CollectionChanged -= OnEndpointsChanged;
-        _audio.InputEndpoints.CollectionChanged -= OnEndpointsChanged;
-    }
+    /// <summary>Raised when the projected state changes.</summary>
+    public event Action? StateChanged;
 
     /// <summary>
-    /// Builds the state Steam should render from the manager's current view.
+    ///     Builds the state Steam should render from the manager's current view.
     /// </summary>
     /// <param name="audio">The manager to read.</param>
     /// <returns>The projected state.</returns>
     /// <remarks>
-    /// An endpoint present in both directions is reported once carrying both flags, because Steam's
-    /// device model is one entry with a direction test rather than two entries. Listing it twice
-    /// would put the same hardware in the picker under two identities.
+    ///     An endpoint present in both directions is reported once carrying both flags, because Steam's
+    ///     device model is one entry with a direction test rather than two entries. Listing it twice
+    ///     would put the same hardware in the picker under two identities.
     /// </remarks>
     internal static SteamAudioState Project(AudioManager audio)
     {
@@ -180,9 +181,15 @@ internal sealed class AudioManagerNativeQamAudioService : ISteamAudioBackend, ID
             available ? audio.ErrorText : "No audio endpoints are present.");
     }
 
-    private void OnAudioChanged(object? sender, PropertyChangedEventArgs e) => Publish();
+    private void OnAudioChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        Publish();
+    }
 
-    private void OnEndpointsChanged(object? sender, EventArgs e) => Publish();
+    private void OnEndpointsChanged(object? sender, EventArgs e)
+    {
+        Publish();
+    }
 
     private void Publish()
     {
@@ -201,19 +208,21 @@ internal sealed class AudioManagerNativeQamAudioService : ISteamAudioBackend, ID
     }
 
     /// <remarks>
-    /// The device list has to be compared element by element. Record equality would compare it by
-    /// reference, and <see cref="Project"/> builds a fresh list every time, so every property change
-    /// on the manager — including a volume tick — would look like a change to the whole device set
-    /// and push a redundant update into Steam.
+    ///     The device list has to be compared element by element. Record equality would compare it by
+    ///     reference, and <see cref="Project" /> builds a fresh list every time, so every property change
+    ///     on the manager — including a volume tick — would look like a change to the whole device set
+    ///     and push a redundant update into Steam.
     /// </remarks>
-    private static bool Same(SteamAudioState left, SteamAudioState right) =>
-        left.Available == right.Available
-        && left.VolumePercent == right.VolumePercent
-        && left.Muted == right.Muted
-        && left.InputVolumePercent == right.InputVolumePercent
-        && left.InputMuted == right.InputMuted
-        && string.Equals(left.ActiveOutputDeviceId, right.ActiveOutputDeviceId, StringComparison.Ordinal)
-        && string.Equals(left.ActiveInputDeviceId, right.ActiveInputDeviceId, StringComparison.Ordinal)
-        && string.Equals(left.StatusText, right.StatusText, StringComparison.Ordinal)
-        && left.Devices.SequenceEqual(right.Devices);
+    private static bool Same(SteamAudioState left, SteamAudioState right)
+    {
+        return left.Available == right.Available
+               && left.VolumePercent == right.VolumePercent
+               && left.Muted == right.Muted
+               && left.InputVolumePercent == right.InputVolumePercent
+               && left.InputMuted == right.InputMuted
+               && string.Equals(left.ActiveOutputDeviceId, right.ActiveOutputDeviceId, StringComparison.Ordinal)
+               && string.Equals(left.ActiveInputDeviceId, right.ActiveInputDeviceId, StringComparison.Ordinal)
+               && string.Equals(left.StatusText, right.StatusText, StringComparison.Ordinal)
+               && left.Devices.SequenceEqual(right.Devices);
+    }
 }

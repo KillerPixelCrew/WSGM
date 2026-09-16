@@ -2,6 +2,22 @@ namespace WSGM.Tests.Boundaries;
 
 public sealed class InstallerShutdownContractTests
 {
+    private static string RepositoryRoot
+    {
+        get
+        {
+            DirectoryInfo? directory = new(AppContext.BaseDirectory);
+            while (directory is not null
+                   && !File.Exists(Path.Combine(directory.FullName, "WSGM.slnx")))
+            {
+                directory = directory.Parent;
+            }
+
+            Assert.NotNull(directory);
+            return directory.FullName;
+        }
+    }
+
     [Fact]
     public void UsbipRunPublishesAndConsumesItsOwnBoundedOutcomeInsteadOfTrustingExitZero()
     {
@@ -114,8 +130,8 @@ public sealed class InstallerShutdownContractTests
             StringComparison.Ordinal));
         Assert.True(source.Contains(
             "Source: \"{#AppPublishDir}\\WSGM.exe\"; DestDir: \"{app}\"; "
-                + "DestName: \"WSGM.ShellAnchor.exe\"; Flags: ignoreversion restartreplace "
-                + "uninsrestartdelete; Check: CanInstallShellAnchor",
+            + "DestName: \"WSGM.ShellAnchor.exe\"; Flags: ignoreversion restartreplace "
+            + "uninsrestartdelete; Check: CanInstallShellAnchor",
             StringComparison.Ordinal));
         Assert.True(source.Contains(
             "Result := ShellAnchorReplacementSafe or not WizardSilent();",
@@ -291,27 +307,27 @@ public sealed class InstallerShutdownContractTests
             StringComparison.Ordinal));
         Assert.True(source.Contains(
             "Source: \"{#AppPublishDir}\\*.dll\"; DestDir: \"{app}\"; "
-                + "Excludes: \"libviiper.dll\"; Flags: ignoreversion",
+            + "Excludes: \"libviiper.dll\"; Flags: ignoreversion",
             StringComparison.Ordinal));
         Assert.True(source.Contains(
             "Source: \"{#AppPublishDir}\\libviiper.dll\"; DestDir: \"{app}\"; "
-                + "Flags: ignoreversion; Components: controller",
+            + "Flags: ignoreversion; Components: controller",
             StringComparison.Ordinal));
         Assert.True(source.Contains(
             "Source: \"{#AppPublishDir}\\VIIPER-LICENSE.txt\"; DestDir: \"{app}\"; "
-                + "Flags: ignoreversion; Components: controller",
+            + "Flags: ignoreversion; Components: controller",
             StringComparison.Ordinal));
         Assert.True(source.Contains(
             "Source: \"{#AppPublishDir}\\VIIPER-NOTICE.md\"; DestDir: \"{app}\"; "
-                + "Flags: ignoreversion; Components: controller",
+            + "Flags: ignoreversion; Components: controller",
             StringComparison.Ordinal));
         Assert.True(source.Contains(
             "Source: \"{#AppPublishDir}\\USBip-0.9.7.7-x64.exe\"; DestDir: \"{app}\"; "
-                + "Flags: ignoreversion; Components: controller",
+            + "Flags: ignoreversion; Components: controller",
             StringComparison.Ordinal));
         Assert.True(source.Contains(
             "Source: \"{#AppPublishDir}\\HidHide_1.5.230_x64.exe\"; DestDir: \"{app}\"; "
-                + "Flags: ignoreversion; Components: controller",
+            + "Flags: ignoreversion; Components: controller",
             StringComparison.Ordinal));
     }
 
@@ -541,22 +557,6 @@ public sealed class InstallerShutdownContractTests
             "SetupPostInstallCompleted := True;");
     }
 
-    private static string RepositoryRoot
-    {
-        get
-        {
-            DirectoryInfo? directory = new(AppContext.BaseDirectory);
-            while (directory is not null
-                && !File.Exists(Path.Combine(directory.FullName, "WSGM.slnx")))
-            {
-                directory = directory.Parent;
-            }
-
-            Assert.NotNull(directory);
-            return directory.FullName;
-        }
-    }
-
     private static string Slice(string source, string startMarker, string endMarker)
     {
         var start = source.IndexOf(startMarker, StringComparison.Ordinal);
@@ -593,6 +593,7 @@ public sealed class InstallerShutdownContractTests
             count++;
             index += value.Length;
         }
+
         return count;
     }
 }

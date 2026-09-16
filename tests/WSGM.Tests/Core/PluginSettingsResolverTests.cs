@@ -6,12 +6,18 @@ namespace WSGM.Tests.Core;
 
 public sealed class PluginSettingsResolverTests
 {
+    private static readonly CapabilityDisplay Label = new()
+    {
+        Key = DisplayKey.Custom,
+        CustomLabel = "A setting"
+    };
+
     [Fact]
     public void Resolve_SettingTheUserNeverChanged_UsesTheDeclaredDefault()
     {
         var resolution = PluginSettingsResolver.Resolve(
             Manifest(Poll(minimum: 100, maximum: 5000, step: 100, @default: 1000)),
-            stored: []);
+            []);
 
         var value = Assert.Single(resolution.Values);
         Assert.Equal(PluginSettingOrigin.Default, value.Origin);
@@ -23,7 +29,7 @@ public sealed class PluginSettingsResolverTests
     {
         var resolution = PluginSettingsResolver.Resolve(
             Manifest(Poll(minimum: 100, maximum: 5000, step: 100, @default: 1000)),
-            [Stored("ec.poll", integer: 2000)]);
+            [Stored("ec.poll", 2000)]);
 
         var value = Assert.Single(resolution.Values);
         Assert.Equal(PluginSettingOrigin.Stored, value.Origin);
@@ -37,7 +43,7 @@ public sealed class PluginSettingsResolverTests
         // The value was legal when it was written; the plugin has since narrowed the maximum.
         var resolution = PluginSettingsResolver.Resolve(
             Manifest(Poll(minimum: 100, maximum: 1000, step: 100, @default: 500)),
-            [Stored("ec.poll", integer: 5000)]);
+            [Stored("ec.poll", 5000)]);
 
         var value = Assert.Single(resolution.Values);
         Assert.Equal(PluginSettingOrigin.Rejected, value.Origin);
@@ -51,7 +57,7 @@ public sealed class PluginSettingsResolverTests
     {
         var resolution = PluginSettingsResolver.Resolve(
             Manifest(Poll(minimum: 100, maximum: 5000, step: 100, @default: 1000)),
-            [Stored("ec.poll", integer: 2050)]);
+            [Stored("ec.poll", 2050)]);
 
         Assert.Equal(PluginSettingOrigin.Rejected, Assert.Single(resolution.Values).Origin);
     }
@@ -97,7 +103,7 @@ public sealed class PluginSettingsResolverTests
 
         var resolution = PluginSettingsResolver.Resolve(
             Manifest(colour),
-            [Stored("ec.tint", integer: 42)]);
+            [Stored("ec.tint", 42)]);
 
         var value = Assert.Single(resolution.Values);
         Assert.Equal(PluginSettingOrigin.Rejected, value.Origin);
@@ -109,7 +115,7 @@ public sealed class PluginSettingsResolverTests
     {
         var resolution = PluginSettingsResolver.Resolve(
             Manifest(Poll(minimum: 100, maximum: 5000, step: 100, @default: 1000)),
-            [Stored("ec.poll", integer: 1000), Stored("ec.gone", integer: 7)]);
+            [Stored("ec.poll", 1000), Stored("ec.gone", 7)]);
 
         Assert.Equal("ec.gone", Assert.Single(resolution.Orphans));
     }
@@ -127,19 +133,15 @@ public sealed class PluginSettingsResolverTests
             ]
         };
 
-        var resolution = PluginSettingsResolver.Resolve(manifest, stored: []);
+        var resolution = PluginSettingsResolver.Resolve(manifest, []);
 
         Assert.Equal(["a", "b", "c"], resolution.Values.Select(v => v.SettingId));
     }
 
-    private static readonly CapabilityDisplay Label = new()
+    private static PluginSettingsManifest Manifest(params PluginSettingDescriptor[] settings)
     {
-        Key = DisplayKey.Custom,
-        CustomLabel = "A setting"
-    };
-
-    private static PluginSettingsManifest Manifest(params PluginSettingDescriptor[] settings) =>
-        new() { Settings = settings };
+        return new PluginSettingsManifest { Settings = settings };
+    }
 
     private static PluginSettingDescriptor Poll(
         string id = "ec.poll",
@@ -147,21 +149,26 @@ public sealed class PluginSettingsResolverTests
         int maximum = 5000,
         int step = 100,
         int @default = 1000
-    ) => new()
+    )
     {
-        SettingId = id,
-        ValueKind = CapabilityValueKind.Integer,
-        Display = Label,
-        Minimum = minimum,
-        Maximum = maximum,
-        Step = step,
-        Default = new CapabilityValue
+        return new PluginSettingDescriptor
         {
-            Kind = CapabilityValueKind.Integer,
-            IntegerValue = @default
-        }
-    };
+            SettingId = id,
+            ValueKind = CapabilityValueKind.Integer,
+            Display = Label,
+            Minimum = minimum,
+            Maximum = maximum,
+            Step = step,
+            Default = new CapabilityValue
+            {
+                Kind = CapabilityValueKind.Integer,
+                IntegerValue = @default
+            }
+        };
+    }
 
-    private static PluginSettingValue Stored(string id, int integer) =>
-        new() { SettingId = id, Integer = integer };
+    private static PluginSettingValue Stored(string id, int integer)
+    {
+        return new PluginSettingValue { SettingId = id, Integer = integer };
+    }
 }

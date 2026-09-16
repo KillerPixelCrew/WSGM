@@ -6,12 +6,12 @@ using static WSGM.Tests.Builders.ControllerSamples;
 namespace WSGM.Tests.Overlay;
 
 /// <summary>
-/// The one place the canonical button vocabulary meets the glyph one.
+///     The one place the canonical button vocabulary meets the glyph one.
 /// </summary>
 /// <remarks>
-/// These are separate vocabularies on purpose: a device can report a control it has no artwork for,
-/// and a profile can carry artwork for a control the plugin never reports. Getting the map wrong is
-/// exactly the defect the input test exists to reveal, so the map itself needs pinning.
+///     These are separate vocabularies on purpose: a device can report a control it has no artwork for,
+///     and a profile can carry artwork for a control the plugin never reports. Getting the map wrong is
+///     exactly the defect the input test exists to reveal, so the map itself needs pinning.
 /// </remarks>
 public sealed class GlyphInputTestMapTests
 {
@@ -69,7 +69,7 @@ public sealed class GlyphInputTestMapTests
     {
         // Triggers are analogue and sit slightly off zero on real hardware. A bare non-zero test
         // would light them permanently, which makes the test useless for everything beside them.
-        Assert.Empty(GlyphInputTestMap.Pressed(Sample(CanonicalButtons.None, leftTrigger: 0.05f)));
+        Assert.Empty(GlyphInputTestMap.Pressed(Sample(CanonicalButtons.None, 0.05f)));
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public sealed class GlyphInputTestMapTests
     {
         var pressed = GlyphInputTestMap.Pressed(Sample(
             CanonicalButtons.A | CanonicalButtons.RightShoulder | CanonicalButtons.QuickAccess,
-            leftTrigger: 1f));
+            1f));
         HashSet<GlyphControlId> expected =
         [
             GlyphControlId.FaceSouth,

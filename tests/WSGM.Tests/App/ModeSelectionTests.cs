@@ -62,5 +62,4 @@ public sealed class ModeSelectionTests
     {
         Assert.Equal(expected, Program.IsServiceBoot(args));
     }
-
 }

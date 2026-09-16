@@ -29,6 +29,6 @@
     <!-- PlatformSupport.cs is the binding project's own assembly attribute, not binding code. -->
     <Compile Include="..\..\external\steam-input-lease\bindings\SteamInterop.Net\*.cs"
              Exclude="..\..\external\steam-input-lease\bindings\SteamInterop.Net\PlatformSupport.cs"
-             LinkBase="SteamInterop" />
+             LinkBase="SteamInterop"/>
   </ItemGroup>
 </Project>

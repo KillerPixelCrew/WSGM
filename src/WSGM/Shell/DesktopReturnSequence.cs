@@ -15,8 +15,10 @@ internal interface IDesktopReturnBackend
     Task ClearPendingReturnAsync();
 }
 
-/// <summary>Restores the desktop before optional external actions. One failed phase cannot skip
-/// later recovery, and a failed layout remains recorded for a later explicit return.</summary>
+/// <summary>
+///     Restores the desktop before optional external actions. One failed phase cannot skip
+///     later recovery, and a failed layout remains recorded for a later explicit return.
+/// </summary>
 internal static class DesktopReturnSequence
 {
     internal static async Task<bool> RunAsync(
@@ -35,24 +37,36 @@ internal static class DesktopReturnSequence
         {
             return false;
         }
+
         // Settle the durable recovery record before an optional plugin can stall or throw.
         if (layoutRestored)
         {
             await Attempt("Clearing the desktop recovery record", backend.ClearPendingReturnAsync)
                 .ConfigureAwait(false);
         }
+
         if (runLeaveActions)
         {
             await Attempt("Running leave actions", backend.RunLeaveActionsAsync).ConfigureAwait(false);
         }
+
         return true;
 
         async Task Attempt(string phase, Func<Task> action)
         {
             var elapsed = Stopwatch.StartNew();
-            try { await action().ConfigureAwait(false); }
-            catch (Exception ex) { error(phase, ex); }
-            finally { trace?.Invoke($"Desktop return: {phase} settled in {elapsed.ElapsedMilliseconds} ms."); }
+            try
+            {
+                await action().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                error(phase, ex);
+            }
+            finally
+            {
+                trace?.Invoke($"Desktop return: {phase} settled in {elapsed.ElapsedMilliseconds} ms.");
+            }
         }
     }
 }

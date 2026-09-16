@@ -16,8 +16,8 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
     private const int CurrentVersion = 1;
     private const int MaxBytes = 16 * 1024;
     private const string FileName = "temporary-state.v1.json";
-    private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly string? _path;
+    private readonly SemaphoreSlim _writeGate = new(1, 1);
     private List<ClawRecoveryEntry> _entries = [];
 
     private ClawRecoveryJournal(string? path, CapabilityReason? failureReason)
@@ -29,6 +29,12 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
     public CapabilityReason? FailureReason { get; private set; }
 
     public IReadOnlyList<ClawRecoveryEntry> OutstandingEntries => [.. _entries];
+
+    public ValueTask DisposeAsync()
+    {
+        _writeGate.Dispose();
+        return ValueTask.CompletedTask;
+    }
 
     public static async ValueTask<ClawRecoveryJournal> OpenAsync(
         string stateDirectory,
@@ -51,7 +57,7 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
             return Failed($"The plugin recovery directory is unavailable ({ex.GetType().Name}).");
         }
 
-        var journal = new ClawRecoveryJournal(path, failureReason: null);
+        var journal = new ClawRecoveryJournal(path, null);
         await journal.LoadAsync(cancellationToken).ConfigureAwait(false);
         _ = await journal.CheckHealthAsync(cancellationToken).ConfigureAwait(false);
         return journal;
@@ -87,7 +93,7 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
                         $"Recovery for service '{serviceId}' is unresolved.");
                 }
 
-                return new ClawRecoveryOperation(existing, Opened: false);
+                return new ClawRecoveryOperation(existing, false);
             }
 
             var entry = new ClawRecoveryEntry
@@ -100,7 +106,7 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
             };
             List<ClawRecoveryEntry> entries = [.. _entries, entry];
             await SaveAsync(entries, cancellationToken).ConfigureAwait(false);
-            return new ClawRecoveryOperation(entry, Opened: true);
+            return new ClawRecoveryOperation(entry, true);
         }
         finally
         {
@@ -108,15 +114,19 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
         }
     }
 
-    public bool HasUnrestoredMutation(string serviceId) =>
-        _entries.Any(entry => string.Equals(entry.ServiceId, serviceId, StringComparison.Ordinal));
+    public bool HasUnrestoredMutation(string serviceId)
+    {
+        return _entries.Any(entry => string.Equals(entry.ServiceId, serviceId, StringComparison.Ordinal));
+    }
 
     /// <summary>Gets the exact state captured immediately before a service's first mutation.</summary>
     /// <param name="serviceId">Service whose outstanding mutation is being restored.</param>
     /// <returns>The captured state, or null when the service has no outstanding mutation.</returns>
-    public ClawRecoveryState? OriginalStateFor(string serviceId) =>
-        _entries.SingleOrDefault(entry =>
+    public ClawRecoveryState? OriginalStateFor(string serviceId)
+    {
+        return _entries.SingleOrDefault(entry =>
             string.Equals(entry.ServiceId, serviceId, StringComparison.Ordinal))?.OriginalState;
+    }
 
     public async ValueTask<CapabilityReason?> CheckHealthAsync(CancellationToken cancellationToken)
     {
@@ -221,12 +231,6 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
         return entry with { Status = status };
     }
 
-    public ValueTask DisposeAsync()
-    {
-        _writeGate.Dispose();
-        return ValueTask.CompletedTask;
-    }
-
     internal static ClawReconciliationAction Decide(
         ClawRecoveryEntry entry,
         string? currentFirmwareIdentity)
@@ -245,9 +249,12 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
             : ClawReconciliationAction.ReportOnly;
     }
 
-    private static ClawRecoveryJournal Failed(string detail) => new(
-        path: null,
-        new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail));
+    private static ClawRecoveryJournal Failed(string detail)
+    {
+        return new ClawRecoveryJournal(
+            null,
+            new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail));
+    }
 
     private async ValueTask LoadAsync(CancellationToken cancellationToken)
     {
@@ -263,7 +270,7 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.Read,
-                bufferSize: 4096,
+                4096,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
             if (stream.Length > MaxBytes)
             {
@@ -372,19 +379,19 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
         try
         {
             await using (FileStream stream = new(
-                temporary,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.None,
-                bufferSize: 4096,
-                FileOptions.Asynchronous | FileOptions.WriteThrough))
+                             temporary,
+                             FileMode.Create,
+                             FileAccess.Write,
+                             FileShare.None,
+                             4096,
+                             FileOptions.Asynchronous | FileOptions.WriteThrough))
             {
                 await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-                stream.Flush(flushToDisk: true);
+                stream.Flush(true);
             }
 
-            File.Move(temporary, _path, overwrite: true);
+            File.Move(temporary, _path, true);
             _entries = entries;
         }
         finally
@@ -455,18 +462,19 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
         var valid = serviceId switch
         {
             ServiceIds.Power => state.Kind is ClawRecoveryStateKind.Power
-                && state.SustainedWatts is >= byte.MinValue and <= byte.MaxValue
-                && state.BoostWatts is >= byte.MinValue and <= byte.MaxValue
-                && state.Scenario is not null,
+                                && state.SustainedWatts is >= byte.MinValue and <= byte.MaxValue
+                                && state.BoostWatts is >= byte.MinValue and <= byte.MaxValue
+                                && state.Scenario is not null,
             ServiceIds.Fans => state.Kind is ClawRecoveryStateKind.Fans
-                && state.LeftDuty.Length == 32
-                && state.LeftTemperature.Length == 32
-                && state.RightDuty.Length == 32
-                && state.RightTemperature.Length == 32
-                && state.CustomFlag is not null
-                && state.FullSpeedFlag is not null,
+                               && state.LeftDuty.Length == 32
+                               && state.LeftTemperature.Length == 32
+                               && state.RightDuty.Length == 32
+                               && state.RightTemperature.Length == 32
+                               && state.CustomFlag is not null
+                               && state.FullSpeedFlag is not null,
             ServiceIds.Controller => state.Kind is ClawRecoveryStateKind.ControllerMode
-                && state.ControllerMode is ClawControllerMode.XInput or ClawControllerMode.DirectInput,
+                                     && state.ControllerMode is ClawControllerMode.XInput
+                                         or ClawControllerMode.DirectInput,
             _ => false
         };
         if (!valid)
@@ -561,13 +569,16 @@ internal enum ClawRecoveryStateKind
 
 internal static class ClawRecoveryValues
 {
-    public static ClawRecoveryState Power(PowerPair snapshot) => new()
+    public static ClawRecoveryState Power(PowerPair snapshot)
     {
-        Kind = ClawRecoveryStateKind.Power,
-        SustainedWatts = snapshot.SustainedWatts,
-        BoostWatts = snapshot.BoostWatts,
-        Scenario = snapshot.Scenario
-    };
+        return new ClawRecoveryState
+        {
+            Kind = ClawRecoveryStateKind.Power,
+            SustainedWatts = snapshot.SustainedWatts,
+            BoostWatts = snapshot.BoostWatts,
+            Scenario = snapshot.Scenario
+        };
+    }
 
     public static bool TryPower(ClawRecoveryState? value, out PowerPair? snapshot)
     {
@@ -584,16 +595,19 @@ internal static class ClawRecoveryValues
         return true;
     }
 
-    public static ClawRecoveryState Fans(FanSnapshot snapshot) => new()
+    public static ClawRecoveryState Fans(FanSnapshot snapshot)
     {
-        Kind = ClawRecoveryStateKind.Fans,
-        LeftDuty = [.. snapshot.Left.DutyBuffer],
-        LeftTemperature = [.. snapshot.Left.TemperatureBuffer],
-        RightDuty = [.. snapshot.Right.DutyBuffer],
-        RightTemperature = [.. snapshot.Right.TemperatureBuffer],
-        CustomFlag = snapshot.CustomFlag,
-        FullSpeedFlag = snapshot.FullSpeedFlag
-    };
+        return new ClawRecoveryState
+        {
+            Kind = ClawRecoveryStateKind.Fans,
+            LeftDuty = [.. snapshot.Left.DutyBuffer],
+            LeftTemperature = [.. snapshot.Left.TemperatureBuffer],
+            RightDuty = [.. snapshot.Right.DutyBuffer],
+            RightTemperature = [.. snapshot.Right.TemperatureBuffer],
+            CustomFlag = snapshot.CustomFlag,
+            FullSpeedFlag = snapshot.FullSpeedFlag
+        };
+    }
 
     public static bool TryFans(ClawRecoveryState? value, out FanSnapshot? snapshot)
     {
@@ -617,17 +631,20 @@ internal static class ClawRecoveryValues
         return true;
     }
 
-    public static ClawRecoveryState ControllerMode(ClawControllerMode mode) => new()
+    public static ClawRecoveryState ControllerMode(ClawControllerMode mode)
     {
-        Kind = ClawRecoveryStateKind.ControllerMode,
-        ControllerMode = mode
-    };
+        return new ClawRecoveryState
+        {
+            Kind = ClawRecoveryStateKind.ControllerMode,
+            ControllerMode = mode
+        };
+    }
 
     public static bool TryControllerMode(ClawRecoveryState? value, out ClawControllerMode mode)
     {
         mode = value?.ControllerMode ?? ClawControllerMode.Offline;
         return value?.Kind is ClawRecoveryStateKind.ControllerMode
-            && mode is ClawControllerMode.XInput or ClawControllerMode.DirectInput;
+               && mode is ClawControllerMode.XInput or ClawControllerMode.DirectInput;
     }
 }
 

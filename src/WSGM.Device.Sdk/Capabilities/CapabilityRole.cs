@@ -3,18 +3,18 @@ using System.Text.Json.Serialization;
 namespace WSGM.Device.Sdk.Capabilities;
 
 /// <summary>
-/// What a capability means to WSGM, independent of how any device implements it.
+///     What a capability means to WSGM, independent of how any device implements it.
 /// </summary>
 /// <remarks>
-/// The role is the entire basis on which the overlay and the native QAM decide what control to draw
-/// and what a value means. WSGM knows "sustained power limit, 8-30 W, step 1"; whether the plugin
-/// reaches that through vendor WMI, an EC transaction, AMD SMU, or Intel MMIO is not expressible
-/// here and must never become expressible.
-/// <para>
-/// The generic roles at the end exist so an unusual feature — UMA allocation, a secondary display
-/// brightness, USB-C routing, an external-GPU switch — can be exposed without a plugin shipping UI
-/// code for it.
-/// </para>
+///     The role is the entire basis on which the overlay and the native QAM decide what control to draw
+///     and what a value means. WSGM knows "sustained power limit, 8-30 W, step 1"; whether the plugin
+///     reaches that through vendor WMI, an EC transaction, AMD SMU, or Intel MMIO is not expressible
+///     here and must never become expressible.
+///     <para>
+///         The generic roles at the end exist so an unusual feature — UMA allocation, a secondary display
+///         brightness, USB-C routing, an external-GPU switch — can be exposed without a plugin shipping UI
+///         code for it.
+///     </para>
 /// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<CapabilityRole>))]
 public enum CapabilityRole
@@ -86,12 +86,12 @@ public enum CapabilityRole
     HapticSink,
 
     /// <summary>
-    /// Variable refresh rate for the device's own panel.
+    ///     Variable refresh rate for the device's own panel.
     /// </summary>
     /// <remarks>
-    /// The panel belongs to the device, so the transport that drives it does too — on Intel parts
-    /// that is IGCL's Arc Sync, on others it will be something else entirely. WSGM only projects the
-    /// capability; it never learns which driver answered.
+    ///     The panel belongs to the device, so the transport that drives it does too — on Intel parts
+    ///     that is IGCL's Arc Sync, on others it will be something else entirely. WSGM only projects the
+    ///     capability; it never learns which driver answered.
     /// </remarks>
     VariableRefreshRate,
 
@@ -140,20 +140,20 @@ public enum CapabilityValueKind
     Curve,
 
     /// <summary>
-    /// Short plain text the user types.
+    ///     Short plain text the user types.
     /// </summary>
     /// <remarks>
-    /// The only kind not constrained by construction, so it carries the same text contract as
-    /// <see cref="CapabilityDisplay.CustomLabel"/>: a declared maximum length with control and
-    /// bidirectional formatting characters rejected.
+    ///     The only kind not constrained by construction, so it carries the same text contract as
+    ///     <see cref="CapabilityDisplay.CustomLabel" />: a declared maximum length with control and
+    ///     bidirectional formatting characters rejected.
     /// </remarks>
     Text
 }
 
 /// <summary>Units a numeric capability may carry.</summary>
 /// <remarks>
-/// A closed set rather than a free-text unit string: WSGM formats and localizes these, and a plugin
-/// supplying "Watt " or "watts" would leak straight into the UI.
+///     A closed set rather than a free-text unit string: WSGM formats and localizes these, and a plugin
+///     supplying "Watt " or "watts" would leak straight into the UI.
 /// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<CapabilityUnit>))]
 public enum CapabilityUnit
@@ -186,29 +186,32 @@ public enum CapabilityUnit
     Millisecond
 }
 
-/// <summary>Questions about a <see cref="CapabilityRole"/> that more than one layer asks.</summary>
+/// <summary>Questions about a <see cref="CapabilityRole" /> that more than one layer asks.</summary>
 public static class CapabilityRoleExtensions
 {
     /// <summary>
-    /// Whether the role is one of the <c>Generic*</c> roles — a control WSGM has no semantics for.
+    ///     Whether the role is one of the <c>Generic*</c> roles — a control WSGM has no semantics for.
     /// </summary>
     /// <param name="role">The role to classify.</param>
-    /// <returns><see langword="true"/> for a generic role.</returns>
+    /// <returns><see langword="true" /> for a generic role.</returns>
     /// <remarks>
-    /// The distinction decides what a plugin is allowed to arrange. A semantic role has a home WSGM
-    /// gives it and keeps across every device, so its placement is not the plugin's to choose; a
-    /// generic role has no such home, which is exactly why the plugin may place it.
-    /// <para>
-    /// Written as an explicit list rather than a name-prefix check. A future role named
-    /// <c>GenericPowerLimit</c> would silently become placeable under a prefix rule; adding a role
-    /// must require an explicit decision here.
-    /// </para>
+    ///     The distinction decides what a plugin is allowed to arrange. A semantic role has a home WSGM
+    ///     gives it and keeps across every device, so its placement is not the plugin's to choose; a
+    ///     generic role has no such home, which is exactly why the plugin may place it.
+    ///     <para>
+    ///         Written as an explicit list rather than a name-prefix check. A future role named
+    ///         <c>GenericPowerLimit</c> would silently become placeable under a prefix rule; adding a role
+    ///         must require an explicit decision here.
+    ///     </para>
     /// </remarks>
-    public static bool IsGeneric(this CapabilityRole role) => role is
-        CapabilityRole.GenericToggle
-        or CapabilityRole.GenericRange
-        or CapabilityRole.GenericChoice
-        or CapabilityRole.GenericAction
-        or CapabilityRole.GenericText
-        or CapabilityRole.GenericReadOnly;
+    public static bool IsGeneric(this CapabilityRole role)
+    {
+        return role is
+            CapabilityRole.GenericToggle
+            or CapabilityRole.GenericRange
+            or CapabilityRole.GenericChoice
+            or CapabilityRole.GenericAction
+            or CapabilityRole.GenericText
+            or CapabilityRole.GenericReadOnly;
+    }
 }

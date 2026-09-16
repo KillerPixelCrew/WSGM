@@ -15,29 +15,66 @@ using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
-/// <summary>The gamepad-driven custom-tab builder, hosted as a Tools sub-view of the
-/// overlay (the <c>PanelFormat</c> idiom; scaffolding in <see cref="OverlaySubView"/>).
-/// All Steam contact goes through <see cref="SteamCollections"/> /
-/// <see cref="LibraryTabManager"/>; a tab is injected into Steam's own tab strip
-/// by <see cref="SteamLibraryTabs"/> and its membership is a fake in-memory
-/// collection — no Steam collection is ever created, and user/SRM ones are never
-/// touched. Card libraries are managed by the separate
-/// <see cref="CardManagerView"/>.</summary>
+/// <summary>
+///     The gamepad-driven custom-tab builder, hosted as a Tools sub-view of the
+///     overlay (the <c>PanelFormat</c> idiom; scaffolding in <see cref="OverlaySubView" />).
+///     All Steam contact goes through <see cref="SteamCollections" /> /
+///     <see cref="LibraryTabManager" />; a tab is injected into Steam's own tab strip
+///     by <see cref="SteamLibraryTabs" /> and its membership is a fake in-memory
+///     collection — no Steam collection is ever created, and user/SRM ones are never
+///     touched. Card libraries are managed by the separate
+///     <see cref="CardManagerView" />.
+/// </summary>
 public sealed class LibraryTabsView : OverlaySubView
 {
+    // ---- Level: filter type picker ----
+
+    private static readonly (FilterKind Kind, string Label, string Desc)[] FilterKinds =
+    [
+        (FilterKind.Tag, "Tag / Genre", "Games with a store tag"),
+        (FilterKind.Installed, "Installed", "Installed or not"),
+        (FilterKind.Collection, "Collection", "In a Steam collection"),
+        (FilterKind.Regex, "Title", "Title matches a pattern"),
+        (FilterKind.SdCard, "SD Card", "Installed on a card"),
+        (FilterKind.TimePlayed, "Playtime", "Above/below hours played"),
+        (FilterKind.SizeOnDisk, "Size", "Above/below install size"),
+        (FilterKind.ReviewScore, "Review score", "Above/below a score"),
+        (FilterKind.ReleaseDate, "Release date", "Before/after a date"),
+        (FilterKind.LastPlayed, "Last played", "Before/after a date"),
+        (FilterKind.Platform, "Platform", "Steam or non-Steam"),
+        (FilterKind.Whitelist, "Whitelist", "Only these games"),
+        (FilterKind.Blacklist, "Blacklist", "Exclude these games"),
+        (FilterKind.Merge, "Merge group", "Nested AND/OR of filters")
+    ];
+
+    private IReadOnlyList<SteamCollectionInfo>? _collections;
     private AppConfig _config = new();
+    private CustomTabConfig _editing = new();
+
+    // ---- Level: tab editor ----
+
+    private CustomTabConfig? _editingOriginal;
 
     // Lazily-loaded, cached Steam data for the pickers.
     private IReadOnlyList<SteamCollections.AppInfo>? _games;
-    private IReadOnlyList<SteamCollections.TagInfo>? _tags;
-    private IReadOnlyList<SteamCollectionInfo>? _collections;
     private HashSet<string> _openedTabIds = new(StringComparer.Ordinal);
+
+    // ---- Level: tab order & native tabs ----
+
+    private List<LibraryTabManager.TabOrderEntry> _orderEntries = [];
+    private Task _orderPersistChain = Task.CompletedTask;
+    private CancellationTokenSource? _orderPushDebounce;
+
+    private FilterNode? _replacingFilter;
+    private IReadOnlyList<SteamCollections.TagInfo>? _tags;
 
     /// <inheritdoc />
     protected override string LogScope => "Library tabs";
 
-    /// <summary>Loads config and renders the root tab list. Called by the overlay when
-    /// the sub-view opens.</summary>
+    /// <summary>
+    ///     Loads config and renders the root tab list. Called by the overlay when
+    ///     the sub-view opens.
+    /// </summary>
     public void Open()
     {
         _stack.Clear();
@@ -53,7 +90,11 @@ public sealed class LibraryTabsView : OverlaySubView
     private async Task LoadAndRenderAsync(int generation)
     {
         var config = await Task.Run(ConfigStore.Load);
-        if (generation != _navigationGeneration) { return; }
+        if (generation != _navigationGeneration)
+        {
+            return;
+        }
+
         _config = config;
         _openedTabIds = _config.CustomTabs.Select(static tab => tab.Id)
             .ToHashSet(StringComparer.Ordinal);
@@ -66,7 +107,7 @@ public sealed class LibraryTabsView : OverlaySubView
     {
         var stack = NewStack("Library Tabs");
         stack.Children.Add(Caption("Tabs appear in Steam's library and update automatically as "
-            + "you make changes."));
+                                   + "you make changes."));
 
         stack.Children.Add(PrimaryRow("New Tab", "Build a tab from filters", Icons.FolderPlus,
             () => OpenTabEditor(null)));
@@ -88,12 +129,6 @@ public sealed class LibraryTabsView : OverlaySubView
         SetContent(stack);
     }
 
-    // ---- Level: tab order & native tabs ----
-
-    private List<LibraryTabManager.TabOrderEntry> _orderEntries = [];
-    private CancellationTokenSource? _orderPushDebounce;
-    private Task _orderPersistChain = Task.CompletedTask;
-
     private void OpenTabOrder()
     {
         _orderEntries = LibraryTabManager.BuildTabOrder(_config);
@@ -104,7 +139,7 @@ public sealed class LibraryTabsView : OverlaySubView
     {
         var stack = NewStack("Tab Order");
         stack.Children.Add(Caption("Top to bottom here is left to right in Steam. Steam's own "
-            + "tabs can be hidden; WSGM tabs disappear when disabled in their editors."));
+                                   + "tabs can be hidden; WSGM tabs disappear when disabled in their editors."));
         foreach (var entry in _orderEntries)
         {
             var e = entry;
@@ -113,6 +148,7 @@ public sealed class LibraryTabsView : OverlaySubView
             stack.Children.Add(Row(e.Title, e.Hidden ? kind + " · hidden" : kind, Icons.Reorder,
                 () => Navigate(() => RenderTabOrderActions(e.Key))));
         }
+
         SetContent(stack);
     }
 
@@ -124,10 +160,11 @@ public sealed class LibraryTabsView : OverlaySubView
             Back();
             return;
         }
+
         var entry = _orderEntries[index];
         var stack = NewStack(entry.Title);
         stack.Children.Add(Caption($"Position {index + 1} of {_orderEntries.Count}"
-            + (entry.Hidden ? " · hidden" : "")));
+                                   + (entry.Hidden ? " · hidden" : "")));
         stack.Children.Add(Row("Move up", "Earlier in the strip", Icons.ArrowUp,
             index > 0 ? () => MoveOrderEntry(key, -1) : null));
         stack.Children.Add(Row("Move down", "Later in the strip", Icons.ArrowDown,
@@ -140,6 +177,7 @@ public sealed class LibraryTabsView : OverlaySubView
                 : DangerRow("Hide tab", "Remove this Steam tab from the strip", Icons.Close,
                     () => SetNativeHidden(key, true)));
         }
+
         stack.Children.Add(Row("Done", "Back to the list", Icons.ExitFullscreen, () => Back()));
         SetContent(stack);
         if (focusTitle is not null)
@@ -156,6 +194,7 @@ public sealed class LibraryTabsView : OverlaySubView
                     {
                         continue;
                     }
+
                     button.Focus(NavigationMethod.Directional);
                     return;
                 }
@@ -171,6 +210,7 @@ public sealed class LibraryTabsView : OverlaySubView
         {
             return;
         }
+
         (_orderEntries[index], _orderEntries[target]) = (_orderEntries[target], _orderEntries[index]);
         PersistTabOrder();
         Replace(() => RenderTabOrderActions(key, delta < 0 ? "Move up" : "Move down"));
@@ -183,6 +223,7 @@ public sealed class LibraryTabsView : OverlaySubView
         {
             return;
         }
+
         _orderEntries[index] = _orderEntries[index] with { Hidden = hidden };
         PersistTabOrder();
         Replace(() => RenderTabOrderActions(key, hidden ? "Show tab" : "Hide tab"));
@@ -231,18 +272,15 @@ public sealed class LibraryTabsView : OverlaySubView
                     await SyncQuietly();
                 }
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException)
+            {
+            }
             catch (Exception ex)
             {
                 Log.Warn($"Library tab order push failed: {ex.Message}");
             }
         }, cts.Token);
     }
-
-    // ---- Level: tab editor ----
-
-    private CustomTabConfig? _editingOriginal;
-    private CustomTabConfig _editing = new();
 
     private void OpenTabEditor(CustomTabConfig? existing)
     {
@@ -256,25 +294,24 @@ public sealed class LibraryTabsView : OverlaySubView
         var stack = NewStack(_editingOriginal is null ? "New Tab" : "Edit Tab");
 
         stack.Children.Add(Row("Name", string.IsNullOrWhiteSpace(_editing.Name) ? "(required)" : _editing.Name,
-            Icons.CopyDoc, () => EditText("Tab name", _editing.Name, 40, v =>
-            {
-                _editing.Name = v.Trim();
-            })));
+            Icons.CopyDoc, () => EditText("Tab name", _editing.Name, 40, v => { _editing.Name = v.Trim(); })));
 
         stack.Children.Add(CycleRow("Match", _editing.FilterTree.Mode == FilterMode.And
-            ? "All filters (AND)" : "Any filter (OR)", () =>
+            ? "All filters (AND)"
+            : "Any filter (OR)", () =>
         {
             _editing.FilterTree.Mode = _editing.FilterTree.Mode == FilterMode.And
-                ? FilterMode.Or : FilterMode.And;
+                ? FilterMode.Or
+                : FilterMode.And;
             Replace(RenderTabEditor);
         }));
 
         stack.Children.Add(CycleRow("Include", CategoriesLabel((LibraryFilter.Categories)_editing.Categories),
             () =>
-        {
-            _editing.Categories = NextCategories(_editing.Categories);
-            Replace(RenderTabEditor);
-        }));
+            {
+                _editing.Categories = NextCategories(_editing.Categories);
+                Replace(RenderTabEditor);
+            }));
 
         stack.Children.Add(SectionLabel("FILTERS"));
         var filters = _editing.FilterTree.Children;
@@ -292,6 +329,7 @@ public sealed class LibraryTabsView : OverlaySubView
                     Icons.Wrench, () => OpenFilterEditor(n)));
             }
         }
+
         stack.Children.Add(Row("Add filter", "Choose a filter type", Icons.FolderPlus,
             () => OpenFilterPicker(null)));
 
@@ -302,12 +340,16 @@ public sealed class LibraryTabsView : OverlaySubView
             stack.Children.Add(DangerRow("Delete tab", "Remove this tab from Steam's library",
                 Icons.Close, DeleteTab));
         }
+
         stack.Children.Add(Row("Cancel", "Discard changes", Icons.ExitFullscreen, () => Back()));
 
         SetContent(stack);
     }
 
-    private void SaveTab() => _ = RunSafelyAsync(SaveTabAsync(), "save");
+    private void SaveTab()
+    {
+        _ = RunSafelyAsync(SaveTabAsync(), "save");
+    }
 
     private async Task SaveTabAsync()
     {
@@ -316,6 +358,7 @@ public sealed class LibraryTabsView : OverlaySubView
             Toast("A tab needs a name.");
             return;
         }
+
         if (_editing.FilterTree.Children.Count == 0 || !_editing.FilterTree.Children.All(LibraryFilter.IsValid))
         {
             Toast("Finish every filter first (no ⚠).");
@@ -325,7 +368,8 @@ public sealed class LibraryTabsView : OverlaySubView
         if (_editingOriginal is null)
         {
             _editing.Position = _config.CustomTabs.Count == 0
-                ? 0 : _config.CustomTabs.Max(t => t.Position) + 1;
+                ? 0
+                : _config.CustomTabs.Max(t => t.Position) + 1;
             _config.CustomTabs.Add(_editing);
         }
         else
@@ -342,13 +386,17 @@ public sealed class LibraryTabsView : OverlaySubView
         {
             return;
         }
+
         // Drop back to the list, then materialize in the background.
         _stack.Clear();
         Replace(RenderTabList);
         _ = SyncQuietly();
     }
 
-    private void DeleteTab() => _ = RunSafelyAsync(DeleteTabAsync(), "delete");
+    private void DeleteTab()
+    {
+        _ = RunSafelyAsync(DeleteTabAsync(), "delete");
+    }
 
     private async Task DeleteTabAsync()
     {
@@ -356,11 +404,13 @@ public sealed class LibraryTabsView : OverlaySubView
         {
             return;
         }
+
         _config.CustomTabs.Remove(_editingOriginal);
         if (!await TryPersistTabsAsync("delete"))
         {
             return;
         }
+
         _stack.Clear();
         Replace(RenderTabList);
         _ = SyncQuietly();
@@ -386,6 +436,7 @@ public sealed class LibraryTabsView : OverlaySubView
                     cfg.CustomTabs.Add(tab);
                 }
             }
+
             return null;
         });
     }
@@ -423,28 +474,6 @@ public sealed class LibraryTabsView : OverlaySubView
         }
     }
 
-    // ---- Level: filter type picker ----
-
-    private static readonly (FilterKind Kind, string Label, string Desc)[] FilterKinds =
-    [
-        (FilterKind.Tag, "Tag / Genre", "Games with a store tag"),
-        (FilterKind.Installed, "Installed", "Installed or not"),
-        (FilterKind.Collection, "Collection", "In a Steam collection"),
-        (FilterKind.Regex, "Title", "Title matches a pattern"),
-        (FilterKind.SdCard, "SD Card", "Installed on a card"),
-        (FilterKind.TimePlayed, "Playtime", "Above/below hours played"),
-        (FilterKind.SizeOnDisk, "Size", "Above/below install size"),
-        (FilterKind.ReviewScore, "Review score", "Above/below a score"),
-        (FilterKind.ReleaseDate, "Release date", "Before/after a date"),
-        (FilterKind.LastPlayed, "Last played", "Before/after a date"),
-        (FilterKind.Platform, "Platform", "Steam or non-Steam"),
-        (FilterKind.Whitelist, "Whitelist", "Only these games"),
-        (FilterKind.Blacklist, "Blacklist", "Exclude these games"),
-        (FilterKind.Merge, "Merge group", "Nested AND/OR of filters")
-    ];
-
-    private FilterNode? _replacingFilter;
-
     private void OpenFilterPicker(FilterNode? replacing)
     {
         _replacingFilter = replacing;
@@ -459,6 +488,7 @@ public sealed class LibraryTabsView : OverlaySubView
             var k = kind;
             stack.Children.Add(Row(label, desc, Icons.Wrench, () => PickFilterKind(k)));
         }
+
         SetContent(stack);
     }
 
@@ -469,6 +499,7 @@ public sealed class LibraryTabsView : OverlaySubView
         {
             node.Children.Add(new FilterNode { Kind = FilterKind.Installed });
         }
+
         if (_replacingFilter is not null)
         {
             var list = _editing.FilterTree.Children;
@@ -477,12 +508,14 @@ public sealed class LibraryTabsView : OverlaySubView
             {
                 list[idx] = node;
             }
+
             PopIfAny();
         }
         else
         {
             _editing.FilterTree.Children.Add(node);
         }
+
         // Replace the picker level with the editor for the new node.
         _current = () => RenderFilterEditor(node);
         RenderFilterEditor(node);
@@ -490,7 +523,10 @@ public sealed class LibraryTabsView : OverlaySubView
 
     // ---- Level: filter editor ----
 
-    private void OpenFilterEditor(FilterNode node) => Navigate(() => RenderFilterEditor(node));
+    private void OpenFilterEditor(FilterNode node)
+    {
+        Navigate(() => RenderFilterEditor(node));
+    }
 
     private void RenderFilterEditor(FilterNode node)
     {
@@ -526,34 +562,40 @@ public sealed class LibraryTabsView : OverlaySubView
         {
             case FilterKind.Installed:
                 stack.Children.Add(CycleRow("State", node.BoolValue ? "Installed" : "Not installed",
-                    () => { node.BoolValue = !node.BoolValue; Replace(() => RenderFilterEditor(node)); }));
+                    () =>
+                    {
+                        node.BoolValue = !node.BoolValue;
+                        Replace(() => RenderFilterEditor(node));
+                    }));
                 break;
 
             case FilterKind.Platform:
                 stack.Children.Add(CycleRow("Platform", node.Platform == PlatformKind.Steam
-                    ? "Steam" : "Non-Steam", () =>
+                    ? "Steam"
+                    : "Non-Steam", () =>
                 {
                     node.Platform = node.Platform == PlatformKind.Steam
-                        ? PlatformKind.NonSteam : PlatformKind.Steam;
+                        ? PlatformKind.NonSteam
+                        : PlatformKind.Steam;
                     Replace(() => RenderFilterEditor(node));
                 }));
                 break;
 
             case FilterKind.Regex:
                 stack.Children.Add(Row("Pattern", string.IsNullOrEmpty(node.Pattern)
-                    ? "(required)" : node.Pattern, Icons.CopyDoc, () =>
-                    EditText("Title pattern", node.Pattern, 64, v =>
-                    {
-                        node.Pattern = v;
-                    })));
+                    ? "(required)"
+                    : node.Pattern, Icons.CopyDoc, () =>
+                    EditText("Title pattern", node.Pattern, 64, v => { node.Pattern = v; })));
                 break;
 
             case FilterKind.Tag:
                 stack.Children.Add(Row("Tags", node.TagIds.Count == 0
-                    ? "(choose one or more)" : $"{node.TagIds.Count} selected", Icons.Wrench,
+                        ? "(choose one or more)"
+                        : $"{node.TagIds.Count} selected", Icons.Wrench,
                     () => OpenTagPicker(node)));
                 stack.Children.Add(CycleRow("Match", node.Mode == FilterMode.And
-                    ? "All tags (AND)" : "Any tag (OR)", () =>
+                    ? "All tags (AND)"
+                    : "Any tag (OR)", () =>
                 {
                     node.Mode = node.Mode == FilterMode.And ? FilterMode.Or : FilterMode.And;
                     Replace(() => RenderFilterEditor(node));
@@ -562,28 +604,36 @@ public sealed class LibraryTabsView : OverlaySubView
 
             case FilterKind.Collection:
                 stack.Children.Add(Row("Collection", string.IsNullOrEmpty(node.CollectionId)
-                    ? "(choose one)" : CollectionName(node.CollectionId), Icons.Wrench,
+                        ? "(choose one)"
+                        : CollectionName(node.CollectionId), Icons.Wrench,
                     () => OpenCollectionPicker(node)));
                 break;
 
             case FilterKind.Whitelist:
             case FilterKind.Blacklist:
                 stack.Children.Add(Row("Games", node.AppIds.Count == 0
-                    ? "(choose games)" : $"{node.AppIds.Count} selected", Icons.Wrench,
+                        ? "(choose games)"
+                        : $"{node.AppIds.Count} selected", Icons.Wrench,
                     () => OpenGamePicker(node)));
                 break;
 
             case FilterKind.ReviewScore:
                 stack.Children.Add(CycleRow("Source", node.ScoreType == ReviewScoreType.SteamPercent
-                    ? "Steam %" : "Metacritic", () =>
+                    ? "Steam %"
+                    : "Metacritic", () =>
                 {
                     node.ScoreType = node.ScoreType == ReviewScoreType.SteamPercent
-                        ? ReviewScoreType.Metacritic : ReviewScoreType.SteamPercent;
+                        ? ReviewScoreType.Metacritic
+                        : ReviewScoreType.SteamPercent;
                     Replace(() => RenderFilterEditor(node));
                 }));
                 AddCondition(stack, node);
                 AddStepper(stack, "Score", node.Threshold, 0, 100, 5,
-                    v => { node.Threshold = v; Replace(() => RenderFilterEditor(node)); });
+                    v =>
+                    {
+                        node.Threshold = v;
+                        Replace(() => RenderFilterEditor(node));
+                    });
                 break;
 
             case FilterKind.TimePlayed:
@@ -604,20 +654,33 @@ public sealed class LibraryTabsView : OverlaySubView
                     Replace(() => RenderFilterEditor(node));
                 }));
                 AddStepper(stack, "Amount", node.Threshold, 0, 1000, 1,
-                    v => { node.Threshold = v; Replace(() => RenderFilterEditor(node)); });
+                    v =>
+                    {
+                        node.Threshold = v;
+                        Replace(() => RenderFilterEditor(node));
+                    });
                 break;
 
             case FilterKind.SizeOnDisk:
                 AddCondition(stack, node);
                 AddStepper(stack, "Size (GB)", node.Threshold, 0, 2000, 5,
-                    v => { node.Threshold = v; Replace(() => RenderFilterEditor(node)); });
+                    v =>
+                    {
+                        node.Threshold = v;
+                        Replace(() => RenderFilterEditor(node));
+                    });
                 break;
 
             case FilterKind.ReleaseDate:
             case FilterKind.LastPlayed:
                 AddCondition(stack, node);
                 AddStepper(stack, "Days ago", node.DaysAgo, 0, 3650, 30,
-                    v => { node.DaysAgo = (int)v; node.Year = 0; Replace(() => RenderFilterEditor(node)); });
+                    v =>
+                    {
+                        node.DaysAgo = (int)v;
+                        node.Year = 0;
+                        Replace(() => RenderFilterEditor(node));
+                    });
                 stack.Children.Add(Caption("0 days = use no date. (Absolute dates: edit config.)"));
                 break;
 
@@ -632,7 +695,8 @@ public sealed class LibraryTabsView : OverlaySubView
 
             case FilterKind.Merge:
                 stack.Children.Add(CycleRow("Match", node.Mode == FilterMode.And
-                    ? "All (AND)" : "Any (OR)", () =>
+                    ? "All (AND)"
+                    : "Any (OR)", () =>
                 {
                     node.Mode = node.Mode == FilterMode.And ? FilterMode.Or : FilterMode.And;
                     Replace(() => RenderFilterEditor(node));
@@ -644,23 +708,25 @@ public sealed class LibraryTabsView : OverlaySubView
                     stack.Children.Add(Row(DescribeFilter(c), FilterKindLabel(c.Kind), Icons.Wrench,
                         () => OpenChildEditor(node, c)));
                 }
+
                 stack.Children.Add(Row("Add to group", "Nested filter", Icons.FolderPlus,
                     () => OpenChildPicker(node)));
-                break;
-
-            default:
                 break;
         }
     }
 
     private void AddCondition(StackPanel stack, FilterNode node)
-        => stack.Children.Add(CycleRow("Condition", node.Condition == ThresholdCondition.Above
-            ? "At or above" : "Below", () =>
+    {
+        stack.Children.Add(CycleRow("Condition", node.Condition == ThresholdCondition.Above
+            ? "At or above"
+            : "Below", () =>
         {
             node.Condition = node.Condition == ThresholdCondition.Above
-                ? ThresholdCondition.Below : ThresholdCondition.Above;
+                ? ThresholdCondition.Below
+                : ThresholdCondition.Above;
             Replace(() => RenderFilterEditor(node));
         }));
+    }
 
     // ---- Merge sub-group editing (one nesting level; re-uses the same editor) ----
 
@@ -680,12 +746,15 @@ public sealed class LibraryTabsView : OverlaySubView
                     RenderChildEditor(group, child);
                 }));
             }
+
             SetContent(stack);
         });
     }
 
     private void OpenChildEditor(FilterNode group, FilterNode child)
-        => Navigate(() => RenderChildEditor(group, child));
+    {
+        Navigate(() => RenderChildEditor(group, child));
+    }
 
     private void RenderChildEditor(FilterNode group, FilterNode child)
     {
@@ -699,6 +768,7 @@ public sealed class LibraryTabsView : OverlaySubView
                 Replace(() => RenderChildEditor(group, child));
             }));
         }
+
         stack.Children.Add(SectionLabel(""));
         stack.Children.Add(DangerRow("Remove", "Delete from group", Icons.Close, () =>
         {
@@ -711,7 +781,10 @@ public sealed class LibraryTabsView : OverlaySubView
 
     // ---- Pickers (async data) ----
 
-    private void OpenTagPicker(FilterNode node) => _ = RunSafelyAsync(OpenTagPickerAsync(node), "tag picker");
+    private void OpenTagPicker(FilterNode node)
+    {
+        _ = RunSafelyAsync(OpenTagPickerAsync(node), "tag picker");
+    }
 
     private async Task OpenTagPickerAsync(FilterNode node)
     {
@@ -722,17 +795,21 @@ public sealed class LibraryTabsView : OverlaySubView
         {
             return;
         }
+
         _tags = loaded;
         var selected = new HashSet<long>(node.TagIds.Select(static id => (long)id));
         Replace(() => RenderMultiSelect("Tags", _tags!.Select(t => ((long)t.TagId, $"{t.Name} ({t.Count})")),
             selected, () =>
-        {
-            node.TagIds = [.. selected.Select(static id => checked((int)id))];
-            Back();
-        }));
+            {
+                node.TagIds = [.. selected.Select(static id => checked((int)id))];
+                Back();
+            }));
     }
 
-    private void OpenGamePicker(FilterNode node) => _ = RunSafelyAsync(OpenGamePickerAsync(node), "game picker");
+    private void OpenGamePicker(FilterNode node)
+    {
+        _ = RunSafelyAsync(OpenGamePickerAsync(node), "game picker");
+    }
 
     private async Task OpenGamePickerAsync(FilterNode node)
     {
@@ -743,6 +820,7 @@ public sealed class LibraryTabsView : OverlaySubView
         {
             return;
         }
+
         _games = loaded;
         var selected = new HashSet<long>(node.AppIds);
         Replace(() => RenderMultiSelect("Games", _games!.Select(g => (g.AppId, g.Name)), selected, () =>
@@ -752,7 +830,10 @@ public sealed class LibraryTabsView : OverlaySubView
         }));
     }
 
-    private void OpenCollectionPicker(FilterNode node) => _ = RunSafelyAsync(OpenCollectionPickerAsync(node), "collection picker");
+    private void OpenCollectionPicker(FilterNode node)
+    {
+        _ = RunSafelyAsync(OpenCollectionPickerAsync(node), "collection picker");
+    }
 
     private async Task OpenCollectionPickerAsync(FilterNode node)
     {
@@ -763,6 +844,7 @@ public sealed class LibraryTabsView : OverlaySubView
         {
             return;
         }
+
         _collections = loaded;
         Replace(() =>
         {
@@ -776,10 +858,12 @@ public sealed class LibraryTabsView : OverlaySubView
                     Back();
                 }));
             }
+
             if (_collections!.Count == 0)
             {
                 stack.Children.Add(Caption("No collections found — is Steam open?"));
             }
+
             SetContent(stack);
         });
     }
@@ -802,10 +886,12 @@ public sealed class LibraryTabsView : OverlaySubView
                     : null));
             if (page + 1 < pageCount)
             {
-                stack.Children.Add(Row("Next page", $"Entries {(page + 1) * pageSize + 1}–{Math.Min(all.Count, (page + 2) * pageSize)}",
+                stack.Children.Add(Row("Next page",
+                    $"Entries {(page + 1) * pageSize + 1}–{Math.Min(all.Count, (page + 2) * pageSize)}",
                     Icons.Play, () => Replace(() => RenderMultiSelect(title, all, selected, onDone, currentPage + 1))));
             }
         }
+
         foreach (var (id, label) in all.Skip(page * pageSize).Take(pageSize))
         {
             var itemId = id;
@@ -817,10 +903,12 @@ public sealed class LibraryTabsView : OverlaySubView
                 {
                     selected.Remove(itemId);
                 }
+
                 row.Title = (selected.Contains(itemId) ? "✓ " : "") + label;
             };
             stack.Children.Add(row);
         }
+
         SetContent(stack);
     }
 
@@ -870,6 +958,7 @@ public sealed class LibraryTabsView : OverlaySubView
                 {
                     node.CardScope = SdCardScope.Inserted;
                 }
+
                 break;
             case SdCardScope.Specific:
             default:
@@ -883,12 +972,17 @@ public sealed class LibraryTabsView : OverlaySubView
                 {
                     node.ContentId = cards[idx + 1].ContentId;
                 }
+
                 break;
         }
+
         Replace(() => RenderFilterEditor(node));
     }
 
-    private static void RemoveNode(FilterNode group, FilterNode node) => group.Children.Remove(node);
+    private static void RemoveNode(FilterNode group, FilterNode node)
+    {
+        group.Children.Remove(node);
+    }
 
     private static int NextCategories(int current)
     {
@@ -900,6 +994,7 @@ public sealed class LibraryTabsView : OverlaySubView
         {
             return gs;
         }
+
         return current == gs ? gsh : g;
     }
 
@@ -910,33 +1005,44 @@ public sealed class LibraryTabsView : OverlaySubView
         {
             parts.Add("Games");
         }
+
         if (c.HasFlag(LibraryFilter.Categories.Software))
         {
             parts.Add("Software");
         }
+
         if (c.HasFlag(LibraryFilter.Categories.Music))
         {
             parts.Add("Music");
         }
+
         if (parts.Count == 0)
         {
             parts.Add("Games");
         }
+
         if (c.HasFlag(LibraryFilter.Categories.Hidden))
         {
             parts.Add("+Hidden");
         }
+
         return string.Join(", ", parts);
     }
 
     private string CollectionName(string id)
-        => _collections?.FirstOrDefault(c => c.Id == id)?.Name ?? "selected";
+    {
+        return _collections?.FirstOrDefault(c => c.Id == id)?.Name ?? "selected";
+    }
 
     private string CardName(string contentId)
-        => _config.CardLibraries.FirstOrDefault(c => c.ContentId == contentId)?.Name ?? "a card";
+    {
+        return _config.CardLibraries.FirstOrDefault(c => c.ContentId == contentId)?.Name ?? "a card";
+    }
 
     private static string FilterKindLabel(FilterKind kind)
-        => FilterKinds.FirstOrDefault(f => f.Kind == kind).Label ?? kind.ToString();
+    {
+        return FilterKinds.FirstOrDefault(f => f.Kind == kind).Label ?? kind.ToString();
+    }
 
     private string DescribeFilter(FilterNode node)
     {
@@ -968,15 +1074,21 @@ public sealed class LibraryTabsView : OverlaySubView
         };
     }
 
-    private static string Cond(FilterNode node) => node.Condition == ThresholdCondition.Above ? "≥" : "<";
-
-    private static CustomTabConfig Clone(CustomTabConfig t) => new()
+    private static string Cond(FilterNode node)
     {
-        Id = t.Id,
-        Name = t.Name,
-        Enabled = t.Enabled,
-        Position = t.Position,
-        Categories = t.Categories,
-        FilterTree = t.FilterTree.Clone()
-    };
+        return node.Condition == ThresholdCondition.Above ? "≥" : "<";
+    }
+
+    private static CustomTabConfig Clone(CustomTabConfig t)
+    {
+        return new CustomTabConfig
+        {
+            Id = t.Id,
+            Name = t.Name,
+            Enabled = t.Enabled,
+            Position = t.Position,
+            Categories = t.Categories,
+            FilterTree = t.FilterTree.Clone()
+        };
+    }
 }

@@ -26,6 +26,8 @@ public sealed class SteamDownloadSortPatchTests
 
     private sealed class DownloadSortTransport : ISteamUiTransport
     {
+        internal bool Removed { get; private set; }
+
         public event EventHandler<SteamUiNotification>? NotificationReceived
         {
             add { }
@@ -38,12 +40,12 @@ public sealed class SteamDownloadSortPatchTests
             remove { }
         }
 
-        internal bool Removed { get; private set; }
-
         public ValueTask<IAsyncDisposable> SubscribeAsync(
             SteamUiTargetRole role,
-            CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult<IAsyncDisposable>(new Lease());
+            CancellationToken cancellationToken = default)
+        {
+            return ValueTask.FromResult<IAsyncDisposable>(new Lease());
+        }
 
         public Task<SteamUiEvaluationResult> EvaluateAsync(
             SteamUiTargetRole role,
@@ -58,7 +60,7 @@ public sealed class SteamDownloadSortPatchTests
                 value = "{\"ok\":true}";
             }
             else if (expression.Contains("dlSortPatched", StringComparison.Ordinal)
-                || expression.Contains("runtime:!!window.webpackChunksteamui", StringComparison.Ordinal))
+                     || expression.Contains("runtime:!!window.webpackChunksteamui", StringComparison.Ordinal))
             {
                 value = "{\"ok\":true,\"runtime\":true,\"owned\":false}";
             }
@@ -79,25 +81,37 @@ public sealed class SteamDownloadSortPatchTests
             string bindingName,
             bool installed,
             TimeSpan timeout,
-            CancellationToken cancellationToken = default) => Task.CompletedTask;
+            CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
 
-        public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots() =>
-        [
-            new(
-                SteamUiTargetRole.SharedJsContext,
-                SteamUiTransportHealth.Ready,
-                new SteamUiGenerations(1, 1, 1, 1, 1, 1),
-                "fixture-target",
-                null,
-                0,
-                1)
-        ];
+        public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots()
+        {
+            return
+            [
+                new SteamUiTransportSnapshot(
+                    SteamUiTargetRole.SharedJsContext,
+                    SteamUiTransportHealth.Ready,
+                    new SteamUiGenerations(1, 1, 1, 1, 1, 1),
+                    "fixture-target",
+                    null,
+                    0,
+                    1)
+            ];
+        }
 
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask DisposeAsync()
+        {
+            return ValueTask.CompletedTask;
+        }
 
         private sealed class Lease : IAsyncDisposable
         {
-            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+            public ValueTask DisposeAsync()
+            {
+                return ValueTask.CompletedTask;
+            }
         }
     }
 }

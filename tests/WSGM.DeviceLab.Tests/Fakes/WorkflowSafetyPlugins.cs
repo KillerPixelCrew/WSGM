@@ -16,46 +16,76 @@ public class OwnerReservationLifetimePlugin : IDevicePlugin
 
     public virtual ValueTask<PluginDetectionResult> DetectAsync(
         PluginDetectionContext context,
-        CancellationToken cancellationToken) => ValueTask.FromResult(new PluginDetectionResult
+        CancellationToken cancellationToken)
+    {
+        return ValueTask.FromResult(new PluginDetectionResult
         {
             Matched = false
         });
+    }
 
     public ValueTask<PluginStartResult> StartAsync(
         PluginStartContext context,
-        CancellationToken cancellationToken) => throw new InvalidOperationException(
+        CancellationToken cancellationToken)
+    {
+        throw new InvalidOperationException(
             "A mismatched plugin must never start.");
+    }
 
     public ValueTask<CapabilityCommandResult> ExecuteCommandAsync(
         CapabilityCommand command,
-        CancellationToken cancellationToken) => throw new NotSupportedException();
+        CancellationToken cancellationToken)
+    {
+        throw new NotSupportedException();
+    }
 
     public ValueTask SuspendAsync(
         PluginQuiesceContext context,
-        CancellationToken cancellationToken) => throw new NotSupportedException();
+        CancellationToken cancellationToken)
+    {
+        throw new NotSupportedException();
+    }
 
     public ValueTask<PluginStartResult> ResumeAsync(
         PluginResumeContext context,
-        CancellationToken cancellationToken) => throw new NotSupportedException();
+        CancellationToken cancellationToken)
+    {
+        throw new NotSupportedException();
+    }
 
     public ValueTask<PluginDiagnostics> GetDiagnosticsAsync(
-        CancellationToken cancellationToken) => throw new NotSupportedException();
+        CancellationToken cancellationToken)
+    {
+        throw new NotSupportedException();
+    }
 
     public ValueTask ApplyHapticOutputAsync(
         HapticOutputFrame frame,
-        CancellationToken cancellationToken) => throw new NotSupportedException();
+        CancellationToken cancellationToken)
+    {
+        throw new NotSupportedException();
+    }
 
     public ValueTask<PluginControllerRelease> ReleaseControllerAsync(
         PluginControllerReleaseContext context,
-        CancellationToken cancellationToken) => throw new NotSupportedException();
+        CancellationToken cancellationToken)
+    {
+        throw new NotSupportedException();
+    }
 
     public ValueTask SetControllerManagementAsync(
         PluginControllerManagementContext context,
-        CancellationToken cancellationToken) => throw new NotSupportedException();
+        CancellationToken cancellationToken)
+    {
+        throw new NotSupportedException();
+    }
 
     public ValueTask<PluginStopResult> StopAsync(
         PluginStopContext context,
-        CancellationToken cancellationToken) => throw new NotSupportedException();
+        CancellationToken cancellationToken)
+    {
+        throw new NotSupportedException();
+    }
 
     public virtual ValueTask DisposeAsync()
     {
@@ -106,8 +136,10 @@ public sealed class ThrowingDisposePlugin : OwnerReservationLifetimePlugin
 
     public override string PackageId => Id;
 
-    public override ValueTask DisposeAsync() =>
-        ValueTask.FromException(new InvalidOperationException("plugin disposal failed"));
+    public override ValueTask DisposeAsync()
+    {
+        return ValueTask.FromException(new InvalidOperationException("plugin disposal failed"));
+    }
 }
 
 public sealed class ThrowingConstructorPlugin : OwnerReservationLifetimePlugin
@@ -157,62 +189,92 @@ public class UnverifiedStopPlugin : IDevicePlugin
 
     public ValueTask<PluginDetectionResult> DetectAsync(
         PluginDetectionContext context,
-        CancellationToken cancellationToken) => ValueTask.FromResult(new PluginDetectionResult
+        CancellationToken cancellationToken)
+    {
+        return ValueTask.FromResult(new PluginDetectionResult
         {
             Matched = true,
             DeviceDefinitionId = "synthetic-device"
         });
+    }
 
     public ValueTask<PluginStartResult> StartAsync(
         PluginStartContext context,
-        CancellationToken cancellationToken) => ValueTask.FromResult(new PluginStartResult
+        CancellationToken cancellationToken)
+    {
+        return ValueTask.FromResult(new PluginStartResult
         {
             State = PluginOperationalState.Active
         });
+    }
 
     public ValueTask<CapabilityCommandResult> ExecuteCommandAsync(
         CapabilityCommand command,
-        CancellationToken cancellationToken) => throw new NotSupportedException();
+        CancellationToken cancellationToken)
+    {
+        throw new NotSupportedException();
+    }
 
     public ValueTask SuspendAsync(
         PluginQuiesceContext context,
-        CancellationToken cancellationToken) => ValueTask.CompletedTask;
+        CancellationToken cancellationToken)
+    {
+        return ValueTask.CompletedTask;
+    }
 
     public ValueTask<PluginStartResult> ResumeAsync(
         PluginResumeContext context,
-        CancellationToken cancellationToken) => ValueTask.FromResult(new PluginStartResult
+        CancellationToken cancellationToken)
+    {
+        return ValueTask.FromResult(new PluginStartResult
         {
             State = PluginOperationalState.Active
         });
+    }
 
     public ValueTask<PluginDiagnostics> GetDiagnosticsAsync(
-        CancellationToken cancellationToken) => ValueTask.FromResult(new PluginDiagnostics());
+        CancellationToken cancellationToken)
+    {
+        return ValueTask.FromResult(new PluginDiagnostics());
+    }
 
     public ValueTask ApplyHapticOutputAsync(
         HapticOutputFrame frame,
-        CancellationToken cancellationToken) => ValueTask.CompletedTask;
+        CancellationToken cancellationToken)
+    {
+        return ValueTask.CompletedTask;
+    }
 
     public ValueTask<PluginControllerRelease> ReleaseControllerAsync(
         PluginControllerReleaseContext context,
-        CancellationToken cancellationToken) => ValueTask.FromResult(new PluginControllerRelease
+        CancellationToken cancellationToken)
+    {
+        return ValueTask.FromResult(new PluginControllerRelease
         {
             Step = ControllerHandoffStep.TopologyVerified,
             Result = ControllerHandoffResult.ReleasedVerified
         });
+    }
 
     public ValueTask SetControllerManagementAsync(
         PluginControllerManagementContext context,
-        CancellationToken cancellationToken) => ValueTask.CompletedTask;
+        CancellationToken cancellationToken)
+    {
+        return ValueTask.CompletedTask;
+    }
 
     public virtual ValueTask<PluginStopResult> StopAsync(
         PluginStopContext context,
-        CancellationToken cancellationToken) => ValueTask.FromResult(new PluginStopResult
+        CancellationToken cancellationToken)
+    {
+        return ValueTask.FromResult(new PluginStopResult
         {
             Status = PluginStopStatus.Unverified,
             Reason = new CapabilityReason(
                 CapabilityReasonCode.TransportFaulted,
                 "synthetic restoration was unverified")
         });
+    }
 
     public ValueTask DisposeAsync()
     {
@@ -229,13 +291,16 @@ public sealed class FailedStopPlugin : UnverifiedStopPlugin
 
     public override ValueTask<PluginStopResult> StopAsync(
         PluginStopContext context,
-        CancellationToken cancellationToken) => ValueTask.FromResult(new PluginStopResult
+        CancellationToken cancellationToken)
+    {
+        return ValueTask.FromResult(new PluginStopResult
         {
             Status = PluginStopStatus.Failed,
             Reason = new CapabilityReason(
                 CapabilityReasonCode.TransportFaulted,
                 "synthetic restoration failed")
         });
+    }
 }
 
 public sealed class ThrowingStopPlugin : UnverifiedStopPlugin
@@ -246,6 +311,9 @@ public sealed class ThrowingStopPlugin : UnverifiedStopPlugin
 
     public override ValueTask<PluginStopResult> StopAsync(
         PluginStopContext context,
-        CancellationToken cancellationToken) => ValueTask.FromException<PluginStopResult>(
+        CancellationToken cancellationToken)
+    {
+        return ValueTask.FromException<PluginStopResult>(
             new InvalidOperationException("synthetic Stop threw"));
+    }
 }

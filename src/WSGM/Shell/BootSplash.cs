@@ -6,13 +6,15 @@ using WSGM.Input;
 
 namespace WSGM.Shell;
 
-/// <summary>Boot-time "Please wait" cover: shown at shell start to hide startup-app
-/// window flashes, dismissed when the Big Picture window is actually on screen
-/// (short overlap + fade), on timeout, when quick access appears, or by its own
-/// Switch-to-desktop button. Deliberately takes NO Steam Input lease: the splash dies
-/// exactly when Steam's window takes the screen, and a held lease at that moment is
-/// the device-verified state that breaks Big Picture's pad input; see
-/// <c>docs\steam-input.md</c>, "Steam Input's desktop profile swallows the controller".</summary>
+/// <summary>
+///     Boot-time "Please wait" cover: shown at shell start to hide startup-app
+///     window flashes, dismissed when the Big Picture window is actually on screen
+///     (short overlap + fade), on timeout, when quick access appears, or by its own
+///     Switch-to-desktop button. Deliberately takes NO Steam Input lease: the splash dies
+///     exactly when Steam's window takes the screen, and a held lease at that moment is
+///     the device-verified state that breaks Big Picture's pad input; see
+///     <c>docs\steam-input.md</c>, "Steam Input's desktop profile swallows the controller".
+/// </summary>
 public sealed class BootSplash
 {
     // Tight poll: Big Picture's UI (steamwebhelper/CEF) SUSPENDS rendering while
@@ -22,27 +24,31 @@ public sealed class BootSplash
     // immediately (first fade tick lifts the occlusion), no opaque overlap.
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan FadeDuration = TimeSpan.FromMilliseconds(300);
+    private readonly Action _buttonAction;
 
     private readonly AppConfig _config;
-    private readonly Action _buttonAction;
-    private BootSplashWindow? _window;
+    private bool _armed;
+    private DateTime _armedUtc;
+    private bool _closeScheduled;
+    private bool _dismissing;
     private GamepadService? _gamepad;
     private GamepadNavigation? _navigation;
-    private DispatcherTimer? _pollTimer;
     private IDisposable? _pendingAction;
-    private DateTime _armedUtc;
-    private bool _armed;
-    private bool _dismissing;
-    private bool _closeScheduled;
+    private DispatcherTimer? _pollTimer;
     private bool _probeInFlight;
+    private BootSplashWindow? _window;
 
     /// <summary>Creates the splash coordinator.</summary>
     /// <param name="config">The shell configuration containing splash and display settings.</param>
-    /// <param name="buttonAction">What the splash's button does. At boot it is the desktop
-    /// fallback; during a Game Mode entry it cancels the entry until the transaction says
-    /// otherwise.</param>
-    /// <param name="armed">Whether Steam has already been asked for Big Picture. False for a
-    /// transition that has work to do first: see <see cref="ArmSteamDetection"/>.</param>
+    /// <param name="buttonAction">
+    ///     What the splash's button does. At boot it is the desktop
+    ///     fallback; during a Game Mode entry it cancels the entry until the transaction says
+    ///     otherwise.
+    /// </param>
+    /// <param name="armed">
+    ///     Whether Steam has already been asked for Big Picture. False for a
+    ///     transition that has work to do first: see <see cref="ArmSteamDetection" />.
+    /// </param>
     public BootSplash(AppConfig config, Action buttonAction, bool armed = true)
     {
         ArgumentNullException.ThrowIfNull(buttonAction);
@@ -51,25 +57,36 @@ public sealed class BootSplash
         _armed = armed;
     }
 
-    /// <summary>Starts watching for the Big Picture window, and starts its timeout.
-    ///
-    /// Called at the moment Steam is asked. Before that there is nothing to detect and nothing to
-    /// time out: a splash covering a wait for a display that a person has to walk over and switch
-    /// has no business closing itself.</summary>
+    /// <summary>
+    ///     Starts watching for the Big Picture window, and starts its timeout.
+    ///     Called at the moment Steam is asked. Before that there is nothing to detect and nothing to
+    ///     time out: a splash covering a wait for a display that a person has to walk over and switch
+    ///     has no business closing itself.
+    /// </summary>
     public void ArmSteamDetection()
     {
-        if (_armed) { return; }
+        if (_armed)
+        {
+            return;
+        }
+
         _armed = true;
         _armedUtc = DateTime.UtcNow;
     }
 
     /// <summary>Shows, or clears, the line describing what the transition is doing.</summary>
     /// <param name="line">The line to show; null or blank clears it.</param>
-    public void SetStatus(string? line) => _window?.SetStatus(line);
+    public void SetStatus(string? line)
+    {
+        _window?.SetStatus(line);
+    }
 
     /// <summary>Renames the splash's button.</summary>
     /// <param name="label">The label to show.</param>
-    public void SetActionLabel(string label) => _window?.SetActionLabel(label);
+    public void SetActionLabel(string label)
+    {
+        _window?.SetActionLabel(label);
+    }
 
     /// <summary>UI thread only (ShellSession.Start is).</summary>
     public void Show()
@@ -83,9 +100,9 @@ public sealed class BootSplash
             // Nothing is focused: the first D-pad press lands on the desktop
             // button via preferredFocus, and A alone activates nothing.
             _gamepad = new GamepadService();
-            _navigation = new GamepadNavigation(_gamepad, _window!, back: static () => { },
-                isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
-                preferredFocus: () => _window?.DefaultFocusTarget);
+            _navigation = new GamepadNavigation(_gamepad, _window!, static () => { },
+                () => _config.GlyphStyle == GlyphStyle.Nintendo,
+                () => _window?.DefaultFocusTarget);
             _gamepad.Start();
         };
 
@@ -104,18 +121,22 @@ public sealed class BootSplash
         {
             return;
         }
+
         if (SplashPolicy.ShouldTimeout(_armed, DateTime.UtcNow - _armedUtc))
         {
-            Log.Warn($"Boot splash timeout after {SplashPolicy.SteamTimeout.TotalSeconds:0} s — closing (Big Picture window never appeared).");
+            Log.Warn(
+                $"Boot splash timeout after {SplashPolicy.SteamTimeout.TotalSeconds:0} s — closing (Big Picture window never appeared).");
             _dismissing = true;
             _pollTimer?.Stop();
             CloseAfter(TouchInput.CloseGrace);
             return;
         }
+
         if (!_armed || _probeInFlight)
         {
             return;
         }
+
         _probeInFlight = true;
         _ = ProbeBigPictureAsync();
     }
@@ -162,6 +183,7 @@ public sealed class BootSplash
         {
             return;
         }
+
         _dismissing = true;
         Log.Info("Boot splash: button pressed.");
         _pollTimer?.Stop();
@@ -169,9 +191,11 @@ public sealed class BootSplash
         _buttonAction();
     }
 
-    /// <summary>External dismissal (quick access opened, Steam start warning).
-    /// Idempotent; cancels a pending overlap fade so the splash can never fade in
-    /// over the overlay later.</summary>
+    /// <summary>
+    ///     External dismissal (quick access opened, Steam start warning).
+    ///     Idempotent; cancels a pending overlap fade so the splash can never fade in
+    ///     over the overlay later.
+    /// </summary>
     public void Dismiss(string reason)
     {
         // _closeScheduled (not _dismissing) is the idempotence gate: a pending
@@ -180,6 +204,7 @@ public sealed class BootSplash
         {
             return;
         }
+
         _pendingAction?.Dispose();
         _pendingAction = null;
         _dismissing = true;
@@ -188,8 +213,10 @@ public sealed class BootSplash
         Log.Info($"Boot splash dismissed ({reason}).");
     }
 
-    /// <summary>Deferred close: a touch tap's promoted mouse click arrives after the
-    /// tap — the window must still exist to eat it (same beat as the overlay).</summary>
+    /// <summary>
+    ///     Deferred close: a touch tap's promoted mouse click arrives after the
+    ///     tap — the window must still exist to eat it (same beat as the overlay).
+    /// </summary>
     private void CloseAfter(TimeSpan delay)
     {
         _closeScheduled = true;
@@ -207,6 +234,7 @@ public sealed class BootSplash
             _pollTimer.Tick -= OnPollTick;
             _pollTimer = null;
         }
+
         _pendingAction?.Dispose();
         _pendingAction = null;
         _navigation?.Dispose();

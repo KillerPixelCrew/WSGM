@@ -14,28 +14,49 @@ namespace WSGM.Shell;
 /// <param name="Success">Whether the tab definitions synchronized.</param>
 public readonly record struct LibraryTabSyncResult(string Summary, bool Success);
 
-/// <summary>Builds Steam library tabs as injected in-memory definitions over CEF:
-/// <list type="bullet">
-/// <item>one tab per removable Steam library (MicroSD card / external drive),
-/// keyed by its <c>libraryfolder.vdf</c> content id and remembered while ejected;</item>
-/// <item>user-built filter tabs evaluated against Steam's app store.</item>
-/// </list>
-/// Steam renders fake in-memory collections through its own grid; no real collection
-/// is created or modified except one-time cleanup of IDs from older WSGM builds.</summary>
+/// <summary>
+///     Builds Steam library tabs as injected in-memory definitions over CEF:
+///     <list type="bullet">
+///         <item>
+///             one tab per removable Steam library (MicroSD card / external drive),
+///             keyed by its <c>libraryfolder.vdf</c> content id and remembered while ejected;
+///         </item>
+///         <item>user-built filter tabs evaluated against Steam's app store.</item>
+///     </list>
+///     Steam renders fake in-memory collections through its own grid; no real collection
+///     is created or modified except one-time cleanup of IDs from older WSGM builds.
+/// </summary>
 public static class LibraryTabManager
 {
     // Shared so every trigger (boot, overlay open, each builder change) serializes;
     // concurrent syncs would race the config.
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
-    /// <summary>Recomputes every WSGM library tab and injects them into Steam's tab
-    /// strip (see <see cref="SteamLibraryTabs"/>): custom filter tabs, then per-card
-    /// tabs, then genre tabs. Reactive — called after any change in the builder and on
-    /// overlay open. Returns a short user-facing summary; concurrent calls are
-    /// serialized, not coalesced — every queued caller runs a full sync.</summary>
+    // Windows Big Picture's native tabs in Steam's default order — the pre-capture
+    // fallback so the order UI works before the first sync has observed the strip.
+    // Captured KnownNativeTabs entries override these titles and extend the list.
+    private static readonly (string Id, string Title)[] DefaultNativeTabs =
+    [
+        ("AllGames", "All Games"),
+        ("Installed", "Installed"),
+        ("Favorites", "Favorites"),
+        ("Collections", "Collections"),
+        ("DesktopApps", "Non-Steam"),
+        ("Soundtracks", "Soundtracks")
+    ];
+
+    /// <summary>
+    ///     Recomputes every WSGM library tab and injects them into Steam's tab
+    ///     strip (see <see cref="SteamLibraryTabs" />): custom filter tabs, then per-card
+    ///     tabs, then genre tabs. Reactive — called after any change in the builder and on
+    ///     overlay open. Returns a short user-facing summary; concurrent calls are
+    ///     serialized, not coalesced — every queued caller runs a full sync.
+    /// </summary>
     /// <param name="cancellationToken">Cancels the run.</param>
     public static async Task<string> SyncAllAsync(CancellationToken cancellationToken = default)
-        => (await SyncAllDetailedAsync(cancellationToken).ConfigureAwait(false)).Summary;
+    {
+        return (await SyncAllDetailedAsync(cancellationToken).ConfigureAwait(false)).Summary;
+    }
 
     /// <summary>Synchronizes tabs and returns machine-readable retry state.</summary>
     public static async Task<LibraryTabSyncResult> SyncAllDetailedAsync(
@@ -59,7 +80,7 @@ public static class LibraryTabManager
             if (reachable != false && !filterFailed && tabsEnabled)
             {
                 sync = await SteamLibraryTabs.SyncTabsAsync(
-                    tabs, config.LibraryTabOrder, config.HiddenNativeTabs, cancellationToken)
+                        tabs, config.LibraryTabOrder, config.HiddenNativeTabs, cancellationToken)
                     .ConfigureAwait(false);
             }
             else
@@ -76,6 +97,7 @@ public static class LibraryTabManager
                     reachable ??= retraction.Reachable;
                 }
             }
+
             var ok = sync.Ok;
             // BuildTabsAsync leaves reachability unknown when it evaluated no filter
             // (a card-tabs-only or empty configuration never talks to Steam), so the
@@ -93,8 +115,8 @@ public static class LibraryTabManager
                 // so the order UI can still place and unhide them.
                 foreach (var native in sync.NativeTabs)
                 {
-                    var known = fresh.KnownNativeTabs.FirstOrDefault(
-                        k => string.Equals(k.Id, native.Id, StringComparison.Ordinal));
+                    var known = fresh.KnownNativeTabs.FirstOrDefault(k =>
+                        string.Equals(k.Id, native.Id, StringComparison.Ordinal));
                     if (known is null)
                     {
                         fresh.KnownNativeTabs.Add(native);
@@ -104,6 +126,7 @@ public static class LibraryTabManager
                         known.Title = native.Title;
                     }
                 }
+
                 return fresh;
             }, cancellationToken).ConfigureAwait(false);
 
@@ -119,6 +142,7 @@ public static class LibraryTabManager
                 // full sync (the overlay only arms its auto-sync throttle on success).
                 return new LibraryTabSyncResult("Library tabs are turned off.", true);
             }
+
             if (!reachedSteam || !ok)
             {
                 if (filterFailed)
@@ -127,6 +151,7 @@ public static class LibraryTabManager
                         "Saved the tabs, but one filter failed in Steam; existing tabs were preserved.",
                         false);
                 }
+
                 return new LibraryTabSyncResult(
                     "Saved the tabs — Steam isn't reachable yet; they'll appear when it's open.",
                     false);
@@ -156,42 +181,46 @@ public static class LibraryTabManager
         }
     }
 
-    /// <summary>Polls (first probe after 3 s, then every 5 s) for Steam's Big Picture
-    /// window and library stores to finish loading after a cold boot, then syncs — so
-    /// tabs appear without the user opening the overlay.
-    /// Best-effort and self-limiting; falls back to the on-open sync if Steam never
-    /// becomes reachable.</summary>
+    /// <summary>
+    ///     Polls (first probe after 3 s, then every 5 s) for Steam's Big Picture
+    ///     window and library stores to finish loading after a cold boot, then syncs — so
+    ///     tabs appear without the user opening the overlay.
+    ///     Best-effort and self-limiting; falls back to the on-open sync if Steam never
+    ///     becomes reachable.
+    /// </summary>
     /// <param name="cancellationToken">Cancels the wait.</param>
     public static async Task SyncOnBootAsync(CancellationToken cancellationToken = default)
     {
         _ = await SteamUiReadiness.RunWhenReadyAsync(
             "Library tabs (boot)",
             async token =>
-        {
-            var probe = await SteamUiTransportSession.EvaluateAsync(
-                "JSON.stringify(!!window.webpackChunksteamui&&!!window.collectionStore"
-                    + "&&!!window.appStore)",
-                TimeSpan.FromSeconds(4),
-                token).ConfigureAwait(false);
-            if (!probe.Reachable || probe.Value != "true")
             {
-                return false;
-            }
+                var probe = await SteamUiTransportSession.EvaluateAsync(
+                    "JSON.stringify(!!window.webpackChunksteamui&&!!window.collectionStore"
+                    + "&&!!window.appStore)",
+                    TimeSpan.FromSeconds(4),
+                    token).ConfigureAwait(false);
+                if (!probe.Reachable || probe.Value != "true")
+                {
+                    return false;
+                }
 
-            var result = await SyncAllDetailedAsync(token).ConfigureAwait(false);
-            Log.Info($"Library tabs (boot): {result.Summary}");
-            // A half-initialized appStore can be reachable but reject a filter; only a sync that
-            // reached Steam and placed the tabs is done. The badge needs no retry of its own: its
-            // reading is published through the patch lifecycle, which reaches Steam when the
-            // bridge does.
-            return result.Success;
-        }, cancellationToken).ConfigureAwait(false);
+                var result = await SyncAllDetailedAsync(token).ConfigureAwait(false);
+                Log.Info($"Library tabs (boot): {result.Summary}");
+                // A half-initialized appStore can be reachable but reject a filter; only a sync that
+                // reached Steam and placed the tabs is done. The badge needs no retry of its own: its
+                // reading is published through the patch lifecycle, which reaches Steam when the
+                // bridge does.
+                return result.Success;
+            }, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Builds the ordered injected-tab list: custom filter tabs (evaluated over
-    /// the library), then per-card tabs. Reachable is false when Steam was unreachable
-    /// during filter evaluation and null when no filter was evaluated at all — nothing
-    /// probed Steam then, so the caller must not read it as "reachable".</summary>
+    /// <summary>
+    ///     Builds the ordered injected-tab list: custom filter tabs (evaluated over
+    ///     the library), then per-card tabs. Reachable is false when Steam was unreachable
+    ///     during filter evaluation and null when no filter was evaluated at all — nothing
+    ///     probed Steam then, so the caller must not read it as "reachable".
+    /// </summary>
     private static async Task<(List<InjectedTab> Tabs, bool? Reachable, bool FilterFailed)> BuildTabsAsync(
         AppConfig config, List<Discovered> discovered, CancellationToken cancellationToken)
     {
@@ -208,6 +237,7 @@ public static class LibraryTabManager
                 {
                     Log.Warn($"Library tabs: skipped invalid custom tab '{tab.Name}'.");
                 }
+
                 return valid;
             }).ToList();
         var expressions = customTabs.Select(tab => LibraryFilter.BuildEvaluation(
@@ -224,11 +254,13 @@ public static class LibraryTabManager
             {
                 return (tabs, false, false);
             }
+
             if (!eval.Ok)
             {
                 Log.Warn($"Library tabs: Steam filter evaluation failed for '{tab.Name}'.");
                 return (tabs, true, true);
             }
+
             if (eval.AppIds.Count > 0)
             {
                 tabs.Add(new InjectedTab($"wsgm-custom-{tab.Id}", tab.Name, eval.AppIds));
@@ -242,7 +274,7 @@ public static class LibraryTabManager
         tabs.AddRange(config.CardLibraries
             .Where(c => c is { Enabled: true, Hidden: false })
             .Where(card => (present.Contains(card.ContentId) || config.KeepEjectedCardTabs)
-                && card.AppIds.Count > 0)
+                           && card.AppIds.Count > 0)
             .Select(card => new InjectedTab($"wsgm-card-{card.ContentId}", card.Name, card.AppIds)));
 
         // Only a filter evaluation talks to Steam here; with none, reachability is
@@ -251,52 +283,10 @@ public static class LibraryTabManager
         return (tabs, reachable, false);
     }
 
-    /// <summary>Resolves <see cref="FilterKind.SdCard"/> membership from WSGM's card
-    /// model: "inserted" = union of currently-present cards, "any" = union of all
-    /// tracked cards, "specific" = one card's remembered app ids.</summary>
-    private sealed class CardResolver(AppConfig config, List<Discovered> discovered) : ISdCardResolver
-    {
-        private readonly HashSet<string> _present = new(
-            discovered.Select(d => d.ContentId), StringComparer.Ordinal);
-
-        public IReadOnlyCollection<long> Resolve(SdCardScope scope, string contentId)
-        {
-            var cards = scope switch
-            {
-                SdCardScope.Inserted => config.CardLibraries.Where(c => _present.Contains(c.ContentId)),
-                SdCardScope.Any => config.CardLibraries,
-                _ => config.CardLibraries.Where(
-                    c => string.Equals(c.ContentId, contentId, StringComparison.Ordinal))
-            };
-            var ids = new HashSet<long>();
-            foreach (var card in cards)
-            {
-                foreach (var id in card.AppIds)
-                {
-                    ids.Add(id);
-                }
-            }
-            return ids;
-        }
-    }
-
-    // ---- Card-manager API (drives the overlay card sub-view) ----
-
-    /// <summary>A card as shown in the manager: identity, name, tab/hidden state, game
-    /// count, and whether it is currently inserted.</summary>
-    /// <param name="ContentId">Stable card identity (its library content id).</param>
-    /// <param name="Name">Display name.</param>
-    /// <param name="Enabled">Whether a Steam tab is maintained.</param>
-    /// <param name="Hidden">Whether it is hidden from tab creation.</param>
-    /// <param name="GameCount">Remembered installed app count.</param>
-    /// <param name="Inserted">Whether the card is currently mounted.</param>
-    /// <param name="AppIds">Remembered installed app ids.</param>
-    public sealed record CardView(
-        string ContentId, string Name, bool Enabled, bool Hidden, int GameCount, bool Inserted,
-        IReadOnlyList<long> AppIds);
-
-    /// <summary>Scans drives, refreshes the card DB, and returns the current cards with
-    /// live inserted state — the card manager's data source.</summary>
+    /// <summary>
+    ///     Scans drives, refreshes the card DB, and returns the current cards with
+    ///     live inserted state — the card manager's data source.
+    /// </summary>
     /// <param name="cancellationToken">Cancels the scan.</param>
     public static async Task<IReadOnlyList<CardView>> ListCardsAsync(
         CancellationToken cancellationToken = default)
@@ -315,37 +305,41 @@ public static class LibraryTabManager
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Renames a tracked card everywhere it has a name: the card's own
-    /// <c>libraryfolder.vdf</c> marker, the WSGM tab, the Steam library label (live
-    /// via CEF when Steam runs, else a byte-preserving vdf edit), and the Windows
-    /// volume label. Identity is always the content id, and every write addresses the
-    /// volume resolved from it — never a drive letter.</summary>
+    /// <summary>
+    ///     Renames a tracked card everywhere it has a name: the card's own
+    ///     <c>libraryfolder.vdf</c> marker, the WSGM tab, the Steam library label (live
+    ///     via CEF when Steam runs, else a byte-preserving vdf edit), and the Windows
+    ///     volume label. Identity is always the content id, and every write addresses the
+    ///     volume resolved from it — never a drive letter.
+    /// </summary>
     /// <remarks>
-    /// <para>
-    /// The marker write is the one that matters: it is the only copy that travels with
-    /// the medium, so it is what the next scan reads the name back from. It happens
-    /// FIRST and everything else is conditional on it, because a name that did not
-    /// reach the drive is reverted by the next scan, and a rename that stopped at the
-    /// tracked cache would appear to work and then silently undo itself.
-    /// </para>
-    /// <para>
-    /// A library that is not mounted therefore cannot be renamed. Nothing can reach its
-    /// marker, so the rename could only live in the tracked cache until the drive came
-    /// back and the marker overwrote it.
-    /// </para>
-    /// <para>
-    /// See <see cref="FindMountedVolume"/> for why the letter is resolved to a volume
-    /// once and never used again: the Steam label is selected by content id and is safe
-    /// either way, but the marker and the Windows volume label are file-system writes,
-    /// and a letter can name different media by the time the Steam round trip between
-    /// them returns.
-    /// </para>
+    ///     <para>
+    ///         The marker write is the one that matters: it is the only copy that travels with
+    ///         the medium, so it is what the next scan reads the name back from. It happens
+    ///         FIRST and everything else is conditional on it, because a name that did not
+    ///         reach the drive is reverted by the next scan, and a rename that stopped at the
+    ///         tracked cache would appear to work and then silently undo itself.
+    ///     </para>
+    ///     <para>
+    ///         A library that is not mounted therefore cannot be renamed. Nothing can reach its
+    ///         marker, so the rename could only live in the tracked cache until the drive came
+    ///         back and the marker overwrote it.
+    ///     </para>
+    ///     <para>
+    ///         See <see cref="FindMountedVolume" /> for why the letter is resolved to a volume
+    ///         once and never used again: the Steam label is selected by content id and is safe
+    ///         either way, but the marker and the Windows volume label are file-system writes,
+    ///         and a letter can name different media by the time the Steam round trip between
+    ///         them returns.
+    ///     </para>
     /// </remarks>
     /// <param name="contentId">The card's content id.</param>
     /// <param name="name">The new name.</param>
     /// <param name="cancellationToken">Cancels the writes.</param>
-    /// <returns>Null when every side applied; otherwise a short user-facing note
-    /// describing what did not.</returns>
+    /// <returns>
+    ///     Null when every side applied; otherwise a short user-facing note
+    ///     describing what did not.
+    /// </returns>
     public static async Task<string?> RenameCardAsync(string contentId, string name,
         CancellationToken cancellationToken = default)
     {
@@ -360,13 +354,13 @@ public static class LibraryTabManager
         if (mounted is not { } volume)
         {
             Log.Info($"Card rename: {contentId} is not mounted; nothing can write its name "
-                + "onto the drive, so the rename is refused.");
+                     + "onto the drive, so the rename is refused.");
             return "Connect the drive to rename it.";
         }
 
         var library = Path.Combine(volume.Root, "SteamLibrary");
         var markerNote = await Task.Run(
-            () => TrySetMarkerLabel(library, contentId, trimmed), cancellationToken)
+                () => TrySetMarkerLabel(library, contentId, trimmed), cancellationToken)
             .ConfigureAwait(false);
         if (markerNote is not null)
         {
@@ -390,20 +384,26 @@ public static class LibraryTabManager
         {
             notes.Add(volumeNote);
         }
+
         return notes.Count == 0 ? null : string.Join(" ", notes);
     }
 
-    /// <summary>Writes the new label into the card's own <c>libraryfolder.vdf</c>,
-    /// preserving every other byte, and reads it back to confirm the media now says
-    /// what the caller asked for.</summary>
-    /// <remarks>Safe against a running Steam: the marker is read at mount time, not
-    /// held open, and WSGM already writes it at format time under a live client.
+    /// <summary>
+    ///     Writes the new label into the card's own <c>libraryfolder.vdf</c>,
+    ///     preserving every other byte, and reads it back to confirm the media now says
+    ///     what the caller asked for.
+    /// </summary>
+    /// <remarks>
+    ///     Safe against a running Steam: the marker is read at mount time, not
+    ///     held open, and WSGM already writes it at format time under a live client.
     /// </remarks>
-    /// <param name="libraryPath">The card library root, e.g. <c>E:\SteamLibrary</c>.
+    /// <param name="libraryPath">
+    ///     The card library root, e.g. <c>E:\SteamLibrary</c>.
     /// </param>
     /// <param name="contentId">The identity the marker must still carry.</param>
     /// <param name="label">The new label.</param>
-    /// <returns>Null when the marker now carries the label, else a user-facing note.
+    /// <returns>
+    ///     Null when the marker now carries the label, else a user-facing note.
     /// </returns>
     internal static string? TrySetMarkerLabel(
         string libraryPath, string contentId, string label)
@@ -417,6 +417,7 @@ public static class LibraryTabManager
                 Log.Warn($"Card rename: {marker} is gone; the card keeps its old name.");
                 return markerBehind;
             }
+
             // Selected by content id even though the path already matched it: the card
             // can be swapped between FindMountedLetter and here, and relabelling the
             // wrong card is exactly the failure this rename exists to stop.
@@ -425,10 +426,11 @@ public static class LibraryTabManager
                 || updated is null)
             {
                 Log.Warn($"Card rename: {marker} does not carry content id {contentId}; "
-                    + "the card in the reader changed. Its name is unchanged.");
+                         + "the card in the reader changed. Its name is unchanged.");
                 return markerBehind;
             }
-            AtomicFile.WriteText(marker, updated, durable: true);
+
+            AtomicFile.WriteText(marker, updated, true);
             // Read back rather than trust the write: a replace that half-applied, or a
             // volume that went away underneath it, must not be reported as a rename the
             // next scan will contradict.
@@ -440,8 +442,8 @@ public static class LibraryTabManager
             }
 
             Log.Warn($"Card rename: {marker} reads back as "
-                + $"'{name}' (content id {written ?? "none"}) after the write; "
-                + "the card's name is not what was asked for.");
+                     + $"'{name}' (content id {written ?? "none"}) after the write; "
+                     + "the card's name is not what was asked for.");
             return markerBehind;
         }
         catch (Exception ex)
@@ -451,24 +453,19 @@ public static class LibraryTabManager
         }
     }
 
-    /// <summary>The volume a tracked library currently lives on.</summary>
-    /// <param name="Root">The volume GUID path with its trailing separator, which is
-    /// what every subsequent write addresses.</param>
-    /// <param name="Letter">The drive letter it was found through, for log lines
-    /// only — it is not a durable name for the volume.</param>
-    private readonly record struct MountedVolume(string Root, char Letter);
-
-    /// <summary>Finds the volume carrying this content id, verified by reading the
-    /// marker, and returns it as a volume GUID path.</summary>
+    /// <summary>
+    ///     Finds the volume carrying this content id, verified by reading the
+    ///     marker, and returns it as a volume GUID path.
+    /// </summary>
     /// <remarks>
-    /// Two separate reasons this cannot answer with a drive letter. The letter is
-    /// shared by every card a reader has ever held, so it is not identity; and it is
-    /// a mount point that the system can re-point at other media on its own — a
-    /// reconnecting iSCSI target or USB device bringing several volumes back at once
-    /// has the mount manager assigning letters in whatever order it processes them,
-    /// with no user action and no human timescale. Everything the rename writes
-    /// afterwards therefore addresses the volume that was validated here, so a letter
-    /// that moves in between cannot redirect a write onto a different library.
+    ///     Two separate reasons this cannot answer with a drive letter. The letter is
+    ///     shared by every card a reader has ever held, so it is not identity; and it is
+    ///     a mount point that the system can re-point at other media on its own — a
+    ///     reconnecting iSCSI target or USB device bringing several volumes back at once
+    ///     has the mount manager assigning letters in whatever order it processes them,
+    ///     with no user action and no human timescale. Everything the rename writes
+    ///     afterwards therefore addresses the volume that was validated here, so a letter
+    ///     that moves in between cannot redirect a write onto a different library.
     /// </remarks>
     /// <param name="contentId">The library identity to look for.</param>
     private static MountedVolume? FindMountedVolume(string contentId)
@@ -482,6 +479,7 @@ public static class LibraryTabManager
                 {
                     continue;
                 }
+
                 var letter = char.ToUpperInvariant(drive.Name[0]);
                 // Resolve the volume BEFORE reading the marker, and read through the
                 // volume: validating a letter and then writing to that letter is the
@@ -489,9 +487,10 @@ public static class LibraryTabManager
                 if (!NativeStorage.TryGetVolumeGuidPath(letter, out var root) || root is null)
                 {
                     Log.Warn($"Card rename: {letter}: has no volume path (Win32 error "
-                        + $"{NativeStorage.LastWin32Error()}); it cannot be written safely.");
+                             + $"{NativeStorage.LastWin32Error()}); it cannot be written safely.");
                     continue;
                 }
+
                 if (SteamLibraryVdf.TryReadMarker(
                         Path.Combine(root, "SteamLibrary"), out var id, out _)
                     && string.Equals(id, contentId, StringComparison.Ordinal))
@@ -504,6 +503,7 @@ public static class LibraryTabManager
                 Log.Warn($"Card rename: could not probe {drive.Name}: {ex.Message}");
             }
         }
+
         return null;
     }
 
@@ -522,6 +522,7 @@ public static class LibraryTabManager
         {
             return null;
         }
+
         var configPath = Path.Combine(
             Path.GetDirectoryName(steamExe)!, "config", "libraryfolders.vdf");
 
@@ -539,6 +540,7 @@ public static class LibraryTabManager
                 Log.Warn($"Card rename: could not read Steam config: {ex.Message}");
                 return steamBehind;
             }
+
             var result = await SteamCdp.SetLibraryLabelByContentIdAsync(
                 contentId, configText, label, cancellationToken).ConfigureAwait(false);
             if (result.Status is SteamLibraryLabelStatus.Applied
@@ -546,8 +548,9 @@ public static class LibraryTabManager
             {
                 return null;
             }
+
             Log.Warn($"Card rename: live relabel {result.Status} "
-                + $"({result.Detail ?? "no detail"}).");
+                     + $"({result.Detail ?? "no detail"}).");
             return steamBehind;
         }
 
@@ -570,7 +573,7 @@ public static class LibraryTabManager
                     return false;
                 }
 
-                AtomicFile.WriteText(configPath, updatedConfig, durable: true);
+                AtomicFile.WriteText(configPath, updatedConfig, true);
                 return true;
             }
             catch (Exception ex)
@@ -595,9 +598,10 @@ public static class LibraryTabManager
                     volume.Root, out var current, out var fileSystem))
             {
                 Log.Warn($"Card rename: {volume.Letter}: could not be queried for its label "
-                    + $"(Win32 error {NativeStorage.LastWin32Error()}); it is unchanged.");
+                         + $"(Win32 error {NativeStorage.LastWin32Error()}); it is unchanged.");
                 return labelBehind;
             }
+
             var isNtfs = string.Equals(fileSystem, "NTFS", StringComparison.OrdinalIgnoreCase);
             var invalid = "*?/\\|,;:+=<>[]\".".ToCharArray();
             var cleaned = new string([.. name.Where(c => Array.IndexOf(invalid, c) < 0)]).Trim();
@@ -605,25 +609,29 @@ public static class LibraryTabManager
             {
                 return null;
             }
+
             var capped = cleaned.Length > (isNtfs ? 32 : 11)
-                ? cleaned[..(isNtfs ? 32 : 11)] : cleaned;
+                ? cleaned[..(isNtfs ? 32 : 11)]
+                : cleaned;
             if (string.Equals(current, capped, StringComparison.Ordinal))
             {
                 return null;
             }
+
             if (!NativeStorage.TrySetVolumeLabel(volume.Root, capped))
             {
                 Log.Warn($"Card rename: could not label {volume.Letter}: '{capped}' "
-                    + $"(Win32 error {NativeStorage.LastWin32Error()}).");
+                         + $"(Win32 error {NativeStorage.LastWin32Error()}).");
                 return labelBehind;
             }
+
             Log.Info($"Card rename: volume {volume.Letter}: labeled '{capped}'.");
             return null;
         }
         catch (Exception ex)
         {
             Log.Warn($"Card rename: could not set the volume label on "
-                + $"{volume.Letter}:: {ex.Message}");
+                     + $"{volume.Letter}:: {ex.Message}");
             return labelBehind;
         }
     }
@@ -634,7 +642,9 @@ public static class LibraryTabManager
     /// <param name="cancellationToken">Cancels the write.</param>
     public static Task SetCardEnabledAsync(string contentId, bool enabled,
         CancellationToken cancellationToken = default)
-        => UpdateCardAsync(contentId, c => c.Enabled = enabled, cancellationToken);
+    {
+        return UpdateCardAsync(contentId, c => c.Enabled = enabled, cancellationToken);
+    }
 
     /// <summary>Hides or unhides a card in the manager.</summary>
     /// <param name="contentId">The card's content id.</param>
@@ -642,10 +652,14 @@ public static class LibraryTabManager
     /// <param name="cancellationToken">Cancels the write.</param>
     public static Task SetCardHiddenAsync(string contentId, bool hidden,
         CancellationToken cancellationToken = default)
-        => UpdateCardAsync(contentId, c => c.Hidden = hidden, cancellationToken);
+    {
+        return UpdateCardAsync(contentId, c => c.Hidden = hidden, cancellationToken);
+    }
 
-    /// <summary>Forgets a card: removes its tab (if any) and its DB entry. If the card
-    /// is reinserted later it is rediscovered fresh.</summary>
+    /// <summary>
+    ///     Forgets a card: removes its tab (if any) and its DB entry. If the card
+    ///     is reinserted later it is rediscovered fresh.
+    /// </summary>
     /// <param name="contentId">The card's content id.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
     public static async Task ForgetCardAsync(string contentId,
@@ -653,117 +667,116 @@ public static class LibraryTabManager
     {
         await MutateConfigAsync<object?>(config =>
         {
-            var card = config.CardLibraries.FirstOrDefault(
-                c => string.Equals(c.ContentId, contentId, StringComparison.Ordinal));
+            var card = config.CardLibraries.FirstOrDefault(c =>
+                string.Equals(c.ContentId, contentId, StringComparison.Ordinal));
             if (card is null)
             {
                 return null;
             }
+
             config.CardLibraries.Remove(card);
             if (!config.ForgottenInsertedCardIds.Contains(contentId, StringComparer.Ordinal))
             {
                 config.ForgottenInsertedCardIds.Add(contentId);
             }
+
             return null;
         }, cancellationToken).ConfigureAwait(false);
     }
 
     private static Task<object?> UpdateCardAsync(string contentId, Action<CardLibraryConfig> apply,
         CancellationToken cancellationToken)
-        => MutateConfigAsync<object?>(config =>
+    {
+        return MutateConfigAsync<object?>(config =>
         {
-            var card = config.CardLibraries.FirstOrDefault(
-                c => string.Equals(c.ContentId, contentId, StringComparison.Ordinal));
+            var card = config.CardLibraries.FirstOrDefault(c =>
+                string.Equals(c.ContentId, contentId, StringComparison.Ordinal));
             if (card is not null)
             {
                 apply(card);
             }
+
             return null;
         }, cancellationToken);
+    }
 
-    /// <summary>Finds what a game's launch configuration looked like before WSGM
-    /// pointed it at the launch wrapper.</summary>
+    /// <summary>
+    ///     Finds what a game's launch configuration looked like before WSGM
+    ///     pointed it at the launch wrapper.
+    /// </summary>
     /// <param name="appId">The Steam app id, or a shortcut's generated id.</param>
     /// <param name="cancellationToken">Cancels the off-thread work.</param>
-    /// <returns>The snapshot, or <see langword="null"/> if the game has none.</returns>
+    /// <returns>The snapshot, or <see langword="null" /> if the game has none.</returns>
     internal static Task<LaunchWrapperConfig?> FindLaunchWrapperAsync(
         long appId, CancellationToken cancellationToken = default)
-        => MutateConfigAsync(
+    {
+        return MutateConfigAsync(
             config => config.LaunchWrappers.FirstOrDefault(w => w.AppId == appId),
             cancellationToken);
+    }
 
     /// <summary>Records (or updates) a game's pre-wrapper launch configuration.</summary>
     /// <param name="snapshot">What to remember; replaces any entry for the same game.</param>
     /// <param name="cancellationToken">Cancels the off-thread work.</param>
     internal static Task RememberLaunchWrapperAsync(
         LaunchWrapperConfig snapshot, CancellationToken cancellationToken = default)
-        => MutateConfigAsync<object?>(config =>
+    {
+        return MutateConfigAsync<object?>(config =>
         {
             config.LaunchWrappers.RemoveAll(w => w.AppId == snapshot.AppId);
             config.LaunchWrappers.Add(snapshot);
             return null;
         }, cancellationToken);
+    }
 
     /// <summary>Drops a game's snapshot once its launch configuration is restored.</summary>
     /// <param name="appId">The Steam app id, or a shortcut's generated id.</param>
     /// <param name="cancellationToken">Cancels the off-thread work.</param>
     internal static Task ForgetLaunchWrapperAsync(
         long appId, CancellationToken cancellationToken = default)
-        => MutateConfigAsync<object?>(config =>
+    {
+        return MutateConfigAsync<object?>(config =>
         {
             config.LaunchWrappers.RemoveAll(w => w.AppId == appId);
             return null;
         }, cancellationToken);
+    }
 
-    /// <summary>Loads the config, applies <paramref name="mutate"/>, and saves — the
-    /// whole read-modify-write held under the cross-process config lock so a concurrent
-    /// WSGM process (Settings window) can neither interleave nor lose fields.</summary>
+    /// <summary>
+    ///     Loads the config, applies <paramref name="mutate" />, and saves — the
+    ///     whole read-modify-write held under the cross-process config lock so a concurrent
+    ///     WSGM process (Settings window) can neither interleave nor lose fields.
+    /// </summary>
     /// <typeparam name="T">The value the mutation returns to the caller.</typeparam>
     /// <param name="mutate">Applies changes and returns a snapshot value.</param>
     /// <param name="cancellationToken">Cancels the off-thread work.</param>
     internal static Task<T> MutateConfigAsync<T>(Func<AppConfig, T> mutate,
         CancellationToken cancellationToken = default)
-        => Task.Run(() =>
+    {
+        return Task.Run(() =>
         {
             T result = default!;
             ConfigStore.Mutate(config => result = mutate(config));
             return result;
         }, cancellationToken);
+    }
 
     /// <summary>The content ids of the removable libraries attached right now.</summary>
     /// <remarks>
-    /// What the library badge needs beside the card model, for a reading before the first sync:
-    /// a sync also refreshes the reading, but the badge must not wait for one.
+    ///     What the library badge needs beside the card model, for a reading before the first sync:
+    ///     a sync also refreshes the reading, but the badge must not wait for one.
     /// </remarks>
-    internal static IReadOnlySet<string> PresentCardContentIds() =>
-        ScanLibraries().Select(static card => card.ContentId).ToHashSet(StringComparer.Ordinal);
+    internal static IReadOnlySet<string> PresentCardContentIds()
+    {
+        return ScanLibraries().Select(static card => card.ContentId).ToHashSet(StringComparer.Ordinal);
+    }
 
-    /// <summary>One row of the tab-order UI: a tab key (a native Steam id or an
-    /// injected <c>wsgm-…</c> id), its display title, and its visibility. Only native
-    /// tabs can be hidden here — WSGM tabs are hidden by disabling them.</summary>
-    /// <param name="Key">Native id (<c>AllGames</c>) or injected id (<c>wsgm-…</c>).</param>
-    /// <param name="Title">Display title for the UI.</param>
-    /// <param name="IsNative">Whether this is one of Steam's own tabs.</param>
-    /// <param name="Hidden">Whether a native tab is currently hidden.</param>
-    public sealed record TabOrderEntry(string Key, string Title, bool IsNative, bool Hidden);
-
-    // Windows Big Picture's native tabs in Steam's default order — the pre-capture
-    // fallback so the order UI works before the first sync has observed the strip.
-    // Captured KnownNativeTabs entries override these titles and extend the list.
-    private static readonly (string Id, string Title)[] DefaultNativeTabs =
-    [
-        ("AllGames", "All Games"),
-        ("Installed", "Installed"),
-        ("Favorites", "Favorites"),
-        ("Collections", "Collections"),
-        ("DesktopApps", "Non-Steam"),
-        ("Soundtracks", "Soundtracks")
-    ];
-
-    /// <summary>Builds the full tab-strip list the way Steam will render it: keys from
-    /// <see cref="AppConfig.LibraryTabOrder"/> first, then unlisted tabs in natural
-    /// order (native tabs, custom tabs by position, card tabs). Hidden native tabs
-    /// stay in the list — marked hidden — so they can be moved and unhidden.</summary>
+    /// <summary>
+    ///     Builds the full tab-strip list the way Steam will render it: keys from
+    ///     <see cref="AppConfig.LibraryTabOrder" /> first, then unlisted tabs in natural
+    ///     order (native tabs, custom tabs by position, card tabs). Hidden native tabs
+    ///     stay in the list — marked hidden — so they can be moved and unhidden.
+    /// </summary>
     /// <param name="config">The loaded configuration.</param>
     public static List<TabOrderEntry> BuildTabOrder(AppConfig config)
     {
@@ -773,6 +786,7 @@ public static class LibraryTabManager
         {
             titles[id] = title;
         }
+
         foreach (var native in config.KnownNativeTabs.Where(n => !string.IsNullOrEmpty(n.Title)))
         {
             titles[native.Id] = native.Title;
@@ -784,14 +798,17 @@ public static class LibraryTabManager
         {
             AddNative(id);
         }
+
         foreach (var native in config.KnownNativeTabs)
         {
             AddNative(native.Id);
         }
+
         foreach (var id in config.HiddenNativeTabs)
         {
             AddNative(id);
         }
+
         pool.AddRange(config.CustomTabs
             .Where(t => t.Enabled && !string.IsNullOrWhiteSpace(t.Name))
             .OrderBy(t => t.Position)
@@ -812,6 +829,7 @@ public static class LibraryTabManager
                 result.Add(entry);
             }
         }
+
         result.AddRange(pool.Where(entry => used.Add(entry.Key)));
         return result;
 
@@ -825,20 +843,11 @@ public static class LibraryTabManager
         }
     }
 
-    /// <summary>A removable Steam library found on a mounted drive.</summary>
-    /// <param name="ContentId">The stable identity from the card's own marker.</param>
-    /// <param name="Name">The display name to use when the card has never been
-    /// tracked and its marker carries no label.</param>
-    /// <param name="AppIds">The app ids currently installed on the card.</param>
-    /// <param name="MarkerLabel">The label in the card's own
-    /// <c>libraryfolder.vdf</c>, empty when it has none. Authoritative: it is the
-    /// only name that travels with the media.</param>
-    internal sealed record Discovered(
-        string ContentId, string Name, List<long> AppIds, string MarkerLabel);
-
-    /// <summary>Scans every ready drive for a <c>&lt;X&gt;:\SteamLibrary</c> marker and
-    /// reads its identity, label and installed app ids. The primary Steam install
-    /// has no such subfolder marker, so it is naturally excluded.</summary>
+    /// <summary>
+    ///     Scans every ready drive for a <c>&lt;X&gt;:\SteamLibrary</c> marker and
+    ///     reads its identity, label and installed app ids. The primary Steam install
+    ///     has no such subfolder marker, so it is naturally excluded.
+    /// </summary>
     private static List<Discovered> ScanLibraries()
     {
         // Resolved once per scan: each call opens two volume handles and issues two
@@ -853,12 +862,14 @@ public static class LibraryTabManager
                 {
                     continue;
                 }
+
                 var root = Path.Combine(drive.Name, "SteamLibrary");
                 if (!SteamLibraryVdf.TryReadMarker(root, out var contentId, out var label)
                     || string.IsNullOrEmpty(contentId))
                 {
                     continue;
                 }
+
                 var letter = char.ToUpperInvariant(drive.Name[0]);
                 var name = ResolveName(label, drive, letter);
                 var appIds = ReadAcfAppIds(Path.Combine(root, "steamapps"));
@@ -869,6 +880,7 @@ public static class LibraryTabManager
                 Log.Warn($"Library tabs: could not read {drive.Name}: {ex.Message}");
             }
         }
+
         return found;
     }
 
@@ -878,6 +890,7 @@ public static class LibraryTabManager
         {
             return false;
         }
+
         var letter = char.ToUpperInvariant(drive.Name[0]);
         using var volume = NativeStorage.OpenVolumeForQuery(letter);
         if (volume.IsInvalid
@@ -887,28 +900,32 @@ public static class LibraryTabManager
         {
             return false;
         }
+
         // Query access only: GENERIC_READ on \\.\PhysicalDriveN requires elevation and WSGM
         // is asInvoker, so a read handle would be invalid for every disk in a desktop-launched
         // process and no card would ever be discovered. IOCTL_STORAGE_GET_HOTPLUG_INFO needs
         // no access rights, which is why the drive snapshot path opens the same way.
         using var physical = NativeStorage.OpenDiskForQuery(disk);
         return !physical.IsInvalid
-            && NativeStorage.TryGetHotplugInfo(physical, out var media, out var hotplug)
-            && RemovableDriveManager.Classify(hotplug, media) is not null;
+               && NativeStorage.TryGetHotplugInfo(physical, out var media, out var hotplug)
+               && RemovableDriveManager.Classify(hotplug, media) is not null;
     }
 
-    /// <summary>Picks a name for a card nothing has tracked yet: its marker label,
-    /// else the volume label, else a drive-letter fallback. Every candidate here is
-    /// read from the media itself. <c>config\libraryfolders.vdf</c> is deliberately
-    /// not consulted — its <c>label</c> belongs to a PATH registration, and a card
-    /// reader hands every card the same path, so Steam carries the previous card's
-    /// label onto the new card's content id (see <c>docs\sd-cards.md</c>).</summary>
+    /// <summary>
+    ///     Picks a name for a card nothing has tracked yet: its marker label,
+    ///     else the volume label, else a drive-letter fallback. Every candidate here is
+    ///     read from the media itself. <c>config\libraryfolders.vdf</c> is deliberately
+    ///     not consulted — its <c>label</c> belongs to a PATH registration, and a card
+    ///     reader hands every card the same path, so Steam carries the previous card's
+    ///     label onto the new card's content id (see <c>docs\sd-cards.md</c>).
+    /// </summary>
     private static string ResolveName(string markerLabel, DriveInfo drive, char letter)
     {
         if (!string.IsNullOrWhiteSpace(markerLabel))
         {
             return markerLabel.Trim();
         }
+
         try
         {
             if (!string.IsNullOrWhiteSpace(drive.VolumeLabel)
@@ -921,11 +938,14 @@ public static class LibraryTabManager
         {
             // No volume label available.
         }
+
         return $"Library ({letter}:)";
     }
 
-    /// <summary>Reads app ids from <c>appmanifest_&lt;appid&gt;.acf</c> file names — the
-    /// id is in the name, so no VDF parsing is needed for membership.</summary>
+    /// <summary>
+    ///     Reads app ids from <c>appmanifest_&lt;appid&gt;.acf</c> file names — the
+    ///     id is in the name, so no VDF parsing is needed for membership.
+    /// </summary>
     private static List<long> ReadAcfAppIds(string steamAppsDir)
     {
         var ids = new List<long>();
@@ -933,6 +953,7 @@ public static class LibraryTabManager
         {
             return ids;
         }
+
         foreach (var file in Directory.EnumerateFiles(steamAppsDir, "appmanifest_*.acf"))
         {
             var stem = Path.GetFileNameWithoutExtension(file);
@@ -942,23 +963,25 @@ public static class LibraryTabManager
                 ids.Add(id);
             }
         }
+
         return ids;
     }
 
-    /// <summary>Upserts the scan into the persisted card DB: a new card is added
-    /// (enabled), a known one has its name and app ids refreshed from the media.
-    /// Cards not currently discovered are left untouched (remembered while ejected).
+    /// <summary>
+    ///     Upserts the scan into the persisted card DB: a new card is added
+    ///     (enabled), a known one has its name and app ids refreshed from the media.
+    ///     Cards not currently discovered are left untouched (remembered while ejected).
     /// </summary>
     /// <remarks>
-    /// The name follows the card's OWN marker label and nothing else. Steam's
-    /// <c>config\libraryfolders.vdf</c> label was the previous source and is not a
-    /// per-card value: it belongs to the registration at a PATH, and a card reader
-    /// gives every card the same path, so swapping cards left the new card's content
-    /// id carrying the previous card's label — which this merge then adopted, renaming
-    /// one card to the other (device-observed, 2026-09-05; see
-    /// <c>docs\sd-cards.md</c>). A WSGM-side rename writes the marker, so following
-    /// the marker still reflects a rename made here, and there is nothing left for a
-    /// two-way sync to reconcile.
+    ///     The name follows the card's OWN marker label and nothing else. Steam's
+    ///     <c>config\libraryfolders.vdf</c> label was the previous source and is not a
+    ///     per-card value: it belongs to the registration at a PATH, and a card reader
+    ///     gives every card the same path, so swapping cards left the new card's content
+    ///     id carrying the previous card's label — which this merge then adopted, renaming
+    ///     one card to the other (device-observed, 2026-09-05; see
+    ///     <c>docs\sd-cards.md</c>). A WSGM-side rename writes the marker, so following
+    ///     the marker still reflects a rename made here, and there is nothing left for a
+    ///     two-way sync to reconcile.
     /// </remarks>
     /// <param name="config">The configuration to upsert into.</param>
     /// <param name="discovered">Cards found mounted by this scan.</param>
@@ -976,13 +999,14 @@ public static class LibraryTabManager
             {
                 continue;
             }
-            var existing = db.FirstOrDefault(
-                c => string.Equals(c.ContentId, card.ContentId, StringComparison.Ordinal));
+
+            var existing = db.FirstOrDefault(c => string.Equals(c.ContentId, card.ContentId, StringComparison.Ordinal));
             if (existing is null)
             {
                 existing = new CardLibraryConfig { ContentId = card.ContentId, Enabled = true };
                 db.Add(existing);
             }
+
             // A labelled marker is the card's name. Only a card that carries no label
             // of its own falls back to the scan's guess, and only while nothing has
             // named it yet — otherwise an unlabelled card would lose a rename made
@@ -994,6 +1018,7 @@ public static class LibraryTabManager
             {
                 name = card.Name;
             }
+
             if (!string.Equals(existing.Name, name, StringComparison.Ordinal))
             {
                 // Change, not Info: one sync merges twice (once into the snapshot it
@@ -1004,7 +1029,101 @@ public static class LibraryTabManager
                     + "(from the card's own marker).");
                 existing.Name = name;
             }
+
             existing.AppIds = card.AppIds;
         }
     }
+
+    /// <summary>
+    ///     Resolves <see cref="FilterKind.SdCard" /> membership from WSGM's card
+    ///     model: "inserted" = union of currently-present cards, "any" = union of all
+    ///     tracked cards, "specific" = one card's remembered app ids.
+    /// </summary>
+    private sealed class CardResolver(AppConfig config, List<Discovered> discovered) : ISdCardResolver
+    {
+        private readonly HashSet<string> _present = new(
+            discovered.Select(d => d.ContentId), StringComparer.Ordinal);
+
+        public IReadOnlyCollection<long> Resolve(SdCardScope scope, string contentId)
+        {
+            var cards = scope switch
+            {
+                SdCardScope.Inserted => config.CardLibraries.Where(c => _present.Contains(c.ContentId)),
+                SdCardScope.Any => config.CardLibraries,
+                _ => config.CardLibraries.Where(c => string.Equals(c.ContentId, contentId, StringComparison.Ordinal))
+            };
+            var ids = new HashSet<long>();
+            foreach (var card in cards)
+            {
+                foreach (var id in card.AppIds)
+                {
+                    ids.Add(id);
+                }
+            }
+
+            return ids;
+        }
+    }
+
+    // ---- Card-manager API (drives the overlay card sub-view) ----
+
+    /// <summary>
+    ///     A card as shown in the manager: identity, name, tab/hidden state, game
+    ///     count, and whether it is currently inserted.
+    /// </summary>
+    /// <param name="ContentId">Stable card identity (its library content id).</param>
+    /// <param name="Name">Display name.</param>
+    /// <param name="Enabled">Whether a Steam tab is maintained.</param>
+    /// <param name="Hidden">Whether it is hidden from tab creation.</param>
+    /// <param name="GameCount">Remembered installed app count.</param>
+    /// <param name="Inserted">Whether the card is currently mounted.</param>
+    /// <param name="AppIds">Remembered installed app ids.</param>
+    public sealed record CardView(
+        string ContentId,
+        string Name,
+        bool Enabled,
+        bool Hidden,
+        int GameCount,
+        bool Inserted,
+        IReadOnlyList<long> AppIds);
+
+    /// <summary>The volume a tracked library currently lives on.</summary>
+    /// <param name="Root">
+    ///     The volume GUID path with its trailing separator, which is
+    ///     what every subsequent write addresses.
+    /// </param>
+    /// <param name="Letter">
+    ///     The drive letter it was found through, for log lines
+    ///     only — it is not a durable name for the volume.
+    /// </param>
+    private readonly record struct MountedVolume(string Root, char Letter);
+
+    /// <summary>
+    ///     One row of the tab-order UI: a tab key (a native Steam id or an
+    ///     injected <c>wsgm-…</c> id), its display title, and its visibility. Only native
+    ///     tabs can be hidden here — WSGM tabs are hidden by disabling them.
+    /// </summary>
+    /// <param name="Key">Native id (<c>AllGames</c>) or injected id (<c>wsgm-…</c>).</param>
+    /// <param name="Title">Display title for the UI.</param>
+    /// <param name="IsNative">Whether this is one of Steam's own tabs.</param>
+    /// <param name="Hidden">Whether a native tab is currently hidden.</param>
+    public sealed record TabOrderEntry(string Key, string Title, bool IsNative, bool Hidden);
+
+    /// <summary>A removable Steam library found on a mounted drive.</summary>
+    /// <param name="ContentId">The stable identity from the card's own marker.</param>
+    /// <param name="Name">
+    ///     The display name to use when the card has never been
+    ///     tracked and its marker carries no label.
+    /// </param>
+    /// <param name="AppIds">The app ids currently installed on the card.</param>
+    /// <param name="MarkerLabel">
+    ///     The label in the card's own
+    ///     <c>libraryfolder.vdf</c>, empty when it has none. Authoritative: it is the
+    ///     only name that travels with the media.
+    /// </param>
+    internal sealed record Discovered(
+        string ContentId,
+        string Name,
+        List<long> AppIds,
+        string MarkerLabel);
 }

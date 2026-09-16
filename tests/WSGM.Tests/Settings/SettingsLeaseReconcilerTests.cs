@@ -6,23 +6,27 @@ public sealed class SettingsLeaseReconcilerTests
 {
     [Fact]
     public void ShouldHold_OverlayStillClosing_IgnoresTransientSettingsDeactivation()
-        => Assert.True(SettingsLeaseReconciler.ShouldHold(
-            leaseEnabled: true,
-            closed: false,
-            minimized: false,
-            active: false,
-            hasChildSurface: false,
-            handoffPending: true));
+    {
+        Assert.True(SettingsLeaseReconciler.ShouldHold(
+            true,
+            false,
+            false,
+            false,
+            false,
+            true));
+    }
 
     [Fact]
     public void ShouldHold_HandoffCompleteAndSettingsInactive_ReleasesClaim()
-        => Assert.False(SettingsLeaseReconciler.ShouldHold(
-            leaseEnabled: true,
-            closed: false,
-            minimized: false,
-            active: false,
-            hasChildSurface: false,
-            handoffPending: false));
+    {
+        Assert.False(SettingsLeaseReconciler.ShouldHold(
+            true,
+            false,
+            false,
+            false,
+            false,
+            false));
+    }
 
     [Fact]
     public void CompleteAcquire_NativeLeaseUnavailable_CloseStillReleasesOwnerClaim()

@@ -31,8 +31,10 @@ internal static class AsusReadProtocol
     internal const int QueryLength = 16;
     internal const int ResponseLength = 32;
 
-    internal static bool IsCurve(AsusReadControl control) =>
-        control is AsusReadControl.CpuFactoryFanCurve or AsusReadControl.GpuFactoryFanCurve;
+    internal static bool IsCurve(AsusReadControl control)
+    {
+        return control is AsusReadControl.CpuFactoryFanCurve or AsusReadControl.GpuFactoryFanCurve;
+    }
 
     internal static bool TryWriteQuery(Span<byte> destination, AsusReadControl control, int profile = 0)
     {

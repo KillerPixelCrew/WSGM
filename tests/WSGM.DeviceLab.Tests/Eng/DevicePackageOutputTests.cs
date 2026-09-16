@@ -23,6 +23,7 @@ public sealed class DevicePackageOutputTests
         {
             await File.WriteAllTextAsync(archive, "previous package");
         }
+
         var root = Assert.IsType<string>(DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory));
         var helper = Path.Combine(root, "eng", "device-package-output.ps1");
         await using var held = locked
@@ -41,8 +42,8 @@ public sealed class DevicePackageOutputTests
         start.ArgumentList.Add("-NonInteractive");
         start.ArgumentList.Add("-Command");
         start.ArgumentList.Add("$ErrorActionPreference = 'Stop'; . $env:WSGM_TEST_PACKAGE_HELPER; "
-            + "Publish-DevicePackageArchive -StagedArchive $env:WSGM_TEST_STAGED_ARCHIVE "
-            + "-Archive $env:WSGM_TEST_ARCHIVE -ReplaceExisting:($env:WSGM_TEST_REPLACE -eq '1')");
+                               + "Publish-DevicePackageArchive -StagedArchive $env:WSGM_TEST_STAGED_ARCHIVE "
+                               + "-Archive $env:WSGM_TEST_ARCHIVE -ReplaceExisting:($env:WSGM_TEST_REPLACE -eq '1')");
         start.Environment["WSGM_TEST_PACKAGE_HELPER"] = helper;
         start.Environment["WSGM_TEST_STAGED_ARCHIVE"] = staged;
         start.Environment["WSGM_TEST_ARCHIVE"] = archive;
@@ -59,10 +60,11 @@ public sealed class DevicePackageOutputTests
         {
             if (!process.HasExited)
             {
-                process.Kill(entireProcessTree: true);
+                process.Kill(true);
                 await process.WaitForExitAsync(CancellationToken.None);
             }
         }
+
         var diagnostic = await output + await error;
 
         Assert.True(process.ExitCode == 0 == succeeds, diagnostic);

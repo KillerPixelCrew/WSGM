@@ -32,21 +32,23 @@ public sealed class RunningApplicationCoordinatorTests
                 {
                     controllerGenerations.Add(snapshot.Generation);
                 }
+
                 if (snapshot.Generation is 2)
                 {
                     newestControllerApplied.TrySetResult();
                 }
+
                 return Task.CompletedTask;
             });
 
         await rtssEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
         source.Publish(Snapshot(
-            RunningApplicationTargetState.Active,
-            "steam:42",
-            "new.exe") with
-        {
-            Generation = 2
-        });
+                RunningApplicationTargetState.Active,
+                "steam:42",
+                "new.exe") with
+            {
+                Generation = 2
+            });
         await newestControllerApplied.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
         lock (controllerGenerations)
@@ -85,6 +87,7 @@ public sealed class RunningApplicationCoordinatorTests
                             firstControllerCancelled.TrySetResult();
                             throw;
                         }
+
                         break;
                     case 2:
                         newestControllerApplied.TrySetResult();
@@ -94,12 +97,12 @@ public sealed class RunningApplicationCoordinatorTests
 
         await firstControllerEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
         source.Publish(Snapshot(
-            RunningApplicationTargetState.Active,
-            "steam:42",
-            "new.exe") with
-        {
-            Generation = 2
-        });
+                RunningApplicationTargetState.Active,
+                "steam:42",
+                "new.exe") with
+            {
+                Generation = 2
+            });
 
         await firstControllerCancelled.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await newestControllerApplied.Task.WaitAsync(TimeSpan.FromSeconds(2));
@@ -174,12 +177,12 @@ public sealed class RunningApplicationCoordinatorTests
         bool expected)
     {
         var snapshot = Snapshot(
-            RunningApplicationTargetState.Active,
-            "steam:42",
-            "game.exe") with
-        {
-            Generation = candidateGeneration
-        };
+                RunningApplicationTargetState.Active,
+                "steam:42",
+                "game.exe") with
+            {
+                Generation = candidateGeneration
+            };
 
         Assert.Equal(
             expected,
@@ -189,7 +192,9 @@ public sealed class RunningApplicationCoordinatorTests
     private static RunningApplicationTargetSnapshot Snapshot(
         RunningApplicationTargetState state,
         string? applicationId,
-        string? profileName) => new(
+        string? profileName)
+    {
+        return new RunningApplicationTargetSnapshot(
             1,
             1,
             state,
@@ -198,9 +203,12 @@ public sealed class RunningApplicationCoordinatorTests
             profileName is null ? null : $@"C:\Games\{profileName}",
             profileName,
             null);
+    }
 
-    private static TaskCompletionSource NewSignal() =>
-        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private static TaskCompletionSource NewSignal()
+    {
+        return new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
 
     private sealed class FakeSource(RunningApplicationTargetSnapshot current)
         : IRunningApplicationTargetSource
@@ -209,7 +217,10 @@ public sealed class RunningApplicationCoordinatorTests
 
         public RunningApplicationTargetSnapshot Current { get; private set; } = current;
 
-        public IDisposable AcquireObservation() => new Observation();
+        public IDisposable AcquireObservation()
+        {
+            return new Observation();
+        }
 
         public void Publish(RunningApplicationTargetSnapshot snapshot)
         {

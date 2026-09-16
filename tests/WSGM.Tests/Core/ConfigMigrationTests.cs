@@ -25,8 +25,8 @@ public sealed class ConfigMigrationTests
     public void RouteAutomationWithoutGameModeBoot_BecomesASignInDesktopStart()
     {
         var config = Migrate("""
-            { "GameModeBootEnabled": false, "DisplayRoutes": { "Enabled": true } }
-            """);
+                             { "GameModeBootEnabled": false, "DisplayRoutes": { "Enabled": true } }
+                             """);
 
         Assert.True(config.StartAtSignIn);
         Assert.Equal(SessionStartMode.Desktop, config.StartMode);
@@ -36,8 +36,8 @@ public sealed class ConfigMigrationTests
     public void NeitherBootNorResidency_LeavesTheSignInAlone()
     {
         var config = Migrate("""
-            { "GameModeBootEnabled": false, "DisplayRoutes": { "Enabled": false } }
-            """);
+                             { "GameModeBootEnabled": false, "DisplayRoutes": { "Enabled": false } }
+                             """);
 
         Assert.False(config.StartAtSignIn);
         Assert.Equal(SessionStartMode.Game, config.StartMode);
@@ -48,8 +48,8 @@ public sealed class ConfigMigrationTests
     {
         // A newer build's save beside a leftover key: the retired one must not undo it.
         var config = Migrate("""
-            { "GameModeBootEnabled": true, "StartAtSignIn": false, "StartMode": "Desktop" }
-            """);
+                             { "GameModeBootEnabled": true, "StartAtSignIn": false, "StartMode": "Desktop" }
+                             """);
 
         Assert.False(config.StartAtSignIn);
         Assert.Equal(SessionStartMode.Desktop, config.StartMode);
@@ -71,12 +71,12 @@ public sealed class ConfigMigrationTests
     public void AMigratedDocumentKeepsItsOtherSettingsAndDropsTheRetiredKey()
     {
         var config = Migrate("""
-            {
-              "GameModeBootEnabled": false,
-              "PreviousShellValue": "explorer.exe",
-              "ExplorerLogonSettleMs": 250
-            }
-            """);
+                             {
+                               "GameModeBootEnabled": false,
+                               "PreviousShellValue": "explorer.exe",
+                               "ExplorerLogonSettleMs": 250
+                             }
+                             """);
 
         Assert.Equal("explorer.exe", config.PreviousShellValue);
         Assert.Equal(250, config.ExplorerLogonSettleMs);
@@ -88,7 +88,9 @@ public sealed class ConfigMigrationTests
 
     [Fact]
     public void ADocumentWithoutTheRetiredKeyNeedsNoPass()
-        => Assert.False(ConfigMigrations.MayNeedMigration("""{ "StartAtSignIn": true }"""));
+    {
+        Assert.False(ConfigMigrations.MayNeedMigration("""{ "StartAtSignIn": true }"""));
+    }
 
     [Theory]
     [InlineData("Off")]
@@ -108,26 +110,26 @@ public sealed class ConfigMigrationTests
     public void FixedProfilesBecomeACustomLayoutLaidOutLeftToRightAwaitingConfirmation()
     {
         var config = Migrate("""
-            {
-              "DisplayManagement": "FixedProfiles",
-              "DisplayProfiles": [
-                {
-                  "MonitorId": "\\Registry\\Machine\\...\\0001",
-                  "DeviceName": "\\\\.\\DISPLAY1",
-                  "DisplayName": "Internal panel",
-                  "HdrAvailable": true,
-                  "Desktop": { "Width": 1920, "Height": 1080, "RefreshRate": 60, "DpiPercent": 150, "HdrEnabled": false },
-                  "Game": { "Width": 1280, "Height": 720, "RefreshRate": 120, "DpiPercent": 100, "HdrEnabled": true }
-                },
-                {
-                  "DisplayName": "Living room TV",
-                  "HdrAvailable": false,
-                  "Desktop": { "Width": 2560, "Height": 1440, "RefreshRate": 60, "DpiPercent": 100 },
-                  "Game": { "Width": 3840, "Height": 2160, "RefreshRate": 120, "DpiPercent": 100 }
-                }
-              ]
-            }
-            """);
+                             {
+                               "DisplayManagement": "FixedProfiles",
+                               "DisplayProfiles": [
+                                 {
+                                   "MonitorId": "\\Registry\\Machine\\...\\0001",
+                                   "DeviceName": "\\\\.\\DISPLAY1",
+                                   "DisplayName": "Internal panel",
+                                   "HdrAvailable": true,
+                                   "Desktop": { "Width": 1920, "Height": 1080, "RefreshRate": 60, "DpiPercent": 150, "HdrEnabled": false },
+                                   "Game": { "Width": 1280, "Height": 720, "RefreshRate": 120, "DpiPercent": 100, "HdrEnabled": true }
+                                 },
+                                 {
+                                   "DisplayName": "Living room TV",
+                                   "HdrAvailable": false,
+                                   "Desktop": { "Width": 2560, "Height": 1440, "RefreshRate": 60, "DpiPercent": 100 },
+                                   "Game": { "Width": 3840, "Height": 2160, "RefreshRate": 120, "DpiPercent": 100 }
+                                 }
+                               ]
+                             }
+                             """);
 
         Assert.Equal(GameModeLaunchKind.Custom, config.GameModeLaunch.Kind);
         var game = config.GameModeLaunch.GameLayout!.Outputs;
@@ -151,13 +153,13 @@ public sealed class ConfigMigrationTests
     public void AProfileWithoutAResolutionIsLeftOutRatherThanMigratedAsZeroByZero()
     {
         var config = Migrate("""
-            {
-              "DisplayManagement": "FixedProfiles",
-              "DisplayProfiles": [
-                { "DisplayName": "Never captured", "Desktop": {}, "Game": {} }
-              ]
-            }
-            """);
+                             {
+                               "DisplayManagement": "FixedProfiles",
+                               "DisplayProfiles": [
+                                 { "DisplayName": "Never captured", "Desktop": {}, "Game": {} }
+                               ]
+                             }
+                             """);
 
         Assert.Equal(GameModeLaunchKind.Default, config.GameModeLaunch.Kind);
         Assert.Null(config.GameModeLaunch.GameLayout);
@@ -167,32 +169,32 @@ public sealed class ConfigMigrationTests
     public void EnabledRoutesBecomeOneStepActionListsAndADisplayWait()
     {
         var config = Migrate("""
-            {
-              "DisplayRoutes": {
-                "Enabled": true,
-                "EnterGameMode": {
-                  "Plugin": { "PluginId": "wsgm.ir", "InstanceId": "blaster" },
-                  "ActionId": "remote-run",
-                  "Arguments": { "remote": { "Text": "hdmi-switch" } },
-                  "Target": {
-                    "DevicePath": "\\\\?\\DISPLAY#TV0001",
-                    "FriendlyName": "Living room TV",
-                    "AdapterLowPart": 0, "AdapterHighPart": 0, "TargetId": 3
-                  },
-                  "TimeoutSeconds": 45
-                },
-                "LeaveGameMode": {
-                  "Plugin": { "PluginId": "wsgm.ir", "InstanceId": "blaster" },
-                  "ActionId": "remote-press",
-                  "TimeoutSeconds": 500
-                },
-                "DesktopWake": {
-                  "Plugin": { "PluginId": "wsgm.ir", "InstanceId": "blaster" },
-                  "ActionId": "remote-refresh"
-                }
-              }
-            }
-            """);
+                             {
+                               "DisplayRoutes": {
+                                 "Enabled": true,
+                                 "EnterGameMode": {
+                                   "Plugin": { "PluginId": "wsgm.ir", "InstanceId": "blaster" },
+                                   "ActionId": "remote-run",
+                                   "Arguments": { "remote": { "Text": "hdmi-switch" } },
+                                   "Target": {
+                                     "DevicePath": "\\\\?\\DISPLAY#TV0001",
+                                     "FriendlyName": "Living room TV",
+                                     "AdapterLowPart": 0, "AdapterHighPart": 0, "TargetId": 3
+                                   },
+                                   "TimeoutSeconds": 45
+                                 },
+                                 "LeaveGameMode": {
+                                   "Plugin": { "PluginId": "wsgm.ir", "InstanceId": "blaster" },
+                                   "ActionId": "remote-press",
+                                   "TimeoutSeconds": 500
+                                 },
+                                 "DesktopWake": {
+                                   "Plugin": { "PluginId": "wsgm.ir", "InstanceId": "blaster" },
+                                   "ActionId": "remote-refresh"
+                                 }
+                               }
+                             }
+                             """);
 
         var enter = Assert.Single(config.GameModeLaunch.EnterActions);
         Assert.Equal("remote-run", enter.ActionId);
@@ -210,8 +212,8 @@ public sealed class ConfigMigrationTests
     public void ABindingWithNoPluginContributesNoStep()
     {
         var config = Migrate("""
-            { "DisplayRoutes": { "Enabled": true, "EnterGameMode": { "TimeoutSeconds": 30 } } }
-            """);
+                             { "DisplayRoutes": { "Enabled": true, "EnterGameMode": { "TimeoutSeconds": 30 } } }
+                             """);
 
         Assert.Empty(config.GameModeLaunch.EnterActions);
         Assert.Equal(GameModeLaunchKind.Default, config.GameModeLaunch.Kind);
@@ -221,13 +223,13 @@ public sealed class ConfigMigrationTests
     public void DisabledRoutesAreDroppedWithoutContributingActions()
     {
         var config = Migrate("""
-            {
-              "DisplayRoutes": {
-                "Enabled": false,
-                "EnterGameMode": { "Plugin": { "PluginId": "p", "InstanceId": "i" }, "ActionId": "a" }
-              }
-            }
-            """);
+                             {
+                               "DisplayRoutes": {
+                                 "Enabled": false,
+                                 "EnterGameMode": { "Plugin": { "PluginId": "p", "InstanceId": "i" }, "ActionId": "a" }
+                               }
+                             }
+                             """);
 
         Assert.Empty(config.GameModeLaunch.EnterActions);
     }
@@ -238,17 +240,17 @@ public sealed class ConfigMigrationTests
         // The blob is replay data for a topology that may no longer exist. Refusing the whole file
         // over it would cost the user every other setting they have.
         var config = Migrate("""
-            {
-              "DisplayRoutes": {
-                "Enabled": true,
-                "EnterGameMode": {
-                  "Plugin": { "PluginId": "p", "InstanceId": "i" },
-                  "ActionId": "a",
-                  "Profile": { "FormatVersion": 1, "Targets": [], "PathData": ["AAAA"], "ModeData": [] }
-                }
-              }
-            }
-            """);
+                             {
+                               "DisplayRoutes": {
+                                 "Enabled": true,
+                                 "EnterGameMode": {
+                                   "Plugin": { "PluginId": "p", "InstanceId": "i" },
+                                   "ActionId": "a",
+                                   "Profile": { "FormatVersion": 1, "Targets": [], "PathData": ["AAAA"], "ModeData": [] }
+                                 }
+                               }
+                             }
+                             """);
 
         Assert.Null(config.GameModeLaunch.GameLayout);
         Assert.Single(config.GameModeLaunch.EnterActions);
@@ -258,12 +260,12 @@ public sealed class ConfigMigrationTests
     public void ACurrentLaunchSectionWinsOverTheRetiredDisplayKeys()
     {
         var config = Migrate("""
-            {
-              "DisplayManagement": "FixedProfiles",
-              "DisplayProfiles": [{ "DisplayName": "Old", "Game": { "Width": 800, "Height": 600 } }],
-              "GameModeLaunch": { "Kind": "Default" }
-            }
-            """);
+                             {
+                               "DisplayManagement": "FixedProfiles",
+                               "DisplayProfiles": [{ "DisplayName": "Old", "Game": { "Width": 800, "Height": 600 } }],
+                               "GameModeLaunch": { "Kind": "Default" }
+                             }
+                             """);
 
         Assert.Equal(GameModeLaunchKind.Default, config.GameModeLaunch.Kind);
         Assert.Null(config.GameModeLaunch.GameLayout);
@@ -273,8 +275,8 @@ public sealed class ConfigMigrationTests
     public void TheRetiredDisplayKeysAreGoneFromTheSavedDocument()
     {
         var config = Migrate("""
-            { "DisplayManagement": "DpiOnly", "DisplayProfiles": [], "DisplayRoutes": { "Enabled": false } }
-            """);
+                             { "DisplayManagement": "DpiOnly", "DisplayProfiles": [], "DisplayRoutes": { "Enabled": false } }
+                             """);
 
         var json = JsonSerializer.Serialize(config, ConfigJsonContext.Default.AppConfig);
         Assert.DoesNotContain("\"DisplayManagement\"", json, StringComparison.Ordinal);
@@ -287,11 +289,11 @@ public sealed class ConfigMigrationTests
     public void TheDisplayMigrationIsIdempotent()
     {
         var root = JsonNode.Parse("""
-            {
-              "DisplayManagement": "FixedProfiles",
-              "DisplayProfiles": [{ "DisplayName": "A", "Desktop": { "Width": 1920, "Height": 1080 }, "Game": { "Width": 1920, "Height": 1080 } }]
-            }
-            """)!.AsObject();
+                                  {
+                                    "DisplayManagement": "FixedProfiles",
+                                    "DisplayProfiles": [{ "DisplayName": "A", "Desktop": { "Width": 1920, "Height": 1080 }, "Game": { "Width": 1920, "Height": 1080 } }]
+                                  }
+                                  """)!.AsObject();
 
         Assert.True(ConfigMigrations.Apply(root));
         var once = root.ToJsonString();

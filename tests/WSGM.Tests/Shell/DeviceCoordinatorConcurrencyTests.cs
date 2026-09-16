@@ -56,7 +56,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
         var callerCleanupRan = false;
 
         await DeviceCoordinator.RunCanceledStartCleanupPolicyAsync(
-            lifetimeCancellationRequested: true,
+            true,
             () =>
             {
                 callerCleanupRan = true;
@@ -77,7 +77,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
         var receivedToken = canceledCaller.Token;
 
         await DeviceCoordinator.RunCanceledStartCleanupPolicyAsync(
-            lifetimeCancellationRequested: false,
+            false,
             () => DeviceCoordinator.RunFreshBoundedCleanupAsync(
                 budget,
                 (deadline, token) =>
@@ -157,10 +157,10 @@ public sealed class DeviceCoordinatorConcurrencyTests
                         return Task.FromResult(VerifiedStop());
                     },
                     () =>
-            {
-                order.Add("detach");
-                return ValueTask.CompletedTask;
-            },
+                    {
+                        order.Add("detach");
+                        return ValueTask.CompletedTask;
+                    },
                     () =>
                     {
                         order.Add("dispose");
@@ -348,8 +348,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
         using var lifetime = new CancellationTokenSource();
         using var transitionGate = new SemaphoreSlim(0, 1);
         var canceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var registration = lifetime.Token.Register(
-            () => canceled.TrySetResult());
+        await using var registration = lifetime.Token.Register(() => canceled.TrySetResult());
 
         var waiting = DeviceCoordinator.CancelLifetimeAndWaitForTransitionAsync(
             lifetime,
@@ -368,6 +367,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
             {
                 transitionGate.Release();
             }
+
             await waiting.WaitAsync(TimeSpan.FromSeconds(1));
             transitionGate.Release();
         }
@@ -436,6 +436,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
                 // failing regression test cannot strand a thread-owned named mutex in the runner.
                 marker.ReleaseMutex();
             }
+
             Assert.Null(acquireFailure);
             Assert.True(acquiredOnWorker);
 
@@ -479,7 +480,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
         // and reacquirability after release are the load-bearing marker semantics.
         var name = $@"Local\WSGM.Tests.DeviceOwner.Maintenance.{Guid.NewGuid():N}";
         using (Assert.IsType<Mutex>(
-            DeviceCoordinator.TryCreateOwnerMutex(name)))
+                   DeviceCoordinator.TryCreateOwnerMutex(name)))
         {
             Assert.Null(DeviceCoordinator.TryCreateOwnerMutex(name));
         }
@@ -520,16 +521,21 @@ public sealed class DeviceCoordinatorConcurrencyTests
             DeviceCoordinator.TryCreateOwnerMutex(name));
     }
 
-    private static ControllerHandoff VerifiedHandoff() => new()
+    private static ControllerHandoff VerifiedHandoff()
     {
-        Step = ControllerHandoffStep.TopologyVerified,
-        Result = ControllerHandoffResult.ReleasedVerified
-    };
+        return new ControllerHandoff
+        {
+            Step = ControllerHandoffStep.TopologyVerified,
+            Result = ControllerHandoffResult.ReleasedVerified
+        };
+    }
 
-    private static DevicePluginState VerifiedStop() => new()
+    private static DevicePluginState VerifiedStop()
     {
-        State = DeviceCycleState.Disabled,
-        CycleGeneration = 1
-    };
-
+        return new DevicePluginState
+        {
+            State = DeviceCycleState.Disabled,
+            CycleGeneration = 1
+        };
+    }
 }

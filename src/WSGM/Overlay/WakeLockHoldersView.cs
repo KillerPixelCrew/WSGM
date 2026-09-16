@@ -6,14 +6,17 @@ using WSGM.Core;
 
 namespace WSGM.Overlay;
 
-/// <summary>Lists every program currently holding a power request, grouped by the kind
-/// of lock it holds — the full detail behind the Keep Awake row's indicator dot and its
-/// one-line summary.
-///
-/// <para>Enumerating system-wide power requests needs an elevated token (a Windows
-/// restriction that <c>powercfg /requests</c> shares), so an unelevated WSGM shows the
-/// reason rather than an empty list that would read as "nothing is holding a
-/// lock".</para></summary>
+/// <summary>
+///     Lists every program currently holding a power request, grouped by the kind
+///     of lock it holds — the full detail behind the Keep Awake row's indicator dot and its
+///     one-line summary.
+///     <para>
+///         Enumerating system-wide power requests needs an elevated token (a Windows
+///         restriction that <c>powercfg /requests</c> shares), so an unelevated WSGM shows the
+///         reason rather than an empty list that would read as "nothing is holding a
+///         lock".
+///     </para>
+/// </summary>
 public sealed class WakeLockHoldersView : OverlaySubView
 {
     /// <inheritdoc />
@@ -38,6 +41,7 @@ public sealed class WakeLockHoldersView : OverlaySubView
         {
             return;
         }
+
         Replace(() => RenderList(snapshot.Entries is null, snapshot.Error,
             WakeLockHolders.Build(snapshot.Entries)));
     }
@@ -74,6 +78,7 @@ public sealed class WakeLockHoldersView : OverlaySubView
                 }
             }
         }
+
         stack.Children.Add(SectionLabel(""));
         stack.Children.Add(Row("Refresh", "Read the power requests again", Icons.Restart, Open));
         stack.Children.Add(Row("Back", "", Icons.ExitFullscreen, () => Back()));

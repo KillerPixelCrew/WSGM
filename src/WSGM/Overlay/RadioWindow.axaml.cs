@@ -14,43 +14,38 @@ using WifiSecurity = WindowsDeviceControl.WindowsRadio.WifiSecurity;
 
 namespace WSGM.Overlay;
 
-/// <summary>The game-mode Wi-Fi and Bluetooth panel.
-///
-/// A real window rather than a taskbar flyout for two reasons that both matter
-/// on a handheld: a 240 px flyout cannot hold a network list, and
-/// <see cref="Input.GamepadNavigation"/> has no popup awareness, so a list
-/// inside a flyout would not be reachable with a controller at all.</summary>
+/// <summary>
+///     The game-mode Wi-Fi and Bluetooth panel.
+///     A real window rather than a taskbar flyout for two reasons that both matter
+///     on a handheld: a 240 px flyout cannot hold a network list, and
+///     <see cref="Input.GamepadNavigation" /> has no popup awareness, so a list
+///     inside a flyout would not be reachable with a controller at all.
+/// </summary>
 public partial class RadioWindow : Window
 {
-    private readonly RadioManager _radios;
-    private bool _applyingSwitch;
+    /// <summary>The window's design size in DIPs, before the touch scale.</summary>
+    private const double BaseWidth = 500;
 
-    /// <summary>What the prompt is currently collecting, so one input box can
-    /// serve both a Wi-Fi password and a Bluetooth PIN.</summary>
-    private enum PromptMode
-    {
-        None,
-        WifiPassword,
-        PairingPin,
-        PairingConfirm
-    }
+    private const double BaseHeight = 600;
+    private readonly RadioManager _radios;
+
+    private readonly double _uiScale;
+    private bool _applyingSwitch;
 
     private PromptMode _prompt;
     private string _promptSsid = "";
     private uint _promptToken;
 
-    /// <summary>The window's design size in DIPs, before the touch scale.</summary>
-    private const double BaseWidth = 500;
-    private const double BaseHeight = 600;
-
-    private readonly double _uiScale;
-
     /// <summary>Creates the panel.</summary>
-    /// <param name="radios">The manager backing both tabs. Not owned: the sheet's
-    /// status object outlives this window.</param>
+    /// <param name="radios">
+    ///     The manager backing both tabs. Not owned: the sheet's
+    ///     status object outlives this window.
+    /// </param>
     /// <param name="bluetooth">True to open on the Bluetooth tab.</param>
-    /// <param name="uiScale">The desktop-DPI scale factor for WSGM UI (e.g. 1.5
-    /// for a 150% desktop; see DisplayScale.GetUiScalePercent).</param>
+    /// <param name="uiScale">
+    ///     The desktop-DPI scale factor for WSGM UI (e.g. 1.5
+    ///     for a 150% desktop; see DisplayScale.GetUiScalePercent).
+    /// </param>
     public RadioWindow(RadioManager radios, bool bluetooth, double uiScale = 1.0)
     {
         _radios = radios;
@@ -97,9 +92,10 @@ public partial class RadioWindow : Window
             if (_prompt is PromptMode.PairingPin or PromptMode.PairingConfirm)
             {
                 Log.Info("Radio panel closed with a pairing question open — declining it.");
-                RadioManager.RespondToPairing(_promptToken, accept: false, null);
+                RadioManager.RespondToPairing(_promptToken, false, null);
                 _prompt = PromptMode.None;
             }
+
             _radios.StopScanning();
             _radios.PairingRequested -= OnPairingRequested;
             _radios.PropertyChanged -= OnRadiosPropertyChanged;
@@ -107,34 +103,53 @@ public partial class RadioWindow : Window
         StatusPanel.WirePanelBehaviour(this, ListScroller);
     }
 
-    /// <summary>Places the panel just below the sheet header, at the right-hand end
-    /// where its tiles are.
-    ///
-    /// Without this the window opens wherever Windows decides, which is the
-    /// top-left corner — nowhere near the button that opened it. The bar's own
-    /// height is measured rather than assumed, because it is content-sized and
-    /// DPI-scaled.</summary>
-    /// <param name="anchorBottom">The bar's top edge in physical screen pixels, or
-    /// 0 when it is not on screen.</param>
-    /// <param name="anchorRight">The bar's right edge in physical screen pixels, or 0.</param>
-    internal void DockBelowHeader(int anchorBottom, int anchorRight) => StatusPanel.DockBelowHeader(
-        this, RootScale, _uiScale, BaseWidth, BaseHeight, anchorBottom, anchorRight, "Radio");
+    private bool OnBluetoothTab => Tabs.SelectedIndex == 1;
 
-    /// <summary>Scrolls a newly focused row (or its action button) into the
-    /// viewport. A no-op when it is already fully visible.</summary>
-    /// <summary>Shows the Wi-Fi or Bluetooth tab. Lets an already-open panel
-    /// honour the tile that was tapped instead of staying on whichever tab it
-    /// happened to open on.</summary>
+    /// <summary>
+    ///     Places the panel just below the sheet header, at the right-hand end
+    ///     where its tiles are.
+    ///     Without this the window opens wherever Windows decides, which is the
+    ///     top-left corner — nowhere near the button that opened it. The bar's own
+    ///     height is measured rather than assumed, because it is content-sized and
+    ///     DPI-scaled.
+    /// </summary>
+    /// <param name="anchorBottom">
+    ///     The bar's top edge in physical screen pixels, or
+    ///     0 when it is not on screen.
+    /// </param>
+    /// <param name="anchorRight">The bar's right edge in physical screen pixels, or 0.</param>
+    internal void DockBelowHeader(int anchorBottom, int anchorRight)
+    {
+        StatusPanel.DockBelowHeader(
+            this, RootScale, _uiScale, BaseWidth, BaseHeight, anchorBottom, anchorRight, "Radio");
+    }
+
+    /// <summary>
+    ///     Scrolls a newly focused row (or its action button) into the
+    ///     viewport. A no-op when it is already fully visible.
+    /// </summary>
+    /// <summary>
+    ///     Shows the Wi-Fi or Bluetooth tab. Lets an already-open panel
+    ///     honour the tile that was tapped instead of staying on whichever tab it
+    ///     happened to open on.
+    /// </summary>
     /// <param name="bluetooth">True for the Bluetooth tab.</param>
-    internal void SelectTab(bool bluetooth) => Tabs.SelectedIndex = bluetooth ? 1 : 0;
+    internal void SelectTab(bool bluetooth)
+    {
+        Tabs.SelectedIndex = bluetooth ? 1 : 0;
+    }
 
     /// <summary>Moves to the previous tab (left shoulder).</summary>
-    public void SelectPreviousTab() => Tabs.SelectPrevious();
+    public void SelectPreviousTab()
+    {
+        Tabs.SelectPrevious();
+    }
 
     /// <summary>Moves to the next tab (right shoulder).</summary>
-    public void SelectNextTab() => Tabs.SelectNext();
-
-    private bool OnBluetoothTab => Tabs.SelectedIndex == 1;
+    public void SelectNextTab()
+    {
+        Tabs.SelectNext();
+    }
 
     private void ShowTab(int index)
     {
@@ -153,8 +168,10 @@ public partial class RadioWindow : Window
         }
     }
 
-    /// <summary>Mirrors the radio's real state onto the switch without letting
-    /// that write look like a user toggle.</summary>
+    /// <summary>
+    ///     Mirrors the radio's real state onto the switch without letting
+    ///     that write look like a user toggle.
+    /// </summary>
     private void SyncSwitch()
     {
         _applyingSwitch = true;
@@ -187,6 +204,7 @@ public partial class RadioWindow : Window
         {
             return;
         }
+
         var on = RadioSwitch.IsChecked == true;
         var bluetooth = OnBluetoothTab;
         _ = RunRadioActionAsync(
@@ -194,15 +212,18 @@ public partial class RadioWindow : Window
             $"{(bluetooth ? "Bluetooth" : "Wi-Fi")} power {(on ? "on" : "off")}");
     }
 
-    /// <summary>Selecting a network reveals its actions. It never connects or
-    /// disconnects on its own: a stray tap must not drop the connection the user
-    /// is currently browsing on.</summary>
+    /// <summary>
+    ///     Selecting a network reveals its actions. It never connects or
+    ///     disconnects on its own: a stray tap must not drop the connection the user
+    ///     is currently browsing on.
+    /// </summary>
     private void OnNetworkClicked(object? sender, RoutedEventArgs e)
     {
         if ((sender as Control)?.DataContext is not WifiNetworkEntry entry)
         {
             return;
         }
+
         foreach (var other in _radios.Networks)
         {
             other.Expanded = ReferenceEquals(other, entry) && !entry.Expanded;
@@ -215,11 +236,13 @@ public partial class RadioWindow : Window
         {
             return;
         }
+
         if (entry.Connected)
         {
             _ = RunRadioActionAsync(() => _radios.DisconnectAsync(), "Wi-Fi disconnect");
             return;
         }
+
         if (entry.Security == WifiSecurity.Enterprise)
         {
             // 802.1X needs an EAP profile and a credential flow this panel has no
@@ -230,12 +253,14 @@ public partial class RadioWindow : Window
                 + "Connect from Windows Settings in desktop mode.");
             return;
         }
+
         if (entry.NeedsPassword)
         {
             _promptSsid = entry.Ssid;
             ShowPrompt(PromptMode.WifiPassword, $"Connect to {entry.Ssid}", "Enter the network password.");
             return;
         }
+
         _ = RunRadioActionAsync(
             () => _radios.ConnectAsync(entry.Ssid, null),
             $"Wi-Fi connect to {entry.Ssid}");
@@ -256,34 +281,39 @@ public partial class RadioWindow : Window
         {
             return;
         }
+
         foreach (var other in _radios.BluetoothDevices)
         {
             other.Expanded = ReferenceEquals(other, entry) && !entry.Expanded;
         }
     }
 
-    /// <summary>The primary action: pair a stranger, or soft-connect/disconnect
-    /// a paired audio device. Never unpairs — that is the Remove button's job,
-    /// so a tap meant as "disconnect" can never destroy the pairing.</summary>
+    /// <summary>
+    ///     The primary action: pair a stranger, or soft-connect/disconnect
+    ///     a paired audio device. Never unpairs — that is the Remove button's job,
+    ///     so a tap meant as "disconnect" can never destroy the pairing.
+    /// </summary>
     private void OnDeviceAction(object? sender, RoutedEventArgs e)
     {
         if ((sender as Control)?.DataContext is not BluetoothDeviceEntry entry || entry.Busy)
         {
             return;
         }
+
         if (!entry.Paired)
         {
             _ = RunRadioActionAsync(() =>
-            {
-                _radios.BeginPairing(entry);
-                return Task.CompletedTask;
-            }, $"Bluetooth pairing for {entry.Name}");
+                {
+                    _radios.BeginPairing(entry);
+                    return Task.CompletedTask;
+                }, $"Bluetooth pairing for {entry.Name}");
             return;
         }
+
         if (entry.AudioConnectable)
         {
             _ = RunRadioActionAsync(
-                () => _radios.SetAudioConnectionAsync(entry, connect: !entry.AudioActive),
+                () => _radios.SetAudioConnectionAsync(entry, !entry.AudioActive),
                 $"Bluetooth audio {(entry.AudioActive ? "disconnect" : "connect")} for {entry.Name}");
         }
     }
@@ -296,10 +326,15 @@ public partial class RadioWindow : Window
         }
     }
 
-    private void OnRescanClicked(object? sender, RoutedEventArgs e) => _radios.Rescan();
+    private void OnRescanClicked(object? sender, RoutedEventArgs e)
+    {
+        _radios.Rescan();
+    }
 
-    /// <summary>Reveals what has been typed. A password field a user cannot read
-    /// back is unusable on a keyboard they are tapping one character at a time.</summary>
+    /// <summary>
+    ///     Reveals what has been typed. A password field a user cannot read
+    ///     back is unusable on a keyboard they are tapping one character at a time.
+    /// </summary>
     private void OnPromptReveal(object? sender, RoutedEventArgs e)
     {
         var hidden = PromptInput.PasswordChar != '\0';
@@ -395,6 +430,7 @@ public partial class RadioWindow : Window
             PromptInput.Focus();
             return;
         }
+
         HidePrompt();
         switch (mode)
         {
@@ -403,10 +439,10 @@ public partial class RadioWindow : Window
                     $"Wi-Fi connect to {ssid}");
                 break;
             case PromptMode.PairingPin:
-                RadioManager.RespondToPairing(token, accept: true, text);
+                RadioManager.RespondToPairing(token, true, text);
                 break;
             case PromptMode.PairingConfirm:
-                RadioManager.RespondToPairing(token, accept: true, null);
+                RadioManager.RespondToPairing(token, true, null);
                 break;
             case PromptMode.None:
             default:
@@ -423,9 +459,24 @@ public partial class RadioWindow : Window
         // it out, so a cancel has to be reported rather than just dismissed.
         if (mode is PromptMode.PairingPin or PromptMode.PairingConfirm)
         {
-            RadioManager.RespondToPairing(token, accept: false, null);
+            RadioManager.RespondToPairing(token, false, null);
         }
     }
 
-    private void OnCloseClicked(object? sender, RoutedEventArgs e) => Close();
+    private void OnCloseClicked(object? sender, RoutedEventArgs e)
+    {
+        Close();
+    }
+
+    /// <summary>
+    ///     What the prompt is currently collecting, so one input box can
+    ///     serve both a Wi-Fi password and a Bluetooth PIN.
+    /// </summary>
+    private enum PromptMode
+    {
+        None,
+        WifiPassword,
+        PairingPin,
+        PairingConfirm
+    }
 }

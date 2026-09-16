@@ -3,8 +3,8 @@ using WSGM.Core;
 namespace WSGM.Tests.Core;
 
 /// <summary>
-/// The order WSGM keeps between Steam's screensaver timeout and the display-off timeout: the display
-/// may never turn off before the screensaver is allowed to start.
+///     The order WSGM keeps between Steam's screensaver timeout and the display-off timeout: the display
+///     may never turn off before the screensaver is allowed to start.
 /// </summary>
 public sealed class DisplayTimeoutPolicyTests
 {
@@ -20,7 +20,7 @@ public sealed class DisplayTimeoutPolicyTests
     {
         // Steam shows only the plugged-in timeout on a machine it believes has no battery, and a
         // battery value it holds but never shows is not what the user chose.
-        SteamScreensaverReport steam = new(300, 1800, Battery: false);
+        SteamScreensaverReport steam = new(300, 1800, false);
 
         Assert.Equal(300, DisplayTimeoutPolicy.Minimum(PowerTimeoutKind.DisplayAc, steam));
         Assert.Equal(300, DisplayTimeoutPolicy.Minimum(PowerTimeoutKind.DisplayDc, steam));
@@ -29,7 +29,7 @@ public sealed class DisplayTimeoutPolicyTests
     [Fact]
     public void WithABatteryEachSourceHasItsOwnBound()
     {
-        SteamScreensaverReport steam = new(300, 900, Battery: true);
+        SteamScreensaverReport steam = new(300, 900, true);
 
         Assert.Equal(300, DisplayTimeoutPolicy.Minimum(PowerTimeoutKind.DisplayAc, steam));
         Assert.Equal(900, DisplayTimeoutPolicy.Minimum(PowerTimeoutKind.DisplayDc, steam));
@@ -40,17 +40,18 @@ public sealed class DisplayTimeoutPolicyTests
     {
         Assert.Equal(
             300,
-            DisplayTimeoutPolicy.Minimum(PowerTimeoutKind.DisplayDc, new SteamScreensaverReport(300, null, Battery: true)));
+            DisplayTimeoutPolicy.Minimum(PowerTimeoutKind.DisplayDc, new SteamScreensaverReport(300, null, true)));
     }
 
     [Fact]
     public void ADisabledScreensaverBoundsNothingAndSleepIsNeverBound()
     {
-        SteamScreensaverReport steam = new(0, 0, Battery: true);
+        SteamScreensaverReport steam = new(0, 0, true);
 
         Assert.Null(DisplayTimeoutPolicy.Minimum(PowerTimeoutKind.DisplayAc, steam));
         Assert.Null(DisplayTimeoutPolicy.Minimum(PowerTimeoutKind.DisplayDc, steam));
-        Assert.Null(DisplayTimeoutPolicy.Minimum(PowerTimeoutKind.SleepAc, new SteamScreensaverReport(300, 300, false)));
+        Assert.Null(DisplayTimeoutPolicy.Minimum(PowerTimeoutKind.SleepAc,
+            new SteamScreensaverReport(300, 300, false)));
     }
 
     [Theory]

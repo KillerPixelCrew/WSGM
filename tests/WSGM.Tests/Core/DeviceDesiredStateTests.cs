@@ -9,26 +9,35 @@ public sealed class DeviceDesiredStateTests
 
     private const string Fan = "fan.mode";
 
-    private static CapabilityValue Choice(string option) => new()
+    private static CapabilityValue Choice(string option)
     {
-        Kind = CapabilityValueKind.Choice,
-        ChoiceValue = option
-    };
+        return new CapabilityValue
+        {
+            Kind = CapabilityValueKind.Choice,
+            ChoiceValue = option
+        };
+    }
 
-    private static CapabilityValue Watts(int watts) => new()
+    private static CapabilityValue Watts(int watts)
     {
-        Kind = CapabilityValueKind.Integer,
-        IntegerValue = watts
-    };
+        return new CapabilityValue
+        {
+            Kind = CapabilityValueKind.Integer,
+            IntegerValue = watts
+        };
+    }
 
     private static DeviceCapabilityPreference Stored(
         DeviceIntegrationConfig device,
         string capabilityId = Fan,
-        string? instanceId = null) => device.Profiles
+        string? instanceId = null)
+    {
+        return device.Profiles
             .Single(profile => profile.DeviceIdentityKey == Machine)
             .Capabilities
             .Single(capability => capability.CapabilityId == capabilityId
-                && capability.InstanceId == instanceId);
+                                  && capability.InstanceId == instanceId);
+    }
 
     [Fact]
     public void AValueSetOnTheDesktopBecomesTheGlobalDefault()
@@ -131,14 +140,14 @@ public sealed class DeviceDesiredStateTests
 
         var inGame = DeviceDesiredStateResolver.Resolve(
             preference,
-            onAcPower: true,
-            hardwareProfileId: null,
-            applicationId: "steam:42");
+            true,
+            null,
+            "steam:42");
         var onDesktop = DeviceDesiredStateResolver.Resolve(
             preference,
-            onAcPower: true,
-            hardwareProfileId: null,
-            applicationId: null);
+            true,
+            null,
+            null);
 
         Assert.Equal("sport", inGame.Value?.ChoiceValue);
         Assert.Equal(DeviceDesiredValueSource.ApplicationOverride, inGame.Source);
@@ -176,8 +185,10 @@ public sealed class DeviceDesiredStateTests
             CapabilityId = "power.primary-limit",
             GlobalDefault = CapabilityValue.Integer(10),
             AcPolicy = CapabilityValue.Integer(12),
-            HardwareProfiles = [new DeviceNamedDesiredValue { ProfileId = "balanced", Value = CapabilityValue.Integer(15) }],
-            ApplicationOverrides = [new DeviceApplicationDesiredValue { ApplicationId = "game", Value = CapabilityValue.Integer(18) }]
+            HardwareProfiles =
+                [new DeviceNamedDesiredValue { ProfileId = "balanced", Value = CapabilityValue.Integer(15) }],
+            ApplicationOverrides =
+                [new DeviceApplicationDesiredValue { ApplicationId = "game", Value = CapabilityValue.Integer(18) }]
         };
 
         Assert.Equal(18, DeviceDesiredStateResolver.Resolve(

@@ -13,16 +13,16 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="12.1.2" />
-    <PackageReference Include="Avalonia.Desktop" Version="12.1.2" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.2" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2" />
+    <PackageReference Include="Avalonia" Version="12.1.2"/>
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.2"/>
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.2"/>
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2"/>
     <!-- Device Lab inventory and probes use WMI; WSGM proper has no direct System.Management dependency. -->
-    <PackageReference Include="System.Management" Version="10.0.12" />
+    <PackageReference Include="System.Management" Version="10.0.12"/>
   </ItemGroup>
   <ItemGroup>
     <ProjectReference
-        Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj" />
+      Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj"/>
   </ItemGroup>
   <ItemGroup>
     <!-- The scaffold's LICENSE.txt is a checked-in template, not WSGM's own licence file. A
@@ -33,6 +33,6 @@
     </EmbeddedResource>
     <None Update="THIRD_PARTY_NOTICES.md"
           CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
+          CopyToPublishDirectory="PreserveNewest"/>
   </ItemGroup>
 </Project>

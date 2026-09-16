@@ -5,27 +5,38 @@ namespace WSGM.Core;
 /// <param name="UnifiedWatts">Explicit coordinated target, or null when none has been selected.</param>
 /// <param name="SustainedWatts">Saved advanced sustained limit, retained while unified mode is selected.</param>
 /// <param name="BoostWatts">Saved advanced boost limit, retained while unified mode is selected.</param>
-/// <remarks>These are user preferences, not hardware readback. Changing mode alone neither invents
-/// values nor requests a device write. The active plugin validates values against current bounds.</remarks>
+/// <remarks>
+///     These are user preferences, not hardware readback. Changing mode alone neither invents
+///     values nor requests a device write. The active plugin validates values against current bounds.
+/// </remarks>
 public sealed record ManualTdpProfile(bool Unified, int? UnifiedWatts, int? SustainedWatts, int? BoostWatts);
 
 /// <summary>Resolves the selected manual profile without deriving preferences from readback.</summary>
 internal static class ManualTdpPolicy
 {
-    internal static bool Accepts(int? minimum, int? maximum, int? step, int watts) =>
-        minimum is { } min && maximum is { } max && step is > 0
-        && watts >= min && watts <= max && ((long)watts - min) % step.Value == 0;
+    internal static bool Accepts(int? minimum, int? maximum, int? step, int watts)
+    {
+        return minimum is { } min && maximum is { } max && step is > 0
+               && watts >= min && watts <= max && ((long)watts - min) % step.Value == 0;
+    }
 
-    internal static ManualTdpProfile WithBoost(ManualTdpProfile profile, int watts) =>
-        profile with { Unified = false, BoostWatts = watts };
+    internal static ManualTdpProfile WithBoost(ManualTdpProfile profile, int watts)
+    {
+        return profile with { Unified = false, BoostWatts = watts };
+    }
 
-    internal static ManualTdpProfile WithTarget(ManualTdpProfile profile, int watts) =>
-        profile.Unified ? profile with { UnifiedWatts = watts } : profile with { SustainedWatts = watts };
+    internal static ManualTdpProfile WithTarget(ManualTdpProfile profile, int watts)
+    {
+        return profile.Unified ? profile with { UnifiedWatts = watts } : profile with { SustainedWatts = watts };
+    }
 
     internal static ManualTdpProfile? Resolve(PerformanceConfig global, PerformanceApplicationConfig? application,
-        bool perGameActive) => perGameActive && application?.ManualTdp is { } own ? own
-        : perGameActive && application?.TdpWatts is { } watts ? new ManualTdpProfile(false, null, watts, null)
-        : global.ManualTdp;
+        bool perGameActive)
+    {
+        return perGameActive && application?.ManualTdp is { } own ? own
+            : perGameActive && application?.TdpWatts is { } watts ? new ManualTdpProfile(false, null, watts, null)
+            : global.ManualTdp;
+    }
 
     internal static (int? Watts, bool Paired) ResolveTarget(PerformanceConfig global,
         PerformanceApplicationConfig? application, bool perGameActive)
@@ -35,6 +46,8 @@ internal static class ManualTdpPolicy
         {
             return profile.Unified ? (profile.UnifiedWatts, true) : (profile.SustainedWatts, false);
         }
-        return (PerApplicationPowerPolicy.ResolveEffective(global.TdpWatts, application?.TdpWatts, perGameActive), false);
+
+        return (PerApplicationPowerPolicy.ResolveEffective(global.TdpWatts, application?.TdpWatts, perGameActive),
+            false);
     }
 }

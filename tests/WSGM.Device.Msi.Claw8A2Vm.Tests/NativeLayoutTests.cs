@@ -1,4 +1,3 @@
-
 namespace WSGM.Device.Msi.Claw8A2Vm.Tests;
 
 public sealed class NativeLayoutTests

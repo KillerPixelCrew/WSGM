@@ -23,7 +23,7 @@ public sealed class LibraryBadgesTests
             AppIds = [220]
         });
 
-        var state = LibraryBadges.Build(config, new HashSet<string> { "red" }, revision: 3);
+        var state = LibraryBadges.Build(config, new HashSet<string> { "red" }, 3);
 
         Assert.Equal(3, state.Revision);
         Assert.Equal("Internal", state.InternalLabel);
@@ -97,7 +97,10 @@ public sealed class LibraryBadgesTests
 
         return;
 
-        void OnChanged() => raised++;
+        void OnChanged()
+        {
+            raised++;
+        }
     }
 
     [Fact]

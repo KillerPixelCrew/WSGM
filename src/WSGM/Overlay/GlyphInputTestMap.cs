@@ -5,20 +5,27 @@ using WSGM.Device.Sdk.Input;
 namespace WSGM.Overlay;
 
 /// <summary>
-/// Maps a canonical physical sample onto the glyph controls the preview draws.
+///     Maps a canonical physical sample onto the glyph controls the preview draws.
 /// </summary>
 /// <remarks>
-/// The one place the two vocabularies meet. <see cref="CanonicalButtons"/> is what a plugin reports
-/// pressing; <see cref="GlyphControlId"/> is what a glyph profile draws. They are deliberately
-/// separate — a device can report a control it has no artwork for, and a profile can carry artwork
-/// for a control the plugin never reports — so the map is explicit rather than derived from names.
-/// <para>
-/// That separation is exactly what the input test exists to check. A control that lights up when the
-/// wrong button is pressed is a mapping defect in the plugin, and this is where it becomes visible.
-/// </para>
+///     The one place the two vocabularies meet. <see cref="CanonicalButtons" /> is what a plugin reports
+///     pressing; <see cref="GlyphControlId" /> is what a glyph profile draws. They are deliberately
+///     separate — a device can report a control it has no artwork for, and a profile can carry artwork
+///     for a control the plugin never reports — so the map is explicit rather than derived from names.
+///     <para>
+///         That separation is exactly what the input test exists to check. A control that lights up when the
+///         wrong button is pressed is a mapping defect in the plugin, and this is where it becomes visible.
+///     </para>
 /// </remarks>
 internal static class GlyphInputTestMap
 {
+    /// <summary>How far a trigger must travel before it counts as pressed.</summary>
+    /// <remarks>
+    ///     Triggers are analogue and rest slightly off zero on real hardware, so a bare non-zero test
+    ///     would light them permanently and make the test useless for everything beside them.
+    /// </remarks>
+    private const float TriggerThreshold = 0.2f;
+
     /// <summary>Buttons paired with the glyph they light, in canonical order.</summary>
     private static readonly (CanonicalButtons Button, GlyphControlId Control)[] Buttons =
     [
@@ -56,13 +63,6 @@ internal static class GlyphInputTestMap
         (CanonicalButtons.LeftPadTouch, GlyphControlId.LeftTrackpad),
         (CanonicalButtons.RightPadTouch, GlyphControlId.RightTrackpad)
     ];
-
-    /// <summary>How far a trigger must travel before it counts as pressed.</summary>
-    /// <remarks>
-    /// Triggers are analogue and rest slightly off zero on real hardware, so a bare non-zero test
-    /// would light them permanently and make the test useless for everything beside them.
-    /// </remarks>
-    private const float TriggerThreshold = 0.2f;
 
     /// <summary>The glyph controls a sample is currently pressing.</summary>
     /// <param name="sample">The physical sample.</param>

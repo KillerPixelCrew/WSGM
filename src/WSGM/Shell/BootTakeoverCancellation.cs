@@ -3,9 +3,11 @@ using System.Threading;
 
 namespace WSGM.Shell;
 
-/// <summary>Coordinates the splash's desktop recovery request with the service-boot
-/// takeover running on a worker thread. A request accepted while active is sticky;
-/// after completion, the caller must use the ordinary desktop transition instead.</summary>
+/// <summary>
+///     Coordinates the splash's desktop recovery request with the service-boot
+///     takeover running on a worker thread. A request accepted while active is sticky;
+///     after completion, the caller must use the ordinary desktop transition instead.
+/// </summary>
 internal sealed class BootTakeoverCancellation : IDisposable
 {
     private readonly Lock _gate = new();
@@ -27,8 +29,10 @@ internal sealed class BootTakeoverCancellation : IDisposable
         }
     }
 
-    /// <summary>Whether application teardown cancelled this takeover without requesting a new
-    /// desktop transition from the splash.</summary>
+    /// <summary>
+    ///     Whether application teardown cancelled this takeover without requesting a new
+    ///     desktop transition from the splash.
+    /// </summary>
     internal bool ShutdownRequested
     {
         get
@@ -40,9 +44,21 @@ internal sealed class BootTakeoverCancellation : IDisposable
         }
     }
 
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            _state = BootTakeoverState.Completed;
+            _source.Dispose();
+        }
+    }
+
     /// <summary>Requests cancellation of the active takeover.</summary>
-    /// <returns>True when this coordinator accepted the request; false when the
-    /// takeover had already completed and the ordinary desktop transition owns it.</returns>
+    /// <returns>
+    ///     True when this coordinator accepted the request; false when the
+    ///     takeover had already completed and the ordinary desktop transition owns it.
+    /// </returns>
     internal bool RequestDesktop()
     {
         lock (_gate)
@@ -51,15 +67,18 @@ internal sealed class BootTakeoverCancellation : IDisposable
             {
                 return false;
             }
+
             _state = BootTakeoverState.DesktopRequested;
             _source.Cancel();
             return true;
         }
     }
 
-    /// <summary>Cancels an active takeover for application teardown. Unlike a splash request, this
-    /// never starts another session transition; the shutdown owner decides whether recovery is
-    /// needed after every in-flight transition has settled.</summary>
+    /// <summary>
+    ///     Cancels an active takeover for application teardown. Unlike a splash request, this
+    ///     never starts another session transition; the shutdown owner decides whether recovery is
+    ///     needed after every in-flight transition has settled.
+    /// </summary>
     internal bool RequestShutdown()
     {
         lock (_gate)
@@ -68,6 +87,7 @@ internal sealed class BootTakeoverCancellation : IDisposable
             {
                 return false;
             }
+
             _state = BootTakeoverState.ShutdownRequested;
             _source.Cancel();
             return true;
@@ -83,16 +103,6 @@ internal sealed class BootTakeoverCancellation : IDisposable
             {
                 _state = BootTakeoverState.Completed;
             }
-        }
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        lock (_gate)
-        {
-            _state = BootTakeoverState.Completed;
-            _source.Dispose();
         }
     }
 

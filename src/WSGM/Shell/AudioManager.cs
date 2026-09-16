@@ -14,6 +14,8 @@ namespace WSGM.Shell;
 /// <summary>One active Core Audio endpoint shown by the taskbar audio panel.</summary>
 public sealed class AudioEndpointEntry : ObservableObject
 {
+    private string _name;
+
     /// <summary>Creates a visible endpoint row.</summary>
     /// <param name="id">The opaque Windows endpoint identifier.</param>
     /// <param name="name">The friendly device name.</param>
@@ -25,8 +27,6 @@ public sealed class AudioEndpointEntry : ObservableObject
 
     /// <summary>Gets the opaque Windows endpoint identifier.</summary>
     internal string Id { get; }
-
-    private string _name;
 
     /// <summary>Gets the friendly device name.</summary>
     public string Name
@@ -45,42 +45,39 @@ public sealed class AudioEndpointEntry : ObservableObject
     }
 }
 
-/// <summary>Live master-volume and default audio-device state for the game-mode
-/// taskbar. Potentially slow Core Audio enumeration runs away from the Avalonia
-/// UI thread.</summary>
+/// <summary>
+///     Live master-volume and default audio-device state for the game-mode
+///     taskbar. Potentially slow Core Audio enumeration runs away from the Avalonia
+///     UI thread.
+/// </summary>
 public sealed class AudioManager : ObservableObject, IDisposable
 {
-    /// <summary>Revision bookkeeping for one data flow's default-endpoint writes:
-    /// rapid selections each take a revision, only the newest may publish UI
-    /// state, and the flow counts as pending until that newest revision
-    /// completes. Pure, so the latest-wins rule is testable without Core Audio;
-    /// the writes themselves are additionally serialized by a per-flow gate.</summary>
-    internal struct EndpointSelectionTracker
-    {
-        private int _requested;
-        private int _completed;
+    private readonly SemaphoreSlim _inputSelectionGate = new(1, 1);
+    private readonly CoalescingVolumeWrite _inputVolumeWrite = new("Microphone volume");
+    private readonly SemaphoreSlim _outputSelectionGate = new(1, 1);
+    private readonly CoalescingVolumeWrite _volumeWrite = new("Volume");
+    private bool _disposed;
+    private string _endpointSummary = "";
+    private bool _hasOutputSnapshot;
 
-        /// <summary>Claims the next revision for a new selection.</summary>
-        internal int Begin() => Interlocked.Increment(ref _requested);
+    private bool _inputMuted;
+    private EndpointSelectionTracker _inputSelection;
 
-        /// <summary>Whether this revision is still the newest selection.</summary>
-        internal bool IsCurrent(int revision) => revision == Volatile.Read(ref _requested);
+    private double? _inputVolumePercent;
+    private int _inputVolumeRevision;
+    private EndpointSelectionTracker _outputSelection;
+    private int _refreshing;
 
-        /// <summary>Whether a selection is still in flight — the refresh path must
-        /// not overwrite the user's choice with a stale default meanwhile.</summary>
-        internal bool Pending =>
-            Volatile.Read(ref _requested) != Volatile.Read(ref _completed);
+    private AudioEndpointEntry? _selectedInput;
 
-        /// <summary>Records this revision's write as finished. A stale revision is
-        /// ignored: the newer selection it lost to is still pending.</summary>
-        internal void Complete(int revision)
-        {
-            if (IsCurrent(revision))
-            {
-                Volatile.Write(ref _completed, revision);
-            }
-        }
-    }
+    private AudioEndpointEntry? _selectedOutput;
+    private bool _stickyError;
+    private int _ticks;
+
+    private DispatcherTimer? _timer;
+
+    private double _volumePercent;
+    private int _volumeRevision;
 
     /// <summary>Gets the active playback endpoints.</summary>
     public ObservableCollection<AudioEndpointEntry> OutputEndpoints { get; } = [];
@@ -88,10 +85,10 @@ public sealed class AudioManager : ObservableObject, IDisposable
     /// <summary>Gets the active recording endpoints.</summary>
     public ObservableCollection<AudioEndpointEntry> InputEndpoints { get; } = [];
 
-    private double _volumePercent;
-
-    /// <summary>Gets or sets the default output's master volume, from 0 to 100.
-    /// Setting it also queues the shared audible preview.</summary>
+    /// <summary>
+    ///     Gets or sets the default output's master volume, from 0 to 100.
+    ///     Setting it also queues the shared audible preview.
+    /// </summary>
     public double VolumePercent
     {
         get => _volumePercent;
@@ -102,12 +99,14 @@ public sealed class AudioManager : ObservableObject, IDisposable
             {
                 return;
             }
+
             _volumePercent = normalized;
             Interlocked.Increment(ref _volumeRevision);
             if (normalized > 0)
             {
                 Muted = false;
             }
+
             Raise(nameof(VolumePercent));
             Raise(nameof(VolumeText));
             _volumeWrite.Queue(normalized, () => _disposed, WriteVolume, FailSticky);
@@ -116,8 +115,6 @@ public sealed class AudioManager : ObservableObject, IDisposable
 
     /// <summary>Gets the current master volume as display text.</summary>
     public string VolumeText => $"{(int)_volumePercent}%";
-
-    private double? _inputVolumePercent;
 
     /// <summary>Gets or sets the default input's master volume, from 0 to 100.</summary>
     /// <remarks>Null means Windows currently has no readable default capture endpoint.</remarks>
@@ -143,12 +140,11 @@ public sealed class AudioManager : ObservableObject, IDisposable
             {
                 InputMuted = false;
             }
+
             Raise(nameof(InputVolumePercent));
             _inputVolumeWrite.Queue(normalized, () => _disposed, WriteInputVolume, FailSticky);
         }
     }
-
-    private bool _inputMuted;
 
     /// <summary>Gets whether the default input endpoint is muted.</summary>
     public bool InputMuted
@@ -183,22 +179,18 @@ public sealed class AudioManager : ObservableObject, IDisposable
         }
     }
 
-    private AudioEndpointEntry? _selectedOutput;
-
     /// <summary>Gets or sets the default audio output.</summary>
     public AudioEndpointEntry? SelectedOutput
     {
         get => _selectedOutput;
-        set => SelectEndpoint(value, output: true);
+        set => SelectEndpoint(value, true);
     }
-
-    private AudioEndpointEntry? _selectedInput;
 
     /// <summary>Gets or sets the default audio input.</summary>
     public AudioEndpointEntry? SelectedInput
     {
         get => _selectedInput;
-        set => SelectEndpoint(value, output: false);
+        set => SelectEndpoint(value, false);
     }
 
     /// <summary>Gets a non-fatal audio error to show in the panel.</summary>
@@ -218,35 +210,44 @@ public sealed class AudioManager : ObservableObject, IDisposable
         }
     } = "";
 
-    /// <summary>Gets whether <see cref="ErrorText"/> should be visible.</summary>
+    /// <summary>Gets whether <see cref="ErrorText" /> should be visible.</summary>
     public bool HasError => ErrorText.Length > 0;
 
-    private DispatcherTimer? _timer;
-    private int _ticks;
-    private int _refreshing;
-    private int _volumeRevision;
-    private int _inputVolumeRevision;
-    private bool _disposed;
-    private bool _stickyError;
-    private string _endpointSummary = "";
-    private readonly CoalescingVolumeWrite _volumeWrite = new("Volume");
-    private readonly CoalescingVolumeWrite _inputVolumeWrite = new("Microphone volume");
-    private readonly SemaphoreSlim _outputSelectionGate = new(1, 1);
-    private readonly SemaphoreSlim _inputSelectionGate = new(1, 1);
-    private EndpointSelectionTracker _outputSelection;
-    private EndpointSelectionTracker _inputSelection;
-    private bool _hasOutputSnapshot;
 
-    /// <summary>Performs an immediate refresh and starts live audio updates.
-    /// UI-thread callers only. Idempotent.</summary>
+    /// <summary>
+    ///     Stops refreshes and prevents pending native work from publishing
+    ///     into a closed taskbar.
+    /// </summary>
+    public void Dispose()
+    {
+        _disposed = true;
+        // Invalidate every in-flight selection so its completion cannot publish.
+        _outputSelection.Begin();
+        _inputSelection.Begin();
+        if (_timer is not null)
+        {
+            _timer.Stop();
+            _timer.Tick -= OnTick;
+            _timer = null;
+        }
+
+        _volumeWrite.Clear();
+        _inputVolumeWrite.Clear();
+    }
+
+    /// <summary>
+    ///     Performs an immediate refresh and starts live audio updates.
+    ///     UI-thread callers only. Idempotent.
+    /// </summary>
     public void Start()
     {
         if (_timer is not null || _disposed)
         {
             return;
         }
+
         VolumeFeedback.Initialize();
-        QueueRefresh(includeEndpoints: true);
+        QueueRefresh(true);
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _timer.Tick += OnTick;
         _timer.Start();
@@ -256,13 +257,13 @@ public sealed class AudioManager : ObservableObject, IDisposable
     public void Refresh()
     {
         _stickyError = false;
-        QueueRefresh(includeEndpoints: true);
+        QueueRefresh(true);
     }
 
     private void OnTick(object? sender, EventArgs e)
     {
         _ticks++;
-        QueueRefresh(includeEndpoints: _ticks % 5 == 0);
+        QueueRefresh(_ticks % 5 == 0);
     }
 
     private void QueueRefresh(bool includeEndpoints)
@@ -271,6 +272,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
         {
             return;
         }
+
         var volumeRevision = Volatile.Read(ref _volumeRevision);
         var inputVolumeRevision = Volatile.Read(ref _inputVolumeRevision);
         _ = Task.Run(() =>
@@ -288,7 +290,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
             }
             catch (Exception ex)
             {
-                PostFailure($"Audio refresh failed: {ex.Message}", sticky: true);
+                PostFailure($"Audio refresh failed: {ex.Message}", true);
             }
             finally
             {
@@ -296,21 +298,6 @@ public sealed class AudioManager : ObservableObject, IDisposable
             }
         });
     }
-
-    private sealed record Snapshot(
-        int VolumeResult,
-        int Volume,
-        bool Muted,
-        int VolumeRevision,
-        int InputVolumeResult,
-        int InputVolume,
-        bool InputMuted,
-        int InputVolumeRevision,
-        bool IncludedEndpoints,
-        int OutputResult,
-        IReadOnlyList<CoreAudio.AudioEndpoint> Outputs,
-        int InputResult,
-        IReadOnlyList<CoreAudio.AudioEndpoint> Inputs);
 
     private static Snapshot ReadSnapshot(
         bool includeEndpoints,
@@ -384,7 +371,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
                 Log.Change(
                     "audio.capture.volume",
                     $"Default microphone volume is {snapshot.InputVolume}% "
-                        + $"(muted={snapshot.InputMuted}).");
+                    + $"(muted={snapshot.InputMuted}).");
             }
             else
             {
@@ -392,7 +379,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
                 Log.Change(
                     "audio.capture.volume",
                     $"Default microphone volume is unavailable "
-                        + $"(HRESULT 0x{snapshot.InputVolumeResult:X8}).");
+                    + $"(HRESULT 0x{snapshot.InputVolumeResult:X8}).");
             }
         }
 
@@ -400,6 +387,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
         {
             return;
         }
+
         if (snapshot.OutputResult >= 0)
         {
             Reconcile(OutputEndpoints, snapshot.Outputs);
@@ -407,13 +395,14 @@ public sealed class AudioManager : ObservableObject, IDisposable
             {
                 var previousOutputId = _selectedOutput?.Id;
                 var defaultOutput = FindDefault(OutputEndpoints, snapshot.Outputs);
-                SetSelected(output: true, defaultOutput);
+                SetSelected(true, defaultOutput);
                 if (_hasOutputSnapshot
                     && !string.Equals(previousOutputId, defaultOutput?.Id, StringComparison.Ordinal))
                 {
                     Log.Info("Default audio output changed outside WSGM; reopening the volume feedback stream.");
                     VolumeFeedback.Reinitialize();
                 }
+
                 _hasOutputSnapshot = true;
             }
         }
@@ -421,30 +410,32 @@ public sealed class AudioManager : ObservableObject, IDisposable
         {
             SetFailure("list audio outputs", snapshot.OutputResult);
         }
+
         if (snapshot.InputResult >= 0)
         {
             Reconcile(InputEndpoints, snapshot.Inputs);
             if (!_inputSelection.Pending)
             {
-                SetSelected(output: false, FindDefault(InputEndpoints, snapshot.Inputs));
+                SetSelected(false, FindDefault(InputEndpoints, snapshot.Inputs));
             }
         }
         else
         {
             SetFailure("list audio inputs", snapshot.InputResult);
         }
+
         if (snapshot is not { OutputResult: >= 0, InputResult: >= 0 })
         {
             return;
         }
 
         var summary = $"Audio endpoints: {OutputEndpoints.Count} output(s), "
-            + $"default='{SelectedOutput?.Name ?? "none"}'; {InputEndpoints.Count} input(s), "
-            + $"default='{SelectedInput?.Name ?? "none"}'; volume={(int)VolumePercent}%, muted={Muted}; "
-            + $"microphone={(InputVolumePercent is { } inputVolume
-                ? inputVolume.ToString("0", CultureInfo.InvariantCulture) + "%"
-                : "unavailable")}, "
-            + $"muted={InputMuted}.";
+                      + $"default='{SelectedOutput?.Name ?? "none"}'; {InputEndpoints.Count} input(s), "
+                      + $"default='{SelectedInput?.Name ?? "none"}'; volume={(int)VolumePercent}%, muted={Muted}; "
+                      + $"microphone={(InputVolumePercent is { } inputVolume
+                          ? inputVolume.ToString("0", CultureInfo.InvariantCulture) + "%"
+                          : "unavailable")}, "
+                      + $"muted={InputMuted}.";
         if (_endpointSummary == summary)
         {
             return;
@@ -463,14 +454,15 @@ public sealed class AudioManager : ObservableObject, IDisposable
             Raise(nameof(VolumePercent));
             Raise(nameof(VolumeText));
         }
+
         Muted = muted;
     }
 
     /// <summary>Records what Windows reports for the capture endpoint, without writing to it.</summary>
     /// <remarks>
-    /// Internal rather than private so the Steam projection can be tested against observed state.
-    /// The <see cref="InputVolumePercent"/> setter is the user's path and queues a hardware write;
-    /// a test driving that would change the volume on the machine running the suite.
+    ///     Internal rather than private so the Steam projection can be tested against observed state.
+    ///     The <see cref="InputVolumePercent" /> setter is the user's path and queues a hardware write;
+    ///     a test driving that would change the volume on the machine running the suite.
     /// </remarks>
     /// <param name="percentage">Observed volume, 0 to 100.</param>
     /// <param name="muted">Observed mute state.</param>
@@ -482,6 +474,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
             _inputVolumePercent = normalized;
             Raise(nameof(InputVolumePercent));
         }
+
         InputMuted = muted;
     }
 
@@ -511,8 +504,10 @@ public sealed class AudioManager : ObservableObject, IDisposable
             : entries.FirstOrDefault(entry => entry.Id == defaultId);
     }
 
-    /// <summary>Reconciles endpoint rows in place so a periodic refresh does not
-    /// destroy an open combo box or its focused item.</summary>
+    /// <summary>
+    ///     Reconciles endpoint rows in place so a periodic refresh does not
+    ///     destroy an open combo box or its focused item.
+    /// </summary>
     internal static void Reconcile(
         ObservableCollection<AudioEndpointEntry> entries,
         IReadOnlyList<CoreAudio.AudioEndpoint> fresh)
@@ -522,6 +517,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
         {
             remaining.TryAdd(endpoint.Id, endpoint);
         }
+
         for (var index = entries.Count - 1; index >= 0; index--)
         {
             var entry = entries[index];
@@ -534,6 +530,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
                 entries.RemoveAt(index);
             }
         }
+
         foreach (var endpoint in fresh)
         {
             if (remaining.Remove(endpoint.Id))
@@ -550,6 +547,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
         {
             return;
         }
+
         SetSelected(output, value);
         var kind = output ? "output" : "input";
         var revision = Tracker(output).Begin();
@@ -557,9 +555,11 @@ public sealed class AudioManager : ObservableObject, IDisposable
         _ = Task.Run(() => ApplyEndpointSelectionAsync(value.Id, output, kind, revision));
     }
 
-    /// <summary>Serializes default-device writes for one data flow. A stale
-    /// queued request is skipped, and an already-running stale request cannot
-    /// publish UI state after the user's newer choice.</summary>
+    /// <summary>
+    ///     Serializes default-device writes for one data flow. A stale
+    ///     queued request is skipped, and an already-running stale request cannot
+    ///     publish UI state after the user's newer choice.
+    /// </summary>
     private async Task ApplyEndpointSelectionAsync(string endpointId, bool output, string kind, int revision)
     {
         var gate = output ? _outputSelectionGate : _inputSelectionGate;
@@ -570,6 +570,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
             {
                 return;
             }
+
             try
             {
                 var result = CoreAudio.SetDefaultEndpoint(endpointId);
@@ -577,6 +578,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
                 {
                     VolumeFeedback.Reinitialize();
                 }
+
                 Tracker(output).Complete(revision);
                 Dispatcher.UIThread.Post(() =>
                 {
@@ -584,18 +586,20 @@ public sealed class AudioManager : ObservableObject, IDisposable
                     {
                         return;
                     }
+
                     if (result < 0)
                     {
                         PostFailure(
                             $"Could not select audio {kind} (HRESULT 0x{result:X8}).",
-                            sticky: true);
+                            true);
                     }
                     else
                     {
                         _stickyError = false;
                         ErrorText = "";
                     }
-                    QueueRefresh(includeEndpoints: true);
+
+                    QueueRefresh(true);
                 });
             }
             catch (Exception ex)
@@ -603,7 +607,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
                 if (Tracker(output).IsCurrent(revision))
                 {
                     Tracker(output).Complete(revision);
-                    PostFailure($"Audio {kind} selection failed: {ex.Message}", sticky: true);
+                    PostFailure($"Audio {kind} selection failed: {ex.Message}", true);
                 }
             }
         }
@@ -614,7 +618,9 @@ public sealed class AudioManager : ObservableObject, IDisposable
     }
 
     private ref EndpointSelectionTracker Tracker(bool output)
-        => ref output ? ref _outputSelection : ref _inputSelection;
+    {
+        return ref output ? ref _outputSelection : ref _inputSelection;
+    }
 
     private void SetSelected(bool output, AudioEndpointEntry? value)
     {
@@ -640,7 +646,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
         var result = CoreAudio.SetVolume(requested, out var muted);
         if (result < 0)
         {
-            PostFailure($"Set volume failed (HRESULT 0x{result:X8}).", sticky: true);
+            PostFailure($"Set volume failed (HRESULT 0x{result:X8}).", true);
             return;
         }
 
@@ -664,7 +670,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
         var result = CoreAudio.SetVolume(CoreAudio.AudioDirection.Capture, requested, out var muted);
         if (result < 0)
         {
-            PostFailure($"Set microphone volume failed (HRESULT 0x{result:X8}).", sticky: true);
+            PostFailure($"Set microphone volume failed (HRESULT 0x{result:X8}).", true);
             return;
         }
 
@@ -682,13 +688,18 @@ public sealed class AudioManager : ObservableObject, IDisposable
         });
     }
 
-    private void FailSticky(string message) => PostFailure(message, sticky: true);
+    private void FailSticky(string message)
+    {
+        PostFailure(message, true);
+    }
 
-    /// <summary>Adopts a volume state another WSGM writer has ALREADY applied to
-    /// Core Audio — the hardware volume buttons — so the taskbar slider does not
-    /// lag one poll behind the OSD. Presentation only: nothing is written back,
-    /// and the revision bump keeps an older in-flight snapshot from undoing the
-    /// adopted value before the next poll confirms it.</summary>
+    /// <summary>
+    ///     Adopts a volume state another WSGM writer has ALREADY applied to
+    ///     Core Audio — the hardware volume buttons — so the taskbar slider does not
+    ///     lag one poll behind the OSD. Presentation only: nothing is written back,
+    ///     and the revision bump keeps an older in-flight snapshot from undoing the
+    ///     adopted value before the next poll confirms it.
+    /// </summary>
     /// <param name="percent">The volume the writer landed on, 0-100.</param>
     /// <param name="muted">The mute state the writer landed on.</param>
     internal void NoteExternalVolume(int percent, bool muted)
@@ -707,10 +718,14 @@ public sealed class AudioManager : ObservableObject, IDisposable
     /// <param name="value">The raw slider or endpoint value.</param>
     /// <returns>An integer from 0 through 100.</returns>
     internal static int NormalizeVolume(double value)
-        => double.IsFinite(value) ? Math.Clamp((int)Math.Round(value), 0, 100) : 0;
+    {
+        return double.IsFinite(value) ? Math.Clamp((int)Math.Round(value), 0, 100) : 0;
+    }
 
     private void SetFailure(string operation, int result)
-        => PostFailure($"Could not {operation} (HRESULT 0x{result:X8}).");
+    {
+        PostFailure($"Could not {operation} (HRESULT 0x{result:X8}).");
+    }
 
     private void PostFailure(string message, bool sticky = false)
     {
@@ -727,27 +742,69 @@ public sealed class AudioManager : ObservableObject, IDisposable
         });
     }
 
-
-    /// <summary>Stops refreshes and prevents pending native work from publishing
-    /// into a closed taskbar.</summary>
-    public void Dispose()
+    /// <summary>
+    ///     Revision bookkeeping for one data flow's default-endpoint writes:
+    ///     rapid selections each take a revision, only the newest may publish UI
+    ///     state, and the flow counts as pending until that newest revision
+    ///     completes. Pure, so the latest-wins rule is testable without Core Audio;
+    ///     the writes themselves are additionally serialized by a per-flow gate.
+    /// </summary>
+    internal struct EndpointSelectionTracker
     {
-        _disposed = true;
-        // Invalidate every in-flight selection so its completion cannot publish.
-        _outputSelection.Begin();
-        _inputSelection.Begin();
-        if (_timer is not null)
+        private int _requested;
+        private int _completed;
+
+        /// <summary>Claims the next revision for a new selection.</summary>
+        internal int Begin()
         {
-            _timer.Stop();
-            _timer.Tick -= OnTick;
-            _timer = null;
+            return Interlocked.Increment(ref _requested);
         }
-        _volumeWrite.Clear();
-        _inputVolumeWrite.Clear();
+
+        /// <summary>Whether this revision is still the newest selection.</summary>
+        internal bool IsCurrent(int revision)
+        {
+            return revision == Volatile.Read(ref _requested);
+        }
+
+        /// <summary>
+        ///     Whether a selection is still in flight — the refresh path must
+        ///     not overwrite the user's choice with a stale default meanwhile.
+        /// </summary>
+        internal bool Pending =>
+            Volatile.Read(ref _requested) != Volatile.Read(ref _completed);
+
+        /// <summary>
+        ///     Records this revision's write as finished. A stale revision is
+        ///     ignored: the newer selection it lost to is still pending.
+        /// </summary>
+        internal void Complete(int revision)
+        {
+            if (IsCurrent(revision))
+            {
+                Volatile.Write(ref _completed, revision);
+            }
+        }
     }
 
-    /// <summary>Runs one direction's volume writes on a worker, collapsing a burst of slider moves
-    /// into the latest value.</summary>
+    private sealed record Snapshot(
+        int VolumeResult,
+        int Volume,
+        bool Muted,
+        int VolumeRevision,
+        int InputVolumeResult,
+        int InputVolume,
+        bool InputMuted,
+        int InputVolumeRevision,
+        bool IncludedEndpoints,
+        int OutputResult,
+        IReadOnlyList<CoreAudio.AudioEndpoint> Outputs,
+        int InputResult,
+        IReadOnlyList<CoreAudio.AudioEndpoint> Inputs);
+
+    /// <summary>
+    ///     Runs one direction's volume writes on a worker, collapsing a burst of slider moves
+    ///     into the latest value.
+    /// </summary>
     /// <param name="label">What is written, for the failure messages.</param>
     private sealed class CoalescingVolumeWrite(string label)
     {
@@ -765,6 +822,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
                 {
                     return;
                 }
+
                 _running = true;
             }
 
@@ -782,6 +840,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
                                 _running = false;
                                 return;
                             }
+
                             requested = pending;
                             _pending = null;
                         }
@@ -806,6 +865,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
                     {
                         _running = false;
                     }
+
                     Log.Warn($"{label} write worker stopped: {ex.Message}");
                 }
             });

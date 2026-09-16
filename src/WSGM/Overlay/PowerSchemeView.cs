@@ -9,21 +9,25 @@ using WSGM.Core;
 
 namespace WSGM.Overlay;
 
-/// <summary>Windows power-profile picker for the overlay. It reports intent through its model
-/// and never acquires native services or writes configuration itself.</summary>
+/// <summary>
+///     Windows power-profile picker for the overlay. It reports intent through its model
+///     and never acquires native services or writes configuration itself.
+/// </summary>
 public sealed class PowerSchemeView : UserControl
 {
+    private readonly Button _apply = new() { Content = "Apply", Tag = "system.power-profile.apply" };
+
     private readonly ComboBox _profiles = new()
     {
         DisplayMemberBinding = new Binding(nameof(PowerScheme.Name)),
         HorizontalAlignment = HorizontalAlignment.Stretch,
         Tag = "system.power-profile.choice"
     };
-    private readonly Button _apply = new() { Content = "Apply", Tag = "system.power-profile.apply" };
+
     private readonly Button _refresh = new() { Content = "Refresh", Tag = "system.power-profile.refresh" };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Classes = { "caption" } };
-    private PowerSchemeSelection? _model;
     private IReadOnlyList<PowerScheme>? _items;
+    private PowerSchemeSelection? _model;
 
     /// <summary>Creates persistent controls so telemetry updates cannot interrupt a selection.</summary>
     public PowerSchemeView()
@@ -71,12 +75,14 @@ public sealed class PowerSchemeView : UserControl
         {
             _model.Changed -= Render;
         }
+
         _model = model;
         _items = null;
         if (model is not null)
         {
             model.Changed += Render;
         }
+
         Render();
     }
 
@@ -86,7 +92,8 @@ public sealed class PowerSchemeView : UserControl
         {
             _items = _model?.Schemes;
             _profiles.ItemsSource = _items?.Select(scheme => _items.Count(other => other.Name == scheme.Name) > 1
-                ? scheme with { Name = $"{scheme.Name} ({scheme.Id:D})" } : scheme).ToArray();
+                ? scheme with { Name = $"{scheme.Name} ({scheme.Id:D})" }
+                : scheme).ToArray();
             _profiles.SelectedIndex = -1;
             if (_items is not null)
             {
@@ -96,16 +103,19 @@ public sealed class PowerSchemeView : UserControl
                     {
                         continue;
                     }
+
                     _profiles.SelectedIndex = i;
                     break;
                 }
             }
         }
+
         _status.Text = _model?.Status ?? "Power profiles are unavailable.";
         if (_model?.ActiveId is null)
         {
             _profiles.SelectedIndex = -1;
         }
+
         UpdateButtons();
     }
 
@@ -113,7 +123,7 @@ public sealed class PowerSchemeView : UserControl
     {
         _profiles.IsEnabled = _model?.CanSelect is true;
         _apply.IsEnabled = _model?.CanSelect is true && _profiles.SelectedItem is PowerScheme choice
-            && choice.Id != _model.ActiveId;
+                                                     && choice.Id != _model.ActiveId;
         _refresh.IsEnabled = _model is { Busy: false };
     }
 }

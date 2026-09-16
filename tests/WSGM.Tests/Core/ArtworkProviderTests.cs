@@ -3,9 +3,9 @@ using WSGM.Core;
 namespace WSGM.Tests.Core;
 
 /// <summary>
-/// The multi-provider artwork contract: a provider that cannot be searched is distinguishable from
-/// one that searched and found nothing, one source's failure does not remove the other's results,
-/// and the same asset arriving twice is shown once.
+///     The multi-provider artwork contract: a provider that cannot be searched is distinguishable from
+///     one that searched and found nothing, one source's failure does not remove the other's results,
+///     and the same asset arriving twice is shown once.
 /// </summary>
 public sealed class ArtworkProviderTests
 {
@@ -102,7 +102,7 @@ public sealed class ArtworkProviderTests
     {
         // A game id belongs to the source that issued it. Asking the other provider would either
         // return nothing or, worse, return a different game that happened to share the number.
-        ArtworkGameMatch match = new("nonexistent-provider", "1", "Something", Exact: true);
+        ArtworkGameMatch match = new("nonexistent-provider", "1", "Something", true);
 
         var result = await ArtworkSearch.GetAssetsForMatchAsync(
             ArtworkAsset.Grid, match, new AppConfig(), CancellationToken.None);

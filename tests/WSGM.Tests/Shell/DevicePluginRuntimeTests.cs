@@ -16,6 +16,8 @@ namespace WSGM.Tests.Shell;
 
 public sealed class DevicePluginRuntimeTests
 {
+    private const long InitialGeneration = 41;
+
     [Fact]
     public async Task CommonHostOwnsTheDeviceAdapterLifecycleAndRetiresItsVerifiedSlot()
     {
@@ -23,7 +25,8 @@ public sealed class DevicePluginRuntimeTests
         var runtime = await LoadRuntimeAsync(temporary, InitialGeneration);
         DevicePluginCompatibilityAdapter adapter = new(runtime, new DeviceIdentitySnapshot(), false);
         PluginHost host = new(action => action());
-        var registration = host.Admit(adapter, new PluginInstanceIdentity(adapter.Id, "device"), PluginCategories.Device,
+        var registration = host.Admit(adapter, new PluginInstanceIdentity(adapter.Id, "device"),
+            PluginCategories.Device,
             PluginCategoryPolicy.Device, true, InitialGeneration, runtime.StateDirectory);
         var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
         await registration.StartAsync(deadline, CancellationToken.None);
@@ -45,7 +48,8 @@ public sealed class DevicePluginRuntimeTests
         await using DevicePluginCompatibilityAdapter adapter = new(runtime, new DeviceIdentitySnapshot(), false);
         CommonHost host = new();
         var context = new PluginContext(new PluginInstanceIdentity(RuntimeFixturePlugin.PackageIdValue, "device"),
-            InitialGeneration, PluginSessionMode.Desktop, DateTimeOffset.UtcNow.AddSeconds(5), temporary.GetPath("state"));
+            InitialGeneration, PluginSessionMode.Desktop, DateTimeOffset.UtcNow.AddSeconds(5),
+            temporary.GetPath("state"));
         Assert.Equal(PluginHealth.Ready, await adapter.StartAsync(host, context, CancellationToken.None));
         await adapter.SessionChangedAsync(context with { Mode = PluginSessionMode.Game }, CancellationToken.None);
         Assert.Equal(DeviceCycleState.Active, adapter.LastState!.State);
@@ -53,7 +57,8 @@ public sealed class DevicePluginRuntimeTests
         var resumed = context with { Generation = InitialGeneration + 1 };
         await adapter.ResumeAsync(resumed, CancellationToken.None);
         Assert.Equal(InitialGeneration + 1, runtime.CycleGeneration);
-        Assert.Contains(host.States, state => state.Generation == resumed.Generation && state.Health == PluginHealth.Ready);
+        Assert.Contains(host.States,
+            state => state.Generation == resumed.Generation && state.Health == PluginHealth.Ready);
         Assert.True(await adapter.StopAsync(resumed, CancellationToken.None));
     }
 
@@ -65,19 +70,17 @@ public sealed class DevicePluginRuntimeTests
         await using DevicePluginCompatibilityAdapter adapter = new(runtime, new DeviceIdentitySnapshot(), false);
         var context = new PluginContext(new PluginInstanceIdentity("other.plugin", "device"), InitialGeneration,
             PluginSessionMode.Desktop, DateTimeOffset.UtcNow.AddSeconds(5), temporary.GetPath("state"));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => adapter.StartAsync(new CommonHost(), context, CancellationToken.None).AsTask());
-        context = context with { Instance = new PluginInstanceIdentity(RuntimeFixturePlugin.PackageIdValue, "device"), Generation = InitialGeneration - 1 };
-        await Assert.ThrowsAsync<InvalidOperationException>(() => adapter.StartAsync(new CommonHost(), context, CancellationToken.None).AsTask());
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            adapter.StartAsync(new CommonHost(), context, CancellationToken.None).AsTask());
+        context = context with
+        {
+            Instance = new PluginInstanceIdentity(RuntimeFixturePlugin.PackageIdValue, "device"),
+            Generation = InitialGeneration - 1
+        };
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            adapter.StartAsync(new CommonHost(), context, CancellationToken.None).AsTask());
         Assert.False(File.Exists(temporary.GetPath("state", RuntimeFixturePlugin.PackageIdValue, "started.txt")));
     }
-
-    private sealed class CommonHost : IPluginHost
-    {
-        internal List<PluginHealthPublication> States { get; } = [];
-        public void PublishHealth(PluginHealthPublication publication) => States.Add(publication);
-    }
-
-    private const long InitialGeneration = 41;
 
     [Fact]
     public async Task ResumePublishesFreshLightingIntoTheRouterBeforeTheLifecycleCallReturns()
@@ -112,7 +115,7 @@ public sealed class DevicePluginRuntimeTests
         var started = await runtime.StartAsync(
             new DeviceIdentitySnapshot(),
             InitialGeneration,
-            controllerManagementEnabled: true,
+            true,
             CancellationToken.None);
 
         Assert.Equal(DeviceCycleState.Active, started.State);
@@ -227,7 +230,7 @@ public sealed class DevicePluginRuntimeTests
         await runtime.StartAsync(
             new DeviceIdentitySnapshot(),
             InitialGeneration,
-            controllerManagementEnabled: true,
+            true,
             CancellationToken.None);
         await runtime.SuspendAsync(
             DateTimeOffset.UtcNow.AddSeconds(1),
@@ -272,7 +275,7 @@ public sealed class DevicePluginRuntimeTests
         await runtime.StartAsync(
             new DeviceIdentitySnapshot(),
             cycleGeneration,
-            controllerManagementEnabled: true,
+            true,
             CancellationToken.None);
         return runtime;
     }
@@ -310,7 +313,9 @@ public sealed class DevicePluginRuntimeTests
     private static CapabilityCommand Command(
         string capabilityId,
         long cycleGeneration,
-        DateTimeOffset? deadline = null) => new()
+        DateTimeOffset? deadline = null)
+    {
+        return new CapabilityCommand
         {
             CommandId = Guid.NewGuid(),
             CapabilityId = capabilityId,
@@ -318,6 +323,17 @@ public sealed class DevicePluginRuntimeTests
             ExpectedCycleGeneration = cycleGeneration,
             Deadline = deadline ?? DateTimeOffset.UtcNow.AddSeconds(1)
         };
+    }
+
+    private sealed class CommonHost : IPluginHost
+    {
+        internal List<PluginHealthPublication> States { get; } = [];
+
+        public void PublishHealth(PluginHealthPublication publication)
+        {
+            States.Add(publication);
+        }
+    }
 }
 
 /// <summary>Collectible package fixture used to exercise the production direct-plugin boundary.</summary>
@@ -325,10 +341,16 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
 {
     public const string PackageIdValue = "wsgm.tests.runtime-fixture";
     public const string DeviceDefinitionIdValue = "runtime-fixture";
-    private IPluginHostAdapter? _host;
-    private string? _stateDirectory;
     private long _cycleGeneration;
+    private IPluginHostAdapter? _host;
     private long _sequence;
+    private string? _stateDirectory;
+
+    private IPluginHostAdapter Host => _host
+                                       ?? throw new InvalidOperationException("The fixture plugin has not started.");
+
+    private string StateDirectory => _stateDirectory
+                                     ?? throw new InvalidOperationException("The fixture plugin has not started.");
 
     public string PackageId => PackageIdValue;
 
@@ -494,12 +516,6 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         }
     }
 
-    private IPluginHostAdapter Host => _host
-        ?? throw new InvalidOperationException("The fixture plugin has not started.");
-
-    private string StateDirectory => _stateDirectory
-        ?? throw new InvalidOperationException("The fixture plugin has not started.");
-
     private async ValueTask PublishSampleAsync(
         long cycleGeneration,
         CancellationToken cancellationToken)
@@ -524,16 +540,19 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         {
             CycleGeneration = _cycleGeneration,
             Generation = 1,
-            Descriptors = [new CapabilityDescriptor
-            {
-                CapabilityId = "lighting.zone-color",
-                Role = CapabilityRole.LightingZoneColor,
-                ValueKind = CapabilityValueKind.Color,
-                Display = new CapabilityDisplay { Key = DisplayKey.Lighting },
-                SupportsRead = true,
-                SupportsWrite = true,
-                Persistence = CapabilityPersistence.DevicePersistent
-            }]
+            Descriptors =
+            [
+                new CapabilityDescriptor
+                {
+                    CapabilityId = "lighting.zone-color",
+                    Role = CapabilityRole.LightingZoneColor,
+                    ValueKind = CapabilityValueKind.Color,
+                    Display = new CapabilityDisplay { Key = DisplayKey.Lighting },
+                    SupportsRead = true,
+                    SupportsWrite = true,
+                    Persistence = CapabilityPersistence.DevicePersistent
+                }
+            ]
         }, cancellationToken);
         await Host.PublishCapabilityStateAsync(new CapabilityState
         {
@@ -547,8 +566,11 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         }, cancellationToken);
     }
 
-    private static PluginStartResult Active() => new()
+    private static PluginStartResult Active()
     {
-        State = PluginOperationalState.Active
-    };
+        return new PluginStartResult
+        {
+            State = PluginOperationalState.Active
+        };
+    }
 }

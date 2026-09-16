@@ -14,8 +14,8 @@ public sealed class ExplorerShellPolicyTests
             NormalProcess(),
             ExplorerPath,
             3,
-            ownsReadyTaskbar: true,
-            requireReadyTaskbar: true);
+            true,
+            true);
 
         Assert.True(result.Accepted);
         Assert.Equal(ExplorerShellRejection.None, result.Rejection);
@@ -70,8 +70,8 @@ public sealed class ExplorerShellPolicyTests
             process,
             ExplorerPath,
             3,
-            ownsReadyTaskbar: expected is not ExplorerShellRejection.NotReady,
-            requireReadyTaskbar: true);
+            expected is not ExplorerShellRejection.NotReady,
+            true);
 
         Assert.False(result.Accepted);
         Assert.Equal(expected, result.Rejection);
@@ -84,8 +84,8 @@ public sealed class ExplorerShellPolicyTests
             NormalProcess() with { ImagePath = @"C:\Program Files\WSGM\WSGM.exe" },
             @"C:\Program Files\WSGM\WSGM.exe",
             3,
-            ownsReadyTaskbar: false,
-            requireReadyTaskbar: false);
+            false,
+            false);
 
         Assert.True(result.Accepted);
     }
@@ -97,8 +97,8 @@ public sealed class ExplorerShellPolicyTests
             NativeShellProcessInfo.Unavailable(0, 0),
             ExplorerPath,
             3,
-            ownsReadyTaskbar: false,
-            requireReadyTaskbar: true);
+            false,
+            true);
 
         Assert.Equal(ExplorerShellRejection.NotReady, result.Rejection);
     }
@@ -131,12 +131,12 @@ public sealed class ExplorerShellPolicyTests
         ExplorerDesktopResult result = new(
             ExplorerDesktopOutcome.Normal,
             ExplorerDesktopRoute.ShellAnchor,
-            processId: 42,
-            createdProcessId: 17,
-            detail: "normal-stable",
-            launchDispatched: true,
-            shellSurfacePresent: true,
-            elapsed: TimeSpan.FromMilliseconds(500));
+            42,
+            17,
+            "normal-stable",
+            true,
+            true,
+            TimeSpan.FromMilliseconds(500));
 
         Assert.Equal(17u, result.CreatedProcessId);
         Assert.Equal(42u, result.ProcessId);
@@ -148,12 +148,12 @@ public sealed class ExplorerShellPolicyTests
         ExplorerDesktopResult result = new(
             ExplorerDesktopOutcome.Normal,
             ExplorerDesktopRoute.ScheduledTaskRecovery,
-            processId: 42,
-            createdProcessId: 17,
-            detail: "normal-stable",
-            launchDispatched: true,
-            shellSurfacePresent: true,
-            elapsed: TimeSpan.FromMilliseconds(500));
+            42,
+            17,
+            "normal-stable",
+            true,
+            true,
+            TimeSpan.FromMilliseconds(500));
 
         Assert.Equal(ExplorerDesktopOutcome.Degraded, result.Outcome);
     }
@@ -165,8 +165,8 @@ public sealed class ExplorerShellPolicyTests
             NormalProcess() with { JobMembership = NativeJobMembership.InJob },
             ExplorerPath,
             3,
-            ownsReadyTaskbar: false,
-            requireReadyTaskbar: true);
+            false,
+            true);
 
         Assert.False(result.Accepted);
         Assert.Equal(ExplorerShellRejection.NotReady, result.Rejection);
@@ -189,8 +189,8 @@ public sealed class ExplorerShellPolicyTests
             NormalProcess(),
             ExplorerPath,
             3,
-            ownsReadyTaskbar: true,
-            requireReadyTaskbar: true);
+            true,
+            true);
 
         Assert.Equal(expected, ExplorerShellPolicy.ClassifyDesktop(acceptance, route));
     }
@@ -206,8 +206,8 @@ public sealed class ExplorerShellPolicyTests
             NormalProcess() with { JobMembership = membership },
             ExplorerPath,
             3,
-            ownsReadyTaskbar: true,
-            requireReadyTaskbar: true);
+            true,
+            true);
 
         Assert.Equal(
             ExplorerDesktopOutcome.Degraded,
@@ -377,13 +377,16 @@ public sealed class ExplorerShellPolicyTests
             host.RestoreDesktopAsync(TimeSpan.FromSeconds(1)));
     }
 
-    private static NativeShellProcessInfo NormalProcess() => new(
-        12,
-        ExplorerPath,
-        3,
-        NativeIntegrityLevel.Medium,
-        NativeJobMembership.NotInJob,
-        default);
+    private static NativeShellProcessInfo NormalProcess()
+    {
+        return new NativeShellProcessInfo(
+            12,
+            ExplorerPath,
+            3,
+            NativeIntegrityLevel.Medium,
+            NativeJobMembership.NotInJob,
+            default);
+    }
 
     [Theory]
     [InlineData(true, false, 30000, 0)]
@@ -392,10 +395,15 @@ public sealed class ExplorerShellPolicyTests
     [InlineData(false, false, 2000, 1)]
     [InlineData(false, true, 499, 0)]
     [InlineData(false, true, 500, 2)]
-    public void OnlyARetiredOriginalShellCanBeReleased(bool present, bool exited, int absentMs, int expected) =>
-        Assert.Equal((ExplorerExitAction)expected, ExplorerExitPolicy.Decide(present, exited, TimeSpan.FromMilliseconds(absentMs)));
+    public void OnlyARetiredOriginalShellCanBeReleased(bool present, bool exited, int absentMs, int expected)
+    {
+        Assert.Equal((ExplorerExitAction)expected,
+            ExplorerExitPolicy.Decide(present, exited, TimeSpan.FromMilliseconds(absentMs)));
+    }
 
     [Fact]
-    public void AnUnresponsiveDesktopIsNotReadyEvenWithMatchingWindowOwners() =>
-        Assert.False(ExplorerShellPolicy.IsInitializedShellOwner(true, true, 123, 123, responsive: false));
+    public void AnUnresponsiveDesktopIsNotReadyEvenWithMatchingWindowOwners()
+    {
+        Assert.False(ExplorerShellPolicy.IsInitializedShellOwner(true, true, 123, 123, false));
+    }
 }

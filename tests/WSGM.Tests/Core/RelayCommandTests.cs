@@ -2,10 +2,12 @@ using WSGM.Core;
 
 namespace WSGM.Tests.Core;
 
-/// <summary>The executable specification of <see cref="RelayCommand"/> and
-/// <see cref="RelayCommand{T}"/>: always-executable forwarding, and the typed
-/// variant's parameter conversion (wrong type rejected, null only for
-/// nullable-capable T).</summary>
+/// <summary>
+///     The executable specification of <see cref="RelayCommand" /> and
+///     <see cref="RelayCommand{T}" />: always-executable forwarding, and the typed
+///     variant's parameter conversion (wrong type rejected, null only for
+///     nullable-capable T).
+/// </summary>
 public sealed class RelayCommandTests
 {
     [Fact]

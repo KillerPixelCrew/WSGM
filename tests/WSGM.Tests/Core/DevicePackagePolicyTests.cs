@@ -14,6 +14,11 @@ public sealed class DevicePackagePolicyTests : IDisposable
 {
     private readonly string _root = Directory.CreateTempSubdirectory("wsgm-package-slot-").FullName;
 
+    public void Dispose()
+    {
+        Directory.Delete(_root, true);
+    }
+
     [Fact]
     public void EmptySlot_StartsWithoutADevicePackage()
     {
@@ -229,7 +234,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
         await Assert.ThrowsAsync<IOException>(() => DevicePackageStager.StageAsync(
             source,
             installed,
-            previousSlotMoved: static () => throw new IOException("simulated publish failure")));
+            static () => throw new IOException("simulated publish failure")));
 
         Assert.True(Directory.Exists(oldRoot));
         Assert.False(Directory.Exists(DevicePackageStager.ReplacementRecoveryRoot(installed)));
@@ -696,11 +701,11 @@ public sealed class DevicePackagePolicyTests : IDisposable
         var readyName = $@"Local\WSGM.Tests.DevicePackageSlot.Ready.{suffix}";
         var exitName = $@"Local\WSGM.Tests.DevicePackageSlot.Exit.{suffix}";
         using var ready = new EventWaitHandle(
-            initialState: false,
+            false,
             EventResetMode.ManualReset,
             readyName);
         using var exit = new EventWaitHandle(
-            initialState: false,
+            false,
             EventResetMode.ManualReset,
             exitName);
         var powershell = Path.Combine(
@@ -719,12 +724,12 @@ public sealed class DevicePackagePolicyTests : IDisposable
         startInfo.ArgumentList.Add("-Command");
         startInfo.ArgumentList.Add(
             $"$mutex=[Threading.Mutex]::new($false,'{mutexName}');"
-                + "$null=$mutex.WaitOne();"
-                + $"$ready=[Threading.EventWaitHandle]::OpenExisting('{readyName}');"
-                + $"$exit=[Threading.EventWaitHandle]::OpenExisting('{exitName}');"
-                + "$null=$ready.Set();"
-                + "$null=$exit.WaitOne();"
-                + "[Environment]::Exit(23)");
+            + "$null=$mutex.WaitOne();"
+            + $"$ready=[Threading.EventWaitHandle]::OpenExisting('{readyName}');"
+            + $"$exit=[Threading.EventWaitHandle]::OpenExisting('{exitName}');"
+            + "$null=$ready.Set();"
+            + "$null=$exit.WaitOne();"
+            + "[Environment]::Exit(23)");
 
         using var holder = Process.Start(startInfo)
                            ?? throw new InvalidOperationException("Could not start the mutex-holder test process.");
@@ -739,7 +744,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
             recovery = DevicePackageSlotGate.TryAcquireAsync(
                 mutexName,
                 TimeSpan.FromSeconds(10),
-                waitStarted: () => waitStarted.TrySetResult());
+                () => waitStarted.TrySetResult());
             await waitStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
             Assert.False(holder.HasExited);
 
@@ -771,8 +776,9 @@ public sealed class DevicePackagePolicyTests : IDisposable
                     {
                         if (!holder.HasExited)
                         {
-                            holder.Kill(entireProcessTree: true);
+                            holder.Kill(true);
                         }
+
                         await holder.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
                     }
                 }
@@ -1031,12 +1037,10 @@ public sealed class DevicePackagePolicyTests : IDisposable
             [realMode, "--overlay-test"]));
     }
 
-    public void Dispose()
+    private DevicePackageDiscovery Discover()
     {
-        Directory.Delete(_root, recursive: true);
+        return DevicePackagePolicy.Discover(_root);
     }
-
-    private DevicePackageDiscovery Discover() => DevicePackagePolicy.Discover(_root);
 
     private string CreatePackage(string id, string? parent = null, int? apiVersion = null)
     {

@@ -19,15 +19,24 @@ using ShapePath = Avalonia.Controls.Shapes.Path;
 
 namespace WSGM.Settings.Pages;
 
-/// <summary>The Appearance settings page: the accent-color picker (preset swatches,
-/// hex field, color-picker flyout — applied live to the running window as a
-/// process-local preview; Save persists it) and the boot-splash editor (presets,
-/// content, placements, colors, images, full-screen preview and .wsgmsplash
-/// export/import). Inherits the window's <see cref="SettingsViewModel"/>
-/// DataContext; pickers and the preview stay in this code-behind (StorageProvider
-/// and the navigation swap need the visual tree's TopLevel).</summary>
+/// <summary>
+///     The Appearance settings page: the accent-color picker (preset swatches,
+///     hex field, color-picker flyout — applied live to the running window as a
+///     process-local preview; Save persists it) and the boot-splash editor (presets,
+///     content, placements, colors, images, full-screen preview and .wsgmsplash
+///     export/import). Inherits the window's <see cref="SettingsViewModel" />
+///     DataContext; pickers and the preview stay in this code-behind (StorageProvider
+///     and the navigation swap need the visual tree's TopLevel).
+/// </summary>
 public partial class AppearancePage : UserControl
 {
+    /// <summary>
+    ///     Longest edge decoded for an inline thumbnail. The preview panel is
+    ///     44x28 device-independent pixels, so 128 px stays sharp at any display
+    ///     scale while keeping the pixel buffer at a few tens of kilobytes.
+    /// </summary>
+    private const int ThumbnailDecodePixels = 128;
+
     /// <summary>Preset accent swatches (D-pad friendly one-tap choices).</summary>
     private static readonly string[] AccentSwatches =
     [
@@ -45,17 +54,19 @@ public partial class AppearancePage : UserControl
     private static readonly StreamGeometry CheckGeometry = StreamGeometry.Parse("M 2,7.5 L 6,11.5 L 12.5,3");
 
     private readonly List<(Button Button, Color Color, ShapePath Check)> _swatches = [];
-    private SettingsViewModel? _viewModel;
-    private Flyout? _splashColorFlyout;
-    private Bitmap? _logoThumbBitmap;
     private Bitmap? _backgroundThumbBitmap;
-    private int _logoThumbGeneration;
     private int _backgroundThumbGeneration;
+    private Bitmap? _logoThumbBitmap;
+    private int _logoThumbGeneration;
+    private Flyout? _splashColorFlyout;
     private bool _syncingAccent;
+    private SettingsViewModel? _viewModel;
 
-    /// <summary>Loads the compiled page XAML, builds the accent swatches and the
-    /// splash preset list, and tracks the view model for live accent preview and
-    /// image-thumbnail refreshes.</summary>
+    /// <summary>
+    ///     Loads the compiled page XAML, builds the accent swatches and the
+    ///     splash preset list, and tracks the view model for live accent preview and
+    ///     image-thumbnail refreshes.
+    /// </summary>
     public AppearancePage()
     {
         InitializeComponent();
@@ -83,11 +94,13 @@ public partial class AppearancePage : UserControl
         {
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         }
+
         _viewModel = DataContext as SettingsViewModel;
         if (_viewModel is not null)
         {
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         }
+
         RefreshAccentVisuals();
         RefreshLogoThumbnail();
         RefreshBackgroundThumbnail();
@@ -163,23 +176,28 @@ public partial class AppearancePage : UserControl
         {
             return;
         }
+
         var c = e.NewColor;
         _viewModel.AccentColorHex = $"#{c.A:X2}{c.R:X2}{c.G:X2}{c.B:X2}";
     }
 
-    /// <summary>Live process-local accent preview: a parsable hex re-colors the
-    /// running UI immediately (Save persists it for every process). A half-typed
-    /// value changes nothing rather than flashing the fallback accent.</summary>
+    /// <summary>
+    ///     Live process-local accent preview: a parsable hex re-colors the
+    ///     running UI immediately (Save persists it for every process). A half-typed
+    ///     value changes nothing rather than flashing the fallback accent.
+    /// </summary>
     private void ApplyAccentPreview()
     {
         if (_viewModel is null || !Color.TryParse(_viewModel.AccentColorHex, out var color))
         {
             return;
         }
+
         if (Application.Current is { } app)
         {
             AccentPalette.Apply(app, color);
         }
+
         RefreshAccentVisuals();
     }
 
@@ -189,10 +207,12 @@ public partial class AppearancePage : UserControl
         {
             return;
         }
+
         foreach (var (_, swatchColor, check) in _swatches)
         {
             check.IsVisible = swatchColor == color;
         }
+
         _syncingAccent = true;
         try
         {
@@ -205,8 +225,10 @@ public partial class AppearancePage : UserControl
     }
 
     // --- Splash colors ---
-    /// <summary>One handler for the four splash color swatches, keyed by the
-    /// button's Tag ("Background", "Text", "Caption", "Spinner").</summary>
+    /// <summary>
+    ///     One handler for the four splash color swatches, keyed by the
+    ///     button's Tag ("Background", "Text", "Caption", "Spinner").
+    /// </summary>
     private void OnSplashColorSwatchClick(object? sender, RoutedEventArgs e)
     {
         switch ((sender as Button)?.Tag as string)
@@ -230,20 +252,22 @@ public partial class AppearancePage : UserControl
         }
     }
 
-    /// <summary>Opens a color-picker flyout on a splash swatch button — the
-    /// TOUCH/mouse path to these colors. It is deliberately NOT a controller
-    /// path: flyout content lives in its own popup root and GamepadNavigation is
-    /// scoped to the owning window, so a pad can neither reach the picker nor
-    /// dismiss it (hence
-    /// <see cref="TryCloseColorFlyout"/>, which the window's Back action calls
-    /// first). Gamepad navigation also skips the paired hex TextBoxes, so on a
-    /// pad-only device these four colors are currently editable by touch only.
-    /// The picker starts on the row's current color and writes every change back
-    /// through <paramref name="setHex"/>, so the swatch and TextBox update live;
-    /// alpha is disabled to match the "#RRGGBB" splash color format. The flyout
-    /// hosts the full picker panel (<see cref="ColorView"/>, the accent
-    /// <see cref="ColorPicker"/>'s base class) directly — a nested ColorPicker
-    /// would put a second drop-down button inside the flyout.</summary>
+    /// <summary>
+    ///     Opens a color-picker flyout on a splash swatch button — the
+    ///     TOUCH/mouse path to these colors. It is deliberately NOT a controller
+    ///     path: flyout content lives in its own popup root and GamepadNavigation is
+    ///     scoped to the owning window, so a pad can neither reach the picker nor
+    ///     dismiss it (hence
+    ///     <see cref="TryCloseColorFlyout" />, which the window's Back action calls
+    ///     first). Gamepad navigation also skips the paired hex TextBoxes, so on a
+    ///     pad-only device these four colors are currently editable by touch only.
+    ///     The picker starts on the row's current color and writes every change back
+    ///     through <paramref name="setHex" />, so the swatch and TextBox update live;
+    ///     alpha is disabled to match the "#RRGGBB" splash color format. The flyout
+    ///     hosts the full picker panel (<see cref="ColorView" />, the accent
+    ///     <see cref="ColorPicker" />'s base class) directly — a nested ColorPicker
+    ///     would put a second drop-down button inside the flyout.
+    /// </summary>
     private void ShowSplashColorFlyout(
         object? sender, Func<SettingsViewModel, string> getHex, Action<SettingsViewModel, string> setHex)
     {
@@ -251,11 +275,13 @@ public partial class AppearancePage : UserControl
         {
             return;
         }
+
         var picker = new ColorView { IsAlphaEnabled = false };
         if (Color.TryParse(getHex(viewModel), out var current))
         {
             picker.Color = current;
         }
+
         picker.ColorChanged += (_, args) =>
             setHex(viewModel, $"#{args.NewColor.R:X2}{args.NewColor.G:X2}{args.NewColor.B:X2}");
         var flyout = new Flyout { Content = picker };
@@ -263,13 +289,15 @@ public partial class AppearancePage : UserControl
         flyout.ShowAt(anchor);
     }
 
-    /// <summary>Closes an open splash color flyout. The settings window's
-    /// controller Back action calls this before closing itself: B is the natural
-    /// "dismiss this popup" press, but the flyout is outside gamepad navigation's
-    /// window scope, so without this the press would close Settings and discard
-    /// every unsaved edit. A light-dismissed flyout is already closed (IsOpen is
-    /// false), which lets B fall through to closing the window.</summary>
-    /// <returns><see langword="true"/> when a flyout was open and was closed.</returns>
+    /// <summary>
+    ///     Closes an open splash color flyout. The settings window's
+    ///     controller Back action calls this before closing itself: B is the natural
+    ///     "dismiss this popup" press, but the flyout is outside gamepad navigation's
+    ///     window scope, so without this the press would close Settings and discard
+    ///     every unsaved edit. A light-dismissed flyout is already closed (IsOpen is
+    ///     false), which lets B fall through to closing the window.
+    /// </summary>
+    /// <returns><see langword="true" /> when a flyout was open and was closed.</returns>
     internal bool TryCloseColorFlyout()
     {
         if (_splashColorFlyout is not { IsOpen: true } flyout)
@@ -277,6 +305,7 @@ public partial class AppearancePage : UserControl
             _splashColorFlyout = null;
             return false;
         }
+
         flyout.Hide();
         _splashColorFlyout = null;
         return true;
@@ -289,11 +318,13 @@ public partial class AppearancePage : UserControl
         {
             return;
         }
+
         var index = PresetCombo.SelectedIndex;
         if (index < 0 || index >= SplashPresets.All.Count)
         {
             return;
         }
+
         var preset = SplashPresets.All[index];
         _viewModel.LoadSplash(SplashPresets.Create(preset));
         _viewModel.StatusText = $"Preset '{SplashPresets.DisplayName(preset)}' applied — Save changes to keep it.";
@@ -302,39 +333,45 @@ public partial class AppearancePage : UserControl
     // --- Splash images ---
     // Decoded off the UI thread. A newer pick or an unload moves the generation on, and a decode that
     // finishes behind it is dropped instead of shown.
-    private void RefreshLogoThumbnail() => ObservePageAction(async () =>
+    private void RefreshLogoThumbnail()
     {
-        var generation = ++_logoThumbGeneration;
-        var bitmap = await LoadThumbnailAsync(_viewModel?.SplashLogoPath);
-        if (generation != _logoThumbGeneration)
+        ObservePageAction(async () =>
         {
-            bitmap?.Dispose();
-            return;
-        }
-        _logoThumbBitmap = ShowThumbnail(bitmap, LogoThumb, LogoNone, _logoThumbBitmap);
-    }, "Logo thumbnail");
+            var generation = ++_logoThumbGeneration;
+            var bitmap = await LoadThumbnailAsync(_viewModel?.SplashLogoPath);
+            if (generation != _logoThumbGeneration)
+            {
+                bitmap?.Dispose();
+                return;
+            }
 
-    private void RefreshBackgroundThumbnail() => ObservePageAction(async () =>
+            _logoThumbBitmap = ShowThumbnail(bitmap, LogoThumb, LogoNone, _logoThumbBitmap);
+        }, "Logo thumbnail");
+    }
+
+    private void RefreshBackgroundThumbnail()
     {
-        var generation = ++_backgroundThumbGeneration;
-        var bitmap = await LoadThumbnailAsync(_viewModel?.SplashBackgroundImagePath);
-        if (generation != _backgroundThumbGeneration)
+        ObservePageAction(async () =>
         {
-            bitmap?.Dispose();
-            return;
-        }
-        _backgroundThumbBitmap = ShowThumbnail(bitmap, BackgroundThumb, BackgroundNone, _backgroundThumbBitmap);
-    }, "Background thumbnail");
+            var generation = ++_backgroundThumbGeneration;
+            var bitmap = await LoadThumbnailAsync(_viewModel?.SplashBackgroundImagePath);
+            if (generation != _backgroundThumbGeneration)
+            {
+                bitmap?.Dispose();
+                return;
+            }
 
-    /// <summary>Longest edge decoded for an inline thumbnail. The preview panel is
-    /// 44x28 device-independent pixels, so 128 px stays sharp at any display
-    /// scale while keeping the pixel buffer at a few tens of kilobytes.</summary>
-    private const int ThumbnailDecodePixels = 128;
+            _backgroundThumbBitmap = ShowThumbnail(bitmap, BackgroundThumb, BackgroundNone, _backgroundThumbBitmap);
+        }, "Background thumbnail");
+    }
 
-    /// <summary>Decodes one inline thumbnail on the thread pool. A missing or unreadable
-    /// file yields null, which shows the "NONE" placeholder.</summary>
-    private static Task<Bitmap?> LoadThumbnailAsync(string? path) =>
-        string.IsNullOrWhiteSpace(path)
+    /// <summary>
+    ///     Decodes one inline thumbnail on the thread pool. A missing or unreadable
+    ///     file yields null, which shows the "NONE" placeholder.
+    /// </summary>
+    private static Task<Bitmap?> LoadThumbnailAsync(string? path)
+    {
+        return string.IsNullOrWhiteSpace(path)
             ? Task.FromResult<Bitmap?>(null)
             : Task.Run(() =>
             {
@@ -348,9 +385,12 @@ public partial class AppearancePage : UserControl
                     return null;
                 }
             });
+    }
 
-    /// <summary>Shows a decoded thumbnail, or the "NONE" placeholder for null. The previous
-    /// bitmap is disposed only after the Image stopped referencing it.</summary>
+    /// <summary>
+    ///     Shows a decoded thumbnail, or the "NONE" placeholder for null. The previous
+    ///     bitmap is disposed only after the Image stopped referencing it.
+    /// </summary>
     private static Bitmap? ShowThumbnail(Bitmap? bitmap, Image image, TextBlock placeholder, Bitmap? previous)
     {
         image.Source = bitmap;
@@ -360,22 +400,26 @@ public partial class AppearancePage : UserControl
         return bitmap;
     }
 
-    /// <summary>Decodes a thumbnail with the decoded pixel buffer bounded up front.
-    /// Splash images can arrive from an imported (therefore untrusted)
-    /// .wsgmsplash theme, whose byte caps bound only the ENCODED size — a few KB
-    /// can declare tens of thousands of pixels per side, and a full-resolution
-    /// decode then hangs or OOMs Settings. So the header is read first
-    /// (<see cref="ImageHeader"/>): unreadable or absurd dimensions show the
-    /// "NONE" placeholder, and anything larger than the preview is decoded scaled
-    /// down its longer edge (which also keeps extreme aspect ratios bounded).
-    /// The header is only what the file DECLARES; a lying one just fails the
-    /// decode, which the caller already catches.</summary>
+    /// <summary>
+    ///     Decodes a thumbnail with the decoded pixel buffer bounded up front.
+    ///     Splash images can arrive from an imported (therefore untrusted)
+    ///     .wsgmsplash theme, whose byte caps bound only the ENCODED size — a few KB
+    ///     can declare tens of thousands of pixels per side, and a full-resolution
+    ///     decode then hangs or OOMs Settings. So the header is read first
+    ///     (<see cref="ImageHeader" />): unreadable or absurd dimensions show the
+    ///     "NONE" placeholder, and anything larger than the preview is decoded scaled
+    ///     down its longer edge (which also keeps extreme aspect ratios bounded).
+    ///     The header is only what the file DECLARES; a lying one just fails the
+    ///     decode, which the caller already catches.
+    /// </summary>
     private static Bitmap? LoadThumbnail(string path)
     {
-        if (!ImageHeader.TryReadBoundedSize(path, "Appearance", $"no thumbnail for '{path}'.", out var width, out var height))
+        if (!ImageHeader.TryReadBoundedSize(path, "Appearance", $"no thumbnail for '{path}'.", out var width,
+                out var height))
         {
             return null;
         }
+
         if (width <= ThumbnailDecodePixels && height <= ThumbnailDecodePixels)
         {
             return new Bitmap(path);
@@ -389,10 +433,14 @@ public partial class AppearancePage : UserControl
             : Bitmap.DecodeToHeight(stream, ThumbnailDecodePixels);
     }
 
-    /// <summary>One picker for both image slots, keyed by the button's Tag
-    /// ("Logo" or "Background").</summary>
-    private void OnBrowseImage(object? sender, RoutedEventArgs e) =>
+    /// <summary>
+    ///     One picker for both image slots, keyed by the button's Tag
+    ///     ("Logo" or "Background").
+    /// </summary>
+    private void OnBrowseImage(object? sender, RoutedEventArgs e)
+    {
         ObservePageAction(() => BrowseImageAsync(sender), "Image picker");
+    }
 
     private async Task BrowseImageAsync(object? sender)
     {
@@ -431,6 +479,7 @@ public partial class AppearancePage : UserControl
         {
             return null;
         }
+
         var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = title,
@@ -450,6 +499,7 @@ public partial class AppearancePage : UserControl
         {
             return;
         }
+
         try
         {
             if (TopLevel.GetTopLevel(this) is SettingsWindow window)
@@ -464,8 +514,10 @@ public partial class AppearancePage : UserControl
         }
     }
 
-    private void OnExportSplash(object? sender, RoutedEventArgs e) =>
+    private void OnExportSplash(object? sender, RoutedEventArgs e)
+    {
         ObservePageAction(() => ExportSplashAsync(sender), "Splash export");
+    }
 
     private async Task ExportSplashAsync(object? sender)
     {
@@ -473,6 +525,7 @@ public partial class AppearancePage : UserControl
         {
             return;
         }
+
         var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "Export splash theme",
@@ -488,6 +541,7 @@ public partial class AppearancePage : UserControl
         {
             return;
         }
+
         // The archive write copies the splash images, which are megabytes on a
         // real theme: off the UI thread so Settings keeps repainting and keeps
         // answering touch and the pad while it runs.
@@ -499,8 +553,10 @@ public partial class AppearancePage : UserControl
             : "Splash theme export failed — see wsgm.log for details.";
     }
 
-    private void OnImportSplash(object? sender, RoutedEventArgs e) =>
+    private void OnImportSplash(object? sender, RoutedEventArgs e)
+    {
         ObservePageAction(() => ImportSplashAsync(sender), "Splash import");
+    }
 
     private async Task ImportSplashAsync(object? sender)
     {
@@ -508,6 +564,7 @@ public partial class AppearancePage : UserControl
         {
             return;
         }
+
         var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "Import splash theme",
@@ -522,6 +579,7 @@ public partial class AppearancePage : UserControl
         {
             return;
         }
+
         // Imported images land in a per-import staging directory; Save's staged
         // SplashAssets transaction commits them into the stable splash assets —
         // the live copies stay untouched until the user actually saves.
@@ -535,6 +593,7 @@ public partial class AppearancePage : UserControl
             _viewModel.StatusText = "Couldn't import: not a readable splash theme (see wsgm.log).";
             return;
         }
+
         _viewModel.LoadSplash(imported);
         _viewModel.StatusText = "Splash theme imported — Save changes to keep it.";
     }
@@ -573,11 +632,15 @@ public partial class AppearancePage : UserControl
         }
     }
 
-    /// <summary>Observes a page action across both its synchronous invocation and
-    /// asynchronous continuation. File-picker and archive failures therefore stay
-    /// visible in Settings instead of escaping an async-void event boundary.</summary>
-    private void ObservePageAction(Func<Task> action, string operation) =>
+    /// <summary>
+    ///     Observes a page action across both its synchronous invocation and
+    ///     asynchronous continuation. File-picker and archive failures therefore stay
+    ///     visible in Settings instead of escaping an async-void event boundary.
+    /// </summary>
+    private void ObservePageAction(Func<Task> action, string operation)
+    {
         _ = ObservePageActionAsync(action, operation);
+    }
 
     private async Task ObservePageActionAsync(Func<Task> action, string operation)
     {
@@ -595,10 +658,12 @@ public partial class AppearancePage : UserControl
         }
     }
 
-    /// <summary>Runs one blocking splash-theme archive operation off the UI thread
-    /// with the button that started it disabled, so the page stays responsive and
-    /// a second run cannot be started on top of the first. The result is returned
-    /// on the UI thread (the await captures the dispatcher context).</summary>
+    /// <summary>
+    ///     Runs one blocking splash-theme archive operation off the UI thread
+    ///     with the button that started it disabled, so the page stays responsive and
+    ///     a second run cannot be started on top of the first. The result is returned
+    ///     on the UI thread (the await captures the dispatcher context).
+    /// </summary>
     /// <typeparam name="T">The operation's result type.</typeparam>
     /// <param name="sender">The clicked button, re-enabled when the work ends.</param>
     /// <param name="work">The blocking archive operation.</param>

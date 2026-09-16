@@ -26,36 +26,52 @@ internal readonly record struct PluginSettingsView(
 );
 
 /// <summary>
-/// Holds the active plugin's settings declaration, reconciles it with what is stored, and keeps the
-/// plugin supplied with the values in force.
+///     Holds the active plugin's settings declaration, reconciles it with what is stored, and keeps the
+///     plugin supplied with the values in force.
 /// </summary>
 /// <remarks>
-/// Deliberately separate from <see cref="DeviceCapabilityRouter"/>. A capability writes hardware and
-/// the device keeps the value; a setting configures the plugin and WSGM keeps it. Sharing one
-/// projection would blur exactly the boundary that decides which surface a control belongs on.
+///     Deliberately separate from <see cref="DeviceCapabilityRouter" />. A capability writes hardware and
+///     the device keeps the value; a setting configures the plugin and WSGM keeps it. Sharing one
+///     projection would blur exactly the boundary that decides which surface a control belongs on.
 /// </remarks>
 internal sealed class PluginSettingsCoordinator : IDisposable
 {
     /// <summary>Section id used for a setting that names one the manifest never declared.</summary>
     /// <remarks>
-    /// The colon is load-bearing: <see cref="PlainText.IsIdentifier"/> does not accept one, so no
-    /// plugin can declare this id and take the fallback group over. A dotted name would be a legal
-    /// plugin section id and the collision would be silent — the plugin's own section and WSGM's
-    /// leftovers would merge into one heading.
+    ///     The colon is load-bearing: <see cref="PlainText.IsIdentifier" /> does not accept one, so no
+    ///     plugin can declare this id and take the fallback group over. A dotted name would be a legal
+    ///     plugin section id and the collision would be silent — the plugin's own section and WSGM's
+    ///     leftovers would merge into one heading.
     /// </remarks>
     internal const string FallbackSectionId = "wsgm:other";
 
-    private readonly Lock _gate = new();
     private readonly SemaphoreSlim _deliveryGate = new(1, 1);
+
+    private readonly Lock _gate = new();
     private DevicePluginRuntime? _client;
-    private PluginSettingsManifest? _manifest;
-    private string _deviceDefinitionId = string.Empty;
-    private string _pluginId = string.Empty;
     private AppConfig? _config;
+    private string _deviceDefinitionId = string.Empty;
     private bool _disposed;
+    private PluginSettingsManifest? _manifest;
+    private string _pluginId = string.Empty;
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            DetachUnderGate();
+        }
+    }
 
     /// <summary>
-    /// Begins tracking a plugin's settings for one cycle.
+    ///     Begins tracking a plugin's settings for one cycle.
     /// </summary>
     /// <param name="client">The active in-process plugin runtime.</param>
     /// <param name="deviceDefinitionId">Device definition the values are keyed under.</param>
@@ -105,21 +121,6 @@ internal sealed class PluginSettingsCoordinator : IDisposable
         PublishAndPush();
     }
 
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        lock (_gate)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            DetachUnderGate();
-        }
-    }
-
     private void OnManifest(PluginSettingsManifest manifest)
     {
         string device;
@@ -140,8 +141,7 @@ internal sealed class PluginSettingsCoordinator : IDisposable
             {
                 try
                 {
-                    var persisted = ConfigStore.Mutate(
-                        config => CacheDeclaration(config, device, plugin, manifest));
+                    var persisted = ConfigStore.Mutate(config => CacheDeclaration(config, device, plugin, manifest));
                     lock (_gate)
                     {
                         _config = persisted;
@@ -189,7 +189,10 @@ internal sealed class PluginSettingsCoordinator : IDisposable
         scope.Declaration = manifest;
     }
 
-    private void PublishAndPush() => _ = PublishAndPushAsync(CancellationToken.None);
+    private void PublishAndPush()
+    {
+        _ = PublishAndPushAsync(CancellationToken.None);
+    }
 
     private async Task PublishAndPushAsync(CancellationToken cancellationToken)
     {
@@ -212,8 +215,7 @@ internal sealed class PluginSettingsCoordinator : IDisposable
             }
 
             var resolution = PluginSettingsResolver.Resolve(manifest, stored);
-            foreach (var rejected in resolution.Values.Where(
-                value => value.Origin is PluginSettingOrigin.Rejected))
+            foreach (var rejected in resolution.Values.Where(value => value.Origin is PluginSettingOrigin.Rejected))
             {
                 Log.Warn(
                     $"Plugin setting '{rejected.SettingId}' fell back to its default: {rejected.Reason}");
@@ -251,7 +253,7 @@ internal sealed class PluginSettingsCoordinator : IDisposable
     }
 
     /// <summary>
-    /// Arranges a declaration and its resolved values into what a surface draws.
+    ///     Arranges a declaration and its resolved values into what a surface draws.
     /// </summary>
     /// <param name="manifest">The plugin's declaration.</param>
     /// <param name="resolution">The values in force.</param>
@@ -274,10 +276,10 @@ internal sealed class PluginSettingsCoordinator : IDisposable
         // Declaration order is the tiebreak, so an ordering the plugin left unset still renders the
         // same way every time rather than following dictionary iteration.
         foreach (var setting in manifest.Settings
-            .Select((setting, index) => (setting, index))
-            .OrderBy(pair => pair.setting.SortOrder)
-            .ThenBy(pair => pair.index)
-            .Select(pair => pair.setting))
+                     .Select((setting, index) => (setting, index))
+                     .OrderBy(pair => pair.setting.SortOrder)
+                     .ThenBy(pair => pair.index)
+                     .Select(pair => pair.setting))
         {
             var section = setting.SectionId is { Length: > 0 } named
                           && declaredSections.Contains(named)

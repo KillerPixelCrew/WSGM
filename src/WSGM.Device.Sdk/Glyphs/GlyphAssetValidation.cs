@@ -15,6 +15,7 @@ internal enum GlyphAssetImportCode
 {
     /// <summary>The media payload was malformed or did not match its declared format.</summary>
     MalformedAsset,
+
     /// <summary>The payload dimensions did not match its declaration.</summary>
     DimensionMismatch
 }
@@ -27,22 +28,28 @@ internal sealed record GlyphAssetImportError(string Sha256, GlyphAssetImportCode
 
 internal sealed record AssetImportResult(ImportedGlyphAsset? Asset, GlyphAssetImportError? Error)
 {
-    internal static AssetImportResult Success(ImportedGlyphAsset asset) => new(asset, null);
+    internal static AssetImportResult Success(ImportedGlyphAsset asset)
+    {
+        return new AssetImportResult(asset, null);
+    }
 
     internal static AssetImportResult Failure(
         string sha256,
         GlyphAssetImportCode code,
-        string message) => new(null, new GlyphAssetImportError(sha256, code, message));
+        string message)
+    {
+        return new AssetImportResult(null, new GlyphAssetImportError(sha256, code, message));
+    }
 }
 
 /// <summary>
-/// Validates an SVG asset for both passthrough and WSGM's bounded path renderer.
+///     Validates an SVG asset for both passthrough and WSGM's bounded path renderer.
 /// </summary>
 /// <remarks>
-/// The original SVG bytes pass through to Steam. Import verifies UTF-8, bounded well-formed XML,
-/// an <c>svg</c> root, and declared dimensions, then extracts only the paths WSGM's Avalonia
-/// renderer understands. Unsupported drawing features affect that local projection without
-/// rewriting or rejecting the author's document.
+///     The original SVG bytes pass through to Steam. Import verifies UTF-8, bounded well-formed XML,
+///     an <c>svg</c> root, and declared dimensions, then extracts only the paths WSGM's Avalonia
+///     renderer understands. Unsupported drawing features affect that local projection without
+///     rewriting or rejecting the author's document.
 /// </remarks>
 internal static class GlyphSvgNormalizer
 {
@@ -121,30 +128,21 @@ internal static class GlyphSvgNormalizer
         });
     }
 
-    /// <summary>Presentation that applies to a path, resolved through its enclosing groups.</summary>
-    private readonly record struct Presentation(
-        string Fill,
-        string Stroke,
-        decimal StrokeWidth,
-        string FillRule,
-        string LineCap,
-        string LineJoin);
-
     /// <summary>Collects the paths WSGM's own renderer can draw.</summary>
     /// <param name="reader">Reader positioned on the root element.</param>
     /// <param name="paths">Receives one entry per path found.</param>
     /// <param name="commandCount">Running total used to enforce the package command budget.</param>
     /// <remarks>
-    /// Deliberately forgiving. Anything it does not understand — an element it has no renderer for,
-    /// an attribute outside the handful below — is skipped rather than treated as a fault, because
-    /// this exists to draw glyphs in WSGM's overlay and not to pass judgement on the artwork. Steam
-    /// receives the author's bytes either way, so a drawing this cannot fully read still displays
-    /// there correctly.
-    /// <para>
-    /// Group presentation is inherited rather than refused. The Claw's controller illustration
-    /// carries its stroke on nine nested groups and would otherwise draw as a set of unstyled
-    /// outlines.
-    /// </para>
+    ///     Deliberately forgiving. Anything it does not understand — an element it has no renderer for,
+    ///     an attribute outside the handful below — is skipped rather than treated as a fault, because
+    ///     this exists to draw glyphs in WSGM's overlay and not to pass judgement on the artwork. Steam
+    ///     receives the author's bytes either way, so a drawing this cannot fully read still displays
+    ///     there correctly.
+    ///     <para>
+    ///         Group presentation is inherited rather than refused. The Claw's controller illustration
+    ///         carries its stroke on nine nested groups and would otherwise draw as a set of unstyled
+    ///         outlines.
+    ///     </para>
     /// </remarks>
     private static void ExtractPaths(
         XmlReader reader,
@@ -248,9 +246,9 @@ internal static class GlyphSvgNormalizer
     /// <param name="reader">Reader positioned on the root element.</param>
     /// <returns>The view box, or null when neither is usable.</returns>
     /// <remarks>
-    /// An absent view box is not a defect: SVG defines user space as the viewport, so the intrinsic
-    /// width and height ARE the view box. Four of the twenty glyphs in the first packaged profile
-    /// are exported exactly that way.
+    ///     An absent view box is not a defect: SVG defines user space as the viewport, so the intrinsic
+    ///     width and height ARE the view box. Four of the twenty glyphs in the first packaged profile
+    ///     are exported exactly that way.
     /// </remarks>
     private static GlyphViewBox? ReadViewBox(XmlReader reader)
     {
@@ -296,16 +294,27 @@ internal static class GlyphSvgNormalizer
     {
         parsed = 0;
         return value is not null
-            && decimal.TryParse(
-                value,
-                NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
-                CultureInfo.InvariantCulture,
-                out parsed)
-            && Math.Abs(parsed) <= GlyphProfileLimits.MaxDimension;
+               && decimal.TryParse(
+                   value,
+                   NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                   CultureInfo.InvariantCulture,
+                   out parsed)
+               && Math.Abs(parsed) <= GlyphProfileLimits.MaxDimension;
     }
 
-    private static AssetImportResult Failure(GlyphAssetLockEntry asset, string message) =>
-        AssetImportResult.Failure(asset.Sha256, GlyphAssetImportCode.MalformedAsset, message);
+    private static AssetImportResult Failure(GlyphAssetLockEntry asset, string message)
+    {
+        return AssetImportResult.Failure(asset.Sha256, GlyphAssetImportCode.MalformedAsset, message);
+    }
+
+    /// <summary>Presentation that applies to a path, resolved through its enclosing groups.</summary>
+    private readonly record struct Presentation(
+        string Fill,
+        string Stroke,
+        decimal StrokeWidth,
+        string FillRule,
+        string LineCap,
+        string LineJoin);
 }
 
 internal static class GlyphPngInspector
@@ -355,6 +364,7 @@ internal static class GlyphPngInspector
             {
                 return Failure(asset, $"PNG chunk '{type}' has an invalid CRC.");
             }
+
             offset += checked((int)length + 12);
 
             if (!sawHeader)
@@ -363,6 +373,7 @@ internal static class GlyphPngInspector
                 {
                     return Failure(asset, "PNG must begin with one 13-byte IHDR chunk.");
                 }
+
                 var widthValue = BinaryPrimitives.ReadUInt32BigEndian(data[..4]);
                 var heightValue = BinaryPrimitives.ReadUInt32BigEndian(data.Slice(4, 4));
                 var bitDepth = data[8];
@@ -374,6 +385,7 @@ internal static class GlyphPngInspector
                 {
                     return Failure(asset, "PNG IHDR dimensions or encoding fields are unsafe.");
                 }
+
                 width = (int)widthValue;
                 height = (int)heightValue;
                 headerColorType = colorType;
@@ -393,6 +405,7 @@ internal static class GlyphPngInspector
                 {
                     return Failure(asset, "PNG IDAT ordering is invalid.");
                 }
+
                 sawData = true;
                 compressedImage.Write(data);
             }
@@ -402,6 +415,7 @@ internal static class GlyphPngInspector
                 {
                     return Failure(asset, "PNG palette is malformed or appears after image data.");
                 }
+
                 sawPalette = true;
             }
             else if (type == "IEND")
@@ -410,6 +424,7 @@ internal static class GlyphPngInspector
                 {
                     return Failure(asset, "PNG IEND is malformed or followed by trailing bytes.");
                 }
+
                 sawEnd = true;
                 break;
             }
@@ -437,11 +452,11 @@ internal static class GlyphPngInspector
         }
 
         if (!ValidateDecodedRaster(
-            compressedImage.ToArray(),
-            width,
-            height,
-            headerBitDepth,
-            headerColorType))
+                compressedImage.ToArray(),
+                width,
+                height,
+                headerBitDepth,
+                headerColorType))
         {
             return Failure(asset, "PNG image data is malformed or exceeds its decoded bounds.");
         }
@@ -453,16 +468,21 @@ internal static class GlyphPngInspector
         });
     }
 
-    private static AssetImportResult Failure(GlyphAssetLockEntry asset, string message) =>
-        AssetImportResult.Failure(asset.Sha256, GlyphAssetImportCode.MalformedAsset, message);
-
-    private static bool ValidColorEncoding(byte bitDepth, byte colorType) => colorType switch
+    private static AssetImportResult Failure(GlyphAssetLockEntry asset, string message)
     {
-        0 => bitDepth is 1 or 2 or 4 or 8 or 16,
-        2 or 4 or 6 => bitDepth is 8 or 16,
-        3 => bitDepth is 1 or 2 or 4 or 8,
-        _ => false
-    };
+        return AssetImportResult.Failure(asset.Sha256, GlyphAssetImportCode.MalformedAsset, message);
+    }
+
+    private static bool ValidColorEncoding(byte bitDepth, byte colorType)
+    {
+        return colorType switch
+        {
+            0 => bitDepth is 1 or 2 or 4 or 8 or 16,
+            2 or 4 or 6 => bitDepth is 8 or 16,
+            3 => bitDepth is 1 or 2 or 4 or 8,
+            _ => false
+        };
+    }
 
     private static bool ValidateDecodedRaster(
         byte[] compressed,
@@ -494,8 +514,8 @@ internal static class GlyphPngInspector
         var decoded = new byte[expectedBytes + 1];
         try
         {
-            using MemoryStream input = new(compressed, writable: false);
-            using ZLibStream inflater = new(input, CompressionMode.Decompress, leaveOpen: false);
+            using MemoryStream input = new(compressed, false);
+            using ZLibStream inflater = new(input, CompressionMode.Decompress, false);
             var received = 0;
             while (received < decoded.Length)
             {
@@ -504,6 +524,7 @@ internal static class GlyphPngInspector
                 {
                     break;
                 }
+
                 received += read;
             }
 
@@ -524,6 +545,7 @@ internal static class GlyphPngInspector
                 return false;
             }
         }
+
         return true;
     }
 
@@ -539,6 +561,7 @@ internal static class GlyphPngInspector
                 crc = (crc >> 1) ^ (0xedb88320u & mask);
             }
         }
+
         return ~crc;
     }
 }

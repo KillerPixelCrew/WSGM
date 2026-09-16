@@ -5,9 +5,11 @@ using WSGM.Interop;
 
 namespace WSGM.Shell;
 
-/// <summary>A top-center, non-activating and click-through volume OSD. It never
-/// takes focus from the game and is constructed only when Windows reports no
-/// exclusive Direct3D fullscreen session.</summary>
+/// <summary>
+///     A top-center, non-activating and click-through volume OSD. It never
+///     takes focus from the game and is constructed only when Windows reports no
+///     exclusive Direct3D fullscreen session.
+/// </summary>
 public partial class VolumeIndicatorWindow : Window
 {
     private readonly double _uiScale;
@@ -33,7 +35,11 @@ public partial class VolumeIndicatorWindow : Window
         VolumeTitle.Text = muted ? "Muted" : "Volume";
         VolumeIcon.Text = muted || percentage == 0
             ? "🔇"
-            : percentage < 34 ? "🔈" : percentage < 67 ? "🔉" : "🔊";
+            : percentage < 34
+                ? "🔈"
+                : percentage < 67
+                    ? "🔉"
+                    : "🔊";
     }
 
     private void PositionAndMakeClickThrough()

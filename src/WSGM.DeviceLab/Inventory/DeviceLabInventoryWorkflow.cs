@@ -114,7 +114,7 @@ internal static class DeviceLabInventoryWorkflow
                 cancellationToken);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException
-            and not OperationCanceledException)
+                                              and not OperationCanceledException)
         {
             return Failure(DeviceLabInventoryStatus.CollectionFailed, exception.GetType().Name);
         }
@@ -164,10 +164,11 @@ internal static class DeviceLabInventoryWorkflow
             {
                 return cleanupFailure;
             }
+
             throw;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or NotSupportedException or ArgumentException)
+                                              or NotSupportedException or ArgumentException)
         {
             var cleanupError = TryDeleteTemporaryFile(tempPath);
             var detail = cleanupError is null
@@ -189,8 +190,10 @@ internal static class DeviceLabInventoryWorkflow
     internal static DeviceLabInventoryResult? CleanupCancelledWrite(string tempPath)
     {
         var cleanupError = TryDeleteTemporaryFile(tempPath);
-        return cleanupError is null ? null : Failure(DeviceLabInventoryStatus.WriteFailed,
-            $"Cancelled; temporary cleanup failed for {tempPath}: {cleanupError}");
+        return cleanupError is null
+            ? null
+            : Failure(DeviceLabInventoryStatus.WriteFailed,
+                $"Cancelled; temporary cleanup failed for {tempPath}: {cleanupError}");
     }
 
     private static string? TryDeleteTemporaryFile(string path)
@@ -211,10 +214,12 @@ internal static class DeviceLabInventoryWorkflow
         }
     }
 
-    private static DeviceLabInventoryResult Failure(DeviceLabInventoryStatus status, string? error) =>
-        new()
+    private static DeviceLabInventoryResult Failure(DeviceLabInventoryStatus status, string? error)
+    {
+        return new DeviceLabInventoryResult
         {
             Status = status,
             Error = error ?? "The inventory workflow could not complete."
         };
+    }
 }

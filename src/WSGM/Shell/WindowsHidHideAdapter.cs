@@ -79,8 +79,10 @@ internal sealed class NativeHidHideControl : IHidHideControl
         }
     }
 
-    private static HidHideControlState Failure(int error) =>
-        new(false, error, false, false, [], []);
+    private static HidHideControlState Failure(int error)
+    {
+        return new HidHideControlState(false, error, false, false, [], []);
+    }
 }
 
 internal sealed class WindowsHidHideAdapter : IHidHideAdapter

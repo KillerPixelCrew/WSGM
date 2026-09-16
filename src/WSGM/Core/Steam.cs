@@ -19,24 +19,28 @@ public enum BigPictureShortcut
     QuickAccess
 }
 
-/// <summary>Everything WSGM knows about Steam. WSGM is Steam-exclusive: Steam is
-/// located via the registry (no path configuration), started/focused/closed via
-/// steam:// protocol URLs (UIPI-proof, and the handler boots Steam when needed),
-/// and its Big Picture window is recognized by class+process.</summary>
+/// <summary>
+///     Everything WSGM knows about Steam. WSGM is Steam-exclusive: Steam is
+///     located via the registry (no path configuration), started/focused/closed via
+///     steam:// protocol URLs (UIPI-proof, and the handler boots Steam when needed),
+///     and its Big Picture window is recognized by class+process.
+/// </summary>
 public static class Steam
 {
-    private static readonly TimeSpan UpdateGracefulExitBudget = TimeSpan.FromSeconds(5);
-
     /// <summary>steam.exe plus the process that owns the Big Picture window.</summary>
     public const string ProcessNames = "steam;steamwebhelper";
 
-    /// <summary>Just steam.exe — deliberately narrower than <see cref="ProcessNames"/>:
-    /// only the main client services steam:// protocol URLs, so a lingering
-    /// steamwebhelper must not count as "Steam is running" for protocol callers.</summary>
+    /// <summary>
+    ///     Just steam.exe — deliberately narrower than <see cref="ProcessNames" />:
+    ///     only the main client services steam:// protocol URLs, so a lingering
+    ///     steamwebhelper must not count as "Steam is running" for protocol callers.
+    /// </summary>
     private const string MainProcessName = "steam";
 
-    /// <summary>Big Picture window class (paired with the steamwebhelper process —
-    /// SDL_app alone is not unique to Steam).</summary>
+    /// <summary>
+    ///     Big Picture window class (paired with the steamwebhelper process —
+    ///     SDL_app alone is not unique to Steam).
+    /// </summary>
     private const string BigPictureWindowClass = "SDL_app";
 
     /// <summary>Protocol URL that opens Steam Big Picture mode.</summary>
@@ -44,17 +48,24 @@ public static class Steam
 
     /// <summary>Protocol URL that exits Steam Big Picture mode.</summary>
     public const string CloseBigPictureUrl = "steam://close/bigpicture";
+
     /// <summary>Graceful full Steam shutdown (verified client URL).</summary>
     public const string ExitUrl = "steam://exit";
 
-    /// <summary>Gets the complete bounded pre-shutdown window used to release Steam and launch
-    /// wrappers before WSGM starts its separate application-cleanup deadline.</summary>
+    private static readonly TimeSpan UpdateGracefulExitBudget = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    ///     Gets the complete bounded pre-shutdown window used to release Steam and launch
+    ///     wrappers before WSGM starts its separate application-cleanup deadline.
+    /// </summary>
     internal static TimeSpan UpdateStopBudget => TimeSpan.FromSeconds(10);
 
-    /// <summary>Full path to steam.exe from the registry, or null when Steam is not
-    /// installed. HKCU value uses forward slashes — normalized here. The registry+disk
-    /// probe runs once; later reads only re-validate the cached path with File.Exists
-    /// and re-probe when it went missing (uninstall/move).</summary>
+    /// <summary>
+    ///     Full path to steam.exe from the registry, or null when Steam is not
+    ///     installed. HKCU value uses forward slashes — normalized here. The registry+disk
+    ///     probe runs once; later reads only re-validate the cached path with File.Exists
+    ///     and re-probe when it went missing (uninstall/move).
+    /// </summary>
     public static string? ExePath
     {
         get
@@ -64,67 +75,30 @@ public static class Steam
             {
                 return cached;
             }
+
             field = ResolveExePath();
             return field;
         }
     }
 
-    private static string? ResolveExePath()
-    {
-        try
-        {
-            if (Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamExe", null) is string { Length: > 0 } exe)
-            {
-                exe = exe.Replace('/', '\\');
-                if (File.Exists(exe))
-                {
-                    return exe;
-                }
-            }
-            if (Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath", null) is string { Length: > 0 } dir)
-            {
-                var fromInstallDir = Path.Combine(dir, "steam.exe");
-                if (File.Exists(fromInstallDir))
-                {
-                    return fromInstallDir;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Steam registry lookup failed: {ex.Message}");
-        }
-        return null;
-    }
-
-    /// <summary>Gets Steam's install directory, or <see langword="null"/> when Steam
-    /// is not installed. Everything WSGM writes beside Steam - the CEF debug flag and
-    /// the Steam Input proxy - resolves through here rather than repeating the
-    /// directory split at each call site.</summary>
+    /// <summary>
+    ///     Gets Steam's install directory, or <see langword="null" /> when Steam
+    ///     is not installed. Everything WSGM writes beside Steam - the CEF debug flag and
+    ///     the Steam Input proxy - resolves through here rather than repeating the
+    ///     directory split at each call site.
+    /// </summary>
     public static string? InstallDirectory =>
         ExePath is { } exe ? Path.GetDirectoryName(exe) : null;
 
-    /// <summary>Gets the full path of Steam's <c>config\libraryfolders.vdf</c> —
-    /// the install-folder registry every card/library feature reads and edits —
-    /// or <see langword="null"/> when Steam is not installed.</summary>
+    /// <summary>
+    ///     Gets the full path of Steam's <c>config\libraryfolders.vdf</c> —
+    ///     the install-folder registry every card/library feature reads and edits —
+    ///     or <see langword="null" /> when Steam is not installed.
+    /// </summary>
     private static string? LibraryFoldersConfigPath =>
         InstallDirectory is { } directory
             ? Path.Combine(directory, "config", "libraryfolders.vdf")
             : null;
-
-    /// <summary>Reads <c>config\libraryfolders.vdf</c>. False when Steam is not
-    /// installed or the file does not exist yet; <paramref name="path"/> still
-    /// carries the resolved location when only the file is missing, so a caller
-    /// can create it. Deliberately does NOT catch IO failures — the callers'
-    /// policies for an unreadable config differ.</summary>
-    /// <param name="path">The config path, or null when Steam is not installed.</param>
-    /// <param name="text">The file text, or null when it could not be resolved.</param>
-    public static bool TryReadLibraryFolders(out string? path, out string? text)
-    {
-        path = LibraryFoldersConfigPath;
-        text = path is not null && File.Exists(path) ? File.ReadAllText(path) : null;
-        return text is not null;
-    }
 
     /// <summary>Gets whether a usable Steam executable was found.</summary>
     public static bool IsInstalled => ExePath is not null;
@@ -132,15 +106,19 @@ public static class Steam
     /// <summary>Gets whether a Steam client or Big Picture helper process is running.</summary>
     public static bool IsRunning => WindowFinder.FindProcessIds(ProcessNames).Count > 0;
 
-    /// <summary>Gets whether Steam's process-owned Big Picture window exists. This is
-    /// deliberately stronger than <see cref="IsRunning"/>: on a cold start Steam's
-    /// process and headless CEF context exist before its UI is safe for autonomous
-    /// mutation.</summary>
+    /// <summary>
+    ///     Gets whether Steam's process-owned Big Picture window exists. This is
+    ///     deliberately stronger than <see cref="IsRunning" />: on a cold start Steam's
+    ///     process and headless CEF context exist before its UI is safe for autonomous
+    ///     mutation.
+    /// </summary>
     public static bool IsBigPictureVisible =>
         WindowFinder.FindWindow(ProcessNames, BigPictureWindowClass) != IntPtr.Zero;
 
-    /// <summary>Gets whether WSGM must match Steam's elevated integrity level so
-    /// raw-touch gestures and overlay input are not blocked by UIPI.</summary>
+    /// <summary>
+    ///     Gets whether WSGM must match Steam's elevated integrity level so
+    ///     raw-touch gestures and overlay input are not blocked by UIPI.
+    /// </summary>
     public static bool RequiresElevatedShell
     {
         get
@@ -156,12 +134,65 @@ public static class Steam
         }
     }
 
+    private static string? ResolveExePath()
+    {
+        try
+        {
+            if (Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamExe", null) is string
+                {
+                    Length: > 0
+                } exe)
+            {
+                exe = exe.Replace('/', '\\');
+                if (File.Exists(exe))
+                {
+                    return exe;
+                }
+            }
+
+            if (Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath", null) is string
+                {
+                    Length: > 0
+                } dir)
+            {
+                var fromInstallDir = Path.Combine(dir, "steam.exe");
+                if (File.Exists(fromInstallDir))
+                {
+                    return fromInstallDir;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Steam registry lookup failed: {ex.Message}");
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    ///     Reads <c>config\libraryfolders.vdf</c>. False when Steam is not
+    ///     installed or the file does not exist yet; <paramref name="path" /> still
+    ///     carries the resolved location when only the file is missing, so a caller
+    ///     can create it. Deliberately does NOT catch IO failures — the callers'
+    ///     policies for an unreadable config differ.
+    /// </summary>
+    /// <param name="path">The config path, or null when Steam is not installed.</param>
+    /// <param name="text">The file text, or null when it could not be resolved.</param>
+    public static bool TryReadLibraryFolders(out string? path, out string? text)
+    {
+        path = LibraryFoldersConfigPath;
+        text = path is not null && File.Exists(path) ? File.ReadAllText(path) : null;
+        return text is not null;
+    }
+
     private static bool CompatibilityLayerRequiresElevation(string? layer)
     {
         if (string.IsNullOrWhiteSpace(layer))
         {
             return false;
         }
+
         return layer.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries)
             .Any(token => token.TrimStart('~', '!', '#').Equals("RUNASADMIN", StringComparison.OrdinalIgnoreCase));
     }
@@ -188,14 +219,17 @@ public static class Steam
         {
             Log.Warn($"Steam compatibility-layer lookup failed: {ex.Message}");
         }
+
         return false;
     }
 
-    /// <summary>Starts or focuses Big Picture the smooth way. Cold start passes the
-    /// BP URL as a command-line ARGUMENT to steam.exe so Steam boots straight into
-    /// Big Picture — fired as a protocol instead, the handler first brings Steam up
-    /// in desktop mode and only switches after login (user-reported wonkiness).
-    /// When Steam already runs, the protocol re-activates/enters BP (UIPI-proof).</summary>
+    /// <summary>
+    ///     Starts or focuses Big Picture the smooth way. Cold start passes the
+    ///     BP URL as a command-line ARGUMENT to steam.exe so Steam boots straight into
+    ///     Big Picture — fired as a protocol instead, the handler first brings Steam up
+    ///     in desktop mode and only switches after login (user-reported wonkiness).
+    ///     When Steam already runs, the protocol re-activates/enters BP (UIPI-proof).
+    /// </summary>
     /// <param name="unelevated">Whether to request a de-elevated launch.</param>
     /// <param name="cefEnabled">Whether to enable remote debugging before a cold start.</param>
     public static AppLauncher.LaunchResult LaunchBigPicture(bool unelevated = false, bool cefEnabled = true)
@@ -204,12 +238,15 @@ public static class Steam
         {
             return ColdStart(exe, OpenBigPictureUrl, unelevated, cefEnabled);
         }
+
         return AppLauncher.StartProtocol(OpenBigPictureUrl);
     }
 
-    /// <summary>Starts the Steam client without Big Picture, for a desktop session. WSGM owning the
-    /// client start is what gives Steam WSGM's integrity, so Steam Input and the Steam Overlay
-    /// still reach elevated windows once the user's own Steam autostart is out of the way.</summary>
+    /// <summary>
+    ///     Starts the Steam client without Big Picture, for a desktop session. WSGM owning the
+    ///     client start is what gives Steam WSGM's integrity, so Steam Input and the Steam Overlay
+    ///     still reach elevated windows once the user's own Steam autostart is out of the way.
+    /// </summary>
     /// <param name="unelevated">Whether to request a de-elevated launch.</param>
     /// <param name="cefEnabled">Whether to enable remote debugging before the start.</param>
     /// <returns>The launch result, or a started result when Steam already runs.</returns>
@@ -219,13 +256,16 @@ public static class Steam
         {
             return new AppLauncher.LaunchResult(null, true, false);
         }
+
         return ExePath is not { } exe
             ? new AppLauncher.LaunchResult(null, false, false)
             : ColdStart(exe, "", unelevated, cefEnabled);
     }
 
-    /// <summary>The one cold Steam start: shim reconcile, debug port, integrity choice and the
-    /// startup-trace hint. Callers differ only in the arguments Steam is started with.</summary>
+    /// <summary>
+    ///     The one cold Steam start: shim reconcile, debug port, integrity choice and the
+    ///     startup-trace hint. Callers differ only in the arguments Steam is started with.
+    /// </summary>
     private static AppLauncher.LaunchResult ColdStart(
         string exe, string arguments, bool unelevated, bool cefEnabled)
     {
@@ -253,7 +293,7 @@ public static class Steam
                 break;
         }
 
-        var result = AppLauncher.Start(exe, arguments, elevated: false);
+        var result = AppLauncher.Start(exe, arguments, false);
         Log.Info(
             "Steam launch integrity: "
             + (ElevationCheck.IsCurrentProcessElevated() is true ? "elevated" : "medium")
@@ -271,12 +311,15 @@ public static class Steam
                 + SteamInputShim.StartupTracePath(process.Id)
                 + " (absent if Steam re-execed into another pid)");
         }
+
         return result;
     }
 
-    /// <summary>Sends one of Steam's own Big Picture keyboard shortcuts globally.
-    /// This deliberately has no foreground-window gate: when a game is foreground,
-    /// Steam uses the shortcut to bring its menu up over that game.</summary>
+    /// <summary>
+    ///     Sends one of Steam's own Big Picture keyboard shortcuts globally.
+    ///     This deliberately has no foreground-window gate: when a game is foreground,
+    ///     Steam uses the shortcut to bring its menu up over that game.
+    /// </summary>
     /// <param name="shortcut">The Big Picture menu shortcut to send.</param>
     /// <returns>True when Windows accepted the complete synthetic key chord.</returns>
     public static bool TrySendBigPictureShortcut(BigPictureShortcut shortcut)
@@ -295,26 +338,34 @@ public static class Steam
         // focus. Naming that window is the only way a pasted log distinguishes "Steam
         // ignored it" from "it went somewhere else entirely".
         Log.Info($"Steam Big Picture shortcut Ctrl+{(char)virtualKey} sent ({shortcut}) "
-            + $"to foreground {WindowFinder.DescribeForeground()}.");
+                 + $"to foreground {WindowFinder.DescribeForeground()}.");
         return true;
     }
 
     /// <summary>Returns Steam's installed-client keyboard mapping for a Big Picture menu.</summary>
     /// <param name="shortcut">The menu shortcut to map.</param>
     /// <returns>The Win32 virtual key combined with Control.</returns>
-    internal static ushort ShortcutVirtualKey(BigPictureShortcut shortcut) => shortcut switch
+    internal static ushort ShortcutVirtualKey(BigPictureShortcut shortcut)
     {
-        BigPictureShortcut.SteamMenu => 0x31,
-        BigPictureShortcut.QuickAccess => 0x32,
-        _ => throw new ArgumentOutOfRangeException(nameof(shortcut))
-    };
+        return shortcut switch
+        {
+            BigPictureShortcut.SteamMenu => 0x31,
+            BigPictureShortcut.QuickAccess => 0x32,
+            _ => throw new ArgumentOutOfRangeException(nameof(shortcut))
+        };
+    }
 
     /// <summary>Requests a graceful Steam shutdown for an application update.</summary>
-    public static void StopForUpdate() => StopForUpdate(UpdateStopBudget);
+    public static void StopForUpdate()
+    {
+        StopForUpdate(UpdateStopBudget);
+    }
 
-    /// <summary>Stops Steam and launch wrappers without exceeding the updater-owned pre-shutdown
-    /// window through any process-exit wait. The installer reserves this phase before WSGM's
-    /// application cleanup budget.</summary>
+    /// <summary>
+    ///     Stops Steam and launch wrappers without exceeding the updater-owned pre-shutdown
+    ///     window through any process-exit wait. The installer reserves this phase before WSGM's
+    ///     application cleanup budget.
+    /// </summary>
     /// <param name="budget">Maximum combined graceful and forced-stop wait.</param>
     private static void StopForUpdate(TimeSpan budget)
     {
@@ -328,6 +379,7 @@ public static class Steam
             {
                 process.Dispose();
             }
+
             Log.Info("Update requested — closing Steam to release the Steam Input payload.");
             AppLauncher.StartProtocol(ExitUrl);
             var gracefulDeadline = budget < UpdateGracefulExitBudget
@@ -341,6 +393,7 @@ public static class Steam
                     Log.Info("Steam exited gracefully for update.");
                     break;
                 }
+
                 foreach (var process in remaining)
                 {
                     process.Dispose();
@@ -362,7 +415,7 @@ public static class Steam
                 {
                     Log.Warn(
                         $"Steam pid {process.Id} did not exit gracefully; setup will defer the "
-                            + "update instead of terminating Steam or a running game.");
+                        + "update instead of terminating Steam or a running game.");
                 }
                 finally
                 {
@@ -406,5 +459,4 @@ public static class Steam
 
         return [.. matches];
     }
-
 }

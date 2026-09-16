@@ -12,135 +12,139 @@
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource HcBackgroundBrush}">
 
-    <!-- Dense two-column utility layout: bumper
+  <!-- Dense two-column utility layout: bumper
          TabStrip on top, always-alive pages toggled by IsVisible (scroll
          positions survive), status strip at the bottom. The setting-row family
          shared by every page lives in Themes/SettingsPages.axaml. -->
 
-    <Grid>
-      <Grid RowDefinitions="Auto,*,Auto" x:Name="SettingsRoot">
-        <Border Grid.Row="0"
-                Background="{StaticResource HcBackgroundBrush}"
-                BorderBrush="{StaticResource HcCardBorderBrush}"
-                BorderThickness="0,0,0,1"
-                Padding="14,6">
-            <!-- Tab descriptors (labels + Icons geometries) are assigned in
+  <Grid>
+    <Grid RowDefinitions="Auto,*,Auto" x:Name="SettingsRoot">
+      <Border Grid.Row="0"
+              Background="{StaticResource HcBackgroundBrush}"
+              BorderBrush="{StaticResource HcCardBorderBrush}"
+              BorderThickness="0,0,0,1"
+              Padding="14,6">
+        <!-- Tab descriptors (labels + Icons geometries) are assigned in
                  code-behind; LB/RB cycle via GamepadNavigation. -->
-            <c:TabStrip x:Name="Tabs" Classes="compact" />
-        </Border>
+        <c:TabStrip x:Name="Tabs" Classes="compact" />
+      </Border>
 
-        <Grid Grid.Row="1" Background="{StaticResource HcHeaderBrush}">
-            <pages:SystemPage x:Name="PageSystem" IsVisible="True" />
-            <pages:SteamPage x:Name="PageSteam" IsVisible="False" />
-            <pages:IntegrationPage x:Name="PageIntegration" IsVisible="False" />
-            <pages:DeviceOwnershipPage x:Name="PageDevice" IsVisible="False" />
-            <pages:StartupPage x:Name="PageStartup" IsVisible="False" />
-            <pages:QuickAccessPage x:Name="PageQuickAccess" IsVisible="False" />
-            <pages:DisplayPage x:Name="PageDisplay" IsVisible="False" />
-            <pages:AppearancePage x:Name="PageAppearance" IsVisible="False" />
-            <pages:PluginSettingsPage x:Name="PagePluginSettings" IsVisible="False" />
-        </Grid>
-
-        <Border Grid.Row="2" Classes="hc-footer">
-            <Grid Margin="12,5" ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="16">
-                <Button Classes="primary" Content="Save changes" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSaveLayouts}" MinWidth="120" />
-                <TextBlock Grid.Column="1" Text="{Binding ServiceStateText}" Classes="caption" VerticalAlignment="Center" />
-                <TextBlock Grid.Column="2" Text="{Binding ShellStateText}" Classes="caption" VerticalAlignment="Center" />
-                <TextBlock Grid.Column="3" Text="{Binding StatusText}" Classes="caption"
-                           VerticalAlignment="Center" TextWrapping="Wrap" MaxLines="2" />
-                <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
-                    <StackPanel Orientation="Horizontal" Spacing="5">
-                        <ov:GlyphIcon Width="18" Height="18" Button="a" GlyphStyle="{Binding GlyphStyle}" VerticalAlignment="Center" />
-                        <TextBlock Text="Select" Classes="caption" VerticalAlignment="Center" />
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Spacing="5">
-                        <ov:GlyphIcon Width="18" Height="18" Button="b" GlyphStyle="{Binding GlyphStyle}" VerticalAlignment="Center" />
-                        <TextBlock Text="Back" Classes="caption" VerticalAlignment="Center" />
-                    </StackPanel>
-                    <TextBlock Text="LB/RB  Tab" Classes="caption" VerticalAlignment="Center" />
-                    <TextBlock Text="D-pad  Navigate" Classes="caption" VerticalAlignment="Center" />
-                </StackPanel>
-            </Grid>
-        </Border>
+      <Grid Grid.Row="1" Background="{StaticResource HcHeaderBrush}">
+        <pages:SystemPage x:Name="PageSystem" IsVisible="True" />
+        <pages:SteamPage x:Name="PageSteam" IsVisible="False" />
+        <pages:IntegrationPage x:Name="PageIntegration" IsVisible="False" />
+        <pages:DeviceOwnershipPage x:Name="PageDevice" IsVisible="False" />
+        <pages:StartupPage x:Name="PageStartup" IsVisible="False" />
+        <pages:QuickAccessPage x:Name="PageQuickAccess" IsVisible="False" />
+        <pages:DisplayPage x:Name="PageDisplay" IsVisible="False" />
+        <pages:AppearancePage x:Name="PageAppearance" IsVisible="False" />
+        <pages:PluginSettingsPage x:Name="PagePluginSettings" IsVisible="False" />
       </Grid>
 
-      <!-- First-run Quick Setup. Drawn OVER the whole window rather than as an
-           eighth page: it must own input while it is up, and the tab strip must
-           not offer a way around the one decision it exists to ask for. -->
-      <Border x:Name="QuickSetupOverlay" IsVisible="False"
-              Background="{StaticResource HcBackgroundBrush}">
-        <Border MaxWidth="640" VerticalAlignment="Center" HorizontalAlignment="Center"
-                Background="{StaticResource HcHeaderBrush}" Padding="28,24" CornerRadius="4">
-          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Spacing="16">
-              <TextBlock Text="Quick Setup" Classes="setting-title" FontSize="20" />
-              <TextBlock TextWrapping="Wrap" Classes="caption"
-                         Text="How WSGM starts, and how it integrates with Steam. Everything here can be changed later in Settings. Nothing is written until you choose Continue." />
-
-              <Border Classes="setting-row alt">
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                  <StackPanel VerticalAlignment="Center" Spacing="1">
-                    <TextBlock Text="Start WSGM at sign-in" Classes="setting-title" />
-                    <TextBlock TextWrapping="Wrap" Classes="caption"
-                               Text="The WSGM service starts WSGM once Windows finishes signing you in." />
-                  </StackPanel>
-                  <ToggleSwitch Grid.Column="1" x:Name="QuickSetupStartAtSignIn" IsChecked="True" VerticalAlignment="Center" />
-                </Grid>
-              </Border>
-
-              <Border Classes="setting-row">
-                <StackPanel Spacing="6">
-                  <TextBlock Text="Start in" Classes="setting-title" />
-                  <TextBlock TextWrapping="Wrap" Classes="caption"
-                             Text="Game mode goes straight to Big Picture. Desktop mode keeps Windows Explorer and waits in the notification area." />
-                  <ComboBox x:Name="QuickSetupStartMode" SelectedIndex="1" HorizontalAlignment="Left" MinWidth="180">
-                    <ComboBoxItem Content="Desktop mode" />
-                    <ComboBoxItem Content="Game mode" />
-                  </ComboBox>
-                </StackPanel>
-              </Border>
-
-              <TextBlock x:Name="QuickSetupScanStatus" TextWrapping="Wrap" Classes="caption" />
-              <Button x:Name="QuickSetupScanRetry" Content="Try again" IsVisible="False" Click="OnQuickSetupScanRetry" />
-              <Border x:Name="QuickSetupAutostartRow" Classes="setting-row alt" IsVisible="False">
-                <StackPanel Spacing="6">
-                  <TextBlock Text="Let WSGM start Steam" Classes="setting-title" />
-                  <TextBlock TextWrapping="Wrap" Classes="caption"
-                             Text="Windows already starts Steam on its own. WSGM has to own that start, or Steam comes up without WSGM's integrity and Steam Input stops working over elevated windows. These entries are switched off, not deleted, and uninstalling WSGM puts them back:" />
-                  <TextBlock x:Name="QuickSetupAutostartList" TextWrapping="Wrap" Classes="caption" />
-                  <CheckBox x:Name="QuickSetupAutostart" Content="Let WSGM take these over" />
-                </StackPanel>
-              </Border>
-
-              <Border Classes="setting-row alt">
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                  <StackPanel VerticalAlignment="Center" Spacing="1">
-                    <TextBlock Text="Steam Input management" Classes="setting-title" />
-                    <TextBlock TextWrapping="Wrap" Classes="caption"
-                               Text="Puts a small WSGM file next to Steam so the quick-access panel can use your controller. Without it, Steam keeps the controller while a panel is open." />
-                  </StackPanel>
-                  <ToggleSwitch Grid.Column="1" x:Name="QuickSetupSteamInput" IsChecked="True" VerticalAlignment="Center" />
-                </Grid>
-              </Border>
-
-              <Border Classes="setting-row">
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                  <StackPanel VerticalAlignment="Center" Spacing="1">
-                    <TextBlock Text="Steam integration" Classes="setting-title" />
-                    <TextBlock TextWrapping="Wrap" Classes="caption"
-                               Text="Library tabs, SD-card tools, artwork and the Big Picture Wi-Fi indicator. Uses Steam's own local debug port." />
-                  </StackPanel>
-                  <ToggleSwitch Grid.Column="1" x:Name="QuickSetupCef" IsChecked="True" VerticalAlignment="Center" />
-                </Grid>
-              </Border>
-
-              <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right">
-                <Button x:Name="QuickSetupSkipButton" Content="Skip" Click="OnQuickSetupSkip" />
-                <Button x:Name="QuickSetupContinueButton" Content="Continue" Click="OnQuickSetupContinue" />
-              </StackPanel>
+      <Border Grid.Row="2" Classes="hc-footer">
+        <Grid Margin="12,5" ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="16">
+          <Button Classes="primary" Content="Save changes" Command="{Binding SaveCommand}"
+                  IsEnabled="{Binding CanSaveLayouts}" MinWidth="120" />
+          <TextBlock Grid.Column="1" Text="{Binding ServiceStateText}" Classes="caption" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="2" Text="{Binding ShellStateText}" Classes="caption" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="3" Text="{Binding StatusText}" Classes="caption"
+                     VerticalAlignment="Center" TextWrapping="Wrap" MaxLines="2" />
+          <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <ov:GlyphIcon Width="18" Height="18" Button="a" GlyphStyle="{Binding GlyphStyle}"
+                            VerticalAlignment="Center" />
+              <TextBlock Text="Select" Classes="caption" VerticalAlignment="Center" />
             </StackPanel>
-          </ScrollViewer>
-        </Border>
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <ov:GlyphIcon Width="18" Height="18" Button="b" GlyphStyle="{Binding GlyphStyle}"
+                            VerticalAlignment="Center" />
+              <TextBlock Text="Back" Classes="caption" VerticalAlignment="Center" />
+            </StackPanel>
+            <TextBlock Text="LB/RB  Tab" Classes="caption" VerticalAlignment="Center" />
+            <TextBlock Text="D-pad  Navigate" Classes="caption" VerticalAlignment="Center" />
+          </StackPanel>
+        </Grid>
       </Border>
     </Grid>
+
+    <!-- First-run Quick Setup. Drawn OVER the whole window rather than as an
+           eighth page: it must own input while it is up, and the tab strip must
+           not offer a way around the one decision it exists to ask for. -->
+    <Border x:Name="QuickSetupOverlay" IsVisible="False"
+            Background="{StaticResource HcBackgroundBrush}">
+      <Border MaxWidth="640" VerticalAlignment="Center" HorizontalAlignment="Center"
+              Background="{StaticResource HcHeaderBrush}" Padding="28,24" CornerRadius="4">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="16">
+            <TextBlock Text="Quick Setup" Classes="setting-title" FontSize="20" />
+            <TextBlock TextWrapping="Wrap" Classes="caption"
+                       Text="How WSGM starts, and how it integrates with Steam. Everything here can be changed later in Settings. Nothing is written until you choose Continue." />
+
+            <Border Classes="setting-row alt">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel VerticalAlignment="Center" Spacing="1">
+                  <TextBlock Text="Start WSGM at sign-in" Classes="setting-title" />
+                  <TextBlock TextWrapping="Wrap" Classes="caption"
+                             Text="The WSGM service starts WSGM once Windows finishes signing you in." />
+                </StackPanel>
+                <ToggleSwitch Grid.Column="1" x:Name="QuickSetupStartAtSignIn" IsChecked="True"
+                              VerticalAlignment="Center" />
+              </Grid>
+            </Border>
+
+            <Border Classes="setting-row">
+              <StackPanel Spacing="6">
+                <TextBlock Text="Start in" Classes="setting-title" />
+                <TextBlock TextWrapping="Wrap" Classes="caption"
+                           Text="Game mode goes straight to Big Picture. Desktop mode keeps Windows Explorer and waits in the notification area." />
+                <ComboBox x:Name="QuickSetupStartMode" SelectedIndex="1" HorizontalAlignment="Left" MinWidth="180">
+                  <ComboBoxItem Content="Desktop mode" />
+                  <ComboBoxItem Content="Game mode" />
+                </ComboBox>
+              </StackPanel>
+            </Border>
+
+            <TextBlock x:Name="QuickSetupScanStatus" TextWrapping="Wrap" Classes="caption" />
+            <Button x:Name="QuickSetupScanRetry" Content="Try again" IsVisible="False" Click="OnQuickSetupScanRetry" />
+            <Border x:Name="QuickSetupAutostartRow" Classes="setting-row alt" IsVisible="False">
+              <StackPanel Spacing="6">
+                <TextBlock Text="Let WSGM start Steam" Classes="setting-title" />
+                <TextBlock TextWrapping="Wrap" Classes="caption"
+                           Text="Windows already starts Steam on its own. WSGM has to own that start, or Steam comes up without WSGM's integrity and Steam Input stops working over elevated windows. These entries are switched off, not deleted, and uninstalling WSGM puts them back:" />
+                <TextBlock x:Name="QuickSetupAutostartList" TextWrapping="Wrap" Classes="caption" />
+                <CheckBox x:Name="QuickSetupAutostart" Content="Let WSGM take these over" />
+              </StackPanel>
+            </Border>
+
+            <Border Classes="setting-row alt">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel VerticalAlignment="Center" Spacing="1">
+                  <TextBlock Text="Steam Input management" Classes="setting-title" />
+                  <TextBlock TextWrapping="Wrap" Classes="caption"
+                             Text="Puts a small WSGM file next to Steam so the quick-access panel can use your controller. Without it, Steam keeps the controller while a panel is open." />
+                </StackPanel>
+                <ToggleSwitch Grid.Column="1" x:Name="QuickSetupSteamInput" IsChecked="True" VerticalAlignment="Center" />
+              </Grid>
+            </Border>
+
+            <Border Classes="setting-row">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel VerticalAlignment="Center" Spacing="1">
+                  <TextBlock Text="Steam integration" Classes="setting-title" />
+                  <TextBlock TextWrapping="Wrap" Classes="caption"
+                             Text="Library tabs, SD-card tools, artwork and the Big Picture Wi-Fi indicator. Uses Steam's own local debug port." />
+                </StackPanel>
+                <ToggleSwitch Grid.Column="1" x:Name="QuickSetupCef" IsChecked="True" VerticalAlignment="Center" />
+              </Grid>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right">
+              <Button x:Name="QuickSetupSkipButton" Content="Skip" Click="OnQuickSetupSkip" />
+              <Button x:Name="QuickSetupContinueButton" Content="Continue" Click="OnQuickSetupContinue" />
+            </StackPanel>
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+    </Border>
+  </Grid>
 </Window>

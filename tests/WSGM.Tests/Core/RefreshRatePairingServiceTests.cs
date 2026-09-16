@@ -112,7 +112,7 @@ public sealed class RefreshRatePairingServiceTests
         harness.Service.ApplyForCap(60);
         _ = harness.Service.FrameLimitOptions();
         _ = harness.Service.AcceptedRates();
-        harness.Service.TryApplyManual(60, capFps: 0);
+        harness.Service.TryApplyManual(60, 0);
 
         Assert.Equal(1, harness.AcceptedReads);
     }
@@ -125,7 +125,7 @@ public sealed class RefreshRatePairingServiceTests
         Harness harness = new();
         harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
 
-        Assert.False(harness.Service.TryApplyManual(60, capFps: 30));
+        Assert.False(harness.Service.TryApplyManual(60, 30));
         Assert.Empty(harness.Applied);
     }
 
@@ -137,7 +137,7 @@ public sealed class RefreshRatePairingServiceTests
         Harness harness = new();
         harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
 
-        Assert.True(harness.Service.TryApplyManual(60, capFps: 0));
+        Assert.True(harness.Service.TryApplyManual(60, 0));
         Assert.Equal([60], harness.Applied);
     }
 
@@ -146,7 +146,7 @@ public sealed class RefreshRatePairingServiceTests
     {
         Harness harness = new();
 
-        Assert.False(harness.Service.TryApplyManual(59, capFps: 0));
+        Assert.False(harness.Service.TryApplyManual(59, 0));
         Assert.Empty(harness.Applied);
     }
 
@@ -155,7 +155,7 @@ public sealed class RefreshRatePairingServiceTests
     {
         Harness harness = new();
 
-        Assert.True(harness.Service.TryApplyManual(60, capFps: 0));
+        Assert.True(harness.Service.TryApplyManual(60, 0));
         Assert.True(harness.Service.Restore());
 
         Assert.Equal([60], harness.Applied);

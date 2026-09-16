@@ -68,7 +68,6 @@ internal sealed record ObserveOnlyRecipeReview
 
     /// <summary>Closed observation steps and their prompts.</summary>
     public IReadOnlyList<ObservationStep> Steps { get; init; } = [];
-
 }
 
 /// <summary>A prepared capture and its not-yet-written sanitized export.</summary>
@@ -117,17 +116,27 @@ internal sealed record CaptureExportResult
 }
 
 /// <summary>
-/// Prepares a private observe-only session and exports its sanitized projection only after a second
-/// explicit approval.
+///     Prepares a private observe-only session and exports its sanitized projection only after a second
+///     explicit approval.
 /// </summary>
 /// <remarks>
-/// Recipe data selects only closed observation kinds. The only live source registered here records
-/// the inventory snapshot that this workflow collected itself; every other source is represented as
-/// unavailable until a separately reviewed local observer is compiled into Device Lab. Imported
-/// recipe data therefore cannot open a device or authorize a write.
+///     Recipe data selects only closed observation kinds. The only live source registered here records
+///     the inventory snapshot that this workflow collected itself; every other source is represented as
+///     unavailable until a separately reviewed local observer is compiled into Device Lab. Imported
+///     recipe data therefore cannot open a device or authorize a write.
 /// </remarks>
 internal static class ObserveOnlyCaptureWorkflow
 {
+    private const int MaximumRecipeBytes = 2 * 1024 * 1024;
+
+    private static readonly (string Namespace, string ClassName)[] KnownInventoryClasses =
+    [
+        ("root\\WMI", "MSI_ACPI"),
+        ("root\\WMI", "MSI_Event"),
+        ("root\\WMI", "BatteryStatus"),
+        ("root\\WMI", "MSAcpi_ThermalZoneTemperature")
+    ];
+
     internal static IReadOnlyList<CaptureStreamFile> RedactStreams(
         IReadOnlyList<CaptureStreamFile> streams,
         CaptureRedactor redactor)
@@ -142,20 +151,23 @@ internal static class ObserveOnlyCaptureWorkflow
                 throw new InvalidDataException(
                     "Redaction produced duplicate capture source identifiers; the capture cannot be exported.");
             }
+
             shareable.Add(new CaptureStreamFile
             {
                 SourceId = sourceId,
-                Events = [.. stream.Events.Select(captureEvent => captureEvent with
-                {
-                    SourceId = redactor.Redact(captureEvent.SourceId),
-                    RecipeStepId = redactor.Redact(captureEvent.RecipeStepId)
-                })]
+                Events =
+                [
+                    .. stream.Events.Select(captureEvent => captureEvent with
+                    {
+                        SourceId = redactor.Redact(captureEvent.SourceId),
+                        RecipeStepId = redactor.Redact(captureEvent.RecipeStepId)
+                    })
+                ]
             });
         }
+
         return shareable;
     }
-
-    private const int MaximumRecipeBytes = 2 * 1024 * 1024;
 
     /// <summary>Reads and validates one inert recipe for operator scope review.</summary>
     /// <param name="recipePath">Imported recipe JSON.</param>
@@ -217,7 +229,7 @@ internal static class ObserveOnlyCaptureWorkflow
             }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or InvalidDataException or JsonException)
+                                              or InvalidDataException or JsonException)
         {
             return Failure(ObserveOnlyCaptureStatus.InvalidRecipe, exception.Message);
         }
@@ -267,28 +279,34 @@ internal static class ObserveOnlyCaptureWorkflow
         cancellationToken.ThrowIfCancellationRequested();
         var completedAt = DateTimeOffset.UtcNow;
         var events = timeline.SnapshotByReceipt();
-        IReadOnlyList<CaptureStreamFile> streams = [.. events
-            .GroupBy(captureEvent => captureEvent.SourceId, StringComparer.Ordinal)
-            .OrderBy(group => group.Key, StringComparer.Ordinal)
-            .Select(group => new CaptureStreamFile
-            {
-                SourceId = group.Key,
-                Events = [.. group.OrderBy(captureEvent => captureEvent.SourceSequence)]
-            })];
+        IReadOnlyList<CaptureStreamFile> streams =
+        [
+            .. events
+                .GroupBy(captureEvent => captureEvent.SourceId, StringComparer.Ordinal)
+                .OrderBy(group => group.Key, StringComparer.Ordinal)
+                .Select(group => new CaptureStreamFile
+                {
+                    SourceId = group.Key,
+                    Events = [.. group.OrderBy(captureEvent => captureEvent.SourceSequence)]
+                })
+        ];
         CaptureRedactor recipeRedactor = new();
         var shareableInventory = InventoryRedaction.ToShareable(privateInventory, recipeRedactor);
         var shareableRecipe = recipe with
         {
             RecipeId = recipeRedactor.Redact(recipe.RecipeId),
             DisplayName = recipeRedactor.Redact(recipe.DisplayName),
-            Steps = [.. recipe.Steps.Select(step => step with
-            {
-                StepId = recipeRedactor.Redact(step.StepId),
-                SourceId = recipeRedactor.Redact(step.SourceId),
-                OperatorPrompt = step.OperatorPrompt is null
-                    ? null
-                    : recipeRedactor.Redact(step.OperatorPrompt)
-            })]
+            Steps =
+            [
+                .. recipe.Steps.Select(step => step with
+                {
+                    StepId = recipeRedactor.Redact(step.StepId),
+                    SourceId = recipeRedactor.Redact(step.SourceId),
+                    OperatorPrompt = step.OperatorPrompt is null
+                        ? null
+                        : recipeRedactor.Redact(step.OperatorPrompt)
+                })
+            ]
         };
         IReadOnlyList<CaptureStreamFile> shareableStreams;
         try
@@ -299,6 +317,7 @@ internal static class ObserveOnlyCaptureWorkflow
         {
             return Failure(ObserveOnlyCaptureStatus.CaptureFailed, exception.Message);
         }
+
         var replacements = recipeRedactor.Summarize();
         CaptureRedactionManifest redaction = new()
         {
@@ -332,7 +351,7 @@ internal static class ObserveOnlyCaptureWorkflow
                 cancellationToken);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or NotSupportedException or ArgumentException)
+                                              or NotSupportedException or ArgumentException)
         {
             return Failure(ObserveOnlyCaptureStatus.WriteFailed, exception.GetType().Name);
         }
@@ -345,9 +364,12 @@ internal static class ObserveOnlyCaptureWorkflow
                 PrivateWorkingDirectory = privateDirectory,
                 ShareableOutputPath = shareablePath,
                 Bundle = bundle,
-                Prompts = [.. recipe.Steps
-                    .Where(step => !string.IsNullOrWhiteSpace(step.OperatorPrompt))
-                    .Select(step => step.OperatorPrompt!)],
+                Prompts =
+                [
+                    .. recipe.Steps
+                        .Where(step => !string.IsNullOrWhiteSpace(step.OperatorPrompt))
+                        .Select(step => step.OperatorPrompt!)
+                ],
                 Limitations = PassiveCaptureLimitations.All
             }
         };
@@ -363,8 +385,10 @@ internal static class ObserveOnlyCaptureWorkflow
         CaptureExportPlan plan,
         bool exportPreviewConfirmed,
         string? repositoryRoot,
-        CancellationToken cancellationToken = default) =>
-        Export(plan, exportPreviewConfirmed, repositoryRoot, File.Move, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        return Export(plan, exportPreviewConfirmed, repositoryRoot, File.Move, cancellationToken);
+    }
 
     // The publisher commits a closed, flushed temporary file with create-new semantics.
     internal static CaptureExportResult Export(
@@ -405,7 +429,7 @@ internal static class ObserveOnlyCaptureWorkflow
             DurableFile.WriteNew(
                 temporaryPath,
                 output => CaptureBundleWriter.Write(output, plan.Bundle, cancellationToken),
-                bufferSize: 64 * 1024,
+                64 * 1024,
                 FileAccess.ReadWrite);
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -419,10 +443,11 @@ internal static class ObserveOnlyCaptureWorkflow
             {
                 return new CaptureExportResult { Exported = false, Error = $"Export cancelled. {cleanupError}" };
             }
+
             throw;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or NotSupportedException or ArgumentException or InvalidDataException)
+                                              or NotSupportedException or ArgumentException or InvalidDataException)
         {
             var cleanupError = TryDelete(temporaryPath);
             return new CaptureExportResult
@@ -432,14 +457,6 @@ internal static class ObserveOnlyCaptureWorkflow
             };
         }
     }
-
-    private static readonly (string Namespace, string ClassName)[] KnownInventoryClasses =
-    [
-        ("root\\WMI", "MSI_ACPI"),
-        ("root\\WMI", "MSI_Event"),
-        ("root\\WMI", "BatteryStatus"),
-        ("root\\WMI", "MSAcpi_ThermalZoneTemperature")
-    ];
 
     private static (ObserveOnlyRecipe Recipe, string Sha256) ReadRecipe(
         string path,
@@ -462,11 +479,14 @@ internal static class ObserveOnlyCaptureWorkflow
             {
                 throw new EndOfStreamException("Recipe ended before its inspected length.");
             }
+
             offset += read;
         }
+
         var recipe = JsonSerializer.Deserialize(
-            bytes,
-            DeviceLabJsonContext.Default.ObserveOnlyRecipe) ?? throw new InvalidDataException("Recipe could not be decoded.");
+                         bytes,
+                         DeviceLabJsonContext.Default.ObserveOnlyRecipe) ??
+                     throw new InvalidDataException("Recipe could not be decoded.");
         var errors = CaptureSchemaValidator.Validate(recipe);
         if (errors.Count > 0)
         {
@@ -489,12 +509,15 @@ internal static class ObserveOnlyCaptureWorkflow
         IReadOnlyList<CaptureStreamFile> streams,
         CaptureRedactionManifest redaction)
     {
-        CaptureStreamDescriptor[] descriptors = [.. streams.Select((stream, index) => new CaptureStreamDescriptor
-        {
-            SourceId = stream.SourceId,
-            Path = $"streams/{index:D3}-{SafeName(stream.SourceId)}.ndjson",
-            EventCount = stream.Events.Count
-        })];
+        CaptureStreamDescriptor[] descriptors =
+        [
+            .. streams.Select((stream, index) => new CaptureStreamDescriptor
+            {
+                SourceId = stream.SourceId,
+                Path = $"streams/{index:D3}-{SafeName(stream.SourceId)}.ndjson",
+                EventCount = stream.Events.Count
+            })
+        ];
         return new SanitizedCaptureBundle
         {
             Manifest = new ShareableCaptureManifest
@@ -533,12 +556,15 @@ internal static class ObserveOnlyCaptureWorkflow
         Directory.CreateDirectory(directory);
         var streamsDirectory = Path.Combine(directory, "streams");
         Directory.CreateDirectory(streamsDirectory);
-        CaptureStreamDescriptor[] descriptors = [.. streams.Select((stream, index) => new CaptureStreamDescriptor
-        {
-            SourceId = stream.SourceId,
-            Path = $"streams/{index:D3}-{SafeName(stream.SourceId)}.ndjson",
-            EventCount = stream.Events.Count
-        })];
+        CaptureStreamDescriptor[] descriptors =
+        [
+            .. streams.Select((stream, index) => new CaptureStreamDescriptor
+            {
+                SourceId = stream.SourceId,
+                Path = $"streams/{index:D3}-{SafeName(stream.SourceId)}.ndjson",
+                EventCount = stream.Events.Count
+            })
+        ];
         PrivateCaptureManifest manifest = new()
         {
             SchemaVersion = CaptureSchema.CurrentVersion,
@@ -637,11 +663,14 @@ internal static class ObserveOnlyCaptureWorkflow
         }
     }
 
-    private static ObserveOnlyCaptureResult Failure(ObserveOnlyCaptureStatus status, string? error) => new()
+    private static ObserveOnlyCaptureResult Failure(ObserveOnlyCaptureStatus status, string? error)
     {
-        Status = status,
-        Error = error ?? "The observe-only capture workflow could not complete."
-    };
+        return new ObserveOnlyCaptureResult
+        {
+            Status = status,
+            Error = error ?? "The observe-only capture workflow could not complete."
+        };
+    }
 
     private sealed class ClosedObserveOnlyCaptureSource(string sourceId) : IPassiveCaptureSource
     {

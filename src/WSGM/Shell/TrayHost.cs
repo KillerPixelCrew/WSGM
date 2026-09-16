@@ -6,58 +6,111 @@ using WSGM.Interop;
 
 namespace WSGM.Shell;
 
-/// <summary>Hosts the system tray in game mode by owning a top-level window whose
-/// class is literally named "Shell_TrayWnd" — Shell_NotifyIcon locates the tray
-/// via FindWindow on that class and delivers requests as WM_COPYDATA (the
-/// mechanism every replacement shell uses; see TrayProtocol for the wire format).
-/// Without this window there is NO tray in game mode: explorer isn't running, so
-/// apps that close to the tray silently lose their icon.
-///
-/// Lifecycle contract (device-verified coexistence risk): explorer's taskbar
-/// creates its own Shell_TrayWnd, and shell32 routes ALL tray traffic to
-/// whichever one FindWindow sees first — two live hosts fight over Z-order
-/// (ManagedShell needs a 100 ms polling war). WSGM therefore NEVER coexists:
-/// this host is destroyed BEFORE explorer starts (SessionModes.DesktopModeStarting)
-/// and recreated after game mode kills explorer (SessionModes.GameModeEntered).
-/// Created once per game-mode span and kept alive throughout — apps whose tray
-/// window is message-only never receive the TaskbarCreated broadcast, so a host
-/// restart would lose their icons permanently.
-///
-/// Elevation gate: WSGM usually runs elevated (High IL) while most tray apps are
-/// Medium IL, and UIPI silently drops WM_COPYDATA sent upward — without an
-/// explicit ChangeWindowMessageFilterEx(MSGFLT_ALLOW) no ordinary app could ever
-/// register. No shipped replacement shell runs elevated, so this exact gate is
-/// WSGM-specific and device-verification-critical (hence the logging).</summary>
+/// <summary>
+///     Hosts the system tray in game mode by owning a top-level window whose
+///     class is literally named "Shell_TrayWnd" — Shell_NotifyIcon locates the tray
+///     via FindWindow on that class and delivers requests as WM_COPYDATA (the
+///     mechanism every replacement shell uses; see TrayProtocol for the wire format).
+///     Without this window there is NO tray in game mode: explorer isn't running, so
+///     apps that close to the tray silently lose their icon.
+///     Lifecycle contract (device-verified coexistence risk): explorer's taskbar
+///     creates its own Shell_TrayWnd, and shell32 routes ALL tray traffic to
+///     whichever one FindWindow sees first — two live hosts fight over Z-order
+///     (ManagedShell needs a 100 ms polling war). WSGM therefore NEVER coexists:
+///     this host is destroyed BEFORE explorer starts (SessionModes.DesktopModeStarting)
+///     and recreated after game mode kills explorer (SessionModes.GameModeEntered).
+///     Created once per game-mode span and kept alive throughout — apps whose tray
+///     window is message-only never receive the TaskbarCreated broadcast, so a host
+///     restart would lose their icons permanently.
+///     Elevation gate: WSGM usually runs elevated (High IL) while most tray apps are
+///     Medium IL, and UIPI silently drops WM_COPYDATA sent upward — without an
+///     explicit ChangeWindowMessageFilterEx(MSGFLT_ALLOW) no ordinary app could ever
+///     register. No shipped replacement shell runs elevated, so this exact gate is
+///     WSGM-specific and device-verification-critical (hence the logging).
+/// </summary>
 public sealed unsafe class TrayHost : IDisposable
 {
     private const string TrayClassName = "Shell_TrayWnd";
     private const string NotifyClassName = "TrayNotifyWnd";
 
     private static TrayHost? _instance;
+    private bool _disposed;
+    private ulong _lastPrimaryAtMs;
 
-    private nint _trayHwnd;
-    private nint _notifyHwnd;
+    // Double-click state: the host owns double-click detection (see SendClick).
+    private nint _lastPrimaryHwnd;
+    private uint _lastPrimaryUid;
     private bool _loggedAppBar;
+    private bool _loggedBlockedCallback;
     private bool _loggedIconRect;
     private bool _loggedLoadInProc;
-    private bool _loggedBlockedCallback;
-    private bool _disposed;
+    private nint _notifyHwnd;
 
-    /// <summary>Raised (on the window's thread — the Avalonia UI thread) whenever
-    /// the set of visible icons changed.</summary>
-    public event Action? IconsChanged;
-
-    /// <summary>Gets the registered icons (hidden ones included; presentation filters).</summary>
-    public TrayIconTable Table { get; } = new();
+    private nint _trayHwnd;
 
     private TrayHost()
     {
     }
 
-    /// <summary>Creates the tray host window pair and broadcasts TaskbarCreated so
-    /// running apps re-register their icons. Must be called on the Avalonia UI
-    /// thread (its message pump services the WndProc) and only while explorer is
-    /// NOT running. Returns null when a host already exists or creation fails.</summary>
+    /// <summary>Gets the registered icons (hidden ones included; presentation filters).</summary>
+    public TrayIconTable Table { get; } = new();
+
+    /// <summary>
+    ///     Destroys the protocol windows and drops all icons. When explorer
+    ///     starts next (desktop mode), its own taskbar broadcasts TaskbarCreated and
+    ///     the apps re-home their icons to it.
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        if (_instance == this)
+        {
+            _instance = null;
+        }
+
+        foreach (var icon in Table.Icons)
+        {
+            (icon.IconImage as Bitmap)?.Dispose();
+            icon.IconImage = null;
+        }
+
+        Table.Clear();
+        if (_notifyHwnd != 0)
+        {
+            NativeMethods.DestroyWindow(_notifyHwnd);
+            _notifyHwnd = 0;
+        }
+
+        if (_trayHwnd != 0)
+        {
+            if (!NativeMethods.DestroyWindow(_trayHwnd))
+            {
+                Log.Warn($"DestroyWindow(Shell_TrayWnd) failed (error {Marshal.GetLastWin32Error()}).");
+            }
+
+            _trayHwnd = 0;
+        }
+
+        Log.Info("Tray host destroyed.");
+    }
+
+    /// <summary>
+    ///     Raised (on the window's thread — the Avalonia UI thread) whenever
+    ///     the set of visible icons changed.
+    /// </summary>
+    public event Action? IconsChanged;
+
+    /// <summary>
+    ///     Creates the tray host window pair and broadcasts TaskbarCreated so
+    ///     running apps re-register their icons. Must be called on the Avalonia UI
+    ///     thread (its message pump services the WndProc) and only while explorer is
+    ///     NOT running. Returns null when a host already exists or creation fails.
+    /// </summary>
     public static TrayHost? Create()
     {
         if (_instance is not null)
@@ -65,6 +118,7 @@ public sealed unsafe class TrayHost : IDisposable
             Log.Warn("Tray host already exists — ignoring duplicate create.");
             return null;
         }
+
         if (ExplorerControl.IsRunningInSession())
         {
             // Explorer's own Shell_TrayWnd is (or will be) live; competing means a
@@ -79,13 +133,16 @@ public sealed unsafe class TrayHost : IDisposable
             host.Dispose();
             return null;
         }
+
         _instance = host;
         BroadcastTaskbarCreated();
         return host;
     }
 
-    /// <summary>Destroys the active host if one exists (recovery paths call this
-    /// unconditionally before handing the session back to explorer).</summary>
+    /// <summary>
+    ///     Destroys the active host if one exists (recovery paths call this
+    ///     unconditionally before handing the session back to explorer).
+    /// </summary>
     public static void DestroyActive()
     {
         _instance?.Dispose();
@@ -102,6 +159,7 @@ public sealed unsafe class TrayHost : IDisposable
         {
             return false;
         }
+
         // The legacy TrayNotifyWnd child is optional (its creation failure below is
         // only warned about), so a failed registration must not sink the host.
         _ = RegisterClass(NotifyClassName, hInstance);
@@ -158,11 +216,13 @@ public sealed unsafe class TrayHost : IDisposable
             {
                 return true;
             }
+
             var error = Marshal.GetLastWin32Error();
             if (error == 1410)
             {
                 return true;
             }
+
             Log.Warn($"RegisterClassW({className}) failed (error {error}).");
             return false;
         }
@@ -194,6 +254,7 @@ public sealed unsafe class TrayHost : IDisposable
         {
             return NativeMethods.DefWindowProcW(hWnd, msg, wParam, lParam);
         }
+
         try
         {
             switch (msg)
@@ -211,6 +272,7 @@ public sealed unsafe class TrayHost : IDisposable
         {
             Log.Error("Tray host message processing failed", ex);
         }
+
         return NativeMethods.DefWindowProcW(hWnd, msg, wParam, lParam);
     }
 
@@ -224,6 +286,7 @@ public sealed unsafe class TrayHost : IDisposable
                 {
                     return 0;
                 }
+
                 return OnTrayData(new ReadOnlySpan<byte>((void*)copyData.lpData, (int)copyData.cbData));
 
             case TrayProtocol.CopyDataAppBar:
@@ -233,6 +296,7 @@ public sealed unsafe class TrayHost : IDisposable
                 {
                     return 0;
                 }
+
                 _loggedAppBar = true;
                 Log.Info("Tray host: SHAppBarMessage traffic received — stubbed (unsupported).");
                 return 0;
@@ -245,6 +309,7 @@ public sealed unsafe class TrayHost : IDisposable
                 {
                     return 0;
                 }
+
                 _loggedLoadInProc = true;
                 Log.Info("Tray host: SHLoadInProc request rejected (in-process Explorer extensions are unsupported).");
                 return 0;
@@ -254,6 +319,7 @@ public sealed unsafe class TrayHost : IDisposable
                 {
                     return 0;
                 }
+
                 _loggedIconRect = true;
                 Log.Info("Tray host: Shell_NotifyIconGetRect not supported yet.");
                 return 0;
@@ -312,6 +378,7 @@ public sealed unsafe class TrayHost : IDisposable
                 }
             }
         }
+
         if (change == TrayChange.Removed)
         {
             (icon?.IconImage as Bitmap)?.Dispose();
@@ -328,28 +395,29 @@ public sealed unsafe class TrayHost : IDisposable
             Log.Info($"Tray icon {change}: '{icon?.Tip}' (hwnd 0x{parsed.Hwnd:X}, uid {parsed.Uid}, " +
                      $"version {icon?.Version ?? 0}, guid {(parsed.Flags & TrayProtocol.NifGuid) != 0}).");
         }
+
         IconsChanged?.Invoke();
         return 1;
     }
 
-    private static string Describe(uint nim) => nim switch
+    private static string Describe(uint nim)
     {
-        TrayProtocol.NimAdd => "NIM_ADD",
-        TrayProtocol.NimModify => "NIM_MODIFY",
-        TrayProtocol.NimDelete => "NIM_DELETE",
-        TrayProtocol.NimSetFocus => "NIM_SETFOCUS",
-        TrayProtocol.NimSetVersion => "NIM_SETVERSION",
-        _ => $"NIM_{nim}"
-    };
+        return nim switch
+        {
+            TrayProtocol.NimAdd => "NIM_ADD",
+            TrayProtocol.NimModify => "NIM_MODIFY",
+            TrayProtocol.NimDelete => "NIM_DELETE",
+            TrayProtocol.NimSetFocus => "NIM_SETFOCUS",
+            TrayProtocol.NimSetVersion => "NIM_SETVERSION",
+            _ => $"NIM_{nim}"
+        };
+    }
 
-    // Double-click state: the host owns double-click detection (see SendClick).
-    private nint _lastPrimaryHwnd;
-    private uint _lastPrimaryUid;
-    private ulong _lastPrimaryAtMs;
-
-    /// <summary>Forwards a click to the icon's owner using the negotiated protocol
-    /// version. Outbound High→Medium messages are UIPI-unrestricted, so WSGM's
-    /// elevation helps on this path.</summary>
+    /// <summary>
+    ///     Forwards a click to the icon's owner using the negotiated protocol
+    ///     version. Outbound High→Medium messages are UIPI-unrestricted, so WSGM's
+    ///     elevation helps on this path.
+    /// </summary>
     /// <param name="icon">The icon that was activated.</param>
     /// <param name="contextMenu">True for a context-menu (right-click) activation.</param>
     /// <param name="screenX">Screen X of the activation, for cursor parking and the v4 coordinate protocol.</param>
@@ -360,12 +428,14 @@ public sealed unsafe class TrayHost : IDisposable
         {
             return;
         }
+
         if (icon.CallbackMessage == 0)
         {
             // NIF_MESSAGE never arrived — the app cannot receive interactions.
             Log.Warn($"Tray click dropped: '{icon.Tip}' registered no callback message.");
             return;
         }
+
         if (!TrayProtocol.IsRelayableCallback(icon.CallbackMessage))
         {
             // Relay only application-defined messages. Registration still succeeds so shell32
@@ -374,12 +444,14 @@ public sealed unsafe class TrayHost : IDisposable
             {
                 return;
             }
+
             _loggedBlockedCallback = true;
             Log.Warn($"Tray click dropped: '{icon.Tip}' (hwnd 0x{icon.Hwnd:X}) registered callback " +
                      $"0x{icon.CallbackMessage:X}, outside the application-defined range " +
                      "0x400..0xFFFF; the icon stays registered. Logged once per tray host.");
             return;
         }
+
         if (!NativeMethods.IsWindow(icon.Hwnd))
         {
             Log.Info($"Tray click dropped: owner window 0x{icon.Hwnd:X} is gone.");
@@ -405,8 +477,8 @@ public sealed unsafe class TrayHost : IDisposable
         // action) cannot reconstruct it from two single clicks.
         var now = (ulong)Environment.TickCount64;
         var isDouble = !contextMenu
-            && icon.Hwnd == _lastPrimaryHwnd && icon.Uid == _lastPrimaryUid
-            && now - _lastPrimaryAtMs <= NativeMethods.GetDoubleClickTime();
+                       && icon.Hwnd == _lastPrimaryHwnd && icon.Uid == _lastPrimaryUid
+                       && now - _lastPrimaryAtMs <= NativeMethods.GetDoubleClickTime();
         string kind;
         if (contextMenu)
         {
@@ -442,7 +514,9 @@ public sealed unsafe class TrayHost : IDisposable
                 Notify(icon, NativeMethods.NinSelect, screenX, screenY);
             }
         }
-        Log.Info($"Tray click forwarded to '{icon.Tip}' ({kind}, v{icon.Version}, cb 0x{icon.CallbackMessage:X}, hwnd 0x{icon.Hwnd:X}).");
+
+        Log.Info(
+            $"Tray click forwarded to '{icon.Tip}' ({kind}, v{icon.Version}, cb 0x{icon.CallbackMessage:X}, hwnd 0x{icon.Hwnd:X}).");
     }
 
     private static void Notify(TrayIconTable.TrayIcon icon, uint notification, int x, int y)
@@ -461,42 +535,7 @@ public sealed unsafe class TrayHost : IDisposable
             wParam = (nint)icon.Uid;
             lParam = (nint)notification;
         }
-        NativeMethods.SendNotifyMessageW(icon.Hwnd, icon.CallbackMessage, wParam, lParam);
-    }
 
-    /// <summary>Destroys the protocol windows and drops all icons. When explorer
-    /// starts next (desktop mode), its own taskbar broadcasts TaskbarCreated and
-    /// the apps re-home their icons to it.</summary>
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-        _disposed = true;
-        if (_instance == this)
-        {
-            _instance = null;
-        }
-        foreach (var icon in Table.Icons)
-        {
-            (icon.IconImage as Bitmap)?.Dispose();
-            icon.IconImage = null;
-        }
-        Table.Clear();
-        if (_notifyHwnd != 0)
-        {
-            NativeMethods.DestroyWindow(_notifyHwnd);
-            _notifyHwnd = 0;
-        }
-        if (_trayHwnd != 0)
-        {
-            if (!NativeMethods.DestroyWindow(_trayHwnd))
-            {
-                Log.Warn($"DestroyWindow(Shell_TrayWnd) failed (error {Marshal.GetLastWin32Error()}).");
-            }
-            _trayHwnd = 0;
-        }
-        Log.Info("Tray host destroyed.");
+        NativeMethods.SendNotifyMessageW(icon.Hwnd, icon.CallbackMessage, wParam, lParam);
     }
 }

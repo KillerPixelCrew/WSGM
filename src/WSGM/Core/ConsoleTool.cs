@@ -6,22 +6,29 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-/// <summary>Bounded console-process outcome preserving whether process start crossed an uncertain
-/// side-effect boundary.</summary>
+/// <summary>
+///     Bounded console-process outcome preserving whether process start crossed an uncertain
+///     side-effect boundary.
+/// </summary>
 internal enum ConsoleToolRunOutcome
 {
     /// <summary>The process was never started.</summary>
     NotStarted,
+
     /// <summary>The process exited successfully before the deadline.</summary>
     Succeeded,
+
     /// <summary>The process exited with a known failure before the deadline.</summary>
     Failed,
+
     /// <summary>The process started but its result could not be verified.</summary>
     Unknown
 }
 
-/// <summary>Narrow owned-process surface used to verify bounded console-tool cleanup without
-/// starting a live operating-system command from tests.</summary>
+/// <summary>
+///     Narrow owned-process surface used to verify bounded console-tool cleanup without
+///     starting a live operating-system command from tests.
+/// </summary>
 internal interface IConsoleToolProcess : IDisposable
 {
     /// <summary>Gets the process exit code after exit.</summary>
@@ -34,20 +41,24 @@ internal interface IConsoleToolProcess : IDisposable
     void KillTree();
 }
 
-/// <summary>One home for the "run a hidden console tool and wait" pattern
-/// (schtasks, powercfg, powershell one-shots), so every caller gets the same
-/// exit-code and timeout checks. The absolute-deadline path preserves a timeout as
-/// unknown after process start, because a side-effecting command may already have crossed its
-/// dispatch boundary even though reading ExitCode from the still-running process is impossible.</summary>
+/// <summary>
+///     One home for the "run a hidden console tool and wait" pattern
+///     (schtasks, powercfg, powershell one-shots), so every caller gets the same
+///     exit-code and timeout checks. The absolute-deadline path preserves a timeout as
+///     unknown after process start, because a side-effecting command may already have crossed its
+///     dispatch boundary even though reading ExitCode from the still-running process is impossible.
+/// </summary>
 internal static class ConsoleTool
 {
     // How long a killed tool's output pipes may take to close before the
     // captured output is given up on.
     private const int DrainTimeoutMs = 2000;
 
-    /// <summary>True only when the tool started, exited within the timeout, and
-    /// returned 0. Never throws; failures are logged with the leading argument so
-    /// pasted logs show WHICH invocation failed.</summary>
+    /// <summary>
+    ///     True only when the tool started, exited within the timeout, and
+    ///     returned 0. Never throws; failures are logged with the leading argument so
+    ///     pasted logs show WHICH invocation failed.
+    /// </summary>
     public static bool Run(string exe, string arguments, int timeoutMs = 15_000)
     {
         var what = $"{exe} {FirstToken(arguments)}";
@@ -64,15 +75,18 @@ internal static class ConsoleTool
                 Log.Warn($"{what} did not start.");
                 return false;
             }
+
             if (!p.WaitForExit(timeoutMs))
             {
                 Log.Warn($"{what} still running after {timeoutMs / 1000} s — treated as failed.");
                 return false;
             }
+
             if (p.ExitCode == 0)
             {
                 return true;
             }
+
             Log.Warn($"{what} exited with {p.ExitCode}.");
             return false;
         }
@@ -83,21 +97,26 @@ internal static class ConsoleTool
         }
     }
 
-    /// <summary>Runs a hidden console tool within a caller-owned absolute deadline. The process
-    /// tree is stopped when that budget expires or the caller cancels, so sequential recovery
-    /// commands cannot each acquire a fresh timeout.</summary>
+    /// <summary>
+    ///     Runs a hidden console tool within a caller-owned absolute deadline. The process
+    ///     tree is stopped when that budget expires or the caller cancels, so sequential recovery
+    ///     commands cannot each acquire a fresh timeout.
+    /// </summary>
     /// <param name="exe">The executable to run.</param>
     /// <param name="arguments">Its command line.</param>
     /// <param name="deadline">The shared absolute deadline for the surrounding workflow.</param>
     /// <param name="cancellationToken">Cancels the command and stops its process tree.</param>
-    /// <returns>Whether the tool did not start, completed successfully, completed with a known
-    /// failure, or crossed process start without a verifiable result.</returns>
+    /// <returns>
+    ///     Whether the tool did not start, completed successfully, completed with a known
+    ///     failure, or crossed process start without a verifiable result.
+    /// </returns>
     internal static Task<ConsoleToolRunOutcome> RunUntilAsync(
         string exe,
         string arguments,
         DateTimeOffset deadline,
-        CancellationToken cancellationToken) =>
-        RunUntilAsync(
+        CancellationToken cancellationToken)
+    {
+        return RunUntilAsync(
             exe,
             arguments,
             deadline,
@@ -107,9 +126,12 @@ internal static class ConsoleTool
                 return process is null ? null : new SystemConsoleToolProcess(process);
             },
             cancellationToken);
+    }
 
-    /// <summary>Runs through an injected process owner so process-start, wait-fault, and cleanup
-    /// boundaries can be verified without invoking a live console tool.</summary>
+    /// <summary>
+    ///     Runs through an injected process owner so process-start, wait-fault, and cleanup
+    ///     boundaries can be verified without invoking a live console tool.
+    /// </summary>
     internal static async Task<ConsoleToolRunOutcome> RunUntilAsync(
         string exe,
         string arguments,
@@ -140,6 +162,7 @@ internal static class ConsoleTool
                 Log.Warn($"{what} did not start.");
                 return ConsoleToolRunOutcome.NotStarted;
             }
+
             processStarted = true;
 
             var remaining = deadline - DateTimeOffset.UtcNow;
@@ -186,6 +209,7 @@ internal static class ConsoleTool
             {
                 return ConsoleToolRunOutcome.Succeeded;
             }
+
             Log.Warn($"{what} exited with {process.ExitCode}.");
             return ConsoleToolRunOutcome.Failed;
         }
@@ -202,9 +226,11 @@ internal static class ConsoleTool
         }
     }
 
-    /// <summary>Runs a hidden console tool, captures its combined stdout/stderr,
-    /// and returns the exit code — for tools whose OUTPUT matters (diskpart).
-    /// A timeout kills the process tree and reports exit code -1. Never throws.</summary>
+    /// <summary>
+    ///     Runs a hidden console tool, captures its combined stdout/stderr,
+    ///     and returns the exit code — for tools whose OUTPUT matters (diskpart).
+    ///     A timeout kills the process tree and reports exit code -1. Never throws.
+    /// </summary>
     /// <param name="exe">The executable to run.</param>
     /// <param name="arguments">Its command line.</param>
     /// <param name="timeoutMs">How long the tool may run.</param>
@@ -227,6 +253,7 @@ internal static class ConsoleTool
                 Log.Warn($"{what} did not start.");
                 return (-1, "");
             }
+
             // Read both streams concurrently — a tool that fills one pipe while
             // the caller waits on the other deadlocks otherwise.
             var stdout = p.StandardOutput.ReadToEndAsync();
@@ -241,12 +268,13 @@ internal static class ConsoleTool
                 Log.Warn($"{what} still running after {timeoutMs / 1000} s — killing it.");
                 try
                 {
-                    p.Kill(entireProcessTree: true);
+                    p.Kill(true);
                 }
                 catch (Exception ex)
                 {
                     Log.Warn($"{what} could not be killed: {ex.Message}");
                 }
+
                 // A read completes only once every writer handle on the pipe is
                 // gone, so a kill that failed (or a child still holding the
                 // inherited handle) would leave these awaits pending forever and
@@ -257,14 +285,17 @@ internal static class ConsoleTool
                 {
                     return (-1, $"{await stdout}{await stderr}");
                 }
+
                 Log.Warn($"{what} output could not be drained after the kill.");
                 return (-1, "");
             }
+
             var output = $"{await stdout}{await stderr}";
             if (p.ExitCode != 0)
             {
                 Log.Warn($"{what} exited with {p.ExitCode}.");
             }
+
             return (p.ExitCode, output);
         }
         catch (Exception ex)
@@ -274,11 +305,15 @@ internal static class ConsoleTool
         }
     }
 
-    /// <summary>Absolute System32 path for a Windows console tool. A relative exe
-    /// name is resolved from the application directory first, which for a per-user
-    /// install is user-writable — an elevated caller must never search it.</summary>
-    public static string System32(string exeName) =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), exeName);
+    /// <summary>
+    ///     Absolute System32 path for a Windows console tool. A relative exe
+    ///     name is resolved from the application directory first, which for a per-user
+    ///     install is user-writable — an elevated caller must never search it.
+    /// </summary>
+    public static string System32(string exeName)
+    {
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), exeName);
+    }
 
     internal static string FirstToken(string arguments)
     {
@@ -363,11 +398,19 @@ internal static class ConsoleTool
 
         public int ExitCode => _process.ExitCode;
 
-        public Task WaitForExitAsync(CancellationToken cancellationToken) =>
-            _process.WaitForExitAsync(cancellationToken);
+        public Task WaitForExitAsync(CancellationToken cancellationToken)
+        {
+            return _process.WaitForExitAsync(cancellationToken);
+        }
 
-        public void KillTree() => _process.Kill(entireProcessTree: true);
+        public void KillTree()
+        {
+            _process.Kill(true);
+        }
 
-        public void Dispose() => _process.Dispose();
+        public void Dispose()
+        {
+            _process.Dispose();
+        }
     }
 }

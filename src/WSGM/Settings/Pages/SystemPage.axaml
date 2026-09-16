@@ -4,126 +4,142 @@
              xmlns:c="using:WSGM.Controls"
              x:Class="WSGM.Settings.Pages.SystemPage"
              x:DataType="s:SettingsViewModel">
-    <!-- Dense utility layout: hero shell-status row on top, then two columns of
+  <!-- Dense utility layout: hero shell-status row on top, then two columns of
          zebra setting rows. XAML element order is the controller tab order:
          hero → install → boot toggle → restore → recovery → diagnostics. -->
-    <Border Padding="16,10,16,10">
-        <Grid RowDefinitions="Auto,*">
-            <Border Classes="hc-device-card">
-                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
-                    <Path Data="{x:Static c:Icons.Monitor}"
-                          Stroke="{StaticResource HcTextPrimaryBrush}" StrokeThickness="1.8"
-                          Width="22" Stretch="Uniform" VerticalAlignment="Center" />
-                    <StackPanel Grid.Column="1" Spacing="2">
-                        <TextBlock Text="Windows shell" Classes="setting-title" />
-                        <TextBlock Text="{Binding ShellStatusText}" Classes="caption" />
-                    </StackPanel>
-                </Grid>
-            </Border>
+  <Border Padding="16,10,16,10">
+    <Grid RowDefinitions="Auto,*">
+      <Border Classes="hc-device-card">
+        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+          <Path Data="{x:Static c:Icons.Monitor}"
+                Stroke="{StaticResource HcTextPrimaryBrush}" StrokeThickness="1.8"
+                Width="22" Stretch="Uniform" VerticalAlignment="Center" />
+          <StackPanel Grid.Column="1" Spacing="2">
+            <TextBlock Text="Windows shell" Classes="setting-title" />
+            <TextBlock Text="{Binding ShellStatusText}" Classes="caption" />
+          </StackPanel>
+        </Grid>
+      </Border>
 
-            <Grid Grid.Row="1" ColumnDefinitions="*,24,*">
-                <StackPanel Grid.Column="0">
-                    <Border Classes="section-header">
-                        <TextBlock Text="SHELL" />
-                    </Border>
-                    <Border Classes="setting-row alt">
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                            <StackPanel VerticalAlignment="Center" Spacing="1">
-                                <TextBlock Text="Start WSGM at sign-in" Classes="setting-title" />
-                                <TextBlock Text="The WSGM service starts WSGM once Windows finishes signing you in. Programs Windows autostarts may briefly run first." Classes="caption" TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding StartAtSignIn}" VerticalAlignment="Center" />
-                        </Grid>
-                    </Border>
-                    <Border Classes="setting-row">
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                            <StackPanel VerticalAlignment="Center" Spacing="1">
-                                <TextBlock Text="WSGM starts Steam" Classes="setting-title" />
-                                <TextBlock Text="{Binding SteamAutostartStatusText}" Classes="caption" TextWrapping="Wrap" />
-                            </StackPanel>
-                            <Button Grid.Column="1" Content="Take over again" Command="{Binding TakeOverSteamAutostartCommand}" VerticalAlignment="Center" />
-                        </Grid>
-                    </Border>
-                    <Border Classes="setting-row alt">
-                        <StackPanel Spacing="6">
-                            <TextBlock Text="Start in" Classes="setting-title" />
-                            <TextBlock Text="Game mode covers the booting desktop and switches to Big Picture. Desktop mode keeps Windows Explorer, starts Steam windowed and waits in the notification area until you enter game mode." Classes="caption" TextWrapping="Wrap" />
-                            <ComboBox SelectedIndex="{Binding StartModeIndex}" HorizontalAlignment="Left" MinWidth="180">
-                                <ComboBoxItem Content="Desktop mode" />
-                                <ComboBoxItem Content="Game mode" />
-                            </ComboBox>
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
+      <Grid Grid.Row="1" ColumnDefinitions="*,24,*">
+        <StackPanel Grid.Column="0">
+          <Border Classes="section-header">
+            <TextBlock Text="SHELL" />
+          </Border>
+          <Border Classes="setting-row alt">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel VerticalAlignment="Center" Spacing="1">
+                <TextBlock Text="Start WSGM at sign-in" Classes="setting-title" />
+                <TextBlock
+                  Text="The WSGM service starts WSGM once Windows finishes signing you in. Programs Windows autostarts may briefly run first."
+                  Classes="caption" TextWrapping="Wrap" />
+              </StackPanel>
+              <ToggleSwitch Grid.Column="1" IsChecked="{Binding StartAtSignIn}" VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+          <Border Classes="setting-row">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel VerticalAlignment="Center" Spacing="1">
+                <TextBlock Text="WSGM starts Steam" Classes="setting-title" />
+                <TextBlock Text="{Binding SteamAutostartStatusText}" Classes="caption" TextWrapping="Wrap" />
+              </StackPanel>
+              <Button Grid.Column="1" Content="Take over again" Command="{Binding TakeOverSteamAutostartCommand}"
+                      VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+          <Border Classes="setting-row alt">
+            <StackPanel Spacing="6">
+              <TextBlock Text="Start in" Classes="setting-title" />
+              <TextBlock
+                Text="Game mode covers the booting desktop and switches to Big Picture. Desktop mode keeps Windows Explorer, starts Steam windowed and waits in the notification area until you enter game mode."
+                Classes="caption" TextWrapping="Wrap" />
+              <ComboBox SelectedIndex="{Binding StartModeIndex}" HorizontalAlignment="Left" MinWidth="180">
+                <ComboBoxItem Content="Desktop mode" />
+                <ComboBoxItem Content="Game mode" />
+              </ComboBox>
+            </StackPanel>
+          </Border>
+        </StackPanel>
 
-                <StackPanel Grid.Column="2">
-                    <Border Classes="section-header">
-                        <TextBlock Text="RECOVERY" />
-                    </Border>
-                    <Border Classes="setting-row alt">
-                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-                            <TextBlock Text="!" FontSize="18" FontWeight="Bold" Foreground="{StaticResource HcWarningBrush}" VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="1" Text="If game mode does not come up, press Ctrl+Alt+Del, open Task Manager, then run explorer.exe. Run WSGM.exe --restore-shell to turn off the sign-in start and bring the desktop back; re-enable it here afterwards." Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap" />
-                        </Grid>
-                    </Border>
+        <StackPanel Grid.Column="2">
+          <Border Classes="section-header">
+            <TextBlock Text="RECOVERY" />
+          </Border>
+          <Border Classes="setting-row alt">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+              <TextBlock Text="!" FontSize="18" FontWeight="Bold" Foreground="{StaticResource HcWarningBrush}"
+                         VerticalAlignment="Center" />
+              <TextBlock Grid.Column="1"
+                         Text="If game mode does not come up, press Ctrl+Alt+Del, open Task Manager, then run explorer.exe. Run WSGM.exe --restore-shell to turn off the sign-in start and bring the desktop back; re-enable it here afterwards."
+                         Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap" />
+            </Grid>
+          </Border>
 
-                    <Border Classes="section-header">
-                        <TextBlock Text="POWER" />
-                    </Border>
-                    <!-- Gated on the CEF master switch: muting only ever engages while Steam
+          <Border Classes="section-header">
+            <TextBlock Text="POWER" />
+          </Border>
+          <!-- Gated on the CEF master switch: muting only ever engages while Steam
                          reports an active download, and that answer comes from the CEF download
                          poll. With Steam integration off the row would read "on" and do nothing. -->
-                    <Border Classes="setting-row alt" IsVisible="{Binding CefEnabled}">
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                            <StackPanel VerticalAlignment="Center" Spacing="1">
-                                <TextBlock Text="Mute screen-off downloads" Classes="setting-title" />
-                                <TextBlock Text="Mute only while the screen is dark and Steam is actively downloading. Screen-off alone stays audible; audio returns 10 seconds after downloads stop or immediately when the display wakes. A mute you set yourself is left alone." Classes="caption" TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding MuteWhileDisplayOff}" VerticalAlignment="Center" />
-                        </Grid>
-                    </Border>
-
-                    <!-- Not gated on CEF: this reads Windows' own account of the wake and never
-                         asks Steam anything. -->
-                    <Border Classes="setting-row">
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                            <StackPanel VerticalAlignment="Center" Spacing="1">
-                                <TextBlock Text="Sleep again after an unexplained wake" Classes="setting-title" />
-                                <TextBlock Text="If standby ends and Windows says nobody woke the handheld, put it back to sleep instead of leaving it draining in your bag. Never runs when you woke it yourself, while the screen is on, or after any input. Gives up after three tries so it can never trap the device asleep, and changes no Windows power settings." Classes="caption" TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding ResuspendUnexplainedWakes}" VerticalAlignment="Center" />
-                        </Grid>
-                    </Border>
-                    <Border Classes="setting-row">
-                        <StackPanel Spacing="2">
-                            <TextBlock Text="Last standby" Classes="setting-title" />
-                            <TextBlock Text="{Binding ModernStandbyStatusText}" Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                    </Border>
-
-                    <Border Classes="section-header">
-                        <TextBlock Text="DIAGNOSTICS" />
-                    </Border>
-                    <Border Classes="setting-row alt">
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                            <StackPanel VerticalAlignment="Center" Spacing="1">
-                                <TextBlock Text="Log file" Classes="setting-title" />
-                                <TextBlock Text="wsgm.log records everything WSGM does — attach it when reporting a problem." Classes="caption" />
-                            </StackPanel>
-                            <Button Grid.Column="1" Content="Open log location" Command="{Binding OpenLogLocationCommand}" VerticalAlignment="Center" />
-                        </Grid>
-                    </Border>
-                    <Border Classes="setting-row">
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                            <StackPanel VerticalAlignment="Center" Spacing="1">
-                                <TextBlock Text="Verbose logging" Classes="setting-title" />
-                                <TextBlock Text="Records extra detail while reproducing a problem. It makes the log considerably larger, so turn it off again once you have captured what you need. Takes effect immediately — no restart." Classes="caption" TextWrapping="Wrap" />
-                            </StackPanel>
-                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding VerboseLogging}" VerticalAlignment="Center" />
-                        </Grid>
-                    </Border>
-                </StackPanel>
+          <Border Classes="setting-row alt" IsVisible="{Binding CefEnabled}">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel VerticalAlignment="Center" Spacing="1">
+                <TextBlock Text="Mute screen-off downloads" Classes="setting-title" />
+                <TextBlock
+                  Text="Mute only while the screen is dark and Steam is actively downloading. Screen-off alone stays audible; audio returns 10 seconds after downloads stop or immediately when the display wakes. A mute you set yourself is left alone."
+                  Classes="caption" TextWrapping="Wrap" />
+              </StackPanel>
+              <ToggleSwitch Grid.Column="1" IsChecked="{Binding MuteWhileDisplayOff}" VerticalAlignment="Center" />
             </Grid>
-        </Grid>
-    </Border>
+          </Border>
+
+          <!-- Not gated on CEF: this reads Windows' own account of the wake and never
+                         asks Steam anything. -->
+          <Border Classes="setting-row">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel VerticalAlignment="Center" Spacing="1">
+                <TextBlock Text="Sleep again after an unexplained wake" Classes="setting-title" />
+                <TextBlock
+                  Text="If standby ends and Windows says nobody woke the handheld, put it back to sleep instead of leaving it draining in your bag. Never runs when you woke it yourself, while the screen is on, or after any input. Gives up after three tries so it can never trap the device asleep, and changes no Windows power settings."
+                  Classes="caption" TextWrapping="Wrap" />
+              </StackPanel>
+              <ToggleSwitch Grid.Column="1" IsChecked="{Binding ResuspendUnexplainedWakes}" VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+          <Border Classes="setting-row">
+            <StackPanel Spacing="2">
+              <TextBlock Text="Last standby" Classes="setting-title" />
+              <TextBlock Text="{Binding ModernStandbyStatusText}" Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+
+          <Border Classes="section-header">
+            <TextBlock Text="DIAGNOSTICS" />
+          </Border>
+          <Border Classes="setting-row alt">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel VerticalAlignment="Center" Spacing="1">
+                <TextBlock Text="Log file" Classes="setting-title" />
+                <TextBlock Text="wsgm.log records everything WSGM does — attach it when reporting a problem."
+                           Classes="caption" />
+              </StackPanel>
+              <Button Grid.Column="1" Content="Open log location" Command="{Binding OpenLogLocationCommand}"
+                      VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+          <Border Classes="setting-row">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel VerticalAlignment="Center" Spacing="1">
+                <TextBlock Text="Verbose logging" Classes="setting-title" />
+                <TextBlock
+                  Text="Records extra detail while reproducing a problem. It makes the log considerably larger, so turn it off again once you have captured what you need. Takes effect immediately — no restart."
+                  Classes="caption" TextWrapping="Wrap" />
+              </StackPanel>
+              <ToggleSwitch Grid.Column="1" IsChecked="{Binding VerboseLogging}" VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+        </StackPanel>
+      </Grid>
+    </Grid>
+  </Border>
 </UserControl>

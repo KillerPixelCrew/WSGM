@@ -3,32 +3,32 @@
              xmlns:fa="using:FluentAvalonia.Styling"
              x:Class="WSGM.App"
              RequestedThemeVariant="Dark">
-    <!-- The visual language lives in Themes\: Palette.axaml is the single
+  <!-- The visual language lives in Themes\: Palette.axaml is the single
          source of truth for colors, Typography/Shared carry the text and
          control styles, and the remaining includes host WSGM's control
          themes. The FluentAvalonia accent is applied at runtime by the accent
          pipeline, not via a static SystemAccentColor override. -->
-    <Application.Resources>
-        <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <!-- Boot-splash spinner styles. Merged BEFORE Palette.axaml so
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <!-- Boot-splash spinner styles. Merged BEFORE Palette.axaml so
                      the Hc* tokens stay authoritative on any key collision. -->
-                <ResourceInclude Source="avares://WSGM/ThirdParty/LoadingIndicators/LoadingIndicators.axaml" />
-                <ResourceInclude Source="/Themes/Palette.axaml" />
-            </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
-    </Application.Resources>
+        <ResourceInclude Source="avares://WSGM/ThirdParty/LoadingIndicators/LoadingIndicators.axaml" />
+        <ResourceInclude Source="/Themes/Palette.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
 
-    <Application.Styles>
-        <fa:FluentAvaloniaTheme />
-        <!-- Theme for the ColorSpectrum the device color editor embeds; FluentAvalonia does not
+  <Application.Styles>
+    <fa:FluentAvaloniaTheme />
+    <!-- Theme for the ColorSpectrum the device color editor embeds; FluentAvalonia does not
              carry Avalonia's ColorPicker control themes. -->
-        <StyleInclude Source="avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml" />
-        <StyleInclude Source="/Themes/Typography.axaml" />
-        <StyleInclude Source="/Themes/Shared.axaml" />
-        <StyleInclude Source="/Themes/DisplayLayoutTheme.axaml" />
-        <StyleInclude Source="/Themes/TabStripTheme.axaml" />
-        <StyleInclude Source="/Themes/CardButtonTheme.axaml" />
-        <StyleInclude Source="/Themes/SettingsPages.axaml" />
-    </Application.Styles>
+    <StyleInclude Source="avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml" />
+    <StyleInclude Source="/Themes/Typography.axaml" />
+    <StyleInclude Source="/Themes/Shared.axaml" />
+    <StyleInclude Source="/Themes/DisplayLayoutTheme.axaml" />
+    <StyleInclude Source="/Themes/TabStripTheme.axaml" />
+    <StyleInclude Source="/Themes/CardButtonTheme.axaml" />
+    <StyleInclude Source="/Themes/SettingsPages.axaml" />
+  </Application.Styles>
 </Application>

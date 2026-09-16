@@ -7,11 +7,15 @@ public sealed class NativeQamPerfProjectionTests
     private static NativeQamPerfSupport Support(
         bool vrr = false,
         bool refreshSelectable = false,
-        int[]? options = null) =>
-        new(options ?? [30, 60, 120], vrr, refreshSelectable, 30, 120);
+        int[]? options = null)
+    {
+        return new NativeQamPerfSupport(options ?? [30, 60, 120], vrr, refreshSelectable, 30, 120);
+    }
 
-    private static string Serialize(SteamPerformanceState state) =>
-        SteamPerformanceSurface.Serialize(state).GetRawText();
+    private static string Serialize(SteamPerformanceState state)
+    {
+        return SteamPerformanceSurface.Serialize(state).GetRawText();
+    }
 
     [Theory]
     [InlineData(true, true)]
@@ -27,7 +31,7 @@ public sealed class NativeQamPerfProjectionTests
         // shipped broken.
         var state = NativeQamProjection(
             PerformanceValues.Empty,
-            Support(vrr: vrr, refreshSelectable: refreshSelectable));
+            Support(vrr, refreshSelectable));
 
         Assert.Equal(state.Limits?.FpsLimitOptions is not null, state.PerApp?.FpsLimit is not null);
         Assert.Equal(
@@ -45,15 +49,17 @@ public sealed class NativeQamPerfProjectionTests
 
     private static SteamPerformanceState NativeQamProjection(
         PerformanceValues values,
-        NativeQamPerfSupport support) =>
-        NativeQamPerfProjection.Project(
+        NativeQamPerfSupport support)
+    {
+        return NativeQamPerfProjection.Project(
             values,
             support,
-            steamAppId: null,
-            perApplicationProfileEnabled: false,
-            advancedSettingsEnabled: false,
-            variableRefreshRateEnabled: null,
-            refreshRateHz: support.CurrentRefreshRateHz);
+            null,
+            false,
+            false,
+            null,
+            support.CurrentRefreshRateHz);
+    }
 
     [Fact]
     public void UnsupportedControlsAreOmittedEntirelySoValvesWrapperRendersNothing()
@@ -62,12 +68,12 @@ public sealed class NativeQamPerfProjectionTests
         // absent field is an absent control. A present-but-false field is a visible dead control.
         var json = Serialize(NativeQamPerfProjection.Project(
             new PerformanceValues(60, 1),
-            Support(vrr: false, refreshSelectable: false),
-            steamAppId: 42,
-            perApplicationProfileEnabled: true,
-            advancedSettingsEnabled: false,
-            variableRefreshRateEnabled: null,
-            refreshRateHz: null));
+            Support(),
+            42,
+            true,
+            false,
+            null,
+            null));
 
         Assert.DoesNotContain("is_vrr_supported", json);
         Assert.DoesNotContain("is_vrr_enabled", json);
@@ -80,12 +86,12 @@ public sealed class NativeQamPerfProjectionTests
     {
         var json = Serialize(NativeQamPerfProjection.Project(
             new PerformanceValues(60, 2),
-            Support(vrr: true, refreshSelectable: true),
-            steamAppId: 42,
-            perApplicationProfileEnabled: true,
-            advancedSettingsEnabled: true,
-            variableRefreshRateEnabled: true,
-            refreshRateHz: 120));
+            Support(true, true),
+            42,
+            true,
+            true,
+            true,
+            120));
 
         // A renamed field is silently a missing control, so the wire names are asserted directly.
         Assert.Contains("\"fps_limit_options\":[30,60,120]", json);
@@ -103,11 +109,11 @@ public sealed class NativeQamPerfProjectionTests
         var state = NativeQamPerfProjection.Project(
             PerformanceValues.Empty,
             Support(options: [120, 30, 60, 30, 0]),
-            steamAppId: null,
-            perApplicationProfileEnabled: false,
-            advancedSettingsEnabled: false,
-            variableRefreshRateEnabled: null,
-            refreshRateHz: null);
+            null,
+            false,
+            false,
+            null,
+            null);
 
         Assert.Equal([30, 60, 120], state.Limits?.FpsLimitOptions);
     }
@@ -118,11 +124,11 @@ public sealed class NativeQamPerfProjectionTests
         var state = NativeQamPerfProjection.Project(
             PerformanceValues.Empty,
             Support(options: []),
-            steamAppId: null,
-            perApplicationProfileEnabled: false,
-            advancedSettingsEnabled: false,
-            variableRefreshRateEnabled: null,
-            refreshRateHz: null);
+            null,
+            false,
+            false,
+            null,
+            null);
 
         Assert.Null(state.Limits?.FpsLimitOptions);
     }
@@ -135,22 +141,22 @@ public sealed class NativeQamPerfProjectionTests
         var perGame = NativeQamPerfProjection.Project(
             new PerformanceValues(60, null),
             Support(),
-            steamAppId: 42,
-            perApplicationProfileEnabled: true,
-            advancedSettingsEnabled: false,
-            variableRefreshRateEnabled: null,
-            refreshRateHz: null);
+            42,
+            true,
+            false,
+            null,
+            null);
         Assert.Equal("42", perGame.CurrentGameId);
         Assert.Equal("42", perGame.ActiveProfileGameId);
 
         var global = NativeQamPerfProjection.Project(
             new PerformanceValues(60, null),
             Support(),
-            steamAppId: 42,
-            perApplicationProfileEnabled: false,
-            advancedSettingsEnabled: false,
-            variableRefreshRateEnabled: null,
-            refreshRateHz: null);
+            42,
+            false,
+            false,
+            null,
+            null);
 
         Assert.Equal("42", global.CurrentGameId);
         // 769 is the Steam client's own pseudo-app, Valve's vocabulary for "default settings";
@@ -166,11 +172,11 @@ public sealed class NativeQamPerfProjectionTests
         var state = NativeQamPerfProjection.Project(
             new PerformanceValues(60, null),
             Support(),
-            steamAppId: null,
-            perApplicationProfileEnabled: true,
-            advancedSettingsEnabled: false,
-            variableRefreshRateEnabled: null,
-            refreshRateHz: null);
+            null,
+            true,
+            false,
+            null,
+            null);
 
         Assert.Equal("769", state.CurrentGameId);
         Assert.Equal("769", state.ActiveProfileGameId);
@@ -189,11 +195,11 @@ public sealed class NativeQamPerfProjectionTests
         var state = NativeQamPerfProjection.Project(
             new PerformanceValues(cap, null),
             Support(),
-            steamAppId: null,
-            perApplicationProfileEnabled: false,
-            advancedSettingsEnabled: false,
-            variableRefreshRateEnabled: null,
-            refreshRateHz: null);
+            null,
+            false,
+            false,
+            null,
+            null);
 
         Assert.Equal(expected, state.PerApp?.IsFpsLimitEnabled);
     }

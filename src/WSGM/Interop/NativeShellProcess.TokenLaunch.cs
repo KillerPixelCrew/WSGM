@@ -9,9 +9,11 @@ internal static partial class NativeShellProcess
     private const uint CreateNoWindow = 0x08000000;
     private const uint CreateBreakawayFromJob = 0x01000000;
 
-    /// <summary>Starts a fixed recovery owner with the retained shell's primary token, without
-    /// selecting that shell as its process parent. The caller must verify the resulting process
-    /// before using it as a recovery owner.</summary>
+    /// <summary>
+    ///     Starts a fixed recovery owner with the retained shell's primary token, without
+    ///     selecting that shell as its process parent. The caller must verify the resulting process
+    ///     before using it as a recovery owner.
+    /// </summary>
     internal static unsafe bool TryStartWithShellToken(
         NativeShellLaunchParent parent,
         string applicationPath,
@@ -34,6 +36,7 @@ internal static partial class NativeShellProcess
                 error = Marshal.GetLastPInvokeError();
                 return false;
             }
+
             StartupInfo startup = new() { Size = checked((uint)sizeof(StartupInfo)) };
             char[] mutableCommandLine = [.. commandLine, '\0'];
             fixed (char* application = applicationPath)
@@ -47,6 +50,7 @@ internal static partial class NativeShellProcess
                     error = Marshal.GetLastPInvokeError();
                     return false;
                 }
+
                 Win32Common.CloseHandle(created.Thread);
                 process = new NativeShellChildProcess(created.ProcessId, created.Process);
                 error = 0;
@@ -55,8 +59,15 @@ internal static partial class NativeShellProcess
         }
         finally
         {
-            if (environment != 0) { Win32Common.DestroyEnvironmentBlock(environment); }
-            if (token != 0) { Win32Common.CloseHandle(token); }
+            if (environment != 0)
+            {
+                Win32Common.DestroyEnvironmentBlock(environment);
+            }
+
+            if (token != 0)
+            {
+                Win32Common.CloseHandle(token);
+            }
         }
     }
 

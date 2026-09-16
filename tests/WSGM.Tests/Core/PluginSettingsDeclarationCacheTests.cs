@@ -8,41 +8,47 @@ namespace WSGM.Tests.Core;
 
 public sealed class PluginSettingsDeclarationCacheTests
 {
-    private static PluginSettingsManifest Manifest(string settingId = "vendor.flag") => new()
+    private static PluginSettingsManifest Manifest(string settingId = "vendor.flag")
     {
-        Sections = [new PluginSettingSection { SectionId = "one", Key = SettingSectionKey.General }],
-        Settings =
-        [
-            new PluginSettingDescriptor
-            {
-                SettingId = settingId,
-                ValueKind = CapabilityValueKind.Boolean,
-                Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Flag" },
-                Default = new CapabilityValue
-                {
-                    Kind = CapabilityValueKind.Boolean,
-                    BooleanValue = false
-                },
-                SectionId = "one"
-            }
-        ]
-    };
-
-    private static AppConfig WithScope(PluginSettingsManifest? declaration) => new()
-    {
-        DeviceIntegration = new DeviceIntegrationConfig
+        return new PluginSettingsManifest
         {
-            PluginSettings =
+            Sections = [new PluginSettingSection { SectionId = "one", Key = SettingSectionKey.General }],
+            Settings =
             [
-                new PluginSettingsScope
+                new PluginSettingDescriptor
                 {
-                    DeviceDefinitionId = "msi.claw8",
-                    PluginId = "wsgm.device.msi",
-                    Declaration = declaration
+                    SettingId = settingId,
+                    ValueKind = CapabilityValueKind.Boolean,
+                    Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Flag" },
+                    Default = new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Boolean,
+                        BooleanValue = false
+                    },
+                    SectionId = "one"
                 }
             ]
-        }
-    };
+        };
+    }
+
+    private static AppConfig WithScope(PluginSettingsManifest? declaration)
+    {
+        return new AppConfig
+        {
+            DeviceIntegration = new DeviceIntegrationConfig
+            {
+                PluginSettings =
+                [
+                    new PluginSettingsScope
+                    {
+                        DeviceDefinitionId = "msi.claw8",
+                        PluginId = "wsgm.device.msi",
+                        Declaration = declaration
+                    }
+                ]
+            }
+        };
+    }
 
     [Fact]
     public void ACachedDeclarationSurvivesTheSourceGeneratedRoundTrip()

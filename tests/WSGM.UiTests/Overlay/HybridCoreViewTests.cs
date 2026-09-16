@@ -20,7 +20,8 @@ public sealed class HybridCoreViewTests
         using FakeDevice device = new();
         using UiFixture fixture = new();
         var window = fixture.Overlay();
-        using HybridCoreSelection selection = new(new HybridCores(new FakeHybridCoreApi { HeterogeneousPolicies = [0] }));
+        using HybridCoreSelection selection =
+            new(new HybridCores(new FakeHybridCoreApi { HeterogeneousPolicies = [0] }));
         window.AttachHybridCores(selection);
         await selection.RefreshAsync();
         Dispatcher.UIThread.RunJobs();
@@ -47,7 +48,8 @@ public sealed class HybridCoreViewTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         using HybridCoreSelection selection = new(
-            new HybridCores(new FakeHybridCoreApi { HeterogeneousPolicies = [0], Classes = [new HybridCoreClass(0, 8, 16)] }));
+            new HybridCores(new FakeHybridCoreApi
+                { HeterogeneousPolicies = [0], Classes = [new HybridCoreClass(0, 8, 16)] }));
         window.AttachHybridCores(selection);
         await selection.RefreshAsync();
         Dispatcher.UIThread.RunJobs();
@@ -80,7 +82,7 @@ public sealed class HybridCoreViewTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         FakeHybridCoreApi api = new() { HeterogeneousPolicies = [0] };
-        using HybridCoreSelection selection = new(new HybridCores(api), readOnly: true);
+        using HybridCoreSelection selection = new(new HybridCores(api), true);
         window.AttachHybridCores(selection);
         await selection.RefreshAsync();
 
@@ -97,7 +99,8 @@ public sealed class HybridCoreViewTests
     {
         using UiFixture fixture = new();
         var window = fixture.Overlay();
-        using HybridCoreSelection selection = new(new HybridCores(new FakeHybridCoreApi { HeterogeneousPolicies = [0], IgnoreWrites = true }));
+        using HybridCoreSelection selection = new(new HybridCores(new FakeHybridCoreApi
+            { HeterogeneousPolicies = [0], IgnoreWrites = true }));
         window.AttachHybridCores(selection);
         await selection.RefreshAsync();
 

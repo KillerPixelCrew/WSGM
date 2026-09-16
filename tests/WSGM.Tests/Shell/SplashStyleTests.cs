@@ -8,11 +8,18 @@ namespace WSGM.Tests.Shell;
 
 public class SplashStyleTests
 {
+    // ---- Background decode budget (BootSplashWindow) ----
+
+    /// <summary>2560x1600 — the widest supported panel at its own aspect ratio.</summary>
+    private const long BackgroundPixelBudget = 2560L * 1600;
+
     private static readonly Size Screen = new(1920, 1080);
     private static readonly Size Element = new(200, 100);
 
-    private static SplashElementLayout Map(SplashElementPlacement placement) =>
-        SplashStyle.MapPlacement(placement, Screen, Element);
+    private static SplashElementLayout Map(SplashElementPlacement placement)
+    {
+        return SplashStyle.MapPlacement(placement, Screen, Element);
+    }
 
     // ---- Anchor mode: all nine anchors ----
 
@@ -274,7 +281,7 @@ public class SplashStyleTests
     // ---- Logo decode cap (BootSplashWindow) ----
 
     [Theory]
-    [InlineData(200, 1000)]   // Default logo bound: 200 DIP -> 4 MB decoded, not 320 MB.
+    [InlineData(200, 1000)] // Default logo bound: 200 DIP -> 4 MB decoded, not 320 MB.
     [InlineData(1, 5)]
     [InlineData(3999, 19995)] // Just under ImageHeader.MaxDimension.
     public void TheLogoDecodeCapCoversTheWholeSupportedDisplayScaleRange(int maxSizeDips, int expected)
@@ -286,8 +293,8 @@ public class SplashStyleTests
     }
 
     [Theory]
-    [InlineData(4096)]           // Largest logo bound ConfigStore's clamp allows.
-    [InlineData(int.MaxValue)]   // A preview config is built without that clamp.
+    [InlineData(4096)] // Largest logo bound ConfigStore's clamp allows.
+    [InlineData(int.MaxValue)] // A preview config is built without that clamp.
     public void TheLogoDecodeCapStaysWithinTheImageHeaderLimitAndCannotOverflow(int maxSizeDips)
     {
         // Beyond the largest edge ImageHeader accepts, the cap could never bind
@@ -304,9 +311,9 @@ public class SplashStyleTests
     }
 
     [Theory]
-    [InlineData(1000, 1000, 1000)]  // Square: the cap is the longer edge either way.
-    [InlineData(4000, 1000, 1000)]  // Landscape: width hits the cap.
-    [InlineData(500, 2000, 250)]    // Portrait: height hits the cap, width follows the ratio.
+    [InlineData(1000, 1000, 1000)] // Square: the cap is the longer edge either way.
+    [InlineData(4000, 1000, 1000)] // Landscape: width hits the cap.
+    [InlineData(500, 2000, 250)] // Portrait: height hits the cap, width follows the ratio.
     public void TheLogoDecodeWidthPutsTheRenderedLongerEdgeOnTheCap(
         int sourceWidth, int sourceHeight, int expected)
     {
@@ -324,16 +331,18 @@ public class SplashStyleTests
         Assert.InRange(width, 1, ImageHeader.MaxDimension);
         Assert.True(
             DecodedLogoPixels(int.MaxValue, ImageHeader.MaxDimension, ImageHeader.MaxDimension)
-                <= BootSplashWindow.LogoDecodePixelBudget(int.MaxValue) + width,
+            <= BootSplashWindow.LogoDecodePixelBudget(int.MaxValue) + width,
             $"the largest source ImageHeader admits must stay inside the budget, decoded {width} px wide");
         Assert.True(BootSplashWindow.LogoDecodeWidth(int.MaxValue, 1, ImageHeader.MaxDimension) >= 1);
     }
 
     // ---- Logo decode budget (BootSplashWindow) ----
 
-    /// <summary>The pixels a logo decode actually produces: the caller only ever
-    /// scales DOWN, so a source narrower than its bound is decoded whole. This is the
-    /// branch the per-edge cap alone never bounded.</summary>
+    /// <summary>
+    ///     The pixels a logo decode actually produces: the caller only ever
+    ///     scales DOWN, so a source narrower than its bound is decoded whole. This is the
+    ///     branch the per-edge cap alone never bounded.
+    /// </summary>
     private static long DecodedLogoPixels(int maxSizeDips, int sourceWidth, int sourceHeight)
     {
         var bound = BootSplashWindow.LogoDecodeWidth(maxSizeDips, sourceWidth, sourceHeight);
@@ -341,15 +350,16 @@ public class SplashStyleTests
         {
             return (long)sourceWidth * sourceHeight;
         }
+
         var height = (long)Math.Ceiling((double)bound * sourceHeight / sourceWidth);
         return bound * height;
     }
 
     [Theory]
-    [InlineData(200, 1_000_000)]            // Default: the 1000 px cap squared, 4 MB.
-    [InlineData(1, 25)]                     // Smallest bound: 5 px squared.
-    [InlineData(404, 4_080_400)]            // Largest bound still under the screen cover.
-    [InlineData(4096, 2560 * 1600)]         // Largest bound ConfigStore allows: the cover ceiling.
+    [InlineData(200, 1_000_000)] // Default: the 1000 px cap squared, 4 MB.
+    [InlineData(1, 25)] // Smallest bound: 5 px squared.
+    [InlineData(404, 4_080_400)] // Largest bound still under the screen cover.
+    [InlineData(4096, 2560 * 1600)] // Largest bound ConfigStore allows: the cover ceiling.
     [InlineData(int.MaxValue, 2560 * 1600)] // A preview config is built without that clamp.
     public void TheLogoDecodeBudgetFollowsTheConfiguredBoundUpToTheScreenCover(
         int maxSizeDips, long expected)
@@ -362,14 +372,14 @@ public class SplashStyleTests
     }
 
     [Theory]
-    [InlineData(2000, 9999, 8000)]                              // The measured worst case at 2000.
-    [InlineData(4096, ImageHeader.MaxDimension, 4000)]          // Widest allowed, 80 MP.
-    [InlineData(4096, 4000, ImageHeader.MaxDimension)]          // Tallest allowed, 80 MP.
-    [InlineData(4096, 8944, 8944)]                              // Largest allowed square.
-    [InlineData(4096, ImageHeader.MaxDimension, 1)]             // Most extreme landscape ratio.
-    [InlineData(4096, 1, ImageHeader.MaxDimension)]             // Most extreme portrait ratio.
-    [InlineData(2000, 8000, 9999)]                              // Portrait twin of the worst case.
-    [InlineData(200, 5000, 5000)]                               // Default bound, oversized source.
+    [InlineData(2000, 9999, 8000)] // The measured worst case at 2000.
+    [InlineData(4096, ImageHeader.MaxDimension, 4000)] // Widest allowed, 80 MP.
+    [InlineData(4096, 4000, ImageHeader.MaxDimension)] // Tallest allowed, 80 MP.
+    [InlineData(4096, 8944, 8944)] // Largest allowed square.
+    [InlineData(4096, ImageHeader.MaxDimension, 1)] // Most extreme landscape ratio.
+    [InlineData(4096, 1, ImageHeader.MaxDimension)] // Most extreme portrait ratio.
+    [InlineData(2000, 8000, 9999)] // Portrait twin of the worst case.
+    [InlineData(200, 5000, 5000)] // Default bound, oversized source.
     public void TheLogoDecodeStaysInsideItsBudgetForEveryAdmissibleSource(
         int maxSizeDips, int sourceWidth, int sourceHeight)
     {
@@ -388,10 +398,10 @@ public class SplashStyleTests
     }
 
     [Theory]
-    [InlineData(200, 300, 300)]     // Small square, well inside the default budget.
-    [InlineData(200, 100, 800)]     // Small but tall: the edge bound is the tighter one.
-    [InlineData(200, 1000, 1000)]   // Exactly the default cap.
-    [InlineData(4096, 2023, 2023)]  // Largest square that still fits the ceiling exactly.
+    [InlineData(200, 300, 300)] // Small square, well inside the default budget.
+    [InlineData(200, 100, 800)] // Small but tall: the edge bound is the tighter one.
+    [InlineData(200, 1000, 1000)] // Exactly the default cap.
+    [InlineData(4096, 2023, 2023)] // Largest square that still fits the ceiling exactly.
     public void TheLogoDecodeIsNeverUpscaled(int maxSizeDips, int sourceWidth, int sourceHeight)
     {
         // The bound is an upper limit only: when it does not fall below the source's
@@ -414,13 +424,10 @@ public class SplashStyleTests
         Assert.Equal(1000, BootSplashWindow.LogoDecodeWidth(200, -1920, -1080));
     }
 
-    // ---- Background decode budget (BootSplashWindow) ----
-
-    /// <summary>2560x1600 — the widest supported panel at its own aspect ratio.</summary>
-    private const long BackgroundPixelBudget = 2560L * 1600;
-
-    /// <summary>The pixels a background decode actually produces: the caller only ever
-    /// scales DOWN, so a source narrower than its bound is decoded whole.</summary>
+    /// <summary>
+    ///     The pixels a background decode actually produces: the caller only ever
+    ///     scales DOWN, so a source narrower than its bound is decoded whole.
+    /// </summary>
     private static long DecodedPixels(int sourceWidth, int sourceHeight)
     {
         var bound = BootSplashWindow.BackgroundDecodeWidth(sourceWidth, sourceHeight);
@@ -428,15 +435,16 @@ public class SplashStyleTests
         {
             return (long)sourceWidth * sourceHeight;
         }
+
         var height = (long)Math.Ceiling((double)bound * sourceHeight / sourceWidth);
         return bound * height;
     }
 
     [Theory]
-    [InlineData(3840, 2160)]  // 4K landscape source.
-    [InlineData(2560, 1600)]  // Largest supported panel, 1:1.
-    [InlineData(1920, 1200)]  // Typical handheld panel.
-    [InlineData(1280, 800)]   // WSGM's floor.
+    [InlineData(3840, 2160)] // 4K landscape source.
+    [InlineData(2560, 1600)] // Largest supported panel, 1:1.
+    [InlineData(1920, 1200)] // Typical handheld panel.
+    [InlineData(1280, 800)] // WSGM's floor.
     public void TheBackgroundDecodeWidthKeepsTheOldWidthCapForLandscapeSources(
         int sourceWidth, int sourceHeight)
     {
@@ -459,10 +467,10 @@ public class SplashStyleTests
     }
 
     [Theory]
-    [InlineData(800, 600)]      // Small landscape.
-    [InlineData(100, 2000)]     // Small but tall.
-    [InlineData(1280, 800)]     // Exactly WSGM's floor.
-    [InlineData(2023, 2023)]    // Square, the largest that still fits the budget exactly.
+    [InlineData(800, 600)] // Small landscape.
+    [InlineData(100, 2000)] // Small but tall.
+    [InlineData(1280, 800)] // Exactly WSGM's floor.
+    [InlineData(2023, 2023)] // Square, the largest that still fits the budget exactly.
     public void TheBackgroundDecodeIsNeverUpscaled(int sourceWidth, int sourceHeight)
     {
         // The bound is an upper limit only: when it does not fall below the source's
@@ -474,11 +482,11 @@ public class SplashStyleTests
     }
 
     [Theory]
-    [InlineData(ImageHeader.MaxDimension, 4000)]                 // Widest allowed, 80 MP.
-    [InlineData(4000, ImageHeader.MaxDimension)]                 // Tallest allowed, 80 MP.
-    [InlineData(ImageHeader.MaxDimension, 1)]                    // Most extreme landscape ratio.
-    [InlineData(1, ImageHeader.MaxDimension)]                    // Most extreme portrait ratio.
-    [InlineData(8944, 8944)]                                     // Largest allowed square.
+    [InlineData(ImageHeader.MaxDimension, 4000)] // Widest allowed, 80 MP.
+    [InlineData(4000, ImageHeader.MaxDimension)] // Tallest allowed, 80 MP.
+    [InlineData(ImageHeader.MaxDimension, 1)] // Most extreme landscape ratio.
+    [InlineData(1, ImageHeader.MaxDimension)] // Most extreme portrait ratio.
+    [InlineData(8944, 8944)] // Largest allowed square.
     public void TheBackgroundDecodeStaysInsideTheBudgetAtTheImageHeaderLimits(
         int sourceWidth, int sourceHeight)
     {

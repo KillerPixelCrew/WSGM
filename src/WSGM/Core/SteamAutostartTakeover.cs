@@ -16,20 +16,25 @@ public sealed record SteamAutostartTakeoverResult(
     public bool Complete => Pending.Count == 0 && NeedsElevation.Count == 0;
 }
 
-/// <summary>Turns Steam's own startup entries off and puts them back exactly as they were.
-///
-/// WSGM starts Steam so the client inherits WSGM's integrity; a Steam that Windows already started
-/// would defeat that without saying so. Nothing is deleted: each entry is disabled the way Task
-/// Manager's Startup tab disables it, and the previous state is recorded before the write so the
-/// uninstaller can restore it. An entry the user has since changed themselves is left alone.</summary>
+/// <summary>
+///     Turns Steam's own startup entries off and puts them back exactly as they were.
+///     WSGM starts Steam so the client inherits WSGM's integrity; a Steam that Windows already started
+///     would defeat that without saying so. Nothing is deleted: each entry is disabled the way Task
+///     Manager's Startup tab disables it, and the previous state is recorded before the write so the
+///     uninstaller can restore it. An entry the user has since changed themselves is left alone.
+/// </summary>
 public static class SteamAutostartTakeover
 {
     /// <summary>Windows' own disabled marker: the flag byte, then a filetime it does not act on.</summary>
-    private static byte[] DisabledApproval() =>
-        [3, 0, 0, 0, 0, 0, 0, 0, .. BitConverter.GetBytes(DateTime.UtcNow.ToFileTimeUtc())];
+    private static byte[] DisabledApproval()
+    {
+        return [3, 0, 0, 0, 0, 0, 0, 0, .. BitConverter.GetBytes(DateTime.UtcNow.ToFileTimeUtc())];
+    }
 
-    /// <summary>Disables the given sources, recording each previous state in the configuration
-    /// before the write so an interrupted takeover is still undoable.</summary>
+    /// <summary>
+    ///     Disables the given sources, recording each previous state in the configuration
+    ///     before the write so an interrupted takeover is still undoable.
+    /// </summary>
     /// <param name="system">The startup surfaces to change.</param>
     /// <param name="sources">The sources to disable; already-disabled ones are skipped.</param>
     /// <param name="elevated">Whether this process can change machine-scope sources.</param>
@@ -47,8 +52,17 @@ public static class SteamAutostartTakeover
         List<SteamAutostartSource> disabled = [], pending = [], blocked = [];
         foreach (var source in sources)
         {
-            if (!source.Enabled) { continue; }
-            if (source.NeedsElevation && !elevated) { blocked.Add(source); continue; }
+            if (!source.Enabled)
+            {
+                continue;
+            }
+
+            if (source.NeedsElevation && !elevated)
+            {
+                blocked.Add(source);
+                continue;
+            }
+
             SteamAutostartRecord entry = new()
             {
                 Kind = source.Kind,
@@ -84,8 +98,10 @@ public static class SteamAutostartTakeover
                         pending.Add(source);
                         continue;
                     }
+
                     entry.WrittenApproval = Convert.ToBase64String(readback!);
                 }
+
                 entry.Pending = false;
                 record(entry);
                 disabled.Add(source);
@@ -97,11 +113,14 @@ public static class SteamAutostartTakeover
                 pending.Add(source);
             }
         }
+
         return new SteamAutostartTakeoverResult(disabled, pending, blocked);
     }
 
-    /// <summary>Puts back what <see cref="Disable"/> turned off, skipping anything that no longer
-    /// carries WSGM's own change. The user's later decision always wins.</summary>
+    /// <summary>
+    ///     Puts back what <see cref="Disable" /> turned off, skipping anything that no longer
+    ///     carries WSGM's own change. The user's later decision always wins.
+    /// </summary>
     /// <param name="system">The startup surfaces to change.</param>
     /// <param name="records">The recorded changes.</param>
     /// <param name="elevated">Whether this process can change machine-scope sources.</param>
@@ -114,7 +133,11 @@ public static class SteamAutostartTakeover
         List<SteamAutostartRecord> restored = [];
         foreach (var entry in records)
         {
-            if (entry.Scope is SteamAutostartScope.Machine && !elevated) { continue; }
+            if (entry.Scope is SteamAutostartScope.Machine && !elevated)
+            {
+                continue;
+            }
+
             try
             {
                 if (entry.Kind is SteamAutostartKind.ScheduledTask)
@@ -125,7 +148,11 @@ public static class SteamAutostartTakeover
                         restored.Add(entry);
                         continue;
                     }
-                    if (!system.SetTaskEnabled(entry.Location, true)) { continue; }
+
+                    if (!system.SetTaskEnabled(entry.Location, true))
+                    {
+                        continue;
+                    }
                 }
                 else
                 {
@@ -141,11 +168,13 @@ public static class SteamAutostartTakeover
                         restored.Add(entry);
                         continue;
                     }
+
                     system.WriteApproval(entry.Scope, list, entry.Name,
                         entry is { PreviousApprovalExists: true, PreviousApproval: { } previous }
                             ? Convert.FromBase64String(previous)
                             : null);
                 }
+
                 restored.Add(entry);
                 Log.Info($"Steam autostart: restored {entry.Kind} \"{entry.Name}\".");
             }
@@ -154,13 +183,21 @@ public static class SteamAutostartTakeover
                 Log.Warn($"Steam autostart: restoring {entry.Kind} \"{entry.Name}\" failed: {ex.Message}");
             }
         }
+
         return restored;
     }
 
-    private static string ListFor(SteamAutostartSource source) => ListFor(source.Kind, source.Wow64);
+    private static string ListFor(SteamAutostartSource source)
+    {
+        return ListFor(source.Kind, source.Wow64);
+    }
 
-    private static string ListFor(SteamAutostartKind kind, bool wow64) =>
-        kind is SteamAutostartKind.StartupShortcut
+    private static string ListFor(SteamAutostartKind kind, bool wow64)
+    {
+        return kind is SteamAutostartKind.StartupShortcut
             ? SteamAutostartScanner.StartupFolderList
-            : wow64 ? SteamAutostartScanner.Run32List : SteamAutostartScanner.RunList;
+            : wow64
+                ? SteamAutostartScanner.Run32List
+                : SteamAutostartScanner.RunList;
+    }
 }

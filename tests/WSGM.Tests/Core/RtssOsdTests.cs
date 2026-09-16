@@ -160,31 +160,31 @@ public sealed class RtssLhmSensorsTests
     // The provider's real shape from the Claw: a fragment stream of <hardware> elements,
     // culture-formatted decimal commas, GPU memory in megabytes.
     private const string ClawSample = """
-        <hardware>
-        <id>/motherboard</id><name>MSI MS-1T52</name><type>Motherboard</type>
-        </hardware>
-        <hardware>
-        <id>/intelcpu/0</id><name>Intel Core Ultra 7 258V</name><type>Cpu</type>
-        <sensor><id>/intelcpu/0/load/0</id><name>CPU Total</name><type>Load</type><value>17,4</value></sensor>
-        <sensor><id>/intelcpu/0/load/2</id><name>CPU Core #1</name><type>Load</type><value>37,5</value></sensor>
-        <sensor><id>/intelcpu/0/temperature/10</id><name>CPU Package</name><type>Temperature</type><value>58,0</value></sensor>
-        <sensor><id>/intelcpu/0/power/0</id><name>CPU Package</name><type>Power</type><value>12,6</value></sensor>
-        <sensor><id>/intelcpu/0/power/4</id><name>CPU Platform</name><type>Power</type><value>19,6</value></sensor>
-        </hardware>
-        <hardware>
-        <id>/ram</id><name>Generic Memory</name><type>Memory</type>
-        <sensor><id>/ram/data/0</id><name>Memory Used</name><type>Data</type><value>10,2</value></sensor>
-        <sensor><id>/ram/data/1</id><name>Memory Available</name><type>Data</type><value>21,3</value></sensor>
-        </hardware>
-        <hardware>
-        <id>/gpu-intel-integrated/x</id><name>Intel(R) Arc(TM) 140V GPU</name><type>GpuIntel</type>
-        <sensor><id>/gpu-intel-integrated/x/power/0</id><name>GPU Power</name><type>Power</type><value>0,3</value></sensor>
-        <sensor><id>/gpu-intel-integrated/x/load/0</id><name>D3D 3D</name><type>Load</type><value>8,3</value></sensor>
-        <sensor><id>/gpu-intel-integrated/x/load/13</id><name>D3D Video Decode</name><type>Load</type><value>99,0</value></sensor>
-        <sensor><id>/gpu-intel-integrated/x/smalldata/0</id><name>D3D Shared Memory Used</name><type>SmallData</type><value>1264,8</value></sensor>
-        <sensor><id>/gpu-intel-integrated/x/smalldata/2</id><name>D3D Shared Memory Total</name><type>SmallData</type><value>18409,7</value></sensor>
-        </hardware>
-        """;
+                                      <hardware>
+                                      <id>/motherboard</id><name>MSI MS-1T52</name><type>Motherboard</type>
+                                      </hardware>
+                                      <hardware>
+                                      <id>/intelcpu/0</id><name>Intel Core Ultra 7 258V</name><type>Cpu</type>
+                                      <sensor><id>/intelcpu/0/load/0</id><name>CPU Total</name><type>Load</type><value>17,4</value></sensor>
+                                      <sensor><id>/intelcpu/0/load/2</id><name>CPU Core #1</name><type>Load</type><value>37,5</value></sensor>
+                                      <sensor><id>/intelcpu/0/temperature/10</id><name>CPU Package</name><type>Temperature</type><value>58,0</value></sensor>
+                                      <sensor><id>/intelcpu/0/power/0</id><name>CPU Package</name><type>Power</type><value>12,6</value></sensor>
+                                      <sensor><id>/intelcpu/0/power/4</id><name>CPU Platform</name><type>Power</type><value>19,6</value></sensor>
+                                      </hardware>
+                                      <hardware>
+                                      <id>/ram</id><name>Generic Memory</name><type>Memory</type>
+                                      <sensor><id>/ram/data/0</id><name>Memory Used</name><type>Data</type><value>10,2</value></sensor>
+                                      <sensor><id>/ram/data/1</id><name>Memory Available</name><type>Data</type><value>21,3</value></sensor>
+                                      </hardware>
+                                      <hardware>
+                                      <id>/gpu-intel-integrated/x</id><name>Intel(R) Arc(TM) 140V GPU</name><type>GpuIntel</type>
+                                      <sensor><id>/gpu-intel-integrated/x/power/0</id><name>GPU Power</name><type>Power</type><value>0,3</value></sensor>
+                                      <sensor><id>/gpu-intel-integrated/x/load/0</id><name>D3D 3D</name><type>Load</type><value>8,3</value></sensor>
+                                      <sensor><id>/gpu-intel-integrated/x/load/13</id><name>D3D Video Decode</name><type>Load</type><value>99,0</value></sensor>
+                                      <sensor><id>/gpu-intel-integrated/x/smalldata/0</id><name>D3D Shared Memory Used</name><type>SmallData</type><value>1264,8</value></sensor>
+                                      <sensor><id>/gpu-intel-integrated/x/smalldata/2</id><name>D3D Shared Memory Total</name><type>SmallData</type><value>18409,7</value></sensor>
+                                      </hardware>
+                                      """;
 
     [Fact]
     public void SelectsHandheldCompanionsSensors()
@@ -209,13 +209,13 @@ public sealed class RtssLhmSensorsTests
     public void PrefersDedicatedGpuMemoryOverShared()
     {
         const string sample = """
-            <hardware>
-            <id>/gpu/0</id><name>GPU</name><type>GpuAmd</type>
-            <sensor><id>/g/1</id><name>D3D Shared Memory Used</name><type>SmallData</type><value>2048</value></sensor>
-            <sensor><id>/g/2</id><name>GPU Memory Used</name><type>SmallData</type><value>1024</value></sensor>
-            <sensor><id>/g/3</id><name>GPU Memory Total</name><type>SmallData</type><value>4096</value></sensor>
-            </hardware>
-            """;
+                              <hardware>
+                              <id>/gpu/0</id><name>GPU</name><type>GpuAmd</type>
+                              <sensor><id>/g/1</id><name>D3D Shared Memory Used</name><type>SmallData</type><value>2048</value></sensor>
+                              <sensor><id>/g/2</id><name>GPU Memory Used</name><type>SmallData</type><value>1024</value></sensor>
+                              <sensor><id>/g/3</id><name>GPU Memory Total</name><type>SmallData</type><value>4096</value></sensor>
+                              </hardware>
+                              """;
 
         var metrics = RtssLhmSensors.Parse(sample);
 
@@ -442,7 +442,10 @@ public sealed class RtssOsdSlotsTests
         Assert.False(RtssOsdSlots.TryWrite(region, "WSGM", "hello"));
     }
 
-    private static long EntryOffset(int slot) => ArrayOffset + (long)slot * EntrySize;
+    private static long EntryOffset(int slot)
+    {
+        return ArrayOffset + (long)slot * EntrySize;
+    }
 
     private static FakeRegion NewRegion()
     {
@@ -464,18 +467,30 @@ public sealed class RtssOsdSlotsTests
 
         public long Capacity => _memory.Length;
 
-        public uint ReadUInt32(long offset) => BitConverter.ToUInt32(_memory, (int)offset);
+        public uint ReadUInt32(long offset)
+        {
+            return BitConverter.ToUInt32(_memory, (int)offset);
+        }
 
-        public void WriteUInt32(long offset, uint value) =>
+        public void WriteUInt32(long offset, uint value)
+        {
             BitConverter.GetBytes(value).CopyTo(_memory, (int)offset);
+        }
 
-        public void ReadBytes(long offset, byte[] buffer, int count) =>
+        public void ReadBytes(long offset, byte[] buffer, int count)
+        {
             Array.Copy(_memory, offset, buffer, 0, count);
+        }
 
-        public void WriteBytes(long offset, byte[] buffer, int count) =>
+        public void WriteBytes(long offset, byte[] buffer, int count)
+        {
             Array.Copy(buffer, 0, _memory, offset, count);
+        }
 
-        public bool TryAcquireBusy(long offset) => !BusyHeld;
+        public bool TryAcquireBusy(long offset)
+        {
+            return !BusyHeld;
+        }
 
         public void ReleaseBusy(long offset)
         {
@@ -492,7 +507,9 @@ public sealed class RtssOsdSlotsTests
             return Encoding.ASCII.GetString(_memory, (int)offset, end - (int)offset);
         }
 
-        public void WriteString(long offset, string value) =>
+        public void WriteString(long offset, string value)
+        {
             Encoding.ASCII.GetBytes(value).CopyTo(_memory, (int)offset);
+        }
     }
 }

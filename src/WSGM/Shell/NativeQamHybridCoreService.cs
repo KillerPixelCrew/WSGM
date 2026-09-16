@@ -6,67 +6,21 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>Processor core preference for Steam's Performance dropdown. Every publication reads
-/// Windows; commands validate the offered id and never retry a write.</summary>
+/// <summary>
+///     Processor core preference for Steam's Performance dropdown. Every publication reads
+///     Windows; commands validate the offered id and never retry a write.
+/// </summary>
 /// <remarks>
-/// The same <see cref="HybridCores"/> policy the overlay uses, so a change from either surface is
-/// the same write and the next publication on the other reports it. Nothing is cached between
-/// reads: activating a power scheme can carry a different preference with it, and a remembered
-/// value would report a placement Windows had already replaced.
+///     The same <see cref="HybridCores" /> policy the overlay uses, so a change from either surface is
+///     the same write and the next publication on the other reports it. Nothing is cached between
+///     reads: activating a power scheme can carry a different preference with it, and a remembered
+///     value would report a placement Windows had already replaced.
 /// </remarks>
 internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybridCoreBackend
 {
     private readonly Lock _sync = new();
-    private string _status = string.Empty;
     private bool _requiresRead;
-
-    internal ValueTask<SteamHybridCoreState?> ReadAsync() => new(Task.Run<SteamHybridCoreState?>(() =>
-    {
-        lock (_sync)
-        {
-            try
-            {
-                var status = cores.Read();
-                _requiresRead = false;
-                if (!status.Supported)
-                {
-                    // Published as unavailable rather than withheld. No options hides the row, and
-                    // the reason still reaches the component host's render outcomes, so an absent
-                    // control can be told from a broken one.
-                    return new SteamHybridCoreState(false, [], string.Empty,
-                        "This processor has one kind of core, so there is nothing to choose.");
-                }
-
-                return new SteamHybridCoreState(
-                    true,
-                    [
-                        .. status.Options.Select(option =>
-                            new SteamPowerProfileOption(HybridCores.IdFor(option.Mode), option.Name))
-                    ],
-                    // Empty when the machine is set to a placement WSGM does not offer. Naming one
-                    // of its own modes there would claim WSGM put it there.
-                    status.OnAc is { } active ? HybridCores.IdFor(active) : string.Empty,
-                    string.IsNullOrEmpty(_status) ? Describe(status) : _status);
-            }
-            catch (Exception ex)
-            {
-                _requiresRead = true;
-                return new SteamHybridCoreState(false, [], string.Empty, ex.Message);
-            }
-        }
-    }));
-
-    private static string Describe(HybridCoreStatus status)
-    {
-        var cores = $"{status.PerformanceCores} performance and {status.EfficiencyCores} efficiency cores.";
-        if (status.OnAc is null || status.OnBattery is null)
-        {
-            return $"{cores} The current preference was not set by WSGM.";
-        }
-        return status.OnAc == status.OnBattery
-            ? $"{cores} Applies to both battery and plugged in."
-            : $"{cores} Plugged in and battery currently differ; choosing sets both.";
-    }
+    private string _status = string.Empty;
 
     public Task<SteamUiCommandResult> SetHybridCoresAsync(string option, CancellationToken cancellationToken)
     {
@@ -99,7 +53,10 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
                     _status = string.Empty;
                     return new SteamUiCommandResult(true, null);
                 }
-                catch (OperationCanceledException) { throw; }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     _requiresRead = true;
@@ -108,5 +65,57 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
                 }
             }
         }, cancellationToken);
+    }
+
+    internal ValueTask<SteamHybridCoreState?> ReadAsync()
+    {
+        return new ValueTask<SteamHybridCoreState?>(Task.Run<SteamHybridCoreState?>(() =>
+        {
+            lock (_sync)
+            {
+                try
+                {
+                    var status = cores.Read();
+                    _requiresRead = false;
+                    if (!status.Supported)
+                    {
+                        // Published as unavailable rather than withheld. No options hides the row, and
+                        // the reason still reaches the component host's render outcomes, so an absent
+                        // control can be told from a broken one.
+                        return new SteamHybridCoreState(false, [], string.Empty,
+                            "This processor has one kind of core, so there is nothing to choose.");
+                    }
+
+                    return new SteamHybridCoreState(
+                        true,
+                        [
+                            .. status.Options.Select(option =>
+                                new SteamPowerProfileOption(HybridCores.IdFor(option.Mode), option.Name))
+                        ],
+                        // Empty when the machine is set to a placement WSGM does not offer. Naming one
+                        // of its own modes there would claim WSGM put it there.
+                        status.OnAc is { } active ? HybridCores.IdFor(active) : string.Empty,
+                        string.IsNullOrEmpty(_status) ? Describe(status) : _status);
+                }
+                catch (Exception ex)
+                {
+                    _requiresRead = true;
+                    return new SteamHybridCoreState(false, [], string.Empty, ex.Message);
+                }
+            }
+        }));
+    }
+
+    private static string Describe(HybridCoreStatus status)
+    {
+        var cores = $"{status.PerformanceCores} performance and {status.EfficiencyCores} efficiency cores.";
+        if (status.OnAc is null || status.OnBattery is null)
+        {
+            return $"{cores} The current preference was not set by WSGM.";
+        }
+
+        return status.OnAc == status.OnBattery
+            ? $"{cores} Applies to both battery and plugged in."
+            : $"{cores} Plugged in and battery currently differ; choosing sets both.";
     }
 }

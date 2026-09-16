@@ -9,32 +9,36 @@ using WSGM.Device.Sdk.Glyphs;
 namespace WSGM.Core;
 
 /// <summary>
-/// Builds the stylesheet that puts the handheld's own glyphs into Steam.
+///     Builds the stylesheet that puts the handheld's own glyphs into Steam.
 /// </summary>
 /// <remarks>
-/// Physical glyphs are a presentation override, and CSS is the whole mechanism. This mirrors what
-/// CSSLoader's Handheld Controller Glyphs theme already does correctly on Decky and
-/// CSSLoader-Desktop (checked out at <c>_ref/handheld-controller-glyphs</c>): Valve draws each glyph
-/// as <c>&lt;img src="/steaminputglyphs/NAME.svg"&gt;</c>, so replacing one is a <c>content:</c>
-/// override on that exact <c>src</c>, and hiding a control the device does not have is
-/// <c>display: none</c> on the row carrying its glyph. Nothing here patches Steam's own data model.
-/// <para>
-/// The ownership split is the point of this class and must not blur. <b>WSGM owns the method</b>:
-/// the Valve resource names, the selectors, the stylesheet shape, and the injection. <b>The device
-/// plugin owns the glyphs</b>: every image emitted here comes from the active plugin's imported
-/// profile as an importer-verified data URI. WSGM ships no handheld artwork and maintains no
-/// per-device stylesheet — adding either would put WSGM back in the business of tracking hardware it
-/// does not own. A plugin supplies artwork and a control map; it never supplies a selector, a URL,
-/// or stylesheet text.
-/// </para>
+///     Physical glyphs are a presentation override, and CSS is the whole mechanism. This mirrors what
+///     CSSLoader's Handheld Controller Glyphs theme already does correctly on Decky and
+///     CSSLoader-Desktop (checked out at <c>_ref/handheld-controller-glyphs</c>): Valve draws each glyph
+///     as <c>&lt;img src="/steaminputglyphs/NAME.svg"&gt;</c>, so replacing one is a <c>content:</c>
+///     override on that exact <c>src</c>, and hiding a control the device does not have is
+///     <c>display: none</c> on the row carrying its glyph. Nothing here patches Steam's own data model.
+///     <para>
+///         The ownership split is the point of this class and must not blur. <b>WSGM owns the method</b>:
+///         the Valve resource names, the selectors, the stylesheet shape, and the injection.
+///         <b>
+///             The device
+///             plugin owns the glyphs
+///         </b>
+///         : every image emitted here comes from the active plugin's imported
+///         profile as an importer-verified data URI. WSGM ships no handheld artwork and maintains no
+///         per-device stylesheet — adding either would put WSGM back in the business of tracking hardware it
+///         does not own. A plugin supplies artwork and a control map; it never supplies a selector, a URL,
+///         or stylesheet text.
+///     </para>
 /// </remarks>
 internal static class SteamGlyphCss
 {
     /// <summary>Class marking every style element WSGM owns in a Steam document.</summary>
     /// <remarks>
-    /// WSGM removes only nodes carrying this class. CSSLoader marks its own with
-    /// <c>css-loader-style</c> and a user running both at once is the normal case, so touching
-    /// anything else would break a coexisting tool.
+    ///     WSGM removes only nodes carrying this class. CSSLoader marks its own with
+    ///     <c>css-loader-style</c> and a user running both at once is the normal case, so touching
+    ///     anything else would break a coexisting tool.
     /// </remarks>
     internal const string OwnedClass = "wsgm-glyph-style";
 
@@ -42,14 +46,14 @@ internal static class SteamGlyphCss
     internal const string ElementId = "wsgm-handheld-glyphs";
 
     /// <summary>
-    /// The Steam logo, drawn as an inline path rather than an image.
+    ///     The Steam logo, drawn as an inline path rather than an image.
     /// </summary>
     /// <remarks>
-    /// A handful of Valve glyphs are inline <c>&lt;svg&gt;&lt;path d="…"&gt;</c> instead of an
-    /// <c>&lt;img&gt;</c>, so a <c>content:</c> override cannot reach them. The reference theme
-    /// matches the container by this exact <c>d</c> attribute, hides the inner <c>svg</c>, and paints
-    /// the replacement as a background; WSGM uses the same literal because it is the identity of the
-    /// artwork, not a class name.
+    ///     A handful of Valve glyphs are inline <c>&lt;svg&gt;&lt;path d="…"&gt;</c> instead of an
+    ///     <c>&lt;img&gt;</c>, so a <c>content:</c> override cannot reach them. The reference theme
+    ///     matches the container by this exact <c>d</c> attribute, hides the inner <c>svg</c>, and paints
+    ///     the replacement as a background; WSGM uses the same literal because it is the identity of the
+    ///     artwork, not a class name.
     /// </remarks>
     internal const string SteamLogoPathData =
         "M21.8011 11.5C22.6531 11.5 23.4391 11.62 24.1591 11.86C24.8791 12.1 25.4851 12.394 25.9771"
@@ -70,59 +74,59 @@ internal static class SteamGlyphCss
 
     /// <summary>Container class Steam gives the inline-logo glyph wrapper.</summary>
     /// <remarks>
-    /// Generated by Steam's build, so it changes when Steam's CSS modules are rebuilt. It is one of
-    /// build-coupled selectors observed by the delivery patch's probe; the reference theme carries
-    /// the same coupling. Its absence does not disable independent control-hiding rules.
+    ///     Generated by Steam's build, so it changes when Steam's CSS modules are rebuilt. It is one of
+    ///     build-coupled selectors observed by the delivery patch's probe; the reference theme carries
+    ///     the same coupling. Its absence does not disable independent control-hiding rules.
     /// </remarks>
     internal const string InlineLogoContainerClass = "_3Jfd85nK4bKoNf_gCSTX6U";
 
     /// <summary>Row class Steam gives one control line in the configurator lists.</summary>
     /// <remarks>
-    /// Build-coupled in the same way as <see cref="InlineLogoContainerClass"/>, and it had already
-    /// gone stale: the previous value matched nothing on the reference Claw, so every hide rule
-    /// silently applied to zero elements. Read from the live page, where this container holds all
-    /// eighteen glyph rows. Only hiding depends on it — the glyph overrides key off Valve's own
-    /// asset paths and survive a Steam rebuild — so a future drift costs the absent-control rows
-    /// and nothing else.
+    ///     Build-coupled in the same way as <see cref="InlineLogoContainerClass" />, and it had already
+    ///     gone stale: the previous value matched nothing on the reference Claw, so every hide rule
+    ///     silently applied to zero elements. Read from the live page, where this container holds all
+    ///     eighteen glyph rows. Only hiding depends on it — the glyph overrides key off Valve's own
+    ///     asset paths and survive a Steam rebuild — so a future drift costs the absent-control rows
+    ///     and nothing else.
     /// </remarks>
     internal const string ControlRowClass = "pywHIi8MBtTWNlCbZ_7Qx";
 
     /// <summary>Container Steam gives one control group in the configurator overview.</summary>
     /// <remarks>
-    /// Hiding anchors here rather than on the row: a trackpad is a whole section with its own
-    /// heading and four bindings under it, and hiding one row of that left the heading and the rest
-    /// behind. The reference theme in <c>_ref/handheld-controller-glyphs</c> uses this same class,
-    /// which is one reason to have ported its rules rather than reimplementing them — its selectors
-    /// are still accurate against the current client, and were sitting there to be copied.
+    ///     Hiding anchors here rather than on the row: a trackpad is a whole section with its own
+    ///     heading and four bindings under it, and hiding one row of that left the heading and the rest
+    ///     behind. The reference theme in <c>_ref/handheld-controller-glyphs</c> uses this same class,
+    ///     which is one reason to have ported its rules rather than reimplementing them — its selectors
+    ///     are still accurate against the current client, and were sitting there to be copied.
     /// </remarks>
     internal const string ControlSectionClass = "_1KA4m3xP2X5TGmO81UKYgL";
 
     /// <summary>Token Steam puts in the id of every binding row, naming the input it belongs to.</summary>
     /// <remarks>
-    /// The one build-independent hook in this whole surface, and the reason the reference theme was
-    /// worth reading rather than reimplementing: it is Valve's own input enum, spelled out in an
-    /// element id — "modeid-7-input-unknown EControllerModeInput ( 55 )-binding-0" — where every
-    /// other handle here is a class name that Steam's build rehashes. Unlike the reference, WSGM
-    /// does not pair it with a hardcoded number per control, because the row carries the glyph for
-    /// its own input and that identifies it just as precisely.
+    ///     The one build-independent hook in this whole surface, and the reason the reference theme was
+    ///     worth reading rather than reimplementing: it is Valve's own input enum, spelled out in an
+    ///     element id — "modeid-7-input-unknown EControllerModeInput ( 55 )-binding-0" — where every
+    ///     other handle here is a class name that Steam's build rehashes. Unlike the reference, WSGM
+    ///     does not pair it with a hardcoded number per control, because the row carries the glyph for
+    ///     its own input and that identifies it just as precisely.
     /// </remarks>
     private const string BindingRowIdToken = "EControllerModeInput";
 
     /// <summary>Steam's readable class for one control group in the binding editor.</summary>
     /// <remarks>
-    /// Not generated, so unlike <see cref="ControlSectionClass"/> a CSS-module rebuild cannot rename
-    /// it. The editor groups controls under this rather than under the overview's hashed class,
-    /// which is why hiding worked on the overview and left the trackpads sitting in the editor.
+    ///     Not generated, so unlike <see cref="ControlSectionClass" /> a CSS-module rebuild cannot rename
+    ///     it. The editor groups controls under this rather than under the overview's hashed class,
+    ///     which is why hiding worked on the overview and left the trackpads sitting in the editor.
     /// </remarks>
     internal const string DialogSectionClass = "DialogControlsSection";
 
     /// <summary>
-    /// Valve glyph resources that identify a control's row for hiding.
+    ///     Valve glyph resources that identify a control's row for hiding.
     /// </summary>
     /// <remarks>
-    /// Hiding is keyed by the glyph the row displays, which is what makes the rule readable and
-    /// survivable: the row element itself has only a generated class, but the image inside it is
-    /// addressed by a stable Valve resource name.
+    ///     Hiding is keyed by the glyph the row displays, which is what makes the rule readable and
+    ///     survivable: the row element itself has only a generated class, but the image inside it is
+    ///     addressed by a stable Valve resource name.
     /// </remarks>
     private static readonly (GlyphControlId Control, string ValvePath)[] RowGlyphs =
     [
@@ -156,8 +160,10 @@ internal static class SteamGlyphCss
         (GlyphControlId.RearRight2, "/steaminputglyphs/sd_r5.svg")
     ];
 
+    private static readonly SearchValues<char> UnsafeUrlCharacters = SearchValues.Create("\"'()\\\r\n");
+
     /// <summary>
-    /// Builds the complete stylesheet for one resolved profile.
+    ///     Builds the complete stylesheet for one resolved profile.
     /// </summary>
     /// <param name="presentation">The active profile's resolved mappings.</param>
     /// <param name="hideAbsentControls">Whether rows for absent controls are hidden.</param>
@@ -261,7 +267,7 @@ internal static class SteamGlyphCss
         // whatever renders the controller diagram reads these.
         css.Append(":root {\n");
         foreach (var image in presentation.ControllerImages
-            .OrderBy(image => image.Slot, StringComparer.Ordinal))
+                     .OrderBy(image => image.Slot, StringComparer.Ordinal))
         {
             css.Append("  --wsgm-controller-")
                 .Append(Identifier(image.Slot))
@@ -290,7 +296,8 @@ internal static class SteamGlyphCss
             {
                 $".{ControlRowClass}:has(img[src=\"{Attribute(row.ValvePath)}\"])",
                 row.Control is GlyphControlId.LeftTrackpad or GlyphControlId.RightTrackpad
-                    ? $".{ControlSectionClass}:has(img[src=\"{Attribute(row.ValvePath)}\"])" : "",
+                    ? $".{ControlSectionClass}:has(img[src=\"{Attribute(row.ValvePath)}\"])"
+                    : "",
 
                 // And the control's binding rows, which live outside that section. Steam gives each
                 // one an id containing its own input enum — "EControllerModeInput ( 55 )-binding-0"
@@ -305,7 +312,8 @@ internal static class SteamGlyphCss
                 // wherever Steam offers it: this is the only anchor here that a CSS-module rebuild
                 // cannot rename.
                 row.Control is GlyphControlId.LeftTrackpad or GlyphControlId.RightTrackpad
-                    ? $".{DialogSectionClass}:has(img[src=\"{Attribute(row.ValvePath)}\"])" : ""
+                    ? $".{DialogSectionClass}:has(img[src=\"{Attribute(row.ValvePath)}\"])"
+                    : ""
             })
             .Where(selector => selector.Length > 0)
             .Distinct(StringComparer.Ordinal)
@@ -325,14 +333,14 @@ internal static class SteamGlyphCss
     /// <summary>Escapes a value for use inside a double-quoted CSS attribute selector.</summary>
     /// <param name="value">The raw value.</param>
     /// <returns>The escaped value.</returns>
-    internal static string Attribute(string value) =>
-        value.Replace(@"\", @"\\", StringComparison.Ordinal)
+    internal static string Attribute(string value)
+    {
+        return value.Replace(@"\", @"\\", StringComparison.Ordinal)
             .Replace("\"", "\\\"", StringComparison.Ordinal);
-
-    private static readonly SearchValues<char> UnsafeUrlCharacters = SearchValues.Create("\"'()\\\r\n");
+    }
 
     /// <summary>
-    /// Rejects anything that could break out of a CSS <c>url("…")</c> token.
+    ///     Rejects anything that could break out of a CSS <c>url("…")</c> token.
     /// </summary>
     /// <param name="value">The data URI to emit.</param>
     /// <returns>The value, unchanged when it is safe to emit.</returns>
@@ -351,10 +359,16 @@ internal static class SteamGlyphCss
         return value;
     }
 
-    private static string Identifier(string value) =>
-        new([.. value.Where(character => char.IsAsciiLetterOrDigit(character) || character == '-')]);
+    private static string Identifier(string value)
+    {
+        return new string([.. value.Where(character => char.IsAsciiLetterOrDigit(character) || character == '-')]);
+    }
 
-    private static string Comment(string value) =>
-        new([.. value.Where(character =>
-            char.IsAsciiLetterOrDigit(character) || character is '-' or '.' or '_')]);
+    private static string Comment(string value)
+    {
+        return new string([
+            .. value.Where(character =>
+                char.IsAsciiLetterOrDigit(character) || character is '-' or '.' or '_')
+        ]);
+    }
 }

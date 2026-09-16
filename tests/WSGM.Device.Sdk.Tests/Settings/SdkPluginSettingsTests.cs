@@ -102,8 +102,11 @@ public sealed class SdkPluginSettingsTests
     {
         PluginSettingsManifest manifest = new()
         {
-            Sections = [.. Enumerable.Range(0, PluginSettingsManifest.MaxSections + 1)
-                .Select(i => Section($"s{i}"))]
+            Sections =
+            [
+                .. Enumerable.Range(0, PluginSettingsManifest.MaxSections + 1)
+                    .Select(i => Section($"s{i}"))
+            ]
         };
 
         Assert.False(manifest.TryValidate(out var error));
@@ -116,7 +119,7 @@ public sealed class SdkPluginSettingsTests
         PluginSettingsManifest manifest = new()
         {
             Sections = [Section("power")],
-            Settings = [Toggle("ec.trace", section: "nonexistent")]
+            Settings = [Toggle("ec.trace", "nonexistent")]
         };
 
         Assert.True(manifest.TryValidate(out var error), error);
@@ -211,8 +214,8 @@ public sealed class SdkPluginSettingsTests
             Sections = [Section("power"), Section("advanced")],
             Settings =
             [
-                Toggle("ec.trace", section: "advanced"),
-                Toggle("ec.poll", section: "power") with
+                Toggle("ec.trace", "advanced"),
+                Toggle("ec.poll", "power") with
                 {
                     ValueKind = CapabilityValueKind.Integer,
                     Minimum = 100,
@@ -319,7 +322,7 @@ public sealed class SdkPluginSettingsTests
     {
         foreach (var unit in Enum.GetValues<CapabilityUnit>())
         {
-            var setting = IntegerSetting(int.MinValue, step: 1) with
+            var setting = IntegerSetting(int.MinValue, 1) with
             {
                 Unit = unit
             };
@@ -470,7 +473,7 @@ public sealed class SdkPluginSettingsTests
     [Fact]
     public void IntegerStepValidation_FullWidthDifferenceThatIsOnStep_IsAccepted()
     {
-        var setting = IntegerSetting(int.MaxValue, step: 3);
+        var setting = IntegerSetting(int.MaxValue, 3);
 
         Assert.True(setting.TryValidate(out var error), error);
         Assert.True(setting.TryValidateValue(
@@ -485,7 +488,7 @@ public sealed class SdkPluginSettingsTests
     [Fact]
     public void IntegerStepValidation_FullWidthDifferenceThatIsOffStep_IsRejected()
     {
-        var setting = IntegerSetting(int.MinValue, step: 3);
+        var setting = IntegerSetting(int.MinValue, 3);
 
         Assert.False(setting.TryValidateValue(
             new CapabilityValue
@@ -497,23 +500,30 @@ public sealed class SdkPluginSettingsTests
         Assert.Contains("not on", error);
     }
 
-    private static PluginSettingSection Section(string id) => new()
+    private static PluginSettingSection Section(string id)
     {
-        SectionId = id,
-        Key = SettingSectionKey.General
-    };
+        return new PluginSettingSection
+        {
+            SectionId = id,
+            Key = SettingSectionKey.General
+        };
+    }
 
-    private static PluginSettingDescriptor Toggle(string id = "device.setting", string? section = null) => new()
+    private static PluginSettingDescriptor Toggle(string id = "device.setting", string? section = null)
     {
-        SettingId = id,
-        ValueKind = CapabilityValueKind.Boolean,
-        Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Device setting" },
-        Default = new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = false },
-        SectionId = section
-    };
+        return new PluginSettingDescriptor
+        {
+            SettingId = id,
+            ValueKind = CapabilityValueKind.Boolean,
+            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Device setting" },
+            Default = new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = false },
+            SectionId = section
+        };
+    }
 
-    private static PluginSettingDescriptor ChoiceSetting(params CapabilityChoice[] choices) =>
-        Toggle() with
+    private static PluginSettingDescriptor ChoiceSetting(params CapabilityChoice[] choices)
+    {
+        return Toggle() with
         {
             ValueKind = CapabilityValueKind.Choice,
             Choices = choices,
@@ -523,13 +533,18 @@ public sealed class SdkPluginSettingsTests
                 ChoiceValue = choices[0].Value
             }
         };
+    }
 
-    private static CapabilityChoice Choice(string value, string label) => new(
-        value,
-        new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = label });
+    private static CapabilityChoice Choice(string value, string label)
+    {
+        return new CapabilityChoice(
+            value,
+            new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = label });
+    }
 
-    private static PluginSettingDescriptor IntegerSetting(int defaultValue, int step) =>
-        Toggle() with
+    private static PluginSettingDescriptor IntegerSetting(int defaultValue, int step)
+    {
+        return Toggle() with
         {
             ValueKind = CapabilityValueKind.Integer,
             Minimum = int.MinValue,
@@ -541,4 +556,5 @@ public sealed class SdkPluginSettingsTests
                 IntegerValue = defaultValue
             }
         };
+    }
 }

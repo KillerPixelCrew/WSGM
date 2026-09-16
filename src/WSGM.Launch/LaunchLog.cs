@@ -13,17 +13,29 @@ internal static class LaunchLog
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "WSGM",
             "launch.log"),
-        rotateAtBytes: 2 * 1024 * 1024,
-        archiveSuffixes: [".1", ".2", ".3"],
+        2 * 1024 * 1024,
+        [".1", ".2", ".3"],
         Encoding.UTF8,
-        writeRetries: 3);
+        3);
 
-    internal static void Info(string message) => Write("info ", message);
+    internal static void Info(string message)
+    {
+        Write("info ", message);
+    }
 
-    internal static void Warn(string message) => Write("warn ", message);
+    internal static void Warn(string message)
+    {
+        Write("warn ", message);
+    }
 
-    internal static void Error(string message) => Write("error", message);
+    internal static void Error(string message)
+    {
+        Write("error", message);
+    }
 
-    private static void Write(string level, string message) => Log.Append(
-        $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{level}] [pid {Environment.ProcessId}] {message}{Environment.NewLine}");
+    private static void Write(string level, string message)
+    {
+        Log.Append(
+            $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{level}] [pid {Environment.ProcessId}] {message}{Environment.NewLine}");
+    }
 }

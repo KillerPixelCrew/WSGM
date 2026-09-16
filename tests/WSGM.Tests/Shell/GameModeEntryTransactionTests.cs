@@ -12,17 +12,22 @@ public sealed class GameModeEntryTransactionTests
 
     private static readonly DisplayTargetIdentity Desk = new(@"\\?\desk", null, null, "Desk", 0, 0, 2);
 
-    private static DisplayLayout Layout(DisplayTargetIdentity target) =>
-        new([new DisplayLayoutOutput(target, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60))]);
-
-    private static GameModeLaunchConfiguration Custom() => new()
+    private static DisplayLayout Layout(DisplayTargetIdentity target)
     {
-        Kind = GameModeLaunchKind.Custom,
-        GameLayout = Layout(Tv),
-        WaitForDisplay = Tv,
-        EnterActions = [Step("switch-to-pc"), Step("tv-on")],
-        LeaveActions = [Step("switch-to-box")]
-    };
+        return new DisplayLayout([new DisplayLayoutOutput(target, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60))]);
+    }
+
+    private static GameModeLaunchConfiguration Custom()
+    {
+        return new GameModeLaunchConfiguration
+        {
+            Kind = GameModeLaunchKind.Custom,
+            GameLayout = Layout(Tv),
+            WaitForDisplay = Tv,
+            EnterActions = [Step("switch-to-pc"), Step("tv-on")],
+            LeaveActions = [Step("switch-to-box")]
+        };
+    }
 
     [Fact]
     public async Task ACustomEntryRunsItsStepsInOrderAndAsksForBigPictureAfterExplorerLeaves()
@@ -65,8 +70,10 @@ public sealed class GameModeEntryTransactionTests
 
         Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
         Assert.Equal(
-            ["enter-actions", "wait", "prepare-explorer", "observe", "exit-explorer",
-             "default-posture", "arm-splash", "big-picture", "commit"],
+            [
+                "enter-actions", "wait", "prepare-explorer", "observe", "exit-explorer",
+                "default-posture", "arm-splash", "big-picture", "commit"
+            ],
             backend.Steps);
     }
 
@@ -256,8 +263,10 @@ public sealed class GameModeEntryTransactionTests
 
         internal List<string> Calls { get; } = [];
 
-        /// <summary>Calls with the splash's button-label changes filtered out, for the tests that
-        /// assert the exact order of the work itself.</summary>
+        /// <summary>
+        ///     Calls with the splash's button-label changes filtered out, for the tests that
+        ///     assert the exact order of the work itself.
+        /// </summary>
         internal IEnumerable<string> Steps =>
             Calls.Where(call => !call.StartsWith("cancellable", StringComparison.Ordinal));
 
@@ -282,9 +291,14 @@ public sealed class GameModeEntryTransactionTests
 
         internal DisplayLayoutOutcome LayoutOutcome { get; init; } = DisplayLayoutOutcome.Applied;
 
-        public void SetStatus(string line) { }
+        public void SetStatus(string line)
+        {
+        }
 
-        public void SetCancellable(bool cancellable) => Calls.Add($"cancellable:{(cancellable ? "true" : "false")}");
+        public void SetCancellable(bool cancellable)
+        {
+            Calls.Add($"cancellable:{(cancellable ? "true" : "false")}");
+        }
 
         public Task<DisplayArrangement> ObserveAsync()
         {
@@ -292,7 +306,13 @@ public sealed class GameModeEntryTransactionTests
             _observations++;
             var visible = !MissingOnRecheck || _observations != 2;
             return Task.FromResult(new DisplayArrangement(
-                visible ? [new DisplayTargetObservation(Tv, true, true, new DisplayLayoutOutput(Tv, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60)))] : [],
+                visible
+                    ?
+                    [
+                        new DisplayTargetObservation(Tv, true, true,
+                            new DisplayLayoutOutput(Tv, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60)))
+                    ]
+                    : [],
                 "captured", DateTimeOffset.UnixEpoch));
         }
 
@@ -324,7 +344,11 @@ public sealed class GameModeEntryTransactionTests
             return Task.CompletedTask;
         }
 
-        public Task ApplyDefaultPostureAsync() { Calls.Add("default-posture"); return Task.CompletedTask; }
+        public Task ApplyDefaultPostureAsync()
+        {
+            Calls.Add("default-posture");
+            return Task.CompletedTask;
+        }
 
         public Task<IReadOnlyList<PluginActionStepResult>> RunEnterActionsAsync(
             CancellationToken cancellationToken)
@@ -337,15 +361,13 @@ public sealed class GameModeEntryTransactionTests
                 results.Add(new PluginActionStepResult(step,
                     failed ? PluginActionOutcome.Rejected : PluginActionOutcome.Dispatched,
                     failed ? $"{step.ActionId} refused" : "sent"));
-                if (failed) { break; }
+                if (failed)
+                {
+                    break;
+                }
             }
-            return Task.FromResult<IReadOnlyList<PluginActionStepResult>>(results);
-        }
 
-        private Task<IReadOnlyList<PluginActionStepResult>> RunLeaveActionsAsync()
-        {
-            Calls.Add("leave-actions");
-            return Task.FromResult<IReadOnlyList<PluginActionStepResult>>([]);
+            return Task.FromResult<IReadOnlyList<PluginActionStepResult>>(results);
         }
 
         public Task<bool> PrepareExplorerExitAsync()
@@ -364,8 +386,16 @@ public sealed class GameModeEntryTransactionTests
         public async Task<bool> ReturnToDesktopAsync(DisplayLayout? layout, bool runLeaveActions)
         {
             Calls.Add("restore-desktop");
-            if (layout is not null) { await ApplyLayoutAsync(layout, CancellationToken.None); }
-            if (runLeaveActions) { await RunLeaveActionsAsync(); }
+            if (layout is not null)
+            {
+                await ApplyLayoutAsync(layout, CancellationToken.None);
+            }
+
+            if (runLeaveActions)
+            {
+                await RunLeaveActionsAsync();
+            }
+
             await PersistPendingReturnAsync(null);
             return true;
         }
@@ -386,12 +416,26 @@ public sealed class GameModeEntryTransactionTests
         {
             Calls.Add("commit");
             await CommitGate;
-            if (ThrowOnCommit) { throw new InvalidOperationException("UI commit failed"); }
+            if (ThrowOnCommit)
+            {
+                throw new InvalidOperationException("UI commit failed");
+            }
         }
 
-        private static Task<DisplayArrangement> ObserveWithoutRecording() =>
-            Task.FromResult(new DisplayArrangement(
-                [new DisplayTargetObservation(Tv, true, true, new DisplayLayoutOutput(Tv, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60)))],
+        private Task<IReadOnlyList<PluginActionStepResult>> RunLeaveActionsAsync()
+        {
+            Calls.Add("leave-actions");
+            return Task.FromResult<IReadOnlyList<PluginActionStepResult>>([]);
+        }
+
+        private static Task<DisplayArrangement> ObserveWithoutRecording()
+        {
+            return Task.FromResult(new DisplayArrangement(
+                [
+                    new DisplayTargetObservation(Tv, true, true,
+                        new DisplayLayoutOutput(Tv, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60)))
+                ],
                 "captured", DateTimeOffset.UnixEpoch));
+        }
     }
 }

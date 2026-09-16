@@ -5,18 +5,20 @@ using static WSGM.Tests.Builders.ControllerSamples;
 namespace WSGM.Tests.Input;
 
 /// <summary>
-/// The Steam Deck controller frame, as an executable specification.
+///     The Steam Deck controller frame, as an executable specification.
 /// </summary>
 /// <remarks>
-/// VIIPER's pinned Steam Deck packet definition and SDL's Steam Deck driver establish this frame's
-/// byte layout, application-axis decode, and physical motion scales. The four rear controls and
-/// capacitive stick touch are pinned because this target must carry the complete controller contract.
+///     VIIPER's pinned Steam Deck packet definition and SDL's Steam Deck driver establish this frame's
+///     byte layout, application-axis decode, and physical motion scales. The four rear controls and
+///     capacitive stick touch are pinned because this target must carry the complete controller contract.
 /// </remarks>
 public sealed class SteamDeckNeptuneReportTests
 {
     [Fact]
-    public void AFrameIsAlwaysExactlySixtyFourBytes() =>
+    public void AFrameIsAlwaysExactlySixtyFourBytes()
+    {
         Assert.Equal(64, Frame(Sample(CanonicalButtons.None)).Length);
+    }
 
     [Fact]
     public void ANeutralSampleSetsNoButtonBitAnywhere()
@@ -71,7 +73,7 @@ public sealed class SteamDeckNeptuneReportTests
     {
         var frame = Frame(Sample(
             CanonicalButtons.RearPaddle1 | CanonicalButtons.RearPaddle2
-            | CanonicalButtons.RearPaddle3 | CanonicalButtons.RearPaddle4));
+                                         | CanonicalButtons.RearPaddle3 | CanonicalButtons.RearPaddle4));
 
         // Upper pair on byte 13, lower pair split across bytes 9 and 10 — the layout that made the
         // alternative backend unable to carry more than two of them.

@@ -11,36 +11,44 @@ internal static class ServiceHost
 {
     internal const string ServiceName = "WSGMLogonService";
 
-    /// <summary>Start argument the installer passes through <c>StartService</c> to mark
-    /// a start it initiated itself. Not a command line: SCM delivers it to ServiceMain.</summary>
+    /// <summary>
+    ///     Start argument the installer passes through <c>StartService</c> to mark
+    ///     a start it initiated itself. Not a command line: SCM delivers it to ServiceMain.
+    /// </summary>
     internal const string InstallStartArgument = "--installed-start";
 
     private static nint _statusHandle;
     private static NativeMethods.ServiceStatus _status;
     private static readonly ManualResetEventSlim StopRequested = new(false);
 
-    /// <summary>Reads the SCM-delivered start arguments (argv[0] is the service name)
-    /// and reports whether the installer marked this start as its own.</summary>
+    /// <summary>
+    ///     Reads the SCM-delivered start arguments (argv[0] is the service name)
+    ///     and reports whether the installer marked this start as its own.
+    /// </summary>
     private static unsafe bool IsInstallStart(uint argc, nint argv)
     {
         if (argv == 0)
         {
             return false;
         }
+
         var vector = (nint*)argv;
         for (var i = 1u; i < argc; i++)
         {
             if (string.Equals(Marshal.PtrToStringUni(vector[i]), InstallStartArgument,
-                StringComparison.OrdinalIgnoreCase))
+                    StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
         }
+
         return false;
     }
 
-    /// <summary>Connects to the SCM dispatcher (blocks until the service stops).
-    /// Returns nonzero when started from a console instead of the SCM.</summary>
+    /// <summary>
+    ///     Connects to the SCM dispatcher (blocks until the service stops).
+    ///     Returns nonzero when started from a console instead of the SCM.
+    /// </summary>
     internal static unsafe int RunDispatcher()
     {
         fixed (char* name = ServiceName)
@@ -67,6 +75,7 @@ internal static class ServiceHost
             {
                 ServiceLog.Error($"StartServiceCtrlDispatcherW failed (error {error}).");
             }
+
             return 1;
         }
     }
@@ -97,7 +106,8 @@ internal static class ServiceHost
                                          NativeMethods.ServiceAcceptSessionChange;
             _status.dwWaitHint = 0;
             ReportStatus();
-            ServiceLog.Info($"WSGM logon service v{typeof(ServiceHost).Assembly.GetName().Version?.ToString(3) ?? "?"} started.");
+            ServiceLog.Info(
+                $"WSGM logon service v{typeof(ServiceHost).Assembly.GetName().Version?.ToString(3) ?? "?"} started.");
 
             // An auto-start service can come up after an autologon already signed
             // the user in — sweep existing sessions once. NOT when the installer
@@ -183,7 +193,7 @@ internal static class ServiceHost
                             {
                                 try
                                 {
-                                    SessionLauncher.OnSessionLogon(sessionId, logonAge: null);
+                                    SessionLauncher.OnSessionLogon(sessionId, null);
                                 }
                                 catch (Exception ex)
                                 {
@@ -195,6 +205,7 @@ internal static class ServiceHost
                             ThreadPool.QueueUserWorkItem(_ => SessionLauncher.OnSessionLogoff(sessionId));
                             break;
                     }
+
                     return NativeMethods.NoError;
 
                 default:
@@ -210,9 +221,10 @@ internal static class ServiceHost
 
     private static void ReportStatus()
     {
-        _status.dwCheckPoint = _status.dwCurrentState is NativeMethods.ServiceStartPending or NativeMethods.ServiceStopPending
-            ? _status.dwCheckPoint + 1
-            : 0;
+        _status.dwCheckPoint =
+            _status.dwCurrentState is NativeMethods.ServiceStartPending or NativeMethods.ServiceStopPending
+                ? _status.dwCheckPoint + 1
+                : 0;
         NativeMethods.SetServiceStatus(_statusHandle, ref _status);
     }
 }

@@ -6,27 +6,27 @@ using System.Threading;
 namespace WSGM.Core;
 
 /// <summary>
-/// Applies the refresh rate that goes with the frame cap in force, under the user's strategy.
+///     Applies the refresh rate that goes with the frame cap in force, under the user's strategy.
 /// </summary>
 /// <remarks>
-/// The pairing decision itself is <see cref="FrameLimitPairing"/> and stays pure; this owns the
-/// parts that touch the machine — discovering what the display accepts, caching that, applying a
-/// rate, and putting the original back.
-/// <para>
-/// Discovery is cached for the session because it is not free: every candidate rate costs a
-/// `CDS_TEST` round trip through the driver, and a cap change is a user-facing action that should
-/// not stall behind a dozen of them. There is no display-change invalidation: the internal panel's
-/// modes do not change within a session, and a dock/undock already goes through the
-/// display-profile path.
-/// </para>
+///     The pairing decision itself is <see cref="FrameLimitPairing" /> and stays pure; this owns the
+///     parts that touch the machine — discovering what the display accepts, caching that, applying a
+///     rate, and putting the original back.
+///     <para>
+///         Discovery is cached for the session because it is not free: every candidate rate costs a
+///         `CDS_TEST` round trip through the driver, and a cap change is a user-facing action that should
+///         not stall behind a dozen of them. There is no display-change invalidation: the internal panel's
+///         modes do not change within a session, and a dock/undock already goes through the
+///         display-profile path.
+///     </para>
 /// </remarks>
 internal sealed class RefreshRatePairingService
 {
+    private readonly Func<int, bool> _applyRate;
+    private readonly Lock _gate = new();
     private readonly Func<IReadOnlyList<int>> _readAcceptedRates;
     private readonly Func<IReadOnlyList<int>> _readAdvertisedRates;
-    private readonly Func<int, bool> _applyRate;
     private readonly Func<int?> _readCurrentRate;
-    private readonly Lock _gate = new();
 
     private IReadOnlyList<int>? _accepted;
     private IReadOnlyList<int>? _advertised;
@@ -62,7 +62,7 @@ internal sealed class RefreshRatePairingService
     }
 
     /// <summary>
-    /// Adopts a strategy, restoring the display first when the new one no longer owns it.
+    ///     Adopts a strategy, restoring the display first when the new one no longer owns it.
     /// </summary>
     /// <param name="strategy">The user's chosen strategy.</param>
     internal void SetStrategy(FrameLimitStrategy strategy)
@@ -114,9 +114,9 @@ internal sealed class RefreshRatePairingService
     /// <param name="capFps">The frame cap in force; zero or negative means uncapped.</param>
     /// <returns>Whether the display is now at that rate.</returns>
     /// <remarks>
-    /// Checked against the rates discovery accepted, not passed straight to the driver: the value
-    /// arrives from injected JavaScript, and a rate the panel cannot show is a black screen. A
-    /// manual write is user-owned, so no original is captured and nothing restores it later.
+    ///     Checked against the rates discovery accepted, not passed straight to the driver: the value
+    ///     arrives from injected JavaScript, and a rate the panel cannot show is a black screen. A
+    ///     manual write is user-owned, so no original is captured and nothing restores it later.
     /// </remarks>
     internal bool TryApplyManual(int refreshHz, int capFps)
     {
@@ -164,10 +164,10 @@ internal sealed class RefreshRatePairingService
     /// <summary>The two ends of the cap range this panel can hold.</summary>
     /// <returns>The inclusive bounds, or null when no rate is high enough to carry a cap.</returns>
     /// <remarks>
-    /// Every surface that offers a frame limit asks this, so the overlay's slider and the Quick
-    /// Access row cannot disagree about what a legal cap is. They did: the overlay ran from RTSS's
-    /// own floor of zero and let a 12 FPS cap be set, which the Quick Access row then refused to
-    /// render at all because it bookends the slider here (Claw, 2026-09-03).
+    ///     Every surface that offers a frame limit asks this, so the overlay's slider and the Quick
+    ///     Access row cannot disagree about what a legal cap is. They did: the overlay ran from RTSS's
+    ///     own floor of zero and let a 12 FPS cap be set, which the Quick Access row then refused to
+    ///     render at all because it bookends the slider here (Claw, 2026-09-03).
     /// </remarks>
     internal (int Minimum, int Maximum)? FrameLimitRange()
     {
@@ -180,8 +180,8 @@ internal sealed class RefreshRatePairingService
     /// <param name="capFps">The frame cap being considered.</param>
     /// <returns>The paired rate, or null when the refresh rate would be left alone.</returns>
     /// <remarks>
-    /// The read-only half of <see cref="ApplyForCap"/>, for labelling a cap the user is still
-    /// dragging through. Same policy, same snapshot, no display call.
+    ///     The read-only half of <see cref="ApplyForCap" />, for labelling a cap the user is still
+    ///     dragging through. Same policy, same snapshot, no display call.
     /// </remarks>
     internal int? SelectRefreshHz(int capFps)
     {
@@ -191,7 +191,7 @@ internal sealed class RefreshRatePairingService
     }
 
     /// <summary>
-    /// Applies the refresh rate paired with a frame cap.
+    ///     Applies the refresh rate paired with a frame cap.
     /// </summary>
     /// <param name="capFps">The frame cap in force; zero or negative means uncapped.</param>
     /// <returns>The rate applied, or null when the refresh rate was left alone.</returns>
@@ -218,13 +218,13 @@ internal sealed class RefreshRatePairingService
     }
 
     /// <summary>
-    /// Puts back the refresh rate found before this service moved it.
+    ///     Puts back the refresh rate found before this service moved it.
     /// </summary>
-    /// <returns><see langword="true"/> when nothing was left changed.</returns>
+    /// <returns><see langword="true" /> when nothing was left changed.</returns>
     /// <remarks>
-    /// Applying is transient rather than persisted, so an abrupt exit already self-heals. This
-    /// exists for the ordinary case, where leaving the desktop at 48 Hz after a game closes would
-    /// be a change the user never asked for and would have to hunt for.
+    ///     Applying is transient rather than persisted, so an abrupt exit already self-heals. This
+    ///     exists for the ordinary case, where leaving the desktop at 48 Hz after a game closes would
+    ///     be a change the user never asked for and would have to hunt for.
     /// </remarks>
     internal bool Restore()
     {
@@ -255,6 +255,7 @@ internal sealed class RefreshRatePairingService
         {
             Log.Warn($"Frame limit strategy could not restore {rate} Hz; the snapshot was retained.");
         }
+
         return restored;
     }
 

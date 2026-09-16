@@ -6,11 +6,13 @@ namespace WSGM.Tests.Controls;
 
 public sealed class CurveEditorTests
 {
-    private static CurveEditor Editor(params (int Input, int Output)[] points) =>
-        new()
+    private static CurveEditor Editor(params (int Input, int Output)[] points)
+    {
+        return new CurveEditor
         {
             Points = [.. points.Select(point => new CurvePoint(point.Input, point.Output))]
         };
+    }
 
     [Fact]
     public void AddingAPointTargetsTheWidestGapBecauseThatIsWhereResolutionIsMissing()
@@ -52,8 +54,12 @@ public sealed class CurveEditorTests
         // midpoint, so the refusal below can only come from the point limit.
         CurveEditor editor = new()
         {
-            Points = [.. Enumerable.Range(0, CurveEditing.MaximumPoints - 1)
-                .Select(index => new CurvePoint(index, index)), new CurvePoint(100, 100)]
+            Points =
+            [
+                .. Enumerable.Range(0, CurveEditing.MaximumPoints - 1)
+                    .Select(index => new CurvePoint(index, index)),
+                new CurvePoint(100, 100)
+            ]
         };
 
         editor.AddPointAtWidestGap();

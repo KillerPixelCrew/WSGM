@@ -10,34 +10,34 @@ public enum ForegroundApplicationKind
     Application,
 
     /// <summary>
-    /// Shell furniture, a system dialog, or WSGM itself: the foreground changed, but what the user
-    /// is <em>doing</em> did not.
+    ///     Shell furniture, a system dialog, or WSGM itself: the foreground changed, but what the user
+    ///     is <em>doing</em> did not.
     /// </summary>
     Restricted
 }
 
 /// <summary>
-/// Decides whether a foreground window is an application worth switching profiles for.
+///     Decides whether a foreground window is an application worth switching profiles for.
 /// </summary>
 /// <remarks>
-/// The whole point of the restricted answer is that it is not the same as "no application". Alt-
-/// tabbing to Task Manager, opening the Start menu, or WSGM's own overlay taking focus must leave
-/// the running game's profile in force — dropping to the global profile because the user glanced at
-/// a system window would change the power limit and frame cap underneath a running game.
-/// <para>
-/// Adopted from HandheldCompanion's process filter, which solves the same problem on the same
-/// hardware, and kept deliberately short: this list exists to catch the windows that steal focus
-/// without being what the user is using, not to enumerate every system executable.
-/// </para>
+///     The whole point of the restricted answer is that it is not the same as "no application". Alt-
+///     tabbing to Task Manager, opening the Start menu, or WSGM's own overlay taking focus must leave
+///     the running game's profile in force — dropping to the global profile because the user glanced at
+///     a system window would change the power limit and frame cap underneath a running game.
+///     <para>
+///         Adopted from HandheldCompanion's process filter, which solves the same problem on the same
+///         hardware, and kept deliberately short: this list exists to catch the windows that steal focus
+///         without being what the user is using, not to enumerate every system executable.
+///     </para>
 /// </remarks>
 public static class ForegroundApplicationFilter
 {
     /// <summary>
-    /// Window class of the UWP host. The real application lives in a different process.
+    ///     Window class of the UWP host. The real application lives in a different process.
     /// </summary>
     /// <remarks>
-    /// Without resolving through it, every UWP application reports as
-    /// <c>ApplicationFrameHost.exe</c> and they all share one profile.
+    ///     Without resolving through it, every UWP application reports as
+    ///     <c>ApplicationFrameHost.exe</c> and they all share one profile.
     /// </remarks>
     public const string UwpHostWindowClass = "ApplicationFrameWindow";
 
@@ -102,17 +102,19 @@ public static class ForegroundApplicationFilter
     };
 
     /// <summary>
-    /// Classifies a foreground executable.
+    ///     Classifies a foreground executable.
     /// </summary>
     /// <param name="executableName">File name of the foreground process, with extension.</param>
     /// <returns>Whether it should drive per-application policy.</returns>
     /// <remarks>
-    /// An unreadable or empty name is restricted rather than treated as an application: a window
-    /// whose process could not be resolved is exactly the case where guessing would attach the
-    /// wrong profile.
+    ///     An unreadable or empty name is restricted rather than treated as an application: a window
+    ///     whose process could not be resolved is exactly the case where guessing would attach the
+    ///     wrong profile.
     /// </remarks>
-    public static ForegroundApplicationKind Classify(string? executableName) =>
-        string.IsNullOrWhiteSpace(executableName) || Restricted.Contains(executableName.Trim())
+    public static ForegroundApplicationKind Classify(string? executableName)
+    {
+        return string.IsNullOrWhiteSpace(executableName) || Restricted.Contains(executableName.Trim())
             ? ForegroundApplicationKind.Restricted
             : ForegroundApplicationKind.Application;
+    }
 }

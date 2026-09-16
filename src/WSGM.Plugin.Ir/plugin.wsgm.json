@@ -7,5 +7,7 @@
   "maximumApiVersion": 1,
   "entryAssembly": "WSGM.Plugin.Ir.dll",
   "entryType": "WSGM.Plugin.Ir.IrPlugin",
-  "permissions": ["usb.serial"]
+  "permissions": [
+    "usb.serial"
+  ]
 }

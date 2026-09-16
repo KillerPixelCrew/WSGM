@@ -11,7 +11,9 @@ public sealed class PluginSettingRowViewModelTests
         int? minimum = null,
         int? maximum = null,
         int? maximumLength = null,
-        params string[] choices) => new()
+        params string[] choices)
+    {
+        return new PluginSettingDescriptor
         {
             SettingId = "vendor.setting",
             ValueKind = kind,
@@ -21,12 +23,19 @@ public sealed class PluginSettingRowViewModelTests
             Maximum = maximum,
             Step = minimum is null ? null : 1,
             MaximumLength = maximumLength,
-            Choices = [.. choices.Select(value => new CapabilityChoice(
-                value,
-                new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = value }))]
+            Choices =
+            [
+                .. choices.Select(value => new CapabilityChoice(
+                    value,
+                    new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = value }))
+            ]
         };
+    }
 
-    private static CapabilityValue Value(CapabilityValueKind kind) => new() { Kind = kind };
+    private static CapabilityValue Value(CapabilityValueKind kind)
+    {
+        return new CapabilityValue { Kind = kind };
+    }
 
     [Fact]
     public void EachKindShowsExactlyOneControl()

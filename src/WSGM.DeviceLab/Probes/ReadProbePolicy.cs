@@ -108,7 +108,8 @@ internal static class ReadProbeResponseValidator
 
         if (response.Status is not ReadProbeWorkerStatus.Completed)
         {
-            return Reject($"worker.{response.Status.ToString().ToLowerInvariant()}", response.Error ?? "Read-probe worker did not complete.");
+            return Reject($"worker.{response.Status.ToString().ToLowerInvariant()}",
+                response.Error ?? "Read-probe worker did not complete.");
         }
 
         if (response.Samples.Count != metadata.Repetitions)
@@ -141,10 +142,10 @@ internal static class ReadProbeResponseValidator
             }
 
             if ((expected.ValueKind is ReadProbeValueKind.Integer
-                || expected.MinimumValue is not null || expected.MaximumValue is not null)
+                 || expected.MinimumValue is not null || expected.MaximumValue is not null)
                 && (sample.NumericValue is null
-                    || expected.MinimumValue is { } minimum && sample.NumericValue.Value < minimum
-                    || expected.MaximumValue is { } maximum && sample.NumericValue.Value > maximum))
+                    || (expected.MinimumValue is { } minimum && sample.NumericValue.Value < minimum)
+                    || (expected.MaximumValue is { } maximum && sample.NumericValue.Value > maximum)))
             {
                 return Reject("response.range", "Numeric response was absent or outside the compiled range.");
             }
@@ -189,9 +190,9 @@ internal static class ReadProbeResponseValidator
                 StringComparison.OrdinalIgnoreCase),
             ReadProbeCrossCheckKind.Present => !string.IsNullOrWhiteSpace(sample.CrossCheckValue),
             ReadProbeCrossCheckKind.InRange => sample.CrossCheckNumericValue is { } numeric
-                && crossCheck is { MinimumValue: { } minimum, MaximumValue: { } maximum }
-                && numeric >= minimum
-                && numeric <= maximum,
+                                               && crossCheck is { MinimumValue: { } minimum, MaximumValue: { } maximum }
+                                               && numeric >= minimum
+                                               && numeric <= maximum,
             _ => false
         };
 
@@ -202,13 +203,17 @@ internal static class ReadProbeResponseValidator
                 Code = "cross-check.accepted",
                 Message = "Independent cross-check accepted."
             }
-            : Reject("response.cross-check", $"Independent cross-check '{crossCheck.Id}' did not corroborate the response.");
+            : Reject("response.cross-check",
+                $"Independent cross-check '{crossCheck.Id}' did not corroborate the response.");
     }
 
-    private static ReadProbeValidationResult Reject(string code, string message) => new()
+    private static ReadProbeValidationResult Reject(string code, string message)
     {
-        Accepted = false,
-        Code = code,
-        Message = message
-    };
+        return new ReadProbeValidationResult
+        {
+            Accepted = false,
+            Code = code,
+            Message = message
+        };
+    }
 }

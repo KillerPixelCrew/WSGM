@@ -29,10 +29,12 @@ public sealed class CaptureExportTests
                 {
                     heldFile = new FileStream(staged, FileMode.Open, FileAccess.Read, FileShare.Read);
                 }
+
                 if (!cancelled)
                 {
                     throw new IOException("Publication failed.");
                 }
+
                 cancellation.Cancel();
                 throw new OperationCanceledException(cancellation.Token);
             }
@@ -95,38 +97,41 @@ public sealed class CaptureExportTests
         Assert.Empty(Directory.EnumerateFileSystemEntries(directory.Root));
     }
 
-    private static CaptureExportPlan Plan(TemporaryDirectory directory) => new()
+    private static CaptureExportPlan Plan(TemporaryDirectory directory)
     {
-        PrivateWorkingDirectory = directory.GetPath("private"),
-        ShareableOutputPath = directory.GetPath("capture.wsgmcap"),
-        Bundle = new SanitizedCaptureBundle
+        return new CaptureExportPlan
         {
-            Manifest = new ShareableCaptureManifest
+            PrivateWorkingDirectory = directory.GetPath("private"),
+            ShareableOutputPath = directory.GetPath("capture.wsgmcap"),
+            Bundle = new SanitizedCaptureBundle
             {
-                SchemaVersion = CaptureSchema.CurrentVersion,
-                BundleId = "export-test",
-                ToolVersion = "test",
-                StartedAt = DateTimeOffset.UnixEpoch,
-                CompletedAt = DateTimeOffset.UnixEpoch,
-                QpcFrequency = 1
-            },
-            Recipe = new ObserveOnlyRecipe
-            {
-                SchemaVersion = CaptureSchema.CurrentVersion,
-                RecipeId = "export-test",
-                DisplayName = "Export test"
-            },
-            Inventory = new MachineInventory
-            {
-                SchemaVersion = 1,
-                Firmware = new FirmwareInventory(),
-                CapturedAt = DateTimeOffset.UnixEpoch
-            },
-            Redaction = new CaptureRedactionManifest
-            {
-                SchemaVersion = CaptureSchema.CurrentVersion,
-                DefaultRedactionApplied = true
+                Manifest = new ShareableCaptureManifest
+                {
+                    SchemaVersion = CaptureSchema.CurrentVersion,
+                    BundleId = "export-test",
+                    ToolVersion = "test",
+                    StartedAt = DateTimeOffset.UnixEpoch,
+                    CompletedAt = DateTimeOffset.UnixEpoch,
+                    QpcFrequency = 1
+                },
+                Recipe = new ObserveOnlyRecipe
+                {
+                    SchemaVersion = CaptureSchema.CurrentVersion,
+                    RecipeId = "export-test",
+                    DisplayName = "Export test"
+                },
+                Inventory = new MachineInventory
+                {
+                    SchemaVersion = 1,
+                    Firmware = new FirmwareInventory(),
+                    CapturedAt = DateTimeOffset.UnixEpoch
+                },
+                Redaction = new CaptureRedactionManifest
+                {
+                    SchemaVersion = CaptureSchema.CurrentVersion,
+                    DefaultRedactionApplied = true
+                }
             }
-        }
-    };
+        };
+    }
 }

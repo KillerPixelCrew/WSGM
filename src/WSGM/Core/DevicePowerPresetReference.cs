@@ -20,14 +20,20 @@ public sealed record DevicePowerCustomValues
 {
     /// <summary>Sustained power limit in watts.</summary>
     public int SustainedWatts { get; init; }
+
     /// <summary>Slow power limit in watts.</summary>
     public int SlowWatts { get; init; }
+
     /// <summary>Windows performance/efficiency mode.</summary>
     public DevicePowerMode WindowsMode { get; init; }
+
     /// <summary>Firmware scenario for this source, when included in the device presets.</summary>
     public string? Scenario { get; init; }
 
     // The SDK reserves "custom" for host presentation, so the validation target uses a separate ID.
-    internal DevicePowerPreset ToPreset() => new("custom-values", "Custom", SustainedWatts, SlowWatts, WindowsMode)
-    { ScenarioOnAc = Scenario, ScenarioOnDc = Scenario };
+    internal DevicePowerPreset ToPreset()
+    {
+        return new DevicePowerPreset("custom-values", "Custom", SustainedWatts, SlowWatts, WindowsMode)
+            { ScenarioOnAc = Scenario, ScenarioOnDc = Scenario };
+    }
 }

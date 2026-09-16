@@ -6,9 +6,9 @@ namespace WSGM.Core;
 
 /// <summary>Counts observation leases and wakes a poll loop when the first one arrives.</summary>
 /// <remarks>
-/// A loop that only works while someone watches waits on <see cref="WaitAsync"/> whenever
-/// <see cref="Count"/> is zero. Taking the first lease, or <see cref="Signal"/>, wakes it; extra
-/// signals collapse into one.
+///     A loop that only works while someone watches waits on <see cref="WaitAsync" /> whenever
+///     <see cref="Count" /> is zero. Taking the first lease, or <see cref="Signal" />, wakes it; extra
+///     signals collapse into one.
 /// </remarks>
 internal sealed class ObservationGate : IDisposable
 {
@@ -17,6 +17,12 @@ internal sealed class ObservationGate : IDisposable
 
     /// <summary>How many leases are held now.</summary>
     internal int Count => Volatile.Read(ref _count);
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _signal.Dispose();
+    }
 
     /// <summary>Takes a lease, waking the loop when it is the first.</summary>
     /// <returns>A lease that releases exactly once when disposed.</returns>
@@ -49,10 +55,10 @@ internal sealed class ObservationGate : IDisposable
     /// <summary>Waits for the next wake.</summary>
     /// <param name="cancellationToken">Stops the wait.</param>
     /// <returns>A task that completes on the next wake.</returns>
-    internal Task WaitAsync(CancellationToken cancellationToken) => _signal.WaitAsync(cancellationToken);
-
-    /// <inheritdoc />
-    public void Dispose() => _signal.Dispose();
+    internal Task WaitAsync(CancellationToken cancellationToken)
+    {
+        return _signal.WaitAsync(cancellationToken);
+    }
 
     private void Release()
     {
@@ -66,6 +72,9 @@ internal sealed class ObservationGate : IDisposable
     {
         private ObservationGate? _owner = owner;
 
-        public void Dispose() => Interlocked.Exchange(ref _owner, null)?.Release();
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref _owner, null)?.Release();
+        }
     }
 }

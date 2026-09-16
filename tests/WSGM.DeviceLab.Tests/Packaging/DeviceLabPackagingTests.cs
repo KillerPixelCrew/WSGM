@@ -73,7 +73,7 @@ public sealed class DeviceLabPackagingTests
     {
         using TemporaryDirectory temporary = new();
         var source = CreatePackage(temporary);
-        WriteManagedPe(Path.Combine(source, "Synthetic.Dock.dll"), machine: 0x014c);
+        WriteManagedPe(Path.Combine(source, "Synthetic.Dock.dll"), 0x014c);
 
         var report = PluginPackageWorkflow.ValidateOffline(source);
 
@@ -86,7 +86,7 @@ public sealed class DeviceLabPackagingTests
     {
         using TemporaryDirectory temporary = new();
         var source = CreatePackage(temporary);
-        WriteTruncatedPeHeader(Path.Combine(source, "Synthetic.Dock.dll"), machine: 0x8664);
+        WriteTruncatedPeHeader(Path.Combine(source, "Synthetic.Dock.dll"), 0x8664);
 
         var report = PluginPackageWorkflow.ValidateOffline(source);
 
@@ -100,7 +100,7 @@ public sealed class DeviceLabPackagingTests
         var observed = 0;
         var accepted = DeviceLabPackageSnapshot.TakeBoundedEntries(
             Entries(),
-            remaining: 4,
+            4,
             CancellationToken.None,
             out var exceeded);
 
@@ -134,7 +134,7 @@ public sealed class DeviceLabPackagingTests
             source,
             output,
             DeviceLabPackages.Boundaries(temporary),
-            sourceValidated: () =>
+            () =>
             {
                 _ = Assert.Throws<IOException>(() => File.WriteAllBytes(entryAssembly, [1, 2, 3]));
                 replacementBlocked = true;
@@ -176,20 +176,20 @@ public sealed class DeviceLabPackagingTests
             "package-too-many-files",
             PluginPackageWorkflow.PackageBudgetViolation(
                 PluginPackageWorkflow.MaximumPackageFiles,
-                acceptedBytes: 0,
-                nextFileBytes: 0));
+                0,
+                0));
         Assert.Equal(
             "file-too-large",
             PluginPackageWorkflow.PackageBudgetViolation(
-                acceptedFileCount: 0,
-                acceptedBytes: 0,
-                nextFileBytes: PluginPackageWorkflow.MaximumPackageFileBytes + 1));
+                0,
+                0,
+                PluginPackageWorkflow.MaximumPackageFileBytes + 1));
         Assert.Equal(
             "package-too-large",
             PluginPackageWorkflow.PackageBudgetViolation(
-                acceptedFileCount: 1,
-                acceptedBytes: PluginPackageWorkflow.MaximumPackageBytes,
-                nextFileBytes: 1));
+                1,
+                PluginPackageWorkflow.MaximumPackageBytes,
+                1));
     }
 
     private static string CreatePackage(TemporaryDirectory temporary)
@@ -211,6 +211,7 @@ public sealed class DeviceLabPackagingTests
         {
             BitConverter.GetBytes(patchedMachine).CopyTo(bytes, peOffset + 4);
         }
+
         File.WriteAllBytes(path, bytes);
     }
 
@@ -226,6 +227,8 @@ public sealed class DeviceLabPackagingTests
         File.WriteAllBytes(path, bytes);
     }
 
-    private static string Describe(PluginPackageValidationReport report) =>
-        string.Join("; ", report.Issues.Select(issue => $"{issue.Path}: {issue.Message}"));
+    private static string Describe(PluginPackageValidationReport report)
+    {
+        return string.Join("; ", report.Issues.Select(issue => $"{issue.Path}: {issue.Message}"));
+    }
 }

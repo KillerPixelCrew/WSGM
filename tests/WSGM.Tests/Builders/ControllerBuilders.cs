@@ -9,33 +9,40 @@ internal static class ControllerBuilders
 {
     internal static DeviceApplicationTargetOverride Override(
         string applicationId,
-        ManagedControllerTarget target) =>
-        new() { ApplicationId = applicationId, Target = target };
+        ManagedControllerTarget target)
+    {
+        return new DeviceApplicationTargetOverride { ApplicationId = applicationId, Target = target };
+    }
 
     internal static RunningApplicationTargetSnapshot Running(
         string executable = @"C:\Games\game.exe",
         long generation = 1,
-        string applicationId = "steam:70") => new(
-        generation,
-        1,
-        RunningApplicationTargetState.Active,
-        applicationId,
-        70,
-        executable,
-        "game",
-        null);
+        string applicationId = "steam:70")
+    {
+        return new RunningApplicationTargetSnapshot(
+            generation,
+            1,
+            RunningApplicationTargetState.Active,
+            applicationId,
+            70,
+            executable,
+            "game",
+            null);
+    }
 
     internal static ControllerManagerStatus Status(
         ControllerManagementState state,
         ManagedControllerTarget? target,
         string detail = "",
         string? applicationId = null,
-        UiInputSource source = UiInputSource.ManagedCanonical) =>
-        new(
+        UiInputSource source = UiInputSource.ManagedCanonical)
+    {
+        return new ControllerManagerStatus(
             state,
             target,
             ControllerTargetSource.GlobalDefault,
             applicationId,
             source,
             detail);
+    }
 }

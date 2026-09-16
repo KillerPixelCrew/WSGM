@@ -7,10 +7,12 @@ using System.Text.RegularExpressions;
 
 namespace WSGM.Core;
 
-/// <summary>The kind of a <see cref="FilterNode"/>. Mirrors TabMaster's filter set,
-/// trimmed to the core the user selected. <see cref="Merge"/> is a group node that
-/// nests children under its own <see cref="FilterNode.Mode"/>, giving arbitrary
-/// AND/OR trees.</summary>
+/// <summary>
+///     The kind of a <see cref="FilterNode" />. Mirrors TabMaster's filter set,
+///     trimmed to the core the user selected. <see cref="Merge" /> is a group node that
+///     nests children under its own <see cref="FilterNode.Mode" />, giving arbitrary
+///     AND/OR trees.
+/// </summary>
 public enum FilterKind
 {
     /// <summary>Membership in a Steam collection.</summary>
@@ -52,7 +54,7 @@ public enum FilterKind
     /// <summary>Installed on a MicroSD/removable card WSGM tracks.</summary>
     SdCard,
 
-    /// <summary>A nested group of child filters combined by <see cref="FilterNode.Mode"/>.</summary>
+    /// <summary>A nested group of child filters combined by <see cref="FilterNode.Mode" />.</summary>
     Merge
 }
 
@@ -76,7 +78,7 @@ public enum ThresholdCondition
     Below
 }
 
-/// <summary>Which review score a <see cref="FilterKind.ReviewScore"/> filter reads.</summary>
+/// <summary>Which review score a <see cref="FilterKind.ReviewScore" /> filter reads.</summary>
 public enum ReviewScoreType
 {
     /// <summary>Metacritic score (0–100).</summary>
@@ -86,7 +88,7 @@ public enum ReviewScoreType
     SteamPercent
 }
 
-/// <summary>Time unit for a <see cref="FilterKind.TimePlayed"/> threshold.</summary>
+/// <summary>Time unit for a <see cref="FilterKind.TimePlayed" /> threshold.</summary>
 public enum TimeUnit
 {
     /// <summary>Minutes.</summary>
@@ -99,7 +101,7 @@ public enum TimeUnit
     Days
 }
 
-/// <summary>Steam app vs non-Steam shortcut, for <see cref="FilterKind.Platform"/>.</summary>
+/// <summary>Steam app vs non-Steam shortcut, for <see cref="FilterKind.Platform" />.</summary>
 public enum PlatformKind
 {
     /// <summary>A real Steam app.</summary>
@@ -109,7 +111,7 @@ public enum PlatformKind
     NonSteam
 }
 
-/// <summary>Which card(s) a <see cref="FilterKind.SdCard"/> filter matches.</summary>
+/// <summary>Which card(s) a <see cref="FilterKind.SdCard" /> filter matches.</summary>
 public enum SdCardScope
 {
     /// <summary>The card currently inserted.</summary>
@@ -118,47 +120,53 @@ public enum SdCardScope
     /// <summary>Any card WSGM tracks.</summary>
     Any,
 
-    /// <summary>One specific card, by content id (<see cref="FilterNode.ContentId"/>).</summary>
+    /// <summary>One specific card, by content id (<see cref="FilterNode.ContentId" />).</summary>
     Specific
 }
 
-/// <summary>One node in a custom tab's filter tree. A flat shape (all params on one
-/// type, only those relevant to <see cref="Kind"/> used) keeps it trivially
-/// serializable for System.Text.Json source-gen — the same modelling TabMaster uses
-/// (<c>{type, inverted, params}</c>). Compiled to a JS predicate by
-/// <see cref="LibraryFilter"/>.</summary>
+/// <summary>
+///     One node in a custom tab's filter tree. A flat shape (all params on one
+///     type, only those relevant to <see cref="Kind" /> used) keeps it trivially
+///     serializable for System.Text.Json source-gen — the same modelling TabMaster uses
+///     (<c>{type, inverted, params}</c>). Compiled to a JS predicate by
+///     <see cref="LibraryFilter" />.
+/// </summary>
 public sealed class FilterNode
 {
     /// <summary>The filter kind (selects which params below are meaningful).</summary>
     public FilterKind Kind { get; set; }
 
-    /// <summary>Negates this node's result. Honored for invertible kinds
-    /// (<see cref="LibraryFilter.CanInvert"/>); harmless otherwise.</summary>
+    /// <summary>
+    ///     Negates this node's result. Honored for invertible kinds
+    ///     (<see cref="LibraryFilter.CanInvert" />); harmless otherwise.
+    /// </summary>
     public bool Inverted { get; set; }
 
-    /// <summary>Group/multi-value combination: children of a <see cref="FilterKind.Merge"/>,
-    /// or the and/or over a <see cref="FilterKind.Tag"/> filter's tag list.</summary>
+    /// <summary>
+    ///     Group/multi-value combination: children of a <see cref="FilterKind.Merge" />,
+    ///     or the and/or over a <see cref="FilterKind.Tag" /> filter's tag list.
+    /// </summary>
     public FilterMode Mode { get; set; } = FilterMode.And;
 
-    /// <summary>Child filters of a <see cref="FilterKind.Merge"/> group.</summary>
+    /// <summary>Child filters of a <see cref="FilterKind.Merge" /> group.</summary>
     public List<FilterNode> Children { get; set; } = [];
 
-    /// <summary>Steam collection id (<see cref="FilterKind.Collection"/>).</summary>
+    /// <summary>Steam collection id (<see cref="FilterKind.Collection" />).</summary>
     public string CollectionId { get; set; } = "";
 
-    /// <summary>Boolean param: installed-state for <see cref="FilterKind.Installed"/>.</summary>
+    /// <summary>Boolean param: installed-state for <see cref="FilterKind.Installed" />.</summary>
     public bool BoolValue { get; set; } = true;
 
-    /// <summary>Tag ids for <see cref="FilterKind.Tag"/>.</summary>
+    /// <summary>Tag ids for <see cref="FilterKind.Tag" />.</summary>
     public List<int> TagIds { get; set; } = [];
 
-    /// <summary>App ids for <see cref="FilterKind.Whitelist"/> / <see cref="FilterKind.Blacklist"/>.</summary>
+    /// <summary>App ids for <see cref="FilterKind.Whitelist" /> / <see cref="FilterKind.Blacklist" />.</summary>
     public List<long> AppIds { get; set; } = [];
 
-    /// <summary>Title pattern for <see cref="FilterKind.Regex"/>.</summary>
+    /// <summary>Title pattern for <see cref="FilterKind.Regex" />.</summary>
     public string Pattern { get; set; } = "";
 
-    /// <summary>Steam vs non-Steam (<see cref="FilterKind.Platform"/>).</summary>
+    /// <summary>Steam vs non-Steam (<see cref="FilterKind.Platform" />).</summary>
     public PlatformKind Platform { get; set; } = PlatformKind.Steam;
 
     /// <summary>Numeric threshold for ReviewScore / TimePlayed / SizeOnDisk.</summary>
@@ -167,14 +175,16 @@ public sealed class FilterNode
     /// <summary>Comparison direction for threshold and date filters.</summary>
     public ThresholdCondition Condition { get; set; } = ThresholdCondition.Above;
 
-    /// <summary>Score source for <see cref="FilterKind.ReviewScore"/>.</summary>
+    /// <summary>Score source for <see cref="FilterKind.ReviewScore" />.</summary>
     public ReviewScoreType ScoreType { get; set; } = ReviewScoreType.SteamPercent;
 
-    /// <summary>Time unit for <see cref="FilterKind.TimePlayed"/>.</summary>
+    /// <summary>Time unit for <see cref="FilterKind.TimePlayed" />.</summary>
     public TimeUnit Units { get; set; } = TimeUnit.Hours;
 
-    /// <summary>Relative date param: match apps within this many days of now. When
-    /// &gt; 0 it takes precedence over the absolute <see cref="Year"/>/<see cref="Month"/>/<see cref="Day"/>.</summary>
+    /// <summary>
+    ///     Relative date param: match apps within this many days of now. When
+    ///     &gt; 0 it takes precedence over the absolute <see cref="Year" />/<see cref="Month" />/<see cref="Day" />.
+    /// </summary>
     public int DaysAgo { get; set; }
 
     /// <summary>Absolute-date year for ReleaseDate / LastPlayed (0 = unset).</summary>
@@ -186,59 +196,72 @@ public sealed class FilterNode
     /// <summary>Absolute-date day 1–31 (0 = unset → treated as the 1st).</summary>
     public int Day { get; set; }
 
-    /// <summary>Which card(s) a <see cref="FilterKind.SdCard"/> filter matches.</summary>
+    /// <summary>Which card(s) a <see cref="FilterKind.SdCard" /> filter matches.</summary>
     public SdCardScope CardScope { get; set; } = SdCardScope.Inserted;
 
-    /// <summary>Content id of the specific card for <see cref="SdCardScope.Specific"/>.</summary>
+    /// <summary>Content id of the specific card for <see cref="SdCardScope.Specific" />.</summary>
     public string ContentId { get; set; } = "";
 
-    /// <summary>Deep-copies this node (so an editor can cancel without mutating the
-    /// saved tree).</summary>
-    public FilterNode Clone() => new()
+    /// <summary>
+    ///     Deep-copies this node (so an editor can cancel without mutating the
+    ///     saved tree).
+    /// </summary>
+    public FilterNode Clone()
     {
-        Kind = Kind,
-        Inverted = Inverted,
-        Mode = Mode,
-        Children = [.. Children.Select(c => c.Clone())],
-        CollectionId = CollectionId,
-        BoolValue = BoolValue,
-        TagIds = [.. TagIds],
-        AppIds = [.. AppIds],
-        Pattern = Pattern,
-        Platform = Platform,
-        Threshold = Threshold,
-        Condition = Condition,
-        ScoreType = ScoreType,
-        Units = Units,
-        DaysAgo = DaysAgo,
-        Year = Year,
-        Month = Month,
-        Day = Day,
-        CardScope = CardScope,
-        ContentId = ContentId
-    };
+        return new FilterNode
+        {
+            Kind = Kind,
+            Inverted = Inverted,
+            Mode = Mode,
+            Children = [.. Children.Select(c => c.Clone())],
+            CollectionId = CollectionId,
+            BoolValue = BoolValue,
+            TagIds = [.. TagIds],
+            AppIds = [.. AppIds],
+            Pattern = Pattern,
+            Platform = Platform,
+            Threshold = Threshold,
+            Condition = Condition,
+            ScoreType = ScoreType,
+            Units = Units,
+            DaysAgo = DaysAgo,
+            Year = Year,
+            Month = Month,
+            Day = Day,
+            CardScope = CardScope,
+            ContentId = ContentId
+        };
+    }
 }
 
-/// <summary>Resolves the concrete app-id set for a <see cref="FilterKind.SdCard"/> node
-/// from WSGM's own card model (Steam does not know our card→game mapping, so it is
-/// baked into the compiled JS as a literal set).</summary>
+/// <summary>
+///     Resolves the concrete app-id set for a <see cref="FilterKind.SdCard" /> node
+///     from WSGM's own card model (Steam does not know our card→game mapping, so it is
+///     baked into the compiled JS as a literal set).
+/// </summary>
 public interface ISdCardResolver
 {
-    /// <summary>App ids on the card(s) selected by <paramref name="scope"/> /
-    /// <paramref name="contentId"/>. Empty when no such card is known.</summary>
+    /// <summary>
+    ///     App ids on the card(s) selected by <paramref name="scope" /> /
+    ///     <paramref name="contentId" />. Empty when no such card is known.
+    /// </summary>
     IReadOnlyCollection<long> Resolve(SdCardScope scope, string contentId);
 }
 
-/// <summary>Compiles a <see cref="FilterNode"/> tree into a JavaScript predicate over
-/// a Steam <c>appStore</c> app overview, plus a hoisted prologue of reusable lookups
-/// (collection sets, compiled regexes, id sets). The shape mirrors TabMaster's
-/// <c>filterFunctions</c> evaluation (per-group <c>every</c>/<c>some</c>, per-node
-/// <c>inverted ? !r : r</c>). Pure and unit-testable — no Steam contact here; the
-/// resulting JS is run by <see cref="SteamCollections.EvaluateFiltersAsync"/>.</summary>
+/// <summary>
+///     Compiles a <see cref="FilterNode" /> tree into a JavaScript predicate over
+///     a Steam <c>appStore</c> app overview, plus a hoisted prologue of reusable lookups
+///     (collection sets, compiled regexes, id sets). The shape mirrors TabMaster's
+///     <c>filterFunctions</c> evaluation (per-group <c>every</c>/<c>some</c>, per-node
+///     <c>inverted ? !r : r</c>). Pure and unit-testable — no Steam contact here; the
+///     resulting JS is run by <see cref="SteamCollections.EvaluateFiltersAsync" />.
+/// </summary>
 public static partial class LibraryFilter
 {
-    /// <summary>Bitfield category flags (values match TabMaster's so the concepts
-    /// line up): which app kinds are candidates before the predicate runs.</summary>
+    /// <summary>
+    ///     Bitfield category flags (values match TabMaster's so the concepts
+    ///     line up): which app kinds are candidates before the predicate runs.
+    /// </summary>
     [Flags]
     public enum Categories
     {
@@ -255,29 +278,42 @@ public static partial class LibraryFilter
         Music = 8192
     }
 
-    /// <summary>Whether a kind's invert toggle is meaningful (the others already
-    /// express both directions through their own params).</summary>
-    /// <param name="kind">The filter kind.</param>
-    public static bool CanInvert(FilterKind kind) => kind is
-        FilterKind.Collection or FilterKind.Tag or FilterKind.Regex
-        or FilterKind.SdCard or FilterKind.Merge;
+    private static readonly string[] ProbeAlphabets =
+        ["a", "0", " ", "ab01", ".-_", "Aa0 .-"];
 
-    /// <summary>Whether a node is complete enough to evaluate (mirrors TabMaster's
-    /// <c>isValidParams</c>): non-empty lists/patterns, a merge with ≥1 child, etc.</summary>
-    /// <param name="node">The node to validate.</param>
-    public static bool IsValid(FilterNode node) => node.Kind switch
+    /// <summary>
+    ///     Whether a kind's invert toggle is meaningful (the others already
+    ///     express both directions through their own params).
+    /// </summary>
+    /// <param name="kind">The filter kind.</param>
+    public static bool CanInvert(FilterKind kind)
     {
-        FilterKind.Collection => !string.IsNullOrEmpty(node.CollectionId),
-        FilterKind.Tag => node.TagIds.Count > 0,
-        FilterKind.Regex => IsSafeRegex(node.Pattern),
-        FilterKind.Whitelist or FilterKind.Blacklist => node.AppIds.Count > 0,
-        FilterKind.ReleaseDate or FilterKind.LastPlayed => node.DaysAgo > 0 || node.Year > 0,
-        FilterKind.SdCard => node.CardScope != SdCardScope.Specific
-            || !string.IsNullOrEmpty(node.ContentId),
-        FilterKind.Merge => node.Children.Count > 0 && node.Children.All(IsValid),
-        // Installed/Platform/thresholds are always well-formed (a threshold of 0 is legal).
-        _ => true
-    };
+        return kind is
+            FilterKind.Collection or FilterKind.Tag or FilterKind.Regex
+            or FilterKind.SdCard or FilterKind.Merge;
+    }
+
+    /// <summary>
+    ///     Whether a node is complete enough to evaluate (mirrors TabMaster's
+    ///     <c>isValidParams</c>): non-empty lists/patterns, a merge with ≥1 child, etc.
+    /// </summary>
+    /// <param name="node">The node to validate.</param>
+    public static bool IsValid(FilterNode node)
+    {
+        return node.Kind switch
+        {
+            FilterKind.Collection => !string.IsNullOrEmpty(node.CollectionId),
+            FilterKind.Tag => node.TagIds.Count > 0,
+            FilterKind.Regex => IsSafeRegex(node.Pattern),
+            FilterKind.Whitelist or FilterKind.Blacklist => node.AppIds.Count > 0,
+            FilterKind.ReleaseDate or FilterKind.LastPlayed => node.DaysAgo > 0 || node.Year > 0,
+            FilterKind.SdCard => node.CardScope != SdCardScope.Specific
+                                 || !string.IsNullOrEmpty(node.ContentId),
+            FilterKind.Merge => node.Children.Count > 0 && node.Children.All(IsValid),
+            // Installed/Platform/thresholds are always well-formed (a threshold of 0 is legal).
+            _ => true
+        };
+    }
 
     [GeneratedRegex(@"\\[1-9]")]
     private static partial Regex BackreferenceRegex();
@@ -285,12 +321,13 @@ public static partial class LibraryFilter
     private static bool IsSafeRegex(string pattern)
     {
         if (string.IsNullOrWhiteSpace(pattern) || pattern.Length > 64
-            || pattern.Contains("(?", StringComparison.Ordinal)
-            || BackreferenceRegex().IsMatch(pattern)
-            || HasNestedQuantifier(pattern))
+                                               || pattern.Contains("(?", StringComparison.Ordinal)
+                                               || BackreferenceRegex().IsMatch(pattern)
+                                               || HasNestedQuantifier(pattern))
         {
             return false;
         }
+
         try
         {
             var regex = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
@@ -304,14 +341,18 @@ public static partial class LibraryFilter
             {
                 _ = regex.IsMatch(probe);
             }
+
             return true;
         }
-        catch (ArgumentException) { return false; }
-        catch (RegexMatchTimeoutException) { return false; }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return false;
+        }
     }
-
-    private static readonly string[] ProbeAlphabets =
-        ["a", "0", " ", "ab01", ".-_", "Aa0 .-"];
 
     private static IEnumerable<string> BacktrackProbes(string pattern)
     {
@@ -319,6 +360,7 @@ public static partial class LibraryFilter
         {
             yield return Repeat(alphabet, 512) + "!";
         }
+
         var derived = LiteralAlphabet(pattern);
         if (derived.Length > 0)
         {
@@ -333,11 +375,14 @@ public static partial class LibraryFilter
         {
             builder.Append(alphabet);
         }
+
         return builder.ToString(0, length);
     }
 
-    /// <summary>The literal characters the pattern itself mentions, which are the ones
-    /// most likely to drive its worst case.</summary>
+    /// <summary>
+    ///     The literal characters the pattern itself mentions, which are the ones
+    ///     most likely to drive its worst case.
+    /// </summary>
     /// <param name="pattern">The user-authored pattern.</param>
     private static string LiteralAlphabet(string pattern)
     {
@@ -352,19 +397,24 @@ public static partial class LibraryFilter
                 {
                     characters.Add(pattern[i]);
                 }
+
                 continue;
             }
+
             if (!"()[]{}|*+?.^$-".Contains(c, StringComparison.Ordinal))
             {
                 characters.Add(c);
             }
         }
+
         return new string([.. characters.Distinct().Take(16)]);
     }
 
-    /// <summary>True when a quantifier is applied to a group whose body is itself
-    /// quantified — the (a+)+ shape whose backtracking is exponential. Rejected
-    /// outright because no timing probe can be trusted to catch every instance.</summary>
+    /// <summary>
+    ///     True when a quantifier is applied to a group whose body is itself
+    ///     quantified — the (a+)+ shape whose backtracking is exponential. Rejected
+    ///     outright because no timing probe can be trusted to catch every instance.
+    /// </summary>
     /// <param name="pattern">The user-authored pattern.</param>
     private static bool HasNestedQuantifier(string pattern)
     {
@@ -383,18 +433,20 @@ public static partial class LibraryFilter
                     starts.Push(i);
                     break;
                 case ')' when starts.Count > 0:
+                {
+                    var start = starts.Pop();
+                    var next = i + 1 < pattern.Length ? pattern[i + 1] : '\0';
+                    if (next is '*' or '+' or '{' or '?'
+                        && ContainsQuantifier(pattern.AsSpan(start + 1, i - start - 1)))
                     {
-                        var start = starts.Pop();
-                        var next = i + 1 < pattern.Length ? pattern[i + 1] : '\0';
-                        if (next is '*' or '+' or '{' or '?'
-                            && ContainsQuantifier(pattern.AsSpan(start + 1, i - start - 1)))
-                        {
-                            return true;
-                        }
-                        break;
+                        return true;
                     }
+
+                    break;
+                }
             }
         }
+
         return false;
     }
 
@@ -411,6 +463,7 @@ public static partial class LibraryFilter
                     return i;
             }
         }
+
         return pattern.Length - 1;
     }
 
@@ -426,23 +479,33 @@ public static partial class LibraryFilter
                 case '[':
                     while (i < body.Length && body[i] != ']')
                     {
-                        if (body[i] == '\\') { i++; }
+                        if (body[i] == '\\')
+                        {
+                            i++;
+                        }
+
                         i++;
                     }
+
                     break;
                 case '*' or '+' or '{' or '?':
                     return true;
             }
         }
+
         return false;
     }
 
-    /// <summary>Builds the complete evaluation expression: prologue lookups, the
-    /// compiled predicate, the category candidate gather, and a JSON result. The
-    /// returned string is a self-contained IIFE that resolves to
-    /// <c>JSON.stringify({ok, appids})</c>.</summary>
-    /// <param name="root">The tab's top-level group (its <see cref="FilterNode.Mode"/>
-    /// is the tab's AND/OR).</param>
+    /// <summary>
+    ///     Builds the complete evaluation expression: prologue lookups, the
+    ///     compiled predicate, the category candidate gather, and a JSON result. The
+    ///     returned string is a self-contained IIFE that resolves to
+    ///     <c>JSON.stringify({ok, appids})</c>.
+    /// </summary>
+    /// <param name="root">
+    ///     The tab's top-level group (its <see cref="FilterNode.Mode" />
+    ///     is the tab's AND/OR).
+    /// </param>
     /// <param name="categories">Category prefilter bitfield.</param>
     /// <param name="cards">Resolver for SD-card membership.</param>
     public static string BuildEvaluation(FilterNode root, Categories categories, ISdCardResolver cards)
@@ -456,15 +519,15 @@ public static partial class LibraryFilter
         sb.Append("const cs=collectionStore,as=appStore;");
         sb.Append("const _colCache=Object.create(null);");
         sb.Append("const inCol=(id,appid)=>{let s=_colCache[id];if(!s){const c=cs.GetCollection(id);"
-            + "s=_colCache[id]=new Set(((c&&(c.allApps||c.visibleApps))||[]).map(x=>x.appid));}"
-            + "return s.has(appid);};");
+                  + "s=_colCache[id]=new Set(((c&&(c.allApps||c.visibleApps))||[]).map(x=>x.appid));}"
+                  + "return s.has(appid);};");
         sb.Append(emit.Prologue);
         sb.Append("const pred=(a)=>(").Append(predicate).Append(");");
         sb.Append("const cats=").Append(cats).Append(';');
         sb.Append("const seen=new Set(),cand=[];");
         sb.Append("const addC=(id)=>{const c=cs.GetCollection(id);if(!c)return;"
-            + "const arr=(cats&16)?(c.allApps||[]):(c.visibleApps||c.allApps||[]);"
-            + "for(const a of arr){if(!seen.has(a.appid)){seen.add(a.appid);cand.push(a);}}};");
+                  + "const arr=(cats&16)?(c.allApps||[]):(c.visibleApps||c.allApps||[]);"
+                  + "for(const a of arr){if(!seen.has(a.appid)){seen.add(a.appid);cand.push(a);}}};");
         sb.Append("if(cats&1)addC('type-games');");
         sb.Append("if(cats&2)addC('type-software');");
         sb.Append("if(cats&8192)addC('type-music');");
@@ -478,7 +541,9 @@ public static partial class LibraryFilter
     /// <param name="node">The node to compile.</param>
     /// <param name="cards">Resolver for SD-card membership.</param>
     internal static string CompilePredicate(FilterNode node, ISdCardResolver cards)
-        => NodeExpr(node, new Emitter(cards));
+    {
+        return NodeExpr(node, new Emitter(cards));
+    }
 
     private static string NodeExpr(FilterNode node, Emitter emit)
     {
@@ -495,6 +560,7 @@ public static partial class LibraryFilter
                 {
                     return "true";
                 }
+
                 var op = node.Mode == FilterMode.And ? "&&" : "||";
                 return "(" + string.Join(op, node.Children.Select(c => NodeExpr(c, emit))) + ")";
 
@@ -529,19 +595,19 @@ public static partial class LibraryFilter
 
             case FilterKind.SizeOnDisk:
                 return "(((Number(a.size_on_disk)||0)/1073741824)" + Cmp(node.Condition)
-                    + Num(node.Threshold) + ")";
+                                                                   + Num(node.Threshold) + ")";
 
             case FilterKind.ReleaseDate:
                 return "((Number(a.rt_original_release_date)||0)" + Cmp(node.Condition)
-                    + DateThreshold(node) + ")";
+                                                                  + DateThreshold(node) + ")";
 
             case FilterKind.LastPlayed:
                 return "((Number(a.rt_last_time_played)||0)" + Cmp(node.Condition)
-                    + DateThreshold(node) + ")";
+                                                             + DateThreshold(node) + ")";
 
             case FilterKind.SdCard:
                 return emit.IntSet(emit.Cards.Resolve(node.CardScope, node.ContentId))
-                    + ".has(a.appid)";
+                       + ".has(a.appid)";
 
             default:
                 return "true";
@@ -564,7 +630,8 @@ public static partial class LibraryFilter
     private static string ReviewExpr(FilterNode node)
     {
         var field = node.ScoreType == ReviewScoreType.Metacritic
-            ? "a.metacritic_score" : "a.review_percentage";
+            ? "a.metacritic_score"
+            : "a.review_percentage";
         return "((Number(" + field + ")||0)" + Cmp(node.Condition) + Num(node.Threshold) + ")";
     }
 
@@ -577,12 +644,15 @@ public static partial class LibraryFilter
             _ => 1.0
         };
         return "((Number(a.minutes_playtime_forever)||0)" + Cmp(node.Condition)
-            + Num(node.Threshold * perUnit) + ")";
+                                                          + Num(node.Threshold * perUnit) + ")";
     }
 
     // Above = at/after the threshold (>=); Below = before it (<) — matches TabMaster's
     // above/below semantics for both numeric thresholds and dates.
-    private static string Cmp(ThresholdCondition c) => c == ThresholdCondition.Above ? ">=" : "<";
+    private static string Cmp(ThresholdCondition c)
+    {
+        return c == ThresholdCondition.Above ? ">=" : "<";
+    }
 
     // Emitted into JS that runs in Steam's V8, where Date.now() is available (unlike
     // the workflow sandbox). daysAgo takes precedence over an absolute date.
@@ -591,26 +661,34 @@ public static partial class LibraryFilter
         if (node.DaysAgo > 0)
         {
             return "(Date.now()/1000-" + node.DaysAgo.ToString(CultureInfo.InvariantCulture)
-                + "*86400)";
+                                       + "*86400)";
         }
+
         var y = node.Year > 0 ? node.Year : 1970;
         var m = node.Month is >= 1 and <= 12 ? node.Month : 1;
         var d = node.Day is >= 1 and <= 31 ? node.Day : 1;
         // Date.UTC returns epoch milliseconds as a Number — it is NOT a Date, so calling
         // .getTime() on it throws TypeError and silently empties every absolute-date tab.
         return "(Date.UTC(" + y.ToString(CultureInfo.InvariantCulture) + ","
-            + (m - 1).ToString(CultureInfo.InvariantCulture) + ","
-            + d.ToString(CultureInfo.InvariantCulture) + ")/1000)";
+               + (m - 1).ToString(CultureInfo.InvariantCulture) + ","
+               + d.ToString(CultureInfo.InvariantCulture) + ")/1000)";
     }
 
-    private static string Js(string value) => SteamCef.JsString(value);
+    private static string Js(string value)
+    {
+        return SteamCef.JsString(value);
+    }
 
-    private static string Num(double v) =>
-        v.ToString("0.############", CultureInfo.InvariantCulture);
+    private static string Num(double v)
+    {
+        return v.ToString("0.############", CultureInfo.InvariantCulture);
+    }
 
-    /// <summary>Accumulates hoisted prologue declarations (sets/arrays/regexes are
-    /// declared once and referenced from the per-app predicate, so nothing is rebuilt
-    /// per candidate).</summary>
+    /// <summary>
+    ///     Accumulates hoisted prologue declarations (sets/arrays/regexes are
+    ///     declared once and referenced from the per-app predicate, so nothing is rebuilt
+    ///     per candidate).
+    /// </summary>
     private sealed class Emitter(ISdCardResolver cards)
     {
         private readonly StringBuilder _prologue = new();

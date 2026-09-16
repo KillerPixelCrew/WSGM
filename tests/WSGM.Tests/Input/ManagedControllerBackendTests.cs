@@ -51,9 +51,9 @@ public sealed class ManagedControllerBackendTests
         Assert.Equal(2, replacement.Generation);
         var operations = backend.Operations.ToArray();
         Assert.True(Array.IndexOf(operations, "neutralize:1")
-            < Array.IndexOf(operations, "remove:1"));
+                    < Array.IndexOf(operations, "remove:1"));
         Assert.True(Array.IndexOf(operations, "remove:1")
-            < Array.IndexOf(operations, "create:2:neutral"));
+                    < Array.IndexOf(operations, "create:2:neutral"));
         Assert.Contains("target-replacement", sink.StopReasons);
         Assert.Equal(ManagedTargetState.Neutral, router.State);
     }
@@ -227,22 +227,25 @@ public sealed class ManagedControllerBackendTests
         Assert.Null(router.Target);
     }
 
-    private static CanonicalControllerSample LiveSample(long sequence, long generation) => new()
+    private static CanonicalControllerSample LiveSample(long sequence, long generation)
     {
-        Sequence = sequence,
-        CycleGeneration = generation,
-        Timestamp = DateTimeOffset.UtcNow,
-        Buttons = CanonicalButtons.A,
-        LeftStickX = 0.25f,
-        LeftStickY = -0.25f,
-        LeftTrigger = 0.5f
-    };
+        return new CanonicalControllerSample
+        {
+            Sequence = sequence,
+            CycleGeneration = generation,
+            Timestamp = DateTimeOffset.UtcNow,
+            Buttons = CanonicalButtons.A,
+            LeftStickX = 0.25f,
+            LeftStickY = -0.25f,
+            LeftTrigger = 0.5f
+        };
+    }
 }
 
 internal sealed class DeterministicFakeHapticSink : IPhysicalHapticSink
 {
-    private readonly Lock _gate = new();
     private readonly List<HapticOutputFrame> _frames = [];
+    private readonly Lock _gate = new();
     private readonly List<string> _stopReasons = [];
 
     internal DeterministicFakeHapticSink(
@@ -257,12 +260,6 @@ internal sealed class DeterministicFakeHapticSink : IPhysicalHapticSink
             MaxFramesPerSecond = 60
         };
     }
-
-    public long SourceGeneration { get; }
-
-    public bool IsOwned { get; } = true;
-
-    public HapticCapabilities Capabilities { get; }
 
     private Exception? NextFailure { get; set; }
 
@@ -287,6 +284,12 @@ internal sealed class DeterministicFakeHapticSink : IPhysicalHapticSink
             }
         }
     }
+
+    public long SourceGeneration { get; }
+
+    public bool IsOwned { get; } = true;
+
+    public HapticCapabilities Capabilities { get; }
 
     public Task ApplyAsync(HapticOutputFrame frame, CancellationToken cancellationToken)
     {
@@ -328,14 +331,14 @@ internal sealed class DeterministicFakeHapticSink : IPhysicalHapticSink
 
 internal sealed class DeterministicFakeHidBackend : IHidBackend
 {
+    private readonly Queue<HidTargetOutput> _delayedOutput = [];
+    private readonly Dictionary<long, TaskCompletionSource<bool>> _enumeration = [];
     private readonly Lock _gate = new();
     private readonly List<string> _operations = [];
-    private readonly Dictionary<long, TaskCompletionSource<bool>> _enumeration = [];
     private readonly Dictionary<long, TaskCompletionSource<bool>> _removal = [];
-    private readonly Queue<HidTargetOutput> _delayedOutput = [];
+    private bool _disposed;
     private long _nextGeneration;
     private HidTargetHandle? _target;
-    private bool _disposed;
 
     internal DeterministicFakeHidBackend(params ManagedControllerTarget[] supportedTargets)
     {
@@ -347,10 +350,6 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
             "Deterministic fake backend is ready.",
             new HidBackendCapabilities(targets));
     }
-
-    public event EventHandler<HidTargetOutput>? OutputReceived;
-
-    public event EventHandler<long>? TargetLost;
 
     internal HidBackendHealth Health { get; set; }
 
@@ -378,6 +377,10 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
             }
         }
     }
+
+    public event EventHandler<HidTargetOutput>? OutputReceived;
+
+    public event EventHandler<long>? TargetLost;
 
     public Task<HidBackendHealth> DiscoverAsync(CancellationToken cancellationToken)
     {
@@ -429,7 +432,7 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
             _target = new HidTargetHandle(kind, generation);
             _operations.Add($"create:{generation}:neutral");
             _enumeration.Add(generation, NewCompletionSource(AutoEnumerate));
-            _removal.Add(generation, NewCompletionSource(completed: false));
+            _removal.Add(generation, NewCompletionSource(false));
             return Task.FromResult(_target);
         }
     }
@@ -548,6 +551,33 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
         return completion.WaitAsync(cancellationToken);
     }
 
+    public ValueTask DisposeAsync()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return ValueTask.CompletedTask;
+            }
+
+            _disposed = true;
+            _target = null;
+            _delayedOutput.Clear();
+            foreach (var completion in _enumeration.Values)
+            {
+                completion.TrySetCanceled();
+            }
+
+            foreach (var completion in _removal.Values)
+            {
+                completion.TrySetCanceled();
+            }
+
+            _operations.Add("dispose");
+            return ValueTask.CompletedTask;
+        }
+    }
+
     internal void EmitOutput(
         HapticOutputFrame frame,
         ManagedControllerTarget? sourceKind = null,
@@ -611,33 +641,6 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
         TargetLost?.Invoke(this, generation);
     }
 
-    public ValueTask DisposeAsync()
-    {
-        lock (_gate)
-        {
-            if (_disposed)
-            {
-                return ValueTask.CompletedTask;
-            }
-
-            _disposed = true;
-            _target = null;
-            _delayedOutput.Clear();
-            foreach (var completion in _enumeration.Values)
-            {
-                completion.TrySetCanceled();
-            }
-
-            foreach (var completion in _removal.Values)
-            {
-                completion.TrySetCanceled();
-            }
-
-            _operations.Add("dispose");
-            return ValueTask.CompletedTask;
-        }
-    }
-
     private static TaskCompletionSource<bool> NewCompletionSource(bool completed)
     {
         TaskCompletionSource<bool> source = new(
@@ -668,5 +671,8 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
         }
     }
 
-    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
+    private void ThrowIfDisposed()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+    }
 }

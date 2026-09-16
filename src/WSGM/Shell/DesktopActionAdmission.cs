@@ -14,12 +14,22 @@ internal sealed class DesktopActionAdmission
         lock (_gate)
         {
             if (gameMode || transitioning || _busy
-                || (_lastStarted is { } last && elapsedMilliseconds - last < 5000)) { return false; }
+                || (_lastStarted is { } last && elapsedMilliseconds - last < 5000))
+            {
+                return false;
+            }
+
             _busy = true;
             _lastStarted = elapsedMilliseconds;
             return true;
         }
     }
 
-    internal void End() { lock (_gate) { _busy = false; } }
+    internal void End()
+    {
+        lock (_gate)
+        {
+            _busy = false;
+        }
+    }
 }

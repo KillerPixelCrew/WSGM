@@ -59,8 +59,10 @@ internal static class PluginTestWorker
     private const string Worker = "plugin worker";
     private static readonly string[] Options = ["--request", "--result", "--authorization-handle"];
 
-    internal static int Run(IReadOnlyList<string> args) =>
-        SelfWorkerProtocol.Run(args, Worker, Options, RunAsync);
+    internal static int Run(IReadOnlyList<string> args)
+    {
+        return SelfWorkerProtocol.Run(args, Worker, Options, RunAsync);
+    }
 
     private static async Task<int> RunAsync(
         IReadOnlyDictionary<string, string> options,
@@ -77,16 +79,16 @@ internal static class PluginTestWorker
                 PluginTestWorkerJson.Options,
                 token),
             request => request is null
-                || request.SchemaVersion != 1
-                || request.Identity is null
-                || string.IsNullOrWhiteSpace(request.PackageDirectory)
-                || request.Mode is not (PluginTestMode.DetectionOnly or PluginTestMode.AttendedHardware)
-                || request.Mode is PluginTestMode.AttendedHardware
-                    && (!request.ParentOwnerReserved
-                        || request.Action is null
-                        || string.IsNullOrWhiteSpace(request.StateDirectory))
-                    ? "The plugin worker request was malformed."
-                    : null,
+                       || request.SchemaVersion != 1
+                       || request.Identity is null
+                       || string.IsNullOrWhiteSpace(request.PackageDirectory)
+                       || request.Mode is not (PluginTestMode.DetectionOnly or PluginTestMode.AttendedHardware)
+                       || (request.Mode is PluginTestMode.AttendedHardware
+                           && (!request.ParentOwnerReserved
+                               || request.Action is null
+                               || string.IsNullOrWhiteSpace(request.StateDirectory)))
+                ? "The plugin worker request was malformed."
+                : null,
             request => request.AuthorizationSha256,
             cancellationToken).ConfigureAwait(false);
         if (session is null)
@@ -143,22 +145,25 @@ internal static class PluginTestWorker
         return SelfWorkerProtocol.ExitSuccess;
     }
 
-    private static AttendedPluginSafetyEnvironment ParentReservedSafetyEnvironment() => new()
+    private static AttendedPluginSafetyEnvironment ParentReservedSafetyEnvironment()
     {
-        ReserveOwner = static () => new DeviceLabOwnerReservationResult
+        return new AttendedPluginSafetyEnvironment
         {
-            Inspection = new DeviceLabOwnerInspection
+            ReserveOwner = static () => new DeviceLabOwnerReservationResult
             {
-                State = DeviceOwnerDiscoveryState.Absent
+                Inspection = new DeviceLabOwnerInspection
+                {
+                    State = DeviceOwnerDiscoveryState.Absent
+                },
+                // The real machine-wide handle remains in the supervising process. This local handle
+                // preserves the in-process lifetime ordering without pretending to own another mutex.
+                Reservation = new DeviceLabOwnerReservation(new NoopDisposable())
             },
-            // The real machine-wide handle remains in the supervising process. This local handle
-            // preserves the in-process lifetime ordering without pretending to own another mutex.
-            Reservation = new DeviceLabOwnerReservation(new NoopDisposable())
-        },
-        IsElevated = DeviceLabEnvironment.IsElevated(),
-        IsUserInteractive = Environment.UserInteractive,
-        IsContinuousIntegration = DeviceLabEnvironment.IsContinuousIntegration()
-    };
+            IsElevated = DeviceLabEnvironment.IsElevated(),
+            IsUserInteractive = Environment.UserInteractive,
+            IsContinuousIntegration = DeviceLabEnvironment.IsContinuousIntegration()
+        };
+    }
 
     private sealed class NoopDisposable : IDisposable
     {
@@ -183,29 +188,35 @@ internal static class PluginTestWorkerJson
 /// <summary>Supervises all community plugin code behind a hard process-tree deadline.</summary>
 internal static class PluginTestWorkerSupervisor
 {
+    private const int MaximumResponseBytes = 8 * 1024 * 1024;
     private static readonly TimeSpan DetectionDeadline = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan AttendedDeadline = TimeSpan.FromSeconds(90);
-    private const int MaximumResponseBytes = 8 * 1024 * 1024;
 
     internal static Task<PluginTestReport> TestDetectionAsync(
         string packageDirectory,
         DeviceIdentitySnapshot identity,
-        CancellationToken cancellationToken) => TestDetectionAsync(
+        CancellationToken cancellationToken)
+    {
+        return TestDetectionAsync(
             packageDirectory,
             identity,
             DeviceLabExecutable.CurrentPath,
             cancellationToken);
+    }
 
     internal static Task<PluginTestReport> TestDetectionAsync(
         string packageDirectory,
         DeviceIdentitySnapshot identity,
         string executablePath,
-        CancellationToken cancellationToken) => TestDetectionAsync(
+        CancellationToken cancellationToken)
+    {
+        return TestDetectionAsync(
             packageDirectory,
             identity,
             executablePath,
             DetectionDeadline,
             cancellationToken);
+    }
 
     internal static Task<PluginTestReport> TestDetectionAsync(
         string packageDirectory,
@@ -226,7 +237,7 @@ internal static class PluginTestWorkerSupervisor
                 Identity = identity,
                 AuthorizationSha256 = string.Empty
             },
-            ownerReservation: null,
+            null,
             executablePath,
             deadline,
             cancellationToken);
@@ -260,7 +271,7 @@ internal static class PluginTestWorkerSupervisor
             DeviceLabOutputTargetKind.Directory,
             boundaries);
         if (!output.IsAllowed || output.FullPath is null
-            || Directory.Exists(output.FullPath) || File.Exists(output.FullPath))
+                              || Directory.Exists(output.FullPath) || File.Exists(output.FullPath))
         {
             return Failed(
                 PluginTestMode.AttendedHardware,
@@ -387,12 +398,12 @@ internal static class PluginTestWorkerSupervisor
             await File.WriteAllTextAsync(markerPath, sessionId, Encoding.UTF8, cancellationToken)
                 .ConfigureAwait(false);
             await using (FileStream requestStream = new(
-                requestPath,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None,
-                4096,
-                FileOptions.Asynchronous | FileOptions.WriteThrough))
+                             requestPath,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             4096,
+                             FileOptions.Asynchronous | FileOptions.WriteThrough))
             {
                 await JsonSerializer.SerializeAsync(
                     requestStream,
@@ -498,8 +509,8 @@ internal static class PluginTestWorkerSupervisor
                     cancellationToken).ConfigureAwait(false);
             }
             catch (Exception exception) when (exception is IOException
-                or UnauthorizedAccessException
-                or JsonException)
+                                                  or UnauthorizedAccessException
+                                                  or JsonException)
             {
                 ownerReservation?.RetainForProcessLifetime();
                 return Failed(request.Mode, null, request.Action, exception.Message);
@@ -546,7 +557,9 @@ internal static class PluginTestWorkerSupervisor
         PluginTestMode mode,
         string? packageId,
         AttendedPluginActionRequest? action,
-        string error) => new()
+        string error)
+    {
+        return new PluginTestReport
         {
             Mode = mode,
             Passed = false,
@@ -554,6 +567,7 @@ internal static class PluginTestWorkerSupervisor
             Action = action,
             Error = error[..Math.Min(error.Length, 16_384)]
         };
+    }
 
     private static void TryDeleteOwnedSession(
         string workersRoot,
@@ -602,12 +616,12 @@ internal static class PluginTestWorkerSupervisor
                 File.Delete(path);
             }
 
-            Directory.Delete(sessionDirectory, recursive: false);
+            Directory.Delete(sessionDirectory, false);
         }
         catch (Exception exception) when (exception is IOException
-            or UnauthorizedAccessException
-            or ArgumentException
-            or NotSupportedException)
+                                              or UnauthorizedAccessException
+                                              or ArgumentException
+                                              or NotSupportedException)
         {
             // A suspicious or locked session is left for inspection instead of widening deletion.
         }

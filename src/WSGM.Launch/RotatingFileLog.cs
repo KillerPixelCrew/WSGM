@@ -6,15 +6,15 @@ namespace WSGM;
 
 /// <summary>Best-effort append log with size-based rotation.</summary>
 /// <remarks>
-/// Shared by the launch wrapper and the logon service through a linked source file, so neither
-/// references the other. A diagnostic write must never fail its caller, so every error is swallowed.
-/// Rotation is cosmetic: when it fails, the line is still appended.
+///     Shared by the launch wrapper and the logon service through a linked source file, so neither
+///     references the other. A diagnostic write must never fail its caller, so every error is swallowed.
+///     Rotation is cosmetic: when it fails, the line is still appended.
 /// </remarks>
 /// <param name="path">Absolute path of the log file.</param>
 /// <param name="rotateAtBytes">Size at which the file is moved into the first archive slot.</param>
 /// <param name="archiveSuffixes">Archive suffixes, newest first; the oldest archive is overwritten.</param>
 /// <param name="encoding">Encoding for appended text, including whether a new file gets a preamble.</param>
-/// <param name="writeRetries">Retries after an <see cref="IOException"/>, for writers that share the file.</param>
+/// <param name="writeRetries">Retries after an <see cref="IOException" />, for writers that share the file.</param>
 internal sealed class RotatingFileLog(
     string path,
     long rotateAtBytes,
@@ -32,7 +32,7 @@ internal sealed class RotatingFileLog(
             lock (_gate)
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                for (var attempt = 0; ; attempt++)
+                for (var attempt = 0;; attempt++)
                 {
                     try
                     {
@@ -67,7 +67,7 @@ internal sealed class RotatingFileLog(
                 var source = index == 0 ? path : path + archiveSuffixes[index - 1];
                 if (File.Exists(source))
                 {
-                    File.Move(source, path + archiveSuffixes[index], overwrite: true);
+                    File.Move(source, path + archiveSuffixes[index], true);
                 }
             }
         }

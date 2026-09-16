@@ -10,27 +10,27 @@ using WSGM.Overlay;
 namespace WSGM.Shell;
 
 /// <summary>
-/// Projects the session-owned performance service into closed overlay descriptors without owning
-/// RTSS or retaining an overlay window.
+///     Projects the session-owned performance service into closed overlay descriptors without owning
+///     RTSS or retaining an overlay window.
 /// </summary>
 internal sealed class PerformanceOverlayBridge : IDisposable
 {
     /// <summary>
-    /// The top of the frame-limit slider, in frames per second.
+    ///     The top of the frame-limit slider, in frames per second.
     /// </summary>
     /// <remarks>
-    /// 280 rather than whatever RTSS reports it will accept (1000). The slider has to be crossable
-    /// on a thumbstick, and a range that reaches a thousand makes every rate anyone actually uses
-    /// live in its first third. This covers every panel a handheld drives, internal or attached.
+    ///     280 rather than whatever RTSS reports it will accept (1000). The slider has to be crossable
+    ///     on a thumbstick, and a range that reaches a thousand makes every rate anyone actually uses
+    ///     live in its first third. This covers every panel a handheld drives, internal or attached.
     /// </remarks>
     private const int MaximumFrameLimit = 280;
 
     /// <summary>The five overlay notches, named as WSGM renders them.</summary>
     /// <remarks>
-    /// These are WSGM's own OSD levels from <c>Core\RtssOsd.cs</c>, not Valve's wire enum — the
-    /// renderer behind them is ours, and the wire translation happens at the QAM boundary. The row
-    /// showed "On" for every one of 1 to 4 before this, which made four different overlays
-    /// indistinguishable from each other in the one place they are chosen.
+    ///     These are WSGM's own OSD levels from <c>Core\RtssOsd.cs</c>, not Valve's wire enum — the
+    ///     renderer behind them is ours, and the wire translation happens at the QAM boundary. The row
+    ///     showed "On" for every one of 1 to 4 before this, which made four different overlays
+    ///     indistinguishable from each other in the one place they are chosen.
     /// </remarks>
     private static readonly (int Level, string Label)[] OverlayLevelNames =
     [
@@ -40,15 +40,16 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         (3, "Full"),
         (4, "Custom")
     ];
-    private readonly PerformanceService _service;
+
     private readonly Func<(int Minimum, int Maximum)?> _panelFrameLimitRange;
+    private readonly PerformanceService _service;
     private bool _disposed;
 
     /// <param name="service">The session-owned RTSS service this projects.</param>
     /// <param name="panelFrameLimitRange">
-    /// The caps the display can actually be asked for, from the same pairing policy that bookends
-    /// the Quick Access row. Null while no display has been enumerated — overlay-test has no
-    /// pairing service at all — and the slider then falls back to what RTSS alone will accept.
+    ///     The caps the display can actually be asked for, from the same pairing policy that bookends
+    ///     the Quick Access row. Null while no display has been enumerated — overlay-test has no
+    ///     pairing service at all — and the slider then falls back to what RTSS alone will accept.
     /// </param>
     internal PerformanceOverlayBridge(
         PerformanceService service,
@@ -57,6 +58,17 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _panelFrameLimitRange = panelFrameLimitRange ?? (static () => null);
         _service.StateChanged += OnStateChanged;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _service.StateChanged -= OnStateChanged;
     }
 
     public event Action? Changed;
@@ -80,27 +92,27 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         List<DescriptorRow> rows =
         [
             BuildRow(
-                "frame-limit",
-                "Frame limit",
-                DescribeLayer(state.FrameLimitLayer, state.Target),
-                FormatFrameLimit(state),
-                ready && capabilities!.Supports(PerformanceControl.FrameLimit),
-                StatusFor(state, PerformanceControl.FrameLimit)) with
-            {
-                Range = ready ? FrameLimitRange(capabilities!) : null,
-                Value = PreferredValue(state, PerformanceControl.FrameLimit) ?? 0
-            },
+                    "frame-limit",
+                    "Frame limit",
+                    DescribeLayer(state.FrameLimitLayer, state.Target),
+                    FormatFrameLimit(state),
+                    ready && capabilities!.Supports(PerformanceControl.FrameLimit),
+                    StatusFor(state, PerformanceControl.FrameLimit)) with
+                {
+                    Range = ready ? FrameLimitRange(capabilities!) : null,
+                    Value = PreferredValue(state, PerformanceControl.FrameLimit) ?? 0
+                },
             BuildRow(
-                "overlay-level",
-                "Performance overlay",
-                DescribeLayer(state.OverlayLevelLayer, state.Target),
-                FormatOverlayLevel(state),
-                ready && capabilities!.Supports(PerformanceControl.OverlayLevel),
-                StatusFor(state, PerformanceControl.OverlayLevel)) with
-            {
-                Options = ready ? OverlayLevelOptions(capabilities!) : [],
-                Value = PreferredValue(state, PerformanceControl.OverlayLevel)
-            }
+                    "overlay-level",
+                    "Performance overlay",
+                    DescribeLayer(state.OverlayLevelLayer, state.Target),
+                    FormatOverlayLevel(state),
+                    ready && capabilities!.Supports(PerformanceControl.OverlayLevel),
+                    StatusFor(state, PerformanceControl.OverlayLevel)) with
+                {
+                    Options = ready ? OverlayLevelOptions(capabilities!) : [],
+                    Value = PreferredValue(state, PerformanceControl.OverlayLevel)
+                }
         ];
         List<DescriptorRow> profileRows =
         [
@@ -114,7 +126,9 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                     : "Keep separate performance values for the detected application.",
                 state.Target is null
                     ? "Unavailable"
-                    : state.ApplicationProfileEnabled ? "On" : "Off",
+                    : state.ApplicationProfileEnabled
+                        ? "On"
+                        : "Off",
                 state.Target is not null,
                 state.Target is null ? DescriptorStatus.Unsupported : DescriptorStatus.Available),
             BuildRow(
@@ -136,9 +150,9 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns>A task completing once the write has been attempted.</returns>
     /// <remarks>
-    /// The counterpart to <see cref="InvokeAsync"/>, which advances a row that is pressed. A row
-    /// carrying a range or options is not pressed, so it never reaches that path and never needs a
-    /// "what comes next" rule — the control already knows the value the user asked for.
+    ///     The counterpart to <see cref="InvokeAsync" />, which advances a row that is pressed. A row
+    ///     carrying a range or options is not pressed, so it never reaches that path and never needs a
+    ///     "what comes next" rule — the control already knows the value the user asked for.
     /// </remarks>
     internal async Task SetValueAsync(
         string rowId,
@@ -225,8 +239,8 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
     /// <summary>Advances the overlay level, the one performance control that still cycles.</summary>
     /// <remarks>
-    /// The frame limit does not: it is a slider now, and an OEM button that stepped it one notch at
-    /// a time through a 280-value range would be a button that does nothing useful.
+    ///     The frame limit does not: it is a slider now, and an OEM button that stepped it one notch at
+    ///     a time through a 280-value range would be a button that does nothing useful.
     /// </remarks>
     private async Task<PerformanceCommandState> SetNextAsync(
         PerformanceControl control,
@@ -245,18 +259,10 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             cancellationToken).ConfigureAwait(false);
     }
 
-    public void Dispose()
+    private void OnStateChanged(PerformanceState _)
     {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _service.StateChanged -= OnStateChanged;
+        Changed?.Invoke();
     }
-
-    private void OnStateChanged(PerformanceState _) => Changed?.Invoke();
 
     private static DescriptorRow BuildRow(
         string id,
@@ -264,44 +270,53 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         string description,
         string trailing,
         bool canInvoke,
-        DescriptorStatus status) => new(
-        id,
-        title,
-        description,
-        trailing,
-        canInvoke,
-        status);
-
-    private static string DescribeStatus(PerformanceState state) => state.Command.Phase switch
+        DescriptorStatus status)
     {
-        PerformanceCommandPhase.Queued or PerformanceCommandPhase.Applying => "Applying RTSS performance setting…",
-        PerformanceCommandPhase.Deferred => state.Command.Diagnostic
-            ?? "The application setting is waiting for its foreground executable.",
-        PerformanceCommandPhase.Rejected
-            or PerformanceCommandPhase.TimedOut
-            or PerformanceCommandPhase.Indeterminate
-            or PerformanceCommandPhase.Failed => state.Command.Diagnostic ?? "The last RTSS command did not complete.",
-        _ => state.Probe.Availability switch
+        return new DescriptorRow(
+            id,
+            title,
+            description,
+            trailing,
+            canInvoke,
+            status);
+    }
+
+    private static string DescribeStatus(PerformanceState state)
+    {
+        return state.Command.Phase switch
         {
-            RtssAvailability.Ready => state.Target switch
+            PerformanceCommandPhase.Queued or PerformanceCommandPhase.Applying => "Applying RTSS performance setting…",
+            PerformanceCommandPhase.Deferred => state.Command.Diagnostic
+                                                ?? "The application setting is waiting for its foreground executable.",
+            PerformanceCommandPhase.Rejected
+                or PerformanceCommandPhase.TimedOut
+                or PerformanceCommandPhase.Indeterminate
+                or PerformanceCommandPhase.Failed => state.Command.Diagnostic ??
+                                                     "The last RTSS command did not complete.",
+            _ => state.Probe.Availability switch
             {
-                null => "RTSS · global profile",
-                { RtssProfileName: { Length: > 0 } profile } => $"RTSS · {profile}",
-                { SteamAppId: { } appId } => $"Steam AppID {appId} · executable pending",
-                _ => "Foreground application · executable pending"
-            },
-            RtssAvailability.Unknown => "Checking RTSS…",
-            RtssAvailability.NotInstalled => "RTSS is not installed.",
-            RtssAvailability.NotRunning => "RTSS is not running.",
-            RtssAvailability.Incompatible => "The installed RTSS version is not supported.",
-            RtssAvailability.AdapterUnavailable => "The RTSS profile API is unavailable.",
-            _ => state.Probe.Diagnostic ?? "RTSS performance controls are unavailable."
-        }
-    };
+                RtssAvailability.Ready => state.Target switch
+                {
+                    null => "RTSS · global profile",
+                    { RtssProfileName: { Length: > 0 } profile } => $"RTSS · {profile}",
+                    { SteamAppId: { } appId } => $"Steam AppID {appId} · executable pending",
+                    _ => "Foreground application · executable pending"
+                },
+                RtssAvailability.Unknown => "Checking RTSS…",
+                RtssAvailability.NotInstalled => "RTSS is not installed.",
+                RtssAvailability.NotRunning => "RTSS is not running.",
+                RtssAvailability.Incompatible => "The installed RTSS version is not supported.",
+                RtssAvailability.AdapterUnavailable => "The RTSS profile API is unavailable.",
+                _ => state.Probe.Diagnostic ?? "RTSS performance controls are unavailable."
+            }
+        };
+    }
 
     private static string DescribeLayer(
         PerformancePolicyLayer layer,
-        PerformanceApplicationTarget? target) => layer switch
+        PerformanceApplicationTarget? target)
+    {
+        return layer switch
         {
             PerformancePolicyLayer.Application when target?.RtssProfileName is { Length: > 0 } profile =>
                 $"Application override · {profile}",
@@ -309,6 +324,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             PerformancePolicyLayer.Global => "Global default",
             _ => "RTSS profile"
         };
+    }
 
     private static DescriptorRow BuildApplicationRow(PerformanceState state)
     {
@@ -381,7 +397,9 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     }
 
     private static int? PreferredValue(PerformanceState state, PerformanceControl control)
-        => state.Observed.ValueFor(control) ?? state.Desired.ValueFor(control);
+    {
+        return state.Observed.ValueFor(control) ?? state.Desired.ValueFor(control);
+    }
 
     private static DescriptorStatus StatusFor(PerformanceState state, PerformanceControl control)
     {
@@ -422,15 +440,15 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
     /// <summary>The slider bounds, agreeing with the Quick Access row about what a legal cap is.</summary>
     /// <remarks>
-    /// RTSS accepts 0 to 1000 and the pairing policy offers a much narrower band — 30 up to the
-    /// highest rate the display accepted. Running the slider over RTSS's range instead let the
-    /// overlay set a 12 FPS cap that the Quick Access row could not represent, and that row
-    /// disappeared rather than drawing it (Claw, 2026-09-03). The two now bookend the same way.
-    /// <para>
-    /// Zero stays reachable, because zero is how this row is switched off and the overlay has no
-    /// separate switch for it; <see cref="DescriptorRange.OffBelow"/> carries the gap between it
-    /// and the lowest real cap.
-    /// </para>
+    ///     RTSS accepts 0 to 1000 and the pairing policy offers a much narrower band — 30 up to the
+    ///     highest rate the display accepted. Running the slider over RTSS's range instead let the
+    ///     overlay set a 12 FPS cap that the Quick Access row could not represent, and that row
+    ///     disappeared rather than drawing it (Claw, 2026-09-03). The two now bookend the same way.
+    ///     <para>
+    ///         Zero stays reachable, because zero is how this row is switched off and the overlay has no
+    ///         separate switch for it; <see cref="DescriptorRange.OffBelow" /> carries the gap between it
+    ///         and the lowest real cap.
+    ///     </para>
     /// </remarks>
     private DescriptorRange FrameLimitRange(RtssCapabilities capabilities)
     {
@@ -438,7 +456,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         DescriptorRange fallback = new(
             Math.Max(0, capabilities.MinimumFrameLimit),
             ceiling,
-            Step: 1);
+            1);
         if (_panelFrameLimitRange() is not { } panel)
         {
             return fallback;
@@ -446,14 +464,19 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
         var floor = Math.Max(capabilities.MinimumFrameLimit, panel.Minimum);
         var top = Math.Min(panel.Maximum, ceiling);
-        return top >= floor ? new DescriptorRange(0, top, Step: 1, OffBelow: floor) : fallback;
+        return top >= floor ? new DescriptorRange(0, top, 1, floor) : fallback;
     }
 
     /// <summary>The named notches this RTSS build accepts, in order.</summary>
-    private static IReadOnlyList<DescriptorOption> OverlayLevelOptions(RtssCapabilities capabilities) =>
-        [.. OverlayLevelNames
-            .Where(entry => capabilities.OverlayLevels.Contains(entry.Level))
-            .Select(entry => new DescriptorOption(entry.Level, entry.Label))];
+    private static IReadOnlyList<DescriptorOption> OverlayLevelOptions(RtssCapabilities capabilities)
+    {
+        return
+        [
+            .. OverlayLevelNames
+                .Where(entry => capabilities.OverlayLevels.Contains(entry.Level))
+                .Select(entry => new DescriptorOption(entry.Level, entry.Label))
+        ];
+    }
 
     private static int NextOverlayLevel(PerformanceState state, RtssCapabilities capabilities)
     {

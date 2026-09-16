@@ -2,9 +2,11 @@ using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;
 
-/// <summary>The rule that decides what a card swap means for Steam's install-folder
-/// list. The reader reuses one drive letter for every card, so path alone can never
-/// answer "is this still the same library".</summary>
+/// <summary>
+///     The rule that decides what a card swap means for Steam's install-folder
+///     list. The reader reuses one drive letter for every card, so path alone can never
+///     answer "is this still the same library".
+/// </summary>
 public class CardLibraryDecisionTests
 {
     [Fact]
@@ -94,12 +96,12 @@ public class CardLibraryDecisionTests
 }
 
 /// <summary>
-/// What a deliberate eject means once the card is still sitting in the reader.
+///     What a deliberate eject means once the card is still sitting in the reader.
 /// </summary>
 /// <remarks>
-/// A media-level eject does not remove the card, and Windows remounts it within seconds. The
-/// mounted volume then looks exactly like a fresh insert, which is why the reconcile used to put
-/// back the registration the user had just ejected.
+///     A media-level eject does not remove the card, and Windows remounts it within seconds. The
+///     mounted volume then looks exactly like a fresh insert, which is why the reconcile used to put
+///     back the registration the user had just ejected.
 /// </remarks>
 public class LibraryEjectIntentTests
 {

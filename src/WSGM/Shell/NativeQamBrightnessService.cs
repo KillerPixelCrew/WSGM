@@ -9,19 +9,17 @@ namespace WSGM.Shell;
 /// <summary>Serializes panel reads and writes and publishes only confirmed brightness.</summary>
 internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDisposable
 {
-    private readonly Lock _gate = new();
-    private readonly SemaphoreSlim _writes = new(1, 1);
-    private readonly Timer _poll;
     private readonly Func<bool> _active;
+    private readonly Lock _gate = new();
+    private readonly Timer _poll;
     private readonly Action _publish;
     private readonly Func<int?> _read;
     private readonly Func<int, bool> _write;
-    private long _revision;
-    private int _lastPolled = -1;
-    private bool _disposed;
+    private readonly SemaphoreSlim _writes = new(1, 1);
     private SteamBrightnessState? _current;
-    internal event Action? Changed;
-    internal SteamBrightnessState? Current { get { lock (_gate) { return _current; } } }
+    private bool _disposed;
+    private int _lastPolled = -1;
+    private long _revision;
 
     internal NativeQamBrightnessService(Func<bool> active, Action publish)
         : this(active, publish,
@@ -40,25 +38,26 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
         _poll = new Timer(OnPoll, null, pollInterval, pollInterval);
     }
 
-    internal async ValueTask<SteamBrightnessState?> ReadAsync() =>
-        await Task.Run(ReadCurrent).ConfigureAwait(false);
-
-    private SteamBrightnessState? ReadCurrent()
+    internal SteamBrightnessState? Current
     {
-        lock (_gate)
+        get
         {
-            return _disposed ? null : ReadUnderGate();
+            lock (_gate)
+            {
+                return _current;
+            }
         }
     }
 
-    private SteamBrightnessState? ReadUnderGate()
+    /// <inheritdoc />
+    public void Dispose()
     {
-        var next = _read() is { } percent and >= 0 and <= 100
-            ? new SteamBrightnessState(percent, ++_revision) : null;
-        var changed = next?.Percent != _current?.Percent;
-        _current = next;
-        if (changed) { Changed?.Invoke(); }
-        return next;
+        lock (_gate)
+        {
+            _disposed = true;
+        }
+
+        _poll.Dispose();
     }
 
     /// <inheritdoc />
@@ -77,13 +76,22 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
                 lock (_gate)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (_disposed || !_active()) { return SteamUiCommandResult.Refused; }
-                    if (!_write(percent)) { return new SteamUiCommandResult(false, "The panel backlight refused the write."); }
+                    if (_disposed || !_active())
+                    {
+                        return SteamUiCommandResult.Refused;
+                    }
+
+                    if (!_write(percent))
+                    {
+                        return new SteamUiCommandResult(false, "The panel backlight refused the write.");
+                    }
+
                     var readback = ReadUnderGate();
                     return readback is null
                         ? new SteamUiCommandResult(false, "Brightness was written but readback is unavailable.")
                         : readback.Percent != percent
-                            ? new SteamUiCommandResult(false, $"Brightness readback is {readback.Percent}%, requested {percent}%.")
+                            ? new SteamUiCommandResult(false,
+                                $"Brightness readback is {readback.Percent}%, requested {percent}%.")
                             : new SteamUiCommandResult(true, null, SteamBrightnessSurface.Serialize(readback));
                 }
             }, cancellationToken).ConfigureAwait(false);
@@ -96,18 +104,45 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
         }
     }
 
-    /// <inheritdoc />
-    public void Dispose()
+    internal event Action? Changed;
+
+    internal async ValueTask<SteamBrightnessState?> ReadAsync()
     {
-        lock (_gate) { _disposed = true; }
-        _poll.Dispose();
+        return await Task.Run(ReadCurrent).ConfigureAwait(false);
+    }
+
+    private SteamBrightnessState? ReadCurrent()
+    {
+        lock (_gate)
+        {
+            return _disposed ? null : ReadUnderGate();
+        }
+    }
+
+    private SteamBrightnessState? ReadUnderGate()
+    {
+        var next = _read() is { } percent and >= 0 and <= 100
+            ? new SteamBrightnessState(percent, ++_revision)
+            : null;
+        var changed = next?.Percent != _current?.Percent;
+        _current = next;
+        if (changed)
+        {
+            Changed?.Invoke();
+        }
+
+        return next;
     }
 
     private void OnPoll(object? state)
     {
         try
         {
-            if (!_active()) { return; }
+            if (!_active())
+            {
+                return;
+            }
+
             var current = ReadCurrent();
             var percent = current?.Percent ?? -1;
             if (percent == Interlocked.Exchange(ref _lastPolled, percent))
@@ -115,7 +150,8 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
                 return;
             }
 
-            Log.Change("display.backlight", current is null ? "Panel backlight unavailable." : $"Panel backlight at {current.Percent}%.");
+            Log.Change("display.backlight",
+                current is null ? "Panel backlight unavailable." : $"Panel backlight at {current.Percent}%.");
             _publish();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)

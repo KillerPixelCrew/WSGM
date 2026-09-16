@@ -13,8 +13,8 @@ public sealed class RedactionTests
             new() { SourceId = @"HID\VID_1234&PID_5678\private-unit", Events = [] },
             new() { SourceId = @"HID\VID_1234&PID_5678\PRIVATE-UNIT", Events = [] }
         ];
-        var error = Assert.Throws<InvalidDataException>(
-            () => ObserveOnlyCaptureWorkflow.RedactStreams(streams, new CaptureRedactor()));
+        var error = Assert.Throws<InvalidDataException>(() =>
+            ObserveOnlyCaptureWorkflow.RedactStreams(streams, new CaptureRedactor()));
 
         Assert.Contains("duplicate", error.Message);
         Assert.DoesNotContain("private-unit", error.Message, StringComparison.OrdinalIgnoreCase);
@@ -35,13 +35,17 @@ public sealed class RedactionTests
         CaptureRedactor redactor = new();
         var inventory = InventoryRedaction.ToShareable(original, redactor);
         var streams = ObserveOnlyCaptureWorkflow.RedactStreams(
-            [new CaptureStreamFile { SourceId = second, Events = [] }, new CaptureStreamFile { SourceId = first, Events = [] }], redactor);
+        [
+            new CaptureStreamFile { SourceId = second, Events = [] },
+            new CaptureStreamFile { SourceId = first, Events = [] }
+        ], redactor);
 
         var inventoryId = Assert.Single(inventory.UsbInterfaces).InstanceId;
         Assert.Equal(inventoryId, streams[1].SourceId);
         Assert.NotEqual(inventoryId, streams[0].SourceId);
         Assert.Equal(first, original.UsbInterfaces[0].InstanceId);
-        Assert.Contains(redactor.Summarize(), summary => summary is { Category: RedactionCategory.DeviceInstance, Occurrences: 2 });
+        Assert.Contains(redactor.Summarize(),
+            summary => summary is { Category: RedactionCategory.DeviceInstance, Occurrences: 2 });
     }
 
     [Fact]

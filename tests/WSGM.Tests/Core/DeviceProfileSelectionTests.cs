@@ -7,27 +7,36 @@ public sealed class DeviceProfileSelectionTests
 {
     private const string Fan = "thermal.fan-curve";
 
-    private static DeviceAuthoredProfile Profile(string id) => new()
+    private static DeviceAuthoredProfile Profile(string id)
     {
-        ProfileId = id,
-        Name = id,
-        CapabilityId = Fan,
-        Curve = [new AuthoredCurvePoint { Input = 0, Output = 10 }]
-    };
+        return new DeviceAuthoredProfile
+        {
+            ProfileId = id,
+            Name = id,
+            CapabilityId = Fan,
+            Curve = [new AuthoredCurvePoint { Input = 0, Output = 10 }]
+        };
+    }
 
     private static DeviceProfileSelection Selection(
         string? global,
-        params (string Application, string Profile)[] overrides) => new()
+        params (string Application, string Profile)[] overrides)
+    {
+        return new DeviceProfileSelection
         {
             CapabilityId = Fan,
             GlobalProfileId = global,
-            ApplicationOverrides = [.. overrides.Select(entry =>
-                new DeviceApplicationProfileSelection
-                {
-                    ApplicationId = entry.Application,
-                    ProfileId = entry.Profile
-                })]
+            ApplicationOverrides =
+            [
+                .. overrides.Select(entry =>
+                    new DeviceApplicationProfileSelection
+                    {
+                        ApplicationId = entry.Application,
+                        ProfileId = entry.Profile
+                    })
+            ]
         };
+    }
 
     [Fact]
     public void TheGlobalChoiceAppliesWhenNoApplicationOverridesIt()
@@ -152,11 +161,14 @@ public sealed class DeviceProfileSelectionTests
         Assert.Equal(80, resolution.Profile?.Curve[0].Output);
     }
 
-    private static PluginSettingsScope Scope() => new()
+    private static PluginSettingsScope Scope()
     {
-        DeviceDefinitionId = "msi.claw8",
-        PluginId = "wsgm.device.msi"
-    };
+        return new PluginSettingsScope
+        {
+            DeviceDefinitionId = "msi.claw8",
+            PluginId = "wsgm.device.msi"
+        };
+    }
 
     [Fact]
     public void ChoosingAGlobalProfileCreatesTheSelection()

@@ -22,8 +22,6 @@ namespace WSGM.UiTests.Overlay;
 
 public sealed class DevicePageCaptureTests
 {
-    private sealed record Publication(CapabilityDescriptorSet Descriptors, CapabilityState[] States);
-
     [AvaloniaTheory]
     [InlineData("Device", 1280, 800)]
     [InlineData("Power", 1280, 800)]
@@ -35,12 +33,13 @@ public sealed class DevicePageCaptureTests
     public async Task CompleteClawPublication(string page, int width, int height)
     {
         var publication = JsonSerializer.Deserialize<Publication>(await File.ReadAllTextAsync(
-            Path.Combine(AppContext.BaseDirectory, "Fixtures", "claw-ui-publication.json"), TestContext.Current.CancellationToken))!;
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "claw-ui-publication.json"),
+            TestContext.Current.CancellationToken))!;
         var views = publication.Descriptors.Descriptors.Select(descriptor => new DeviceCapabilityView(descriptor,
             new CapabilityProjection
             {
                 State = publication.States.Last(state => state.CapabilityId == descriptor.CapabilityId
-                && state.InstanceId == descriptor.InstanceId)
+                                                         && state.InstanceId == descriptor.InstanceId)
             }, null)).ToArray();
         var sections = DeviceSections.IncludePredefined(publication.Descriptors.Sections);
         var ids = sections.Select(section => section.SectionId).ToHashSet();
@@ -68,7 +67,8 @@ public sealed class DevicePageCaptureTests
             AcPowerPreset = new DevicePowerPresetReference { PluginId = "claw", PresetId = "balanced" },
             BatteryPowerPreset = new DevicePowerPresetReference { PluginId = "claw", PresetId = "super-battery" }
         };
-        var assignments = new DevicePowerAssignments(presets, () => new DevicePowerAssignmentContext(config, null, "claw", 7, true, true),
+        var assignments = new DevicePowerAssignments(presets,
+            () => new DevicePowerAssignmentContext(config, null, "claw", 7, true, true),
             (_, _, _) => throw new InvalidOperationException("Unexpected assignment save"));
         using DevicePowerPresetSelection selection = new(presets, false, assignments);
         await selection.RefreshAsync();
@@ -85,23 +85,35 @@ public sealed class DevicePageCaptureTests
         if (page == "Pinned sections")
         {
             List<string> pins = [];
-            window.PinToggleRequested += id => { pins.Add(id); window.SetPins([.. pins]); };
+            window.PinToggleRequested += id =>
+            {
+                pins.Add(id);
+                window.SetPins([.. pins]);
+            };
             UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
                 .Single(card => card is { IsEffectivelyVisible: true, Title: "Power" }));
-            foreach (var id in new[] { "section.device.plugin.power.category.control", "section.device.plugin.power.category.charging" })
+            foreach (var id in new[]
+                     {
+                         "section.device.plugin.power.category.control", "section.device.plugin.power.category.charging"
+                     })
             {
                 var header = window.GetVisualDescendants().OfType<SectionPinHeader>()
                     .Single(header => header.IsEffectivelyVisible && header.SectionId == id);
                 UiFixture.Click(window, header.GetVisualDescendants().OfType<Button>().Single());
             }
+
             UiFixture.Click(window, UiFixture.Tab(window, 0));
             var sectionsPanel = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
             Assert.Equal(2, sectionsPanel.Children.Count);
-            foreach (var capability in device.State.Capabilities.Where(capability => capability.CategoryId is "control" or "charging"))
+            foreach (var capability in device.State.Capabilities.Where(capability =>
+                         capability.CategoryId is "control" or "charging"))
             {
-                var key = "pin:" + capability.CapabilityId + (capability.InstanceId is { Length: > 0 } instance ? "#" + instance : "");
-                Assert.Contains(sectionsPanel.GetVisualDescendants().OfType<Control>(), control => Equals(control.Tag, key));
+                var key = "pin:" + capability.CapabilityId +
+                          (capability.InstanceId is { Length: > 0 } instance ? "#" + instance : "");
+                Assert.Contains(sectionsPanel.GetVisualDescendants().OfType<Control>(),
+                    control => Equals(control.Tag, key));
             }
+
             UiFixture.Named<Control>(window, "PinToast").IsVisible = false;
             VisualBaseline.Verify(window, "overlay-sections-1280");
         }
@@ -110,6 +122,7 @@ public sealed class DevicePageCaptureTests
             UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
                 .Single(card => card.IsEffectivelyVisible && card.Title == page));
         }
+
         Dispatcher.UIThread.RunJobs();
         if (page == "Power")
         {
@@ -120,7 +133,9 @@ public sealed class DevicePageCaptureTests
             Assert.True(cards.Length >= 5);
             Assert.All(cards, card => Assert.InRange(card.Bounds.Width, 400, width / 2.0));
         }
-        var directory = Path.Combine(RepositoryFiles.Root, "TestResults", "ui", "claw-" + page.ToLowerInvariant().Replace(' ', '-')
+
+        var directory = Path.Combine(RepositoryFiles.Root, "TestResults", "ui", "claw-" +
+            page.ToLowerInvariant().Replace(' ', '-')
             + (width == 1280 ? string.Empty : "-" + width));
         Directory.CreateDirectory(directory);
         Capture(window, Path.Combine(directory, "viewport.png"));
@@ -145,10 +160,12 @@ public sealed class DevicePageCaptureTests
                 Dispatcher.UIThread.RunJobs();
                 Assert.Equal(before, scroll.Offset.Y, 1);
             }
+
             scroll.Offset = default;
             window.GetVisualDescendants().OfType<Expander>()
                 .Single(expander => Equals(expander.Header, "Profile details and reset")).IsExpanded = false;
         }
+
         window.Height += Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height);
         Dispatcher.UIThread.RunJobs();
         Capture(window, Path.Combine(directory, "full.png"));
@@ -160,9 +177,14 @@ public sealed class DevicePageCaptureTests
     {
         window.FocusManager.Focus(null);
         foreach (var visual in window.GetVisualDescendants().OfType<Animatable>())
-        { visual.Transitions = null; }
+        {
+            visual.Transitions = null;
+        }
+
         using var frame = window.CaptureRenderedFrame();
         Assert.NotNull(frame);
         frame.Save(path, new PngBitmapEncoderOptions());
     }
+
+    private sealed record Publication(CapabilityDescriptorSet Descriptors, CapabilityState[] States);
 }

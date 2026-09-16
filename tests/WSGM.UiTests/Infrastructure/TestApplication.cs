@@ -14,15 +14,18 @@ namespace WSGM.UiTests.Infrastructure;
 
 public sealed class TestApplication : App
 {
-    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<TestApplication>()
-        .WithInterFont()
-        .With(new FontManagerOptions
-        {
-            FontFamilyMappings = new Dictionary<string, FontFamily>
-            { ["Inter"] = new("avares://Avalonia.Fonts.Inter/Assets#Inter") }
-        })
-        .UseSkia()
-        .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
+    public static AppBuilder BuildAvaloniaApp()
+    {
+        return AppBuilder.Configure<TestApplication>()
+            .WithInterFont()
+            .With(new FontManagerOptions
+            {
+                FontFamilyMappings = new Dictionary<string, FontFamily>
+                    { ["Inter"] = new("avares://Avalonia.Fonts.Inter/Assets#Inter") }
+            })
+            .UseSkia()
+            .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
+    }
 
     public override void OnFrameworkInitializationCompleted()
     {

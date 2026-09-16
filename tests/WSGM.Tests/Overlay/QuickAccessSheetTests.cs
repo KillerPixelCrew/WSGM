@@ -5,9 +5,11 @@ using WSGM.Settings;
 
 namespace WSGM.Tests.Overlay;
 
-/// <summary>Pure quick access sheet logic: edge-swipe routing, the header tray budget
-/// and the in-place Open apps reconciliation that keeps the focused chip alive across
-/// refreshes.</summary>
+/// <summary>
+///     Pure quick access sheet logic: edge-swipe routing, the header tray budget
+///     and the in-place Open apps reconciliation that keeps the focused chip alive across
+///     refreshes.
+/// </summary>
 public sealed class QuickAccessSheetTests
 {
     [Theory]
@@ -40,7 +42,9 @@ public sealed class QuickAccessSheetTests
     [InlineData(ScreenEdge.Right, true, OverlayController.SwipeAction.SteamQuickAccess)]
     public void EdgeSwipeRoutesToTheSteamOsLayout(
         ScreenEdge edge, bool explorerRunning, OverlayController.SwipeAction expected)
-        => Assert.Equal(expected, OverlayController.DecideSwipe(edge, explorerRunning));
+    {
+        Assert.Equal(expected, OverlayController.DecideSwipe(edge, explorerRunning));
+    }
 
     [Theory]
     [InlineData("steam.artwork", true)]
@@ -61,7 +65,9 @@ public sealed class QuickAccessSheetTests
     [InlineData(ScreenEdge.Top, 100, 100, 35, 165, 65)]
     public void InwardDistanceUsesTheDirectionOppositeEachScreenEdge(
         ScreenEdge edge, int startX, int startY, int x, int y, int expected)
-        => Assert.Equal(expected, TouchSwipeMonitor.InwardDistance(edge, startX, startY, x, y));
+    {
+        Assert.Equal(expected, TouchSwipeMonitor.InwardDistance(edge, startX, startY, x, y));
+    }
 
     [Theory]
     [InlineData(true, false, true, false, 100, 100, 165, 100, ScreenEdge.Left)]
@@ -71,24 +77,28 @@ public sealed class QuickAccessSheetTests
     public void CornerSwipeUsesTheEdgeMatchingTheContactsDirection(
         bool bottom, bool right, bool left, bool top,
         int startX, int startY, int x, int y, ScreenEdge expected)
-        => Assert.Equal(
+    {
+        Assert.Equal(
             expected,
             TouchSwipeMonitor.PickTriggeredEdge(
-                bottom, right, left, top, startX, startY, x, y, triggerDistance: 48));
+                bottom, right, left, top, startX, startY, x, y, 48));
+    }
 
     [Fact]
     public void CornerSwipeWaitsUntilOneDirectionCrossesTheTriggerDistance()
-        => Assert.Null(
+    {
+        Assert.Null(
             TouchSwipeMonitor.PickTriggeredEdge(
-                bottomCandidate: true,
-                rightCandidate: false,
-                leftCandidate: true,
-                topCandidate: false,
-                startX: 100,
-                startY: 100,
-                x: 140,
-                y: 70,
-                triggerDistance: 48));
+                true,
+                false,
+                true,
+                false,
+                100,
+                100,
+                140,
+                70,
+                48));
+    }
 
     // Each switch is exercised at its NON-default value in one of the two cases:
     // both default to true, so asserting a true round trip would also pass if the
@@ -134,7 +144,9 @@ public sealed class QuickAccessSheetTests
     [InlineData(BigPictureShortcut.QuickAccess, 0x32)]
     public void BigPictureMenuShortcutsMatchSteamsKeyboardSimulator(
         BigPictureShortcut shortcut, ushort expected)
-        => Assert.Equal(expected, Steam.ShortcutVirtualKey(shortcut));
+    {
+        Assert.Equal(expected, Steam.ShortcutVirtualKey(shortcut));
+    }
 
     [Theory]
     [InlineData(150, 100u, 100u, 150u)] // saved desktop scaling wins
@@ -145,7 +157,9 @@ public sealed class QuickAccessSheetTests
     [InlineData(600, 100u, 150u, 150u)]
     public void UiScaleUsesTheSavedDesktopScalingElseTheRecommendedPanelScale(
         int? saved, uint current, uint recommended, uint expected)
-        => Assert.Equal(expected, DisplayScale.PickUiScalePercent(saved, current, recommended));
+    {
+        Assert.Equal(expected, DisplayScale.PickUiScalePercent(saved, current, recommended));
+    }
 
     [Theory]
     [InlineData(100, 100)]
@@ -153,28 +167,36 @@ public sealed class QuickAccessSheetTests
     [InlineData(275, 250)]
     [InlineData(490, 500)]
     public void ConfiguredDpiUsesAValueSupportedByTheDisplayConfigPacket(int requested, int expected)
-        => Assert.Equal(expected, DisplayScale.NormalizeConfiguredPercent(requested));
+    {
+        Assert.Equal(expected, DisplayScale.NormalizeConfiguredPercent(requested));
+    }
 
     [Fact]
     public void ANewDockDisplayIsNotLoweredWhileAnotherDisplaysRecoverySnapshotSurvives()
-        => Assert.False(DisplayScale.ShouldLowerDisplay(
-            freshCapture: false,
+    {
+        Assert.False(DisplayScale.ShouldLowerDisplay(
+            false,
             [new DisplayScaleEntry { DeviceName = @"\\.\DISPLAY1", Percent = 150 }],
             @"\\.\DISPLAY2"));
+    }
 
     [Fact]
     public void ADisplayAlreadyOwnedByTheRecoverySnapshotCanBeLoweredAgain()
-        => Assert.True(DisplayScale.ShouldLowerDisplay(
-            freshCapture: false,
+    {
+        Assert.True(DisplayScale.ShouldLowerDisplay(
+            false,
             [new DisplayScaleEntry { DeviceName = @"\\.\DISPLAY1", Percent = 150 }],
             @"\\.\display1"));
+    }
 
     [Fact]
     public void AFreshCaptureCanLowerEveryIdentifiedDisplay()
-        => Assert.True(DisplayScale.ShouldLowerDisplay(
-            freshCapture: true,
+    {
+        Assert.True(DisplayScale.ShouldLowerDisplay(
+            true,
             [],
             @"\\.\DISPLAY2"));
+    }
 
     // ---- Tray width budget: the header's pill zone must never grow past the sheet ----
 
@@ -186,7 +208,9 @@ public sealed class QuickAccessSheetTests
     [InlineData(1280.0, 0.0, 40.0)]
     [InlineData(double.NaN, 1.0, 40.0)]
     public void TheTrayStripIsCappedAtAFractionOfTheHeadersInnerWidth(double width, double scale, double expected)
-        => Assert.Equal(expected, OverlayWindow.ComputeTrayMaxWidth(width, scale), 3);
+    {
+        Assert.Equal(expected, OverlayWindow.ComputeTrayMaxWidth(width, scale), 3);
+    }
 
     [Fact]
     public void TheCappedTrayLeavesTheFixedStatusPillsAndTheWordmark()
@@ -213,26 +237,31 @@ public sealed class QuickAccessSheetTests
         {
             Assert.False(string.IsNullOrWhiteSpace(OverlayWindow.DestinationLabel(destination)));
         }
+
         Assert.Equal("Quick access", OverlayWindow.DestinationLabel(OverlayDestination.QuickAccess));
         Assert.Equal("Power", OverlayWindow.DestinationLabel(OverlayDestination.Power));
         Assert.Equal("Tools", OverlayWindow.DestinationLabel(OverlayDestination.System));
     }
 
     private static WindowFinder.AppWindow Window(nint hwnd, string title, bool minimized = false)
-        => new(hwnd, title, (uint)hwnd) { IsMinimized = minimized };
+    {
+        return new WindowFinder.AppWindow(hwnd, title, (uint)hwnd) { IsMinimized = minimized };
+    }
 
     private static AppSwitcherEntry Create(WindowFinder.AppWindow window)
-        => new(window.Hwnd, window.Title, isSteam: false, icon: null);
+    {
+        return new AppSwitcherEntry(window.Hwnd, window.Title, false, null);
+    }
 
     [Fact]
     public void ReconcileKeepsSurvivingChipInstancesAndUpdatesTheirStateInPlace()
     {
         var vm = new AppSwitcherViewModel();
-        vm.Reconcile([Window(1, "Game"), Window(2, "Tool")], activeHwnd: 1, Create);
+        vm.Reconcile([Window(1, "Game"), Window(2, "Tool")], 1, Create);
         var game = vm.Entries[0];
         var tool = vm.Entries[1];
 
-        vm.Reconcile([Window(2, "Tool v2", minimized: true), Window(1, "Game")], activeHwnd: 2, Create);
+        vm.Reconcile([Window(2, "Tool v2", true), Window(1, "Game")], 2, Create);
 
         // Same instances (a rebuild would destroy the focused button), same stable
         // order (first-seen, not Z-order), fresh presentation state.
@@ -248,9 +277,9 @@ public sealed class QuickAccessSheetTests
     public void ReconcileRemovesClosedWindowsAndAppendsNewOnesInEnumerationOrder()
     {
         var vm = new AppSwitcherViewModel();
-        vm.Reconcile([Window(1, "A"), Window(2, "B")], activeHwnd: 0, Create);
+        vm.Reconcile([Window(1, "A"), Window(2, "B")], 0, Create);
 
-        vm.Reconcile([Window(3, "C"), Window(2, "B"), Window(4, "D")], activeHwnd: 0, Create);
+        vm.Reconcile([Window(3, "C"), Window(2, "B"), Window(4, "D")], 0, Create);
 
         Assert.Equal(3, vm.Entries.Count);
         Assert.Equal(2, vm.Entries[0].Hwnd); // survivor keeps its slot
@@ -263,9 +292,9 @@ public sealed class QuickAccessSheetTests
     public void ReconcileWithNoWindowsEmptiesTheStripAndFlagsTheEmptyState()
     {
         var vm = new AppSwitcherViewModel();
-        vm.Reconcile([Window(1, "A")], activeHwnd: 1, Create);
+        vm.Reconcile([Window(1, "A")], 1, Create);
 
-        vm.Reconcile([], activeHwnd: 0, Create);
+        vm.Reconcile([], 0, Create);
 
         Assert.Empty(vm.Entries);
         Assert.False(vm.HasEntries);
@@ -274,7 +303,7 @@ public sealed class QuickAccessSheetTests
     [Fact]
     public void SwitcherEntryRaisesChangeNotificationsOnlyWhenValuesActuallyChange()
     {
-        var entry = new AppSwitcherEntry(1, "Title", isSteam: false, icon: null);
+        var entry = new AppSwitcherEntry(1, "Title", false, null);
         var changed = new List<string>();
         entry.PropertyChanged += (_, e) => changed.Add(e.PropertyName ?? "");
 
@@ -285,13 +314,15 @@ public sealed class QuickAccessSheetTests
         entry.Title = "New";
         entry.IsMinimized = true;
         entry.IsActive = true;
-        Assert.Equal([nameof(AppSwitcherEntry.Title), nameof(AppSwitcherEntry.IsMinimized), nameof(AppSwitcherEntry.IsActive)], changed);
+        Assert.Equal(
+            [nameof(AppSwitcherEntry.Title), nameof(AppSwitcherEntry.IsMinimized), nameof(AppSwitcherEntry.IsActive)],
+            changed);
     }
 
     [Fact]
     public void WindowEntryPreservesTheActivationTargetAndPresentationState()
     {
-        var entry = new AppSwitcherEntry(123, "Steam", isSteam: true, icon: null);
+        var entry = new AppSwitcherEntry(123, "Steam", true, null);
 
         Assert.Equal(123, entry.Hwnd);
         Assert.Equal("Steam", entry.Title);

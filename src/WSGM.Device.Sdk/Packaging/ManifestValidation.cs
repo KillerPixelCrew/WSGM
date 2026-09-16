@@ -1,15 +1,15 @@
 namespace WSGM.Device.Sdk.Packaging;
 
 /// <summary>
-/// Why a manifest was rejected. Codes are stable so tooling and diagnostics can match on them.
+///     Why a manifest was rejected. Codes are stable so tooling and diagnostics can match on them.
 /// </summary>
 public enum ManifestValidationCode
 {
-    /// <summary>The document exceeded <see cref="ManifestLimits.MaxDocumentBytes"/>.</summary>
+    /// <summary>The document exceeded <see cref="ManifestLimits.MaxDocumentBytes" />.</summary>
     DocumentTooLarge,
 
     /// <summary>
-    /// The document was not well-formed JSON, used an unknown member, or nested too deeply.
+    ///     The document was not well-formed JSON, used an unknown member, or nested too deeply.
     /// </summary>
     MalformedDocument,
 
@@ -33,7 +33,7 @@ public enum ManifestValidationCode
 }
 
 /// <summary>
-/// One reason a manifest was rejected, anchored to the field that caused it.
+///     One reason a manifest was rejected, anchored to the field that caused it.
 /// </summary>
 /// <param name="Path">Manifest field that caused the failure, for example <c>entryAssembly</c>.</param>
 /// <param name="Code">Stable reason code.</param>

@@ -16,17 +16,45 @@ using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
-/// <summary>The gamepad-driven SteamGridDB artwork changer, hosted as a Tools sub-view
-/// of the overlay (like <see cref="LibraryTabsView"/>). Flow: target the game the user
-/// is viewing (<see cref="SteamPageBridge.GetCurrentAppIdAsync"/>) or pick one from the
-/// library → choose an artwork slot → browse SteamGridDB thumbnails → apply. Applying
-/// grid/hero/logo/wide is a robust Steam API call (<see cref="SteamArtwork"/>); the
-/// image bytes are fetched and base64-encoded in C#. Self-drawing (no XAML), every
-/// interactive element a <see cref="Button"/> so D-pad/A/B work with no extra
-/// plumbing.</summary>
+/// <summary>
+///     The gamepad-driven SteamGridDB artwork changer, hosted as a Tools sub-view
+///     of the overlay (like <see cref="LibraryTabsView" />). Flow: target the game the user
+///     is viewing (<see cref="SteamPageBridge.GetCurrentAppIdAsync" />) or pick one from the
+///     library → choose an artwork slot → browse SteamGridDB thumbnails → apply. Applying
+///     grid/hero/logo/wide is a robust Steam API call (<see cref="SteamArtwork" />); the
+///     image bytes are fetched and base64-encoded in C#. Self-drawing (no XAML), every
+///     interactive element a <see cref="Button" /> so D-pad/A/B work with no extra
+///     plumbing.
+/// </summary>
 public sealed class ArtworkView : OverlaySubView
 {
+    // ---- Level: pick a game ----
+
+    // A full Steam library is rendered one CardButton per title into a
+    // non-virtualizing host, so it is paged exactly like LibraryTabsView's
+    // multi-select: on a 1000+ title account a single pass stalls the UI thread
+    // of a focused overlay that is muting the game.
+    private const int GamePageSize = 200;
+
+    // Mirrors SteamGridDb.DownloadImageAsync's 16 MB safety limit for formats whose
+    // headers ImageHeader cannot read (webp previews must keep working).
+    private const long CurrentArtMaxBytes = 16 * 1024 * 1024;
     private static readonly SemaphoreSlim ThumbnailGate = new(4, 4);
+
+    // ---- Level: pick an artwork slot ----
+
+    private static readonly (ArtworkAsset Asset, string Label, string Desc)[] Assets =
+    [
+        (ArtworkAsset.Grid, "Capsule (portrait)", "The vertical library cover (600×900)"),
+        (ArtworkAsset.Hero, "Hero banner", "The wide banner on the game page"),
+        (ArtworkAsset.Logo, "Logo", "The transparent title logo"),
+        (ArtworkAsset.Wide, "Wide capsule", "The horizontal cover (460×215)"),
+        (ArtworkAsset.Icon, "Icon", "Small icon (Steam games only)")
+    ];
+
+    // Remembered shortcut → SGDB game associations, snapshotted from config on open
+    // and updated on every match pick, so a shortcut is clarified once, not per visit.
+    private readonly Dictionary<long, (int Id, string Name)> _sgdbLinks = new();
 
     private long _appId;
     private string _appName = "";
@@ -34,26 +62,25 @@ public sealed class ArtworkView : OverlaySubView
     // The whole configuration, because provider credentials are no longer one key: each provider
     // decides its own readiness from it, and the picker must not learn what any of them needs.
     private AppConfig _config = new();
+    private IReadOnlyList<SteamCollections.AppInfo>? _games;
 
     // The match the user picked, tagged with the provider that issued it. A bare id is not enough
     // once there is more than one source: the same number means different games to each of them.
     private ArtworkGameMatch? _match;
-    private IReadOnlyList<SteamCollections.AppInfo>? _games;
 
     // When > 0, artwork is sourced from this SteamGridDB game id (a manual name search)
     // instead of the target's Steam app id — needed for non-Steam shortcuts / ROMs and
     // when the auto-detected game is wrong. The art still APPLIES to _appId.
     private int _sgdbGameId;
 
-    // Remembered shortcut → SGDB game associations, snapshotted from config on open
-    // and updated on every match pick, so a shortcut is clarified once, not per visit.
-    private readonly Dictionary<long, (int Id, string Name)> _sgdbLinks = new();
-
     /// <inheritdoc />
     protected override string LogScope => "Artwork";
 
     /// <summary>Loads config, detects the current game, and opens the picker.</summary>
-    public void Open() => _ = RunSafelyAsync(OpenAsync(), "open");
+    public void Open()
+    {
+        _ = RunSafelyAsync(OpenAsync(), "open");
+    }
 
     private async Task OpenAsync()
     {
@@ -62,7 +89,11 @@ public sealed class ArtworkView : OverlaySubView
         _current = null;
         _sgdbGameId = 0;
         var config = await Task.Run(ConfigStore.Load);
-        if (generation != _navigationGeneration) { return; }
+        if (generation != _navigationGeneration)
+        {
+            return;
+        }
+
         _config = config;
         _match = null;
         _sgdbLinks.Clear();
@@ -103,6 +134,7 @@ public sealed class ArtworkView : OverlaySubView
             {
                 return;
             }
+
             _appName = NameFor(_appId);
             if (IsShortcutApp(_appId))
             {
@@ -118,9 +150,11 @@ public sealed class ArtworkView : OverlaySubView
                     Replace(RenderAssetTypes);
                     return;
                 }
+
                 DoSgdbSearch(_appName);
                 return;
             }
+
             Replace(RenderAssetTypes);
         }
         else
@@ -129,16 +163,21 @@ public sealed class ArtworkView : OverlaySubView
         }
     }
 
-    /// <summary>Invalidates outstanding work when the host hides this view, so an
-    /// abandoned grid stops downloading and its decoded bitmaps are dropped instead of
-    /// landing on a detached <see cref="Image"/>.</summary>
-    public void Close() => _navigationGeneration++;
+    /// <summary>
+    ///     Invalidates outstanding work when the host hides this view, so an
+    ///     abandoned grid stops downloading and its decoded bitmaps are dropped instead of
+    ///     landing on a detached <see cref="Image" />.
+    /// </summary>
+    public void Close()
+    {
+        _navigationGeneration++;
+    }
 
     private void RenderNoSource()
     {
         var stack = NewStack("Change Artwork");
         stack.Children.Add(Caption("Every artwork source is switched off. Turn Screenscraper.fr "
-            + "back on, or add a free SteamGridDB API key, in Settings → Steam, then reopen this."));
+                                   + "back on, or add a free SteamGridDB API key, in Settings → Steam, then reopen this."));
         stack.Children.Add(Caption($"Get a key at {SteamGridDb.KeyPageUrl}"));
         stack.Children.Add(SectionLabel(""));
         stack.Children.Add(Row("Close", "Back to Tools", Icons.ExitFullscreen,
@@ -146,22 +185,21 @@ public sealed class ArtworkView : OverlaySubView
         SetContent(stack);
     }
 
-    // ---- Level: pick a game ----
-
-    // A full Steam library is rendered one CardButton per title into a
-    // non-virtualizing host, so it is paged exactly like LibraryTabsView's
-    // multi-select: on a 1000+ title account a single pass stalls the UI thread
-    // of a focused overlay that is muting the game.
-    private const int GamePageSize = 200;
-
-    private void RenderGameList() => _ = RunSafelyAsync(RenderGameListAsync(), "game list");
+    private void RenderGameList()
+    {
+        _ = RunSafelyAsync(RenderGameListAsync(), "game list");
+    }
 
     private async Task RenderGameListAsync()
     {
         var generation = _navigationGeneration;
         RenderMessage("Change Artwork", "Loading your games…");
         var games = await SafeGamesAsync();
-        if (generation != _navigationGeneration) { return; }
+        if (generation != _navigationGeneration)
+        {
+            return;
+        }
+
         _games = games;
         RenderGamePage(0);
     }
@@ -183,6 +221,7 @@ public sealed class ArtworkView : OverlaySubView
                     () => Replace(() => RenderGamePage(current - 1))));
             }
         }
+
         foreach (var game in games.Skip(page * GamePageSize).Take(GamePageSize))
         {
             var g = game;
@@ -202,6 +241,7 @@ public sealed class ArtworkView : OverlaySubView
                         Navigate(RenderAssetTypes);
                         return;
                     }
+
                     DoSgdbSearch(g.Name);
                 }
                 else
@@ -210,6 +250,7 @@ public sealed class ArtworkView : OverlaySubView
                 }
             }));
         }
+
         stack.Children.Add(SectionLabel(""));
         if (page + 1 < pageCount)
         {
@@ -217,20 +258,10 @@ public sealed class ArtworkView : OverlaySubView
                 $"Games {(page + 1) * GamePageSize + 1}–{Math.Min(games.Count, (page + 2) * GamePageSize)}",
                 Icons.Play, () => Replace(() => RenderGamePage(current + 1))));
         }
+
         stack.Children.Add(Row("Back", "Close", Icons.ExitFullscreen, () => Back()));
         SetContent(stack);
     }
-
-    // ---- Level: pick an artwork slot ----
-
-    private static readonly (ArtworkAsset Asset, string Label, string Desc)[] Assets =
-    [
-        (ArtworkAsset.Grid, "Capsule (portrait)", "The vertical library cover (600×900)"),
-        (ArtworkAsset.Hero, "Hero banner", "The wide banner on the game page"),
-        (ArtworkAsset.Logo, "Logo", "The transparent title logo"),
-        (ArtworkAsset.Wide, "Wide capsule", "The horizontal cover (460×215)"),
-        (ArtworkAsset.Icon, "Icon", "Small icon (Steam games only)")
-    ];
 
     private void RenderAssetTypes()
     {
@@ -239,7 +270,7 @@ public sealed class ArtworkView : OverlaySubView
             ? $"Applying to: {_appName}  ·  art from your search"
             : IsShortcutApp(_appId)
                 ? $"Shortcut: {_appName} — picking any art type first searches "
-                    + "SteamGridDB by name (a shortcut's id has no Steam page)."
+                  + "SteamGridDB by name (a shortcut's id has no Steam page)."
                 : $"Game: {_appName}"));
         foreach (var (asset, label, desc) in Assets)
         {
@@ -258,6 +289,7 @@ public sealed class ArtworkView : OverlaySubView
             stack.Children.Add(preview);
             _ = LoadCurrentArtAsync(preview, _appId, a, _navigationGeneration);
         }
+
         stack.Children.Add(SectionLabel(""));
         stack.Children.Add(Row("Wrong game? Search by name", "For ROMs, shortcuts, or misdetections",
             Icons.CopyDoc, RenderNameSearch));
@@ -277,18 +309,19 @@ public sealed class ArtworkView : OverlaySubView
         {
             return;
         }
+
         Navigate(() =>
         {
             var stack = NewStack("Search SteamGridDB");
             stack.Children.Add(Caption("Type the game's name — used to find art (applies to "
-                + $"{_appName})."));
+                                       + $"{_appName})."));
             var box = new TextBox { Text = _appName, Margin = new Thickness(0, 0, 0, 4) };
             stack.Children.Add(box);
             var keyboard = new OnScreenKeyboard { Target = box };
-            keyboard.Accepted += (_, _) => DoSgdbSearch(box.Text ?? "", inlineKeyboardLevel: true);
+            keyboard.Accepted += (_, _) => DoSgdbSearch(box.Text ?? "", true);
             stack.Children.Add(keyboard);
             stack.Children.Add(PrimaryRow("Search", "Find matching games", Icons.Play,
-                () => DoSgdbSearch(box.Text ?? "", inlineKeyboardLevel: true)));
+                () => DoSgdbSearch(box.Text ?? "", true)));
             stack.Children.Add(Row("Cancel", "Back", Icons.ExitFullscreen, () => Back()));
             SetContent(stack);
         });
@@ -299,7 +332,9 @@ public sealed class ArtworkView : OverlaySubView
     // window (the normal path) pushes nothing, so popping for it as well ate the
     // level the user came from — the game list.
     private void DoSgdbSearch(string term, bool inlineKeyboardLevel = false)
-        => _ = RunSafelyAsync(DoSgdbSearchAsync(term, inlineKeyboardLevel), "search");
+    {
+        _ = RunSafelyAsync(DoSgdbSearchAsync(term, inlineKeyboardLevel), "search");
+    }
 
     private async Task DoSgdbSearchAsync(string term, bool inlineKeyboardLevel)
     {
@@ -307,6 +342,7 @@ public sealed class ArtworkView : OverlaySubView
         {
             return;
         }
+
         Navigate(() => RenderMessage("Search artwork sources", $"Searching for \"{term}\"…"));
         // Navigate invalidates the previous level, so snapshot after it.
         var generation = _navigationGeneration;
@@ -322,7 +358,12 @@ public sealed class ArtworkView : OverlaySubView
             matches = [];
             failure = ex.Message;
         }
-        if (generation != _navigationGeneration) { return; }
+
+        if (generation != _navigationGeneration)
+        {
+            return;
+        }
+
         Replace(() =>
         {
             var stack = NewStack("Pick a Match");
@@ -334,6 +375,7 @@ public sealed class ArtworkView : OverlaySubView
             {
                 stack.Children.Add(Caption("No matches from any configured source. Try a different name."));
             }
+
             foreach (var game in matches.Take(30))
             {
                 var g = game;
@@ -343,12 +385,15 @@ public sealed class ArtworkView : OverlaySubView
                 {
                     _match = g;
                     _sgdbGameId = g.ProviderId == "steamgriddb"
-                        && int.TryParse(g.Id, out var sgdbId) ? sgdbId : 0;
+                                  && int.TryParse(g.Id, out var sgdbId)
+                        ? sgdbId
+                        : 0;
                     _appName = g.Name;
                     if (_sgdbGameId > 0)
                     {
                         RememberSgdbLink(_sgdbGameId, g.Name);
                     }
+
                     // Drop exactly what this flow pushed — the search level, plus
                     // the inline keyboard screen when that fallback was used —
                     // and land back on the asset types.
@@ -357,9 +402,11 @@ public sealed class ArtworkView : OverlaySubView
                     {
                         PopIfAny();
                     }
+
                     Replace(RenderAssetTypes);
                 }));
             }
+
             stack.Children.Add(SectionLabel(""));
             // Typing is an explicit choice, never a surprise: the text entry only
             // opens from this row (or when nothing matched and the user wants it).
@@ -383,6 +430,7 @@ public sealed class ArtworkView : OverlaySubView
             DoSgdbSearch(_appName);
             return;
         }
+
         _ = RunSafelyAsync(OpenArtGridAsync(asset), "art list");
     }
 
@@ -410,15 +458,19 @@ public sealed class ArtworkView : OverlaySubView
             result = new ArtworkSearchResult([], []);
             failure = ex.Message;
         }
+
         if (generation != _navigationGeneration || targetAppId != _appId || sourceGameId != _sgdbGameId)
         {
             return;
         }
+
         Replace(() => RenderArtGrid(asset, result, failure));
     }
 
-    private static string ProviderNameFor(string providerId) =>
-        ArtworkSearch.Find(providerId)?.DisplayName ?? providerId;
+    private static string ProviderNameFor(string providerId)
+    {
+        return ArtworkSearch.Find(providerId)?.DisplayName ?? providerId;
+    }
 
     private void RenderArtGrid(ArtworkAsset asset, ArtworkSearchResult result, string? failure)
     {
@@ -446,10 +498,11 @@ public sealed class ArtworkView : OverlaySubView
             // A zero dimension means the provider did not report one, which Screenscraper never
             // does; the limit still applies to everything that did.
             foreach (var art in result.Candidates
-                .Where(a => a.Width == 0 || ImageHeader.IsWithinLimits(a.Width, a.Height)).Take(30))
+                         .Where(a => a.Width == 0 || ImageHeader.IsWithinLimits(a.Width, a.Height)).Take(30))
             {
                 grid.Children.Add(ThumbButton(art, w, h, () => Apply(asset, art)));
             }
+
             stack.Children.Add(grid);
         }
 
@@ -480,10 +533,6 @@ public sealed class ArtworkView : OverlaySubView
         return button;
     }
 
-    // Mirrors SteamGridDb.DownloadImageAsync's 16 MB safety limit for formats whose
-    // headers ImageHeader cannot read (webp previews must keep working).
-    private const long CurrentArtMaxBytes = 16 * 1024 * 1024;
-
     // Shows the slot's current custom-art file (if any) in the given placeholder.
     // Disk-only; failures just leave the preview hidden.
     private async Task LoadCurrentArtAsync(Image image, long appId, ArtworkAsset asset, int generation)
@@ -497,6 +546,7 @@ public sealed class ArtworkView : OverlaySubView
                 {
                     return null;
                 }
+
                 // Grid files are written by Steam and third-party art tools, so they are
                 // untrusted: refuse hostile declared dimensions for the formats ImageHeader
                 // parses (PNG/JPEG/BMP), and byte-cap the ones it cannot (webp) so a tiny
@@ -506,16 +556,17 @@ public sealed class ArtworkView : OverlaySubView
                     if (!ImageHeader.IsWithinLimits(artWidth, artHeight))
                     {
                         Log.Warn($"Artwork: current-art preview skipped, image declares "
-                            + $"{artWidth}x{artHeight} px: {path}");
+                                 + $"{artWidth}x{artHeight} px: {path}");
                         return null;
                     }
                 }
                 else if (new FileInfo(path).Length > CurrentArtMaxBytes)
                 {
                     Log.Warn($"Artwork: current-art preview skipped, file exceeds "
-                        + $"{CurrentArtMaxBytes / (1024 * 1024)} MB cap: {path}");
+                             + $"{CurrentArtMaxBytes / (1024 * 1024)} MB cap: {path}");
                     return null;
                 }
+
                 using var stream = File.OpenRead(path);
                 return Bitmap.DecodeToWidth(stream, 200);
             });
@@ -523,11 +574,13 @@ public sealed class ArtworkView : OverlaySubView
             {
                 return;
             }
+
             if (generation != _navigationGeneration)
             {
                 bitmap.Dispose();
                 return;
             }
+
             (image.Source as IDisposable)?.Dispose();
             image.Source = bitmap;
             image.IsVisible = true;
@@ -549,11 +602,13 @@ public sealed class ArtworkView : OverlaySubView
             {
                 return;
             }
+
             var bytes = await SteamGridDb.DownloadImageAsync(url);
             if (generation != _navigationGeneration || bytes is null || bytes.Length == 0)
             {
                 return;
             }
+
             // Decoded on the pool like the current-art preview; only the swap touches the UI thread.
             var bitmap = await Task.Run(() =>
             {
@@ -572,6 +627,7 @@ public sealed class ArtworkView : OverlaySubView
             {
                 return;
             }
+
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (generation == _navigationGeneration)
@@ -597,7 +653,10 @@ public sealed class ArtworkView : OverlaySubView
 
     // ---- Apply / reset ----
 
-    private void Apply(ArtworkAsset asset, ArtworkCandidate? art) => _ = RunSafelyAsync(ApplyAsync(asset, art), "apply");
+    private void Apply(ArtworkAsset asset, ArtworkCandidate? art)
+    {
+        _ = RunSafelyAsync(ApplyAsync(asset, art), "apply");
+    }
 
     private async Task ApplyAsync(ArtworkAsset asset, ArtworkCandidate? art)
     {
@@ -637,6 +696,7 @@ public sealed class ArtworkView : OverlaySubView
         {
             return;
         }
+
         // No continue screen: land straight back on the changer's overview with the
         // outcome as a one-line notice, ready for the next change or Back to leave.
         _notice = result.Detail;
@@ -645,13 +705,17 @@ public sealed class ArtworkView : OverlaySubView
     }
 
     private string NameFor(long appId)
-        => _games?.FirstOrDefault(g => g.AppId == appId)?.Name ?? $"App {appId}";
+    {
+        return _games?.FirstOrDefault(g => g.AppId == appId)?.Name ?? $"App {appId}";
+    }
 
     // Prefer Steam's own flag (live-verified BIsShortcut in the games list); the
     // numeric check covers an id missing from the list — shortcut ids carry the
     // high bit (>= 2^31), real store appids never do.
     private bool IsShortcutApp(long appId)
-        => _games?.FirstOrDefault(g => g.AppId == appId)?.Shortcut ?? appId >= 0x80000000L;
+    {
+        return _games?.FirstOrDefault(g => g.AppId == appId)?.Shortcut ?? appId >= 0x80000000L;
+    }
 
     // Persist the association only for shortcuts: a normal game's id already IS its
     // SGDB lookup key, and pinning a manual-search override for it could silently
@@ -662,6 +726,7 @@ public sealed class ArtworkView : OverlaySubView
         {
             return;
         }
+
         _sgdbLinks[_appId] = (sgdbGameId, name);
         var appId = _appId;
         // Observed, not fire-and-forget: the write takes the cross-process config
@@ -681,17 +746,22 @@ public sealed class ArtworkView : OverlaySubView
     }
 
     private static string AssetLabel(ArtworkAsset asset)
-        => Assets.FirstOrDefault(a => a.Asset == asset).Label ?? asset.ToString();
-
-    private static (double W, double H) ThumbSize(ArtworkAsset asset) => asset switch
     {
-        ArtworkAsset.Grid => (120, 180),
-        ArtworkAsset.Hero => (260, 96),
-        ArtworkAsset.Logo => (160, 96),
-        ArtworkAsset.Wide => (200, 94),
-        ArtworkAsset.Icon => (80, 80),
-        _ => (120, 180)
-    };
+        return Assets.FirstOrDefault(a => a.Asset == asset).Label ?? asset.ToString();
+    }
+
+    private static (double W, double H) ThumbSize(ArtworkAsset asset)
+    {
+        return asset switch
+        {
+            ArtworkAsset.Grid => (120, 180),
+            ArtworkAsset.Hero => (260, 96),
+            ArtworkAsset.Logo => (160, 96),
+            ArtworkAsset.Wide => (200, 94),
+            ArtworkAsset.Icon => (80, 80),
+            _ => (120, 180)
+        };
+    }
 
     // Replacing a level drops its decoded bitmaps immediately rather than waiting for a
     // collection: an artwork grid holds full-size thumbnails, and the overlay is resident.
@@ -701,6 +771,7 @@ public sealed class ArtworkView : OverlaySubView
         {
             DisposeImages(previous);
         }
+
         base.SetContent(stack);
     }
 
@@ -719,6 +790,7 @@ public sealed class ArtworkView : OverlaySubView
                     {
                         DisposeImages(child);
                     }
+
                     return;
                 case ContentControl { Content: Control child }:
                     root = child;
@@ -728,5 +800,4 @@ public sealed class ArtworkView : OverlaySubView
             }
         }
     }
-
 }

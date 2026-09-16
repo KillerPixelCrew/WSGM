@@ -8,12 +8,12 @@ namespace WSGM.Shell;
 /// <remarks>Calls are serialized by the controller manager's state gate.</remarks>
 internal sealed class ControllerProcessPriority
 {
-    private readonly Func<ProcessPriorityClass> _read;
-    private readonly Action<ProcessPriorityClass> _write;
     private readonly Action<string> _info;
+    private readonly Func<ProcessPriorityClass> _read;
     private readonly Action<string> _warn;
-    private ProcessPriorityClass? _original;
+    private readonly Action<ProcessPriorityClass> _write;
     private bool _active;
+    private ProcessPriorityClass? _original;
 
     internal ControllerProcessPriority()
         : this(ReadCurrent, WriteCurrent, Log.Info, Log.Warn)

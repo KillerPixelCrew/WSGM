@@ -31,11 +31,12 @@ public sealed class PerformancePolicyPersistenceTests
         };
         PerformancePolicy rtss = new(
             new PerformanceValues(60, 3),
-            [new PerformanceApplicationPolicy(
-                "steam:42",
-                "game.exe",
-                new PerformanceValues(45, 2))],
-            Enabled: true);
+            [
+                new PerformanceApplicationPolicy(
+                    "steam:42",
+                    "game.exe",
+                    new PerformanceValues(45, 2))
+            ]);
 
         ShellSession.MergePerformancePolicy(config, rtss);
 
@@ -78,7 +79,7 @@ public sealed class PerformancePolicyPersistenceTests
 
         ShellSession.MergePerformancePolicy(
             config,
-            new PerformancePolicy(new PerformanceValues(60, 3), [], Enabled: true));
+            new PerformancePolicy(new PerformanceValues(60, 3), []));
 
         var application = Assert.Single(config.Applications);
         Assert.False(application.UsePerGameProfile);

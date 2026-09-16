@@ -12,13 +12,54 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
-    /// <summary>Lands controller focus on the first Open apps chip — the bottom-swipe
-    /// entry point, which exists to reach the running programs in one gesture.</summary>
-    internal void FocusOpenApps() => FocusSearch.FirstNavigable(AppTiles)?.Focus(NavigationMethod.Directional);
+    /// <summary>
+    ///     Share of the header's inner width the tray strip may claim before it
+    ///     starts scrolling. The tray is the only header content whose length WSGM does
+    ///     not control (the Shell_TrayWnd host takes whatever apps register), so it is
+    ///     the part that gets a budget; the wordmark and the status pills after it are
+    ///     fixed-size and always keep their space.
+    /// </summary>
+    private const double TrayWidthFraction = 0.30;
 
-    /// <summary>Y: switch to the window after the foreground one in strip order,
-    /// wrapping — an Alt+Tab step from the sheet. Nothing to do with fewer than two
-    /// windows.</summary>
+    /// <summary>
+    ///     Floor for the tray budget: one tray pill plus its spacing, so a
+    ///     single icon is never clipped even on an absurdly narrow display.
+    /// </summary>
+    private const double TrayMinWidth = 40;
+
+    /// <summary>
+    ///     Horizontal padding the header adds inside the window (16 left + 16
+    ///     right — keep in sync with Padding="16,0" in the XAML).
+    /// </summary>
+    private const double HeaderHorizontalPadding = 32;
+
+    /// <summary>
+    ///     The header's bottom edge in physical screen pixels, for the radio,
+    ///     audio and eject panels to hang from.
+    /// </summary>
+    internal int HeaderBottomScreenY
+        => Position.Y
+           + (int)Math.Ceiling(
+               Header.Bounds.Height * _contentScale * StatusPanel.CurrentWindowScale(this));
+
+    /// <summary>The sheet's physical right edge, used to keep peer panels on the same display.</summary>
+    internal int RightScreenX
+        => Position.X + (int)Math.Ceiling(Bounds.Width * StatusPanel.CurrentWindowScale(this));
+
+    /// <summary>
+    ///     Lands controller focus on the first Open apps chip — the bottom-swipe
+    ///     entry point, which exists to reach the running programs in one gesture.
+    /// </summary>
+    internal void FocusOpenApps()
+    {
+        FocusSearch.FirstNavigable(AppTiles)?.Focus(NavigationMethod.Directional);
+    }
+
+    /// <summary>
+    ///     Y: switch to the window after the foreground one in strip order,
+    ///     wrapping — an Alt+Tab step from the sheet. Nothing to do with fewer than two
+    ///     windows.
+    /// </summary>
     internal void CycleNextApp()
     {
         var entries = _switcher.Entries;
@@ -27,6 +68,7 @@ public partial class OverlayWindow
             Log.Info("Next app: fewer than two windows open.");
             return;
         }
+
         var active = -1;
         for (var i = 0; i < entries.Count; i++)
         {
@@ -34,9 +76,11 @@ public partial class OverlayWindow
             {
                 continue;
             }
+
             active = i;
             break;
         }
+
         WindowPicked?.Invoke(entries[(active + 1) % entries.Count]);
     }
 
@@ -57,9 +101,11 @@ public partial class OverlayWindow
         }
     }
 
-    /// <summary>Right mouse button → the icon's context menu (many tray apps only
-    /// respond to this). Button.Click never fires for the right button, so this
-    /// rides PointerReleased.</summary>
+    /// <summary>
+    ///     Right mouse button → the icon's context menu (many tray apps only
+    ///     respond to this). Button.Click never fires for the right button, so this
+    ///     rides PointerReleased.
+    /// </summary>
     private void OnTrayPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
         if (e.InitialPressMouseButton != MouseButton.Right
@@ -67,12 +113,15 @@ public partial class OverlayWindow
         {
             return;
         }
+
         e.Handled = true;
         TrayIconActivated?.Invoke(entry, true, AnchorBelow(control));
     }
 
-    /// <summary>Screen position just below the pill's centre — where the app
-    /// should anchor a popup menu (v4 coordinate protocol).</summary>
+    /// <summary>
+    ///     Screen position just below the pill's centre — where the app
+    ///     should anchor a popup menu (v4 coordinate protocol).
+    /// </summary>
     private static PixelPoint AnchorBelow(Control control)
     {
         var point = control.PointToScreen(new Point(control.Bounds.Width / 2, control.Bounds.Height));
@@ -88,15 +137,21 @@ public partial class OverlayWindow
     }
 
     private void OnAudioTileClicked(object? sender, RoutedEventArgs e)
-        => AudioPanelRequested?.Invoke();
+    {
+        AudioPanelRequested?.Invoke();
+    }
 
     private void OnEjectTileClicked(object? sender, RoutedEventArgs e)
-        => EjectPanelRequested?.Invoke();
+    {
+        EjectPanelRequested?.Invoke();
+    }
 
-    /// <summary>Scrolls a newly focused chip into its strip's viewport (app chips
-    /// and tray icons share this handler). Bubbles from the buttons; the scroll
-    /// viewers themselves are not focusable, and the call is a no-op when the chip
-    /// is already fully visible.</summary>
+    /// <summary>
+    ///     Scrolls a newly focused chip into its strip's viewport (app chips
+    ///     and tray icons share this handler). Bubbles from the buttons; the scroll
+    ///     viewers themselves are not focusable, and the call is a no-op when the chip
+    ///     is already fully visible.
+    /// </summary>
     private static void OnStripGotFocus(object? sender, FocusChangedEventArgs e)
     {
         if (e.Source is Control control and not ScrollViewer)
@@ -105,38 +160,16 @@ public partial class OverlayWindow
         }
     }
 
-    /// <summary>The header's bottom edge in physical screen pixels, for the radio,
-    /// audio and eject panels to hang from.</summary>
-    internal int HeaderBottomScreenY
-        => Position.Y
-            + (int)Math.Ceiling(
-                Header.Bounds.Height * _contentScale * StatusPanel.CurrentWindowScale(this));
-
-    /// <summary>The sheet's physical right edge, used to keep peer panels on the same display.</summary>
-    internal int RightScreenX
-        => Position.X + (int)Math.Ceiling(Bounds.Width * StatusPanel.CurrentWindowScale(this));
-
-    /// <summary>Share of the header's inner width the tray strip may claim before it
-    /// starts scrolling. The tray is the only header content whose length WSGM does
-    /// not control (the Shell_TrayWnd host takes whatever apps register), so it is
-    /// the part that gets a budget; the wordmark and the status pills after it are
-    /// fixed-size and always keep their space.</summary>
-    private const double TrayWidthFraction = 0.30;
-
-    /// <summary>Floor for the tray budget: one tray pill plus its spacing, so a
-    /// single icon is never clipped even on an absurdly narrow display.</summary>
-    private const double TrayMinWidth = 40;
-
-    /// <summary>Horizontal padding the header adds inside the window (16 left + 16
-    /// right — keep in sync with Padding="16,0" in the XAML).</summary>
-    private const double HeaderHorizontalPadding = 32;
-
-    /// <summary>The widest the tray strip may become before it scrolls, so that
-    /// the fixed status pills always fit. Pure: the width budget is unit-tested
-    /// against this method rather than against a live window.</summary>
+    /// <summary>
+    ///     The widest the tray strip may become before it scrolls, so that
+    ///     the fixed status pills always fit. Pure: the width budget is unit-tested
+    ///     against this method rather than against a live window.
+    /// </summary>
     /// <param name="windowWidth">The sheet window's logical (DIP) width.</param>
-    /// <param name="contentScale">The factor RootScale applies to the content
-    /// (see <see cref="DockToTopEdge"/>); 1.0 when untransformed.</param>
+    /// <param name="contentScale">
+    ///     The factor RootScale applies to the content
+    ///     (see <see cref="DockToTopEdge" />); 1.0 when untransformed.
+    /// </param>
     /// <returns>A MaxWidth in the header's pre-transform layout units.</returns>
     internal static double ComputeTrayMaxWidth(double windowWidth, double contentScale)
     {
@@ -144,14 +177,17 @@ public partial class OverlayWindow
         {
             return TrayMinWidth;
         }
+
         var inner = windowWidth / contentScale - HeaderHorizontalPadding;
         return Math.Max(TrayMinWidth, inner * TrayWidthFraction);
     }
 
-    /// <summary>Spans the sheet across the summoning window's display top edge, sized to
-    /// <see cref="SheetHeightFraction"/> of its height, and slides it down from
-    /// above the screen. The window never covers the whole display: the strip left
-    /// below is the game's, and the tap-outside dismissal.</summary>
+    /// <summary>
+    ///     Spans the sheet across the summoning window's display top edge, sized to
+    ///     <see cref="SheetHeightFraction" /> of its height, and slides it down from
+    ///     above the screen. The window never covers the whole display: the strip left
+    ///     below is the game's, and the tap-outside dismissal.
+    /// </summary>
     private void DockToTopEdge()
     {
         var screen = _preferredScreenPoint is { } point
@@ -162,6 +198,7 @@ public partial class OverlayWindow
         {
             screen = Screens.All[0];
         }
+
         if (screen is null)
         {
             return;
@@ -187,6 +224,7 @@ public partial class OverlayWindow
             _contentScale = factor;
             RootScale.LayoutTransform = new ScaleTransform(factor, factor);
         }
+
         Width = bounds.Width / scaling;
         Height = Math.Round(bounds.Height / scaling * SheetHeightFraction);
         TrayScroller.MaxWidth = ComputeTrayMaxWidth(Width, _contentScale);
@@ -225,6 +263,7 @@ public partial class OverlayWindow
         {
             return;
         }
+
         _slideTimer.Stop();
         _slideTimer.Tick -= OnSlideTick;
         _slideTimer = null;
@@ -236,17 +275,42 @@ public partial class OverlayWindow
         {
             return;
         }
+
         if (!TryCancelSubView())
         {
             Dismissed?.Invoke();
         }
+
         e.Handled = true;
     }
 
-    private void OnHomeApp(object? sender, RoutedEventArgs e) => HomeAppRequested?.Invoke();
-    private void OnDesktop(object? sender, RoutedEventArgs e) => DesktopRequested?.Invoke();
-    private void OnSettings(object? sender, RoutedEventArgs e) => SettingsRequested?.Invoke();
-    private void OnExitBigPicture(object? sender, RoutedEventArgs e) => ExitBigPictureRequested?.Invoke();
-    private void OnTaskManager(object? sender, RoutedEventArgs e) => TaskManagerRequested?.Invoke();
-    private void OnClose(object? sender, RoutedEventArgs e) => Dismissed?.Invoke();
+    private void OnHomeApp(object? sender, RoutedEventArgs e)
+    {
+        HomeAppRequested?.Invoke();
+    }
+
+    private void OnDesktop(object? sender, RoutedEventArgs e)
+    {
+        DesktopRequested?.Invoke();
+    }
+
+    private void OnSettings(object? sender, RoutedEventArgs e)
+    {
+        SettingsRequested?.Invoke();
+    }
+
+    private void OnExitBigPicture(object? sender, RoutedEventArgs e)
+    {
+        ExitBigPictureRequested?.Invoke();
+    }
+
+    private void OnTaskManager(object? sender, RoutedEventArgs e)
+    {
+        TaskManagerRequested?.Invoke();
+    }
+
+    private void OnClose(object? sender, RoutedEventArgs e)
+    {
+        Dismissed?.Invoke();
+    }
 }

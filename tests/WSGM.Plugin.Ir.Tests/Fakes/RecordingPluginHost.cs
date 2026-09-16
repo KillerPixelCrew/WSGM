@@ -7,7 +7,12 @@ internal sealed class RecordingPluginHost : IPluginHost
 {
     internal List<PluginStatePublication> States { get; } = [];
 
-    public void PublishHealth(PluginHealthPublication publication) { }
+    public void PublishHealth(PluginHealthPublication publication)
+    {
+    }
 
-    public void PublishState(PluginStatePublication publication) => States.Add(publication);
+    public void PublishState(PluginStatePublication publication)
+    {
+        States.Add(publication);
+    }
 }

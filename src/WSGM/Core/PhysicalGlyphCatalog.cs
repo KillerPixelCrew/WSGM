@@ -27,21 +27,37 @@ internal sealed record PhysicalGlyphSelectionResult(
 internal sealed class PhysicalGlyphCatalog : IDisposable
 {
     private readonly Lock _gate = new();
-    private Dictionary<string, ImportedGlyphProfile> _profiles = new(StringComparer.Ordinal);
-    private bool _disposed;
 
     private string? _activeDeviceId;
+    private bool _disposed;
+    private Dictionary<string, ImportedGlyphProfile> _profiles = new(StringComparer.Ordinal);
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        lock (_gate)
+        {
+            _profiles.Clear();
+        }
+
+        Changed = null;
+    }
 
     internal event Action? Changed;
 
     /// <summary>Records which device definition the active plugin matched.</summary>
     /// <param name="deviceDefinitionId">The matched definition, or null when none is active.</param>
     /// <remarks>
-    /// Held here rather than by the caller because selection depends on it exactly as it depends on
-    /// the profiles, and both can arrive in either order: the definition comes from a lifecycle
-    /// notification and the profiles from the installed package. Whichever lands second has to
-    /// re-raise <see cref="Changed"/>, or every surface keeps the answer computed before the pair
-    /// was complete.
+    ///     Held here rather than by the caller because selection depends on it exactly as it depends on
+    ///     the profiles, and both can arrive in either order: the definition comes from a lifecycle
+    ///     notification and the profiles from the installed package. Whichever lands second has to
+    ///     re-raise <see cref="Changed" />, or every surface keeps the answer computed before the pair
+    ///     was complete.
     /// </remarks>
     internal void SetActiveDevice(string? deviceDefinitionId)
     {
@@ -81,6 +97,7 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
         {
             _profiles = replacement;
         }
+
         Changed?.Invoke();
     }
 
@@ -99,12 +116,13 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
             Log.Change(
                 "glyph.selection",
                 $"Glyph selection: integration={deviceIntegrationEnabled}, mode={selectionMode}, "
-                    + $"device={activeDeviceId ?? "<none>"}, profiles={_profiles.Count}, "
-                    + $"manual={manualProfileId ?? "<none>"}");
+                + $"device={activeDeviceId ?? "<none>"}, profiles={_profiles.Count}, "
+                + $"manual={manualProfileId ?? "<none>"}");
             if (!deviceIntegrationEnabled)
             {
                 return Fallback(PhysicalGlyphFallbackReason.DeviceIntegrationDisabled);
             }
+
             if (selectionMode is DeviceGlyphSelection.NativeSteam)
             {
                 return Fallback(PhysicalGlyphFallbackReason.NativeSteamSelected);
@@ -160,21 +178,8 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
         }
     }
 
-    public void Dispose()
+    private static PhysicalGlyphSelectionResult Fallback(PhysicalGlyphFallbackReason reason)
     {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        lock (_gate)
-        {
-            _profiles.Clear();
-        }
-        Changed = null;
+        return new PhysicalGlyphSelectionResult(null, reason, false);
     }
-
-    private static PhysicalGlyphSelectionResult Fallback(PhysicalGlyphFallbackReason reason) =>
-        new(null, reason, false);
 }

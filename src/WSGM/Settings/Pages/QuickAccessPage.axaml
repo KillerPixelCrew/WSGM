@@ -3,105 +3,115 @@
              xmlns:s="using:WSGM.Settings"
              x:Class="WSGM.Settings.Pages.QuickAccessPage"
              x:DataType="s:SettingsViewModel">
-    <!-- Quick access sheet. Element order preserved (controller tab order):
+  <!-- Quick access sheet. Element order preserved (controller tab order):
          sheet test → lease toggle → glyph style → hotkey recorder → chord
          recorder → top edge → bottom edge → Steam menu edge → Steam QAM edge. -->
-    <Border Padding="16,10,16,10">
-        <Grid ColumnDefinitions="*,24,*">
-            <StackPanel Grid.Column="0">
-                <Border Classes="section-header">
-                    <TextBlock Text="QUICK ACCESS" />
-                </Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Quick access sheet" Classes="setting-title" />
-                            <TextBlock Text="Slides down from the top edge over the game: pinned rows, session, Steam, device, tools and power, and your open programs with tray icons. Tap the strip of game left visible below it to close." Classes="caption" />
-                        </StackPanel>
-                        <Button Grid.Column="1" Content="Test sheet" Click="OnTestOverlay" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Block Steam Input while the sheet is open" Classes="setting-title" />
-                            <TextBlock Text="Keeps the controller usable in quick access by leasing it away from Steam Input. Turn off to leave Steam completely untouched — the sheet may then only react to touch while Steam's desktop profile holds the controller." Classes="caption" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamInputLeaseEnabled}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,150" ColumnSpacing="8">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Controller button glyphs" Classes="setting-title" />
-                            <TextBlock Text="Choose the labels shown in quick access and the settings footer." Classes="caption" />
-                        </StackPanel>
-                        <ComboBox Grid.Column="1" ItemsSource="{Binding GlyphStyles}" SelectedIndex="{Binding GlyphStyleIndex}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
+  <Border Padding="16,10,16,10">
+    <Grid ColumnDefinitions="*,24,*">
+      <StackPanel Grid.Column="0">
+        <Border Classes="section-header">
+          <TextBlock Text="QUICK ACCESS" />
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Quick access sheet" Classes="setting-title" />
+              <TextBlock
+                Text="Slides down from the top edge over the game: pinned rows, session, Steam, device, tools and power, and your open programs with tray icons. Tap the strip of game left visible below it to close."
+                Classes="caption" />
             </StackPanel>
+            <Button Grid.Column="1" Content="Test sheet" Click="OnTestOverlay" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Block Steam Input while the sheet is open" Classes="setting-title" />
+              <TextBlock
+                Text="Keeps the controller usable in quick access by leasing it away from Steam Input. Turn off to leave Steam completely untouched — the sheet may then only react to touch while Steam's desktop profile holds the controller."
+                Classes="caption" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamInputLeaseEnabled}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,150" ColumnSpacing="8">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Controller button glyphs" Classes="setting-title" />
+              <TextBlock Text="Choose the labels shown in quick access and the settings footer." Classes="caption" />
+            </StackPanel>
+            <ComboBox Grid.Column="1" ItemsSource="{Binding GlyphStyles}" SelectedIndex="{Binding GlyphStyleIndex}"
+                      VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+      </StackPanel>
 
-            <StackPanel Grid.Column="2">
-                <Border Classes="section-header">
-                    <TextBlock Text="SHORTCUTS &amp; SWIPES" />
-                </Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Keyboard shortcut" Classes="setting-title" />
-                            <TextBlock Text="{Binding HotkeyText}" Classes="caption" />
-                        </StackPanel>
-                        <Button Grid.Column="1" Content="Record" Click="OnRecordHotkey" VerticalAlignment="Center" />
-                        <Button Grid.Column="2" Content="Clear" Click="OnClearHotkey" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row">
-                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Controller shortcut" Classes="setting-title" />
-                            <TextBlock Text="{Binding ChordText}" Classes="caption" />
-                        </StackPanel>
-                        <Button Grid.Column="1" Content="Record" Click="OnRecordChord" VerticalAlignment="Center" />
-                        <Button Grid.Column="2" Content="Clear" Click="OnClearChord" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Swipe from the top edge" Classes="setting-title" />
-                            <TextBlock Text="A short downward swipe opens quick access." Classes="caption" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding GestureTop}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Swipe from the bottom edge" Classes="setting-title" />
-                            <TextBlock Text="Off by default. Enable to open the Open apps strip in Game Mode. On the desktop, Windows keeps this edge." Classes="caption" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding GestureBottom}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Swipe from the left edge" Classes="setting-title" />
-                            <TextBlock Text="Send Ctrl+1 to open Steam Big Picture's left menu, including over a running game." Classes="caption" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding GestureLeftSteamMenu}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Swipe from the right edge" Classes="setting-title" />
-                            <TextBlock Text="Send Ctrl+2 to open Steam Big Picture's Quick Access Menu, including over a running game — the SteamOS layout." Classes="caption" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding GestureRightSteamQuickAccess}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
+      <StackPanel Grid.Column="2">
+        <Border Classes="section-header">
+          <TextBlock Text="SHORTCUTS &amp; SWIPES" />
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Keyboard shortcut" Classes="setting-title" />
+              <TextBlock Text="{Binding HotkeyText}" Classes="caption" />
             </StackPanel>
-        </Grid>
-    </Border>
+            <Button Grid.Column="1" Content="Record" Click="OnRecordHotkey" VerticalAlignment="Center" />
+            <Button Grid.Column="2" Content="Clear" Click="OnClearHotkey" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Controller shortcut" Classes="setting-title" />
+              <TextBlock Text="{Binding ChordText}" Classes="caption" />
+            </StackPanel>
+            <Button Grid.Column="1" Content="Record" Click="OnRecordChord" VerticalAlignment="Center" />
+            <Button Grid.Column="2" Content="Clear" Click="OnClearChord" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Swipe from the top edge" Classes="setting-title" />
+              <TextBlock Text="A short downward swipe opens quick access." Classes="caption" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding GestureTop}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Swipe from the bottom edge" Classes="setting-title" />
+              <TextBlock
+                Text="Off by default. Enable to open the Open apps strip in Game Mode. On the desktop, Windows keeps this edge."
+                Classes="caption" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding GestureBottom}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Swipe from the left edge" Classes="setting-title" />
+              <TextBlock Text="Send Ctrl+1 to open Steam Big Picture's left menu, including over a running game."
+                         Classes="caption" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding GestureLeftSteamMenu}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Swipe from the right edge" Classes="setting-title" />
+              <TextBlock
+                Text="Send Ctrl+2 to open Steam Big Picture's Quick Access Menu, including over a running game — the SteamOS layout."
+                Classes="caption" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding GestureRightSteamQuickAccess}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+      </StackPanel>
+    </Grid>
+  </Border>
 </UserControl>

@@ -10,14 +10,18 @@ namespace WSGM.Shell;
 internal sealed class ShellDisplayPresence : IDisplayPresence
 {
     /// <inheritdoc />
-    public DisplayArrangement Observe() => DisplayLayouts.Observe();
+    public DisplayArrangement Observe()
+    {
+        return DisplayLayouts.Observe();
+    }
 }
 
-/// <summary>Turns the hidden top-level window's display notifications into an awaitable hint.
-///
-/// The hint only ever shortens a wait. If the window could not be created, or Windows sends
-/// nothing, every wait falls back to the backstop delay and the waiter still finds the display on
-/// its next look.</summary>
+/// <summary>
+///     Turns the hidden top-level window's display notifications into an awaitable hint.
+///     The hint only ever shortens a wait. If the window could not be created, or Windows sends
+///     nothing, every wait falls back to the backstop delay and the waiter still finds the display on
+///     its next look.
+/// </summary>
 internal sealed class ShellDisplayChangeSignal(DisplayChangeWindow? window) : IDisplayChangeSignal
 {
     /// <inheritdoc />
@@ -28,6 +32,7 @@ internal sealed class ShellDisplayChangeSignal(DisplayChangeWindow? window) : ID
             await Task.Delay(backstop, cancellationToken).ConfigureAwait(false);
             return;
         }
+
         TaskCompletionSource signalled = new(TaskCreationOptions.RunContinuationsAsynchronously);
         window.DisplaysChanged += OnChanged;
         try
@@ -43,6 +48,9 @@ internal sealed class ShellDisplayChangeSignal(DisplayChangeWindow? window) : ID
 
         return;
 
-        void OnChanged() => signalled.TrySetResult();
+        void OnChanged()
+        {
+            signalled.TrySetResult();
+        }
     }
 }

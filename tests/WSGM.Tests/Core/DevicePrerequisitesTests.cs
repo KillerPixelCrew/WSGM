@@ -8,14 +8,17 @@ public sealed class DevicePrerequisitesTests
         bool package = true,
         bool integration = true,
         bool library = true,
-        bool hidHide = true) => new(package, integration, library, hidHide);
+        bool hidHide = true)
+    {
+        return new DevicePrerequisiteState(package, integration, library, hidHide);
+    }
 
     [Fact]
     public void AnInstallWithNoDevicePackageIsNotMissingAnything()
     {
         // Every desktop PC is in this state on purpose. Saying anything here would be noise.
         var advice = DevicePrerequisites.Describe(
-            State(package: false, integration: false, library: false, hidHide: false));
+            State(false, false, false, false));
 
         Assert.False(advice.HasAdvice);
         Assert.False(advice.CanEnableIntegration);
@@ -24,7 +27,9 @@ public sealed class DevicePrerequisitesTests
 
     [Fact]
     public void AFullyEquippedInstallSaysNothing()
-        => Assert.False(DevicePrerequisites.Describe(State()).HasAdvice);
+    {
+        Assert.False(DevicePrerequisites.Describe(State()).HasAdvice);
+    }
 
     [Fact]
     public void APackageDroppedOntoAMinimalInstallReportsBothHalves()

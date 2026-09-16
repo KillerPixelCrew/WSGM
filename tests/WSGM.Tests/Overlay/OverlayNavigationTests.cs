@@ -8,32 +8,33 @@ public sealed class OverlayNavigationTests
     public void SharedPowerRemainsOpenWithoutIntegration()
     {
         OverlayNavigation navigation = new();
-        Assert.True(navigation.SetDeviceVisible(false, coreControlsAvailable: true));
+        Assert.True(navigation.SetDeviceVisible(false, true));
         Assert.True(navigation.IsVisible(OverlayDestination.Device));
         Assert.True(navigation.Select(OverlayDestination.Device));
         Assert.True(navigation.Push(OverlayPage.DevicePluginSection, "device.section.plugin.power", "power"));
         Assert.Equal(OverlayPage.DevicePluginSection, navigation.Page);
         Assert.Equal("power", navigation.SectionId);
-        Assert.False(navigation.NeedsDeviceRoot(pluginVisible: false));
+        Assert.False(navigation.NeedsDeviceRoot(false));
     }
 
     [Fact]
     public void RemovingAPluginRequestsTheDeviceRootWhileCoreControlsRemain()
     {
         OverlayNavigation navigation = new();
-        navigation.SetDeviceVisible(true, coreControlsAvailable: true);
+        navigation.SetDeviceVisible(true, true);
         navigation.Select(OverlayDestination.Device);
         navigation.Push(OverlayPage.DevicePluginSection, "power", "plugin-power");
-        Assert.False(navigation.NeedsDeviceRoot(pluginVisible: true));
-        Assert.True(navigation.NeedsDeviceRoot(pluginVisible: false));
+        Assert.False(navigation.NeedsDeviceRoot(true));
+        Assert.True(navigation.NeedsDeviceRoot(false));
         navigation.Select(OverlayDestination.Device);
-        navigation.SetDeviceVisible(false, coreControlsAvailable: true);
-        Assert.False(navigation.NeedsDeviceRoot(pluginVisible: false));
+        navigation.SetDeviceVisible(false, true);
+        Assert.False(navigation.NeedsDeviceRoot(false));
         Assert.Equal(OverlayPage.Device, navigation.Page);
         Assert.Null(navigation.SectionId);
         Assert.Equal(1, navigation.Depth);
         Assert.True(navigation.IsVisible(OverlayDestination.Device));
     }
+
     [Fact]
     public void DeviceDestinationIsAbsentUntilItsCapabilitySourceIsVisible()
     {

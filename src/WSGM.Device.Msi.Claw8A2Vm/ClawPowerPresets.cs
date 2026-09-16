@@ -12,12 +12,12 @@ internal static class ClawPowerPresets
     internal static IReadOnlyList<DevicePowerPreset> All { get; } =
     [
         new("super-battery", "Super Battery", 8, 9, DevicePowerMode.BetterBattery)
-        { ScenarioOnAc = "eco", ScenarioOnDc = "comfort" },
+            { ScenarioOnAc = "eco", ScenarioOnDc = "comfort" },
         new("balanced", "Balanced", 17, 18, DevicePowerMode.Balanced)
-        { ScenarioOnAc = "green", ScenarioOnDc = "comfort" },
+            { ScenarioOnAc = "green", ScenarioOnDc = "comfort" },
         new("extreme-performance", "Extreme Performance", 30, 31, DevicePowerMode.BestPerformance)
-        { ScenarioOnAc = "sport", ScenarioOnDc = "comfort" },
+            { ScenarioOnAc = "sport", ScenarioOnDc = "comfort" },
         new("full-power", "Full Power", 37, 37, DevicePowerMode.BestPerformance)
-        { ScenarioOnAc = "sport", ScenarioOnDc = "comfort" }
+            { ScenarioOnAc = "sport", ScenarioOnDc = "comfort" }
     ];
 }

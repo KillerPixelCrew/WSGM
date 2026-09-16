@@ -29,8 +29,10 @@ internal static partial class Kernel32
         uint flagsAndAttributes,
         nint templateFile);
 
-    /// <summary>Opens a file or device into a raw handle, for callers that inspect
-    /// INVALID_HANDLE_VALUE and the last error before taking ownership.</summary>
+    /// <summary>
+    ///     Opens a file or device into a raw handle, for callers that inspect
+    ///     INVALID_HANDLE_VALUE and the last error before taking ownership.
+    /// </summary>
     [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true,
         StringMarshalling = StringMarshalling.Utf16)]
     internal static partial nint CreateFileHandleW(

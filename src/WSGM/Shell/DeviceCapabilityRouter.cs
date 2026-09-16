@@ -12,9 +12,12 @@ namespace WSGM.Shell;
 /// <summary>Stable dictionary key for one semantic capability instance.</summary>
 internal readonly record struct DeviceCapabilityKey(string CapabilityId, string? InstanceId)
 {
-    public override string ToString() => InstanceId is { Length: > 0 }
-        ? $"{CapabilityId}#{InstanceId}"
-        : CapabilityId;
+    public override string ToString()
+    {
+        return InstanceId is { Length: > 0 }
+            ? $"{CapabilityId}#{InstanceId}"
+            : CapabilityId;
+    }
 }
 
 /// <summary>One immutable router snapshot suitable for an overlay or diagnostics client.</summary>
@@ -24,54 +27,88 @@ internal sealed record DeviceCapabilityView(
     CapabilityCommandResult? LastResult);
 
 /// <summary>
-/// Validates and projects the semantic capability stream owned by one plugin generation.
+///     Validates and projects the semantic capability stream owned by one plugin generation.
 /// </summary>
 internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 {
-    private readonly Lock _gate = new();
-    private readonly Action<Action> _postToUi;
+    /// <summary>Last logged availability per capability, so only changes are written.</summary>
+    private readonly Dictionary<DeviceCapabilityKey, bool> _availability = [];
+
+    private readonly Dictionary<DeviceCapabilityKey, SemaphoreSlim> _commandGates = [];
     private readonly Dictionary<DeviceCapabilityKey, CapabilityDescriptor> _descriptors = [];
+    private readonly Lock _gate = new();
+    private readonly Dictionary<DeviceCapabilityKey, CapabilityCommandResult> _lastResults = [];
+    private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _pendingValues = [];
+    private readonly Action<Action> _postToUi;
+    private readonly Action _publishPosted;
+
+    /// <summary>Latest accepted state per capability.</summary>
+    /// <remarks>
+    ///     The high-rate state channel does not promise ordering, and a delayed older sample overwriting
+    ///     a newer one is not cosmetic: it can restore a "fresh" reading the device has already moved
+    ///     past, and the UI would then command against it. Sequence numbers are per cycle generation, so
+    ///     stale-generation publications are refused by validation before they reach this map.
+    /// </remarks>
+    private readonly Dictionary<DeviceCapabilityKey, CapabilityStateDelta> _states = [];
+
+    private string? _applicationId;
+    private DevicePluginRuntime? _client;
+    private bool _connected;
+    private long _cycleGeneration;
+
+    private long _descriptorGeneration;
+
+    // The desired profile's preferences by capability, indexed when the profile changes. The first
+    // preference for a capability wins, as the linear search this replaced did.
+    private Dictionary<DeviceCapabilityKey, DeviceCapabilityPreference> _desiredPreferences = [];
+    private bool _disposed;
+    private string? _hardwareProfileId;
+    private bool _onAcPower = true;
 
     // The same descriptors in snapshot order, sorted once per descriptor set rather than on every
     // snapshot a state delta builds.
     private KeyValuePair<DeviceCapabilityKey, CapabilityDescriptor>[] _orderedDescriptors = [];
-    private readonly Dictionary<DeviceCapabilityKey, CapabilityCommandResult> _lastResults = [];
-    private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _pendingValues = [];
-
-    /// <summary>Latest accepted state per capability.</summary>
-    /// <remarks>
-    /// The high-rate state channel does not promise ordering, and a delayed older sample overwriting
-    /// a newer one is not cosmetic: it can restore a "fresh" reading the device has already moved
-    /// past, and the UI would then command against it. Sequence numbers are per cycle generation, so
-    /// stale-generation publications are refused by validation before they reach this map.
-    /// </remarks>
-    private readonly Dictionary<DeviceCapabilityKey, CapabilityStateDelta> _states = [];
-
-    /// <summary>Last logged availability per capability, so only changes are written.</summary>
-    private readonly Dictionary<DeviceCapabilityKey, bool> _availability = [];
-    private readonly Dictionary<DeviceCapabilityKey, SemaphoreSlim> _commandGates = [];
+    private bool _publishPending;
 
     /// <summary>Overlay sections of the accepted descriptor set, replaced with each set.</summary>
     private IReadOnlyList<CapabilitySection> _sections = [];
-    private DevicePluginRuntime? _client;
-    // The desired profile's preferences by capability, indexed when the profile changes. The first
-    // preference for a capability wins, as the linear search this replaced did.
-    private Dictionary<DeviceCapabilityKey, DeviceCapabilityPreference> _desiredPreferences = [];
-    private string? _hardwareProfileId;
-    private string? _applicationId;
-    private long _descriptorGeneration;
-    private long _cycleGeneration;
-    private readonly Action _publishPosted;
-    private bool _publishPending;
-    private bool _onAcPower = true;
-    private bool _connected;
-    private bool _disposed;
 
     internal DeviceCapabilityRouter(Action<Action> postToUi)
     {
         ArgumentNullException.ThrowIfNull(postToUi);
         _postToUi = postToUi;
         _publishPosted = PublishPosted;
+    }
+
+    /// <summary>The declared overlay sections of the accepted descriptor set.</summary>
+    internal IReadOnlyList<CapabilitySection> Sections
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _sections;
+            }
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        lock (_gate)
+        {
+            _disposed = true;
+            DetachUnderGate();
+            // An admitted ExecuteAsync releases its local gate in finally. Clearing the index
+            // blocks reuse without disposing a semaphore an in-flight command still owns.
+            _commandGates.Clear();
+        }
+
+        return ValueTask.CompletedTask;
     }
 
     /// <summary>Raised on the UI dispatcher with a complete immutable projection.</summary>
@@ -143,7 +180,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         await commandGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var refusal = PrepareCommand(key, value, timeout, out var command, out var client, expectedCycle, expectedDescriptors, applyPowerPair);
+            var refusal = PrepareCommand(key, value, timeout, out var command, out var client, expectedCycle,
+                expectedDescriptors, applyPowerPair);
             if (refusal is not null)
             {
                 ReconcileResult(key, refusal);
@@ -185,18 +223,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         finally
         {
             commandGate.Release();
-        }
-    }
-
-    /// <summary>The declared overlay sections of the accepted descriptor set.</summary>
-    internal IReadOnlyList<CapabilitySection> Sections
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _sections;
-            }
         }
     }
 
@@ -255,25 +281,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         Publish();
     }
 
-    public ValueTask DisposeAsync()
-    {
-        if (_disposed)
-        {
-            return ValueTask.CompletedTask;
-        }
-
-        lock (_gate)
-        {
-            _disposed = true;
-            DetachUnderGate();
-            // An admitted ExecuteAsync releases its local gate in finally. Clearing the index
-            // blocks reuse without disposing a semaphore an in-flight command still owns.
-            _commandGates.Clear();
-        }
-
-        return ValueTask.CompletedTask;
-    }
-
     private CapabilityCommandResult? PrepareCommand(
         DeviceCapabilityKey key,
         CapabilityValue? value,
@@ -302,7 +309,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             {
                 client = null!;
                 return Reject(command, CapabilityReasonCode.HostUnavailable,
-                    "The device plugin runtime is not connected.", retryable: true);
+                    "The device plugin runtime is not connected.", true);
             }
 
             client = _client;
@@ -312,6 +319,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 return Reject(command, CapabilityReasonCode.HostUnavailable,
                     "The power preset belongs to an earlier device or descriptor generation.");
             }
+
             if (!_descriptors.TryGetValue(key, out var descriptor))
             {
                 return Reject(command, CapabilityReasonCode.Unsupported,
@@ -322,20 +330,23 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             {
                 if (descriptor.PairedPowerLimitId is null)
                 {
-                    return Reject(command, CapabilityReasonCode.Unsupported, "This capability does not declare a power pair.");
+                    return Reject(command, CapabilityReasonCode.Unsupported,
+                        "This capability does not declare a power pair.");
                 }
 
                 if (!_states.TryGetValue(new DeviceCapabilityKey(descriptor.PairedPowerLimitId, null), out var peer)
-                    || !CanCommand(EvaluateFreshness(peer.State, FreshnessFor(CapabilityRole.PowerSlowLimit), now, _cycleGeneration)))
+                    || !CanCommand(EvaluateFreshness(peer.State, FreshnessFor(CapabilityRole.PowerSlowLimit), now,
+                        _cycleGeneration)))
                 {
-                    return Reject(command, CapabilityReasonCode.ObservationExpired, "The paired power limit has no current readback.");
+                    return Reject(command, CapabilityReasonCode.ObservationExpired,
+                        "The paired power limit has no current readback.");
                 }
             }
 
             if (!_states.TryGetValue(key, out var rawState))
             {
                 return Reject(command, CapabilityReasonCode.ObservationExpired,
-                    "No current capability state has been observed.", retryable: true);
+                    "No current capability state has been observed.", true);
             }
 
             var state = EvaluateFreshness(
@@ -349,7 +360,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     command,
                     state.Reason?.Code ?? CapabilityReasonCode.ObservationExpired,
                     state.Reason?.Detail ?? "Capability state is not current.",
-                    retryable: state.Reason?.Retryable ?? true);
+                    state.Reason?.Retryable ?? true);
             }
 
             CapabilityReason? refusal = null;
@@ -372,7 +383,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 refusal = new CapabilityReason(CapabilityReasonCode.Unsupported, "Capability is read-only.");
             }
             else if (value is not null
-                && !DeviceCapabilityValidation.ValueMatches(value, descriptor, out var error))
+                     && !DeviceCapabilityValidation.ValueMatches(value, descriptor, out var error))
             {
                 refusal = new CapabilityReason(
                     CapabilityReasonCode.ValueOutOfRange,
@@ -404,16 +415,16 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             // Resume publishes inside the lifecycle call, before the coordinator can synchronize.
             // Only the attached runtime may advance the cycle; a plugin-supplied number cannot.
             if (_client is { } client && client.CycleGeneration > _cycleGeneration
-                && descriptors.CycleGeneration == client.CycleGeneration)
+                                      && descriptors.CycleGeneration == client.CycleGeneration)
             {
                 AdvanceCycleUnderGate(client.CycleGeneration);
             }
 
             if (!DeviceCapabilityValidation.TryValidateDescriptorSet(
-                descriptors,
-                _cycleGeneration,
-                _descriptorGeneration,
-                out var error))
+                    descriptors,
+                    _cycleGeneration,
+                    _descriptorGeneration,
+                    out var error))
             {
                 Log.Warn($"Device descriptor set rejected: {error}");
                 return;
@@ -426,6 +437,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             {
                 _descriptors.Add(Key(descriptor), descriptor);
             }
+
             _orderedDescriptors = [.. _descriptors];
             Array.Sort(_orderedDescriptors, static (left, right) =>
             {
@@ -460,7 +472,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 Log.Change(
                     $"device-capability-state-rejected/{key}",
                     $"Device capability state rejected: key={key}, "
-                        + $"{error ?? "invalid sequence or key"}");
+                    + $"{error ?? "invalid sequence or key"}");
                 return;
             }
 
@@ -484,15 +496,15 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// <param name="key">The capability that changed.</param>
     /// <param name="state">The state just applied.</param>
     /// <remarks>
-    /// The plugin already says exactly why a capability is unavailable — a gated firmware revision,
-    /// a missing prerequisite, a topology it could not match — and WSGM was throwing every one of
-    /// those away. A device reporting itself "partly available" with no record of which parts or
-    /// why cannot be diagnosed from a pasted log, which is the only way most of these devices are
-    /// reachable. Logged on change so a capability that is simply unavailable does not repeat.
-    /// <para>
-    /// Called under <c>_gate</c>, after the delta is accepted, so what is logged is what was
-    /// actually applied rather than what arrived.
-    /// </para>
+    ///     The plugin already says exactly why a capability is unavailable — a gated firmware revision,
+    ///     a missing prerequisite, a topology it could not match — and WSGM was throwing every one of
+    ///     those away. A device reporting itself "partly available" with no record of which parts or
+    ///     why cannot be diagnosed from a pasted log, which is the only way most of these devices are
+    ///     reachable. Logged on change so a capability that is simply unavailable does not repeat.
+    ///     <para>
+    ///         Called under <c>_gate</c>, after the delta is accepted, so what is logged is what was
+    ///         actually applied rather than what arrived.
+    ///     </para>
     /// </remarks>
     private void LogAvailabilityChange(DeviceCapabilityKey key, CapabilityState state)
     {
@@ -533,14 +545,14 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             {
                 Log.Warn(
                     $"Late device command result ignored: command={result.CommandId}, expected={commandId}, "
-                        + $"resultGeneration={cycleGeneration}, activeGeneration={_cycleGeneration}, "
-                        + $"connected={_connected}, sameRuntime={ReferenceEquals(_client, client)}.");
+                    + $"resultGeneration={cycleGeneration}, activeGeneration={_cycleGeneration}, "
+                    + $"connected={_connected}, sameRuntime={ReferenceEquals(_client, client)}.");
                 return;
             }
         }
 
         Log.Info($"Late device command result reconciled: command={result.CommandId}, "
-            + $"capability={key}, outcome={result.Outcome}.");
+                 + $"capability={key}, outcome={result.Outcome}.");
         ReconcileResult(key, result);
     }
 
@@ -555,6 +567,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             {
                 _pendingValues.Remove(key);
             }
+
             _lastResults[key] = result;
         }
 
@@ -565,7 +578,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         Log.Change(
             $"device-command/{key}",
             $"Device command: capability={key}, outcome={result.Outcome}, "
-                + $"rollback={result.Rollback}.",
+            + $"rollback={result.Rollback}.",
             result.Outcome is CommandOutcome.AppliedVerified ? LogLevel.Info : LogLevel.Warn);
         Publish();
     }
@@ -587,7 +600,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     Reason = new CapabilityReason(
                         CapabilityReasonCode.HostUnavailable,
                         "The device plugin is disconnected.",
-                        Retryable: true)
+                        true)
                 };
             }
             else
@@ -645,22 +658,26 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         {
             index.TryAdd(new DeviceCapabilityKey(preference.CapabilityId, preference.InstanceId), preference);
         }
+
         return index;
     }
 
-    private CapabilityState UnknownState(DeviceCapabilityKey key) => new()
+    private CapabilityState UnknownState(DeviceCapabilityKey key)
     {
-        CapabilityId = key.CapabilityId,
-        InstanceId = key.InstanceId,
-        Available = false,
-        Quality = HardwareStateQuality.Unknown,
-        DescriptorGeneration = _descriptorGeneration,
-        CycleGeneration = _cycleGeneration,
-        Reason = new CapabilityReason(
-            CapabilityReasonCode.ObservationExpired,
-            "No state has been published for this descriptor.",
-            Retryable: true)
-    };
+        return new CapabilityState
+        {
+            CapabilityId = key.CapabilityId,
+            InstanceId = key.InstanceId,
+            Available = false,
+            Quality = HardwareStateQuality.Unknown,
+            DescriptorGeneration = _descriptorGeneration,
+            CycleGeneration = _cycleGeneration,
+            Reason = new CapabilityReason(
+                CapabilityReasonCode.ObservationExpired,
+                "No state has been published for this descriptor.",
+                true)
+        };
+    }
 
     private void DetachUnderGate()
     {
@@ -715,21 +732,27 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         CapabilityCommand command,
         CapabilityReasonCode code,
         string detail,
-        bool retryable = false) => new()
+        bool retryable = false)
+    {
+        return new CapabilityCommandResult
         {
             CommandId = command.CommandId,
             Outcome = CommandOutcome.Rejected,
             Reason = new CapabilityReason(code, detail, retryable),
             CompletedAt = DateTimeOffset.UtcNow
         };
+    }
 
-    private static CapabilityCommandResult Uncertain(CapabilityCommand command, string detail) => new()
+    private static CapabilityCommandResult Uncertain(CapabilityCommand command, string detail)
     {
-        CommandId = command.CommandId,
-        Outcome = CommandOutcome.Indeterminate,
-        Reason = new CapabilityReason(CapabilityReasonCode.HostUnavailable, detail, Retryable: true),
-        CompletedAt = DateTimeOffset.UtcNow
-    };
+        return new CapabilityCommandResult
+        {
+            CommandId = command.CommandId,
+            Outcome = CommandOutcome.Indeterminate,
+            Reason = new CapabilityReason(CapabilityReasonCode.HostUnavailable, detail, true),
+            CompletedAt = DateTimeOffset.UtcNow
+        };
+    }
 
     private static CommandProgress Progress(
         CapabilityValue? pending,
@@ -752,30 +775,35 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
     /// <summary>How long an observation stays usable, per capability role.</summary>
     /// <remarks>
-    /// Per capability because the underlying facts age at wildly different rates: a fan RPM is stale
-    /// within seconds, while a charge limit changes only when someone changes it. One global timeout
-    /// would either spam a slow transport or leave a fast-moving reading looking current long after
-    /// it stopped being so.
+    ///     Per capability because the underlying facts age at wildly different rates: a fan RPM is stale
+    ///     within seconds, while a charge limit changes only when someone changes it. One global timeout
+    ///     would either spam a slow transport or leave a fast-moving reading looking current long after
+    ///     it stopped being so.
     /// </remarks>
-    private static TimeSpan FreshnessFor(CapabilityRole role) => role switch
+    private static TimeSpan FreshnessFor(CapabilityRole role)
     {
-        // A live reading, such as fan RPM or temperature.
-        CapabilityRole.Telemetry or CapabilityRole.FanMeasuredRpm => TimeSpan.FromSeconds(5),
-        // A value that only changes when something changes it, such as a charge limit.
-        CapabilityRole.ChargeLimit
-            or CapabilityRole.ChargeProtectionMode
-            or CapabilityRole.ChargeBypass
-            or CapabilityRole.LightingPower
-            or CapabilityRole.LightingBrightness
-            or CapabilityRole.LightingZoneColor
-            or CapabilityRole.LightingEffect
-            or CapabilityRole.LightingEffectSpeed => TimeSpan.FromMinutes(5),
-        // A value that drifts on its own, such as a power limit under a scenario.
-        _ => TimeSpan.FromSeconds(30)
-    };
+        return role switch
+        {
+            // A live reading, such as fan RPM or temperature.
+            CapabilityRole.Telemetry or CapabilityRole.FanMeasuredRpm => TimeSpan.FromSeconds(5),
+            // A value that only changes when something changes it, such as a charge limit.
+            CapabilityRole.ChargeLimit
+                or CapabilityRole.ChargeProtectionMode
+                or CapabilityRole.ChargeBypass
+                or CapabilityRole.LightingPower
+                or CapabilityRole.LightingBrightness
+                or CapabilityRole.LightingZoneColor
+                or CapabilityRole.LightingEffect
+                or CapabilityRole.LightingEffectSpeed => TimeSpan.FromMinutes(5),
+            // A value that drifts on its own, such as a power limit under a scenario.
+            _ => TimeSpan.FromSeconds(30)
+        };
+    }
 
-    /// <summary>Returns the state as it should be presented now, downgrading it to
-    /// <see cref="HardwareStateQuality.Stale"/> when it can no longer be trusted.</summary>
+    /// <summary>
+    ///     Returns the state as it should be presented now, downgrading it to
+    ///     <see cref="HardwareStateQuality.Stale" /> when it can no longer be trusted.
+    /// </summary>
     private static CapabilityState EvaluateFreshness(
         CapabilityState state,
         TimeSpan maxAge,
@@ -808,28 +836,36 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
     /// <summary>Whether a command may be issued against this state.</summary>
     /// <remarks>
-    /// Commanding from stale state is how a UI sends a value derived from a reading that no longer
-    /// describes the device. The control is disabled until a fresh observation arrives.
+    ///     Commanding from stale state is how a UI sends a value derived from a reading that no longer
+    ///     describes the device. The control is disabled until a fresh observation arrives.
     /// </remarks>
-    private static bool CanCommand(CapabilityState state) =>
-        state is { Available: true, Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified };
+    private static bool CanCommand(CapabilityState state)
+    {
+        return state is { Available: true, Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified };
+    }
 
     private static CapabilityState Stale(
         CapabilityState state,
         CapabilityReasonCode code,
-        string detail) =>
-        state with
+        string detail)
+    {
+        return state with
         {
             Quality = HardwareStateQuality.Stale,
             Available = false,
-            Reason = new CapabilityReason(code, detail, Retryable: true)
+            Reason = new CapabilityReason(code, detail, true)
         };
+    }
 
-    private static DeviceCapabilityKey Key(CapabilityDescriptor descriptor) =>
-        new(descriptor.CapabilityId, descriptor.InstanceId);
+    private static DeviceCapabilityKey Key(CapabilityDescriptor descriptor)
+    {
+        return new DeviceCapabilityKey(descriptor.CapabilityId, descriptor.InstanceId);
+    }
 
-    private static DeviceCapabilityKey Key(CapabilityState state) =>
-        new(state.CapabilityId, state.InstanceId);
+    private static DeviceCapabilityKey Key(CapabilityState state)
+    {
+        return new DeviceCapabilityKey(state.CapabilityId, state.InstanceId);
+    }
 }
 
 /// <summary>Structural and semantic validation applied before plugin data enters WSGM state.</summary>
@@ -840,11 +876,12 @@ internal static class DeviceCapabilityValidation
 
     /// <summary>Ceiling a text descriptor's own maximum length may declare.</summary>
     private const int MaxTextLength = 256;
+
     private const int MaxIdLength = 128;
 
     /// <summary>
-    /// Matches <see cref="PluginSettingSection.MaxSectionIdLength"/>: a capability's section names
-    /// the same declared section a setting does, so a longer id here would name nothing.
+    ///     Matches <see cref="PluginSettingSection.MaxSectionIdLength" />: a capability's section names
+    ///     the same declared section a setting does, so a longer id here would name nothing.
     /// </summary>
     private const int MaxSectionIdLength = PluginSettingSection.MaxSectionIdLength;
 
@@ -892,6 +929,7 @@ internal static class DeviceCapabilityValidation
                 error = $"Descriptor set declares section '{section.SectionId}' more than once.";
                 return false;
             }
+
             sections[section.SectionId] = section;
         }
 
@@ -912,7 +950,7 @@ internal static class DeviceCapabilityValidation
         }
 
         return DevicePowerPreset.TryValidate(set.Descriptors, out error)
-            && DevicePowerPair.TryValidate(set.Descriptors, out error);
+               && DevicePowerPair.TryValidate(set.Descriptors, out error);
     }
 
     internal static bool TryValidateState(
@@ -960,15 +998,15 @@ internal static class DeviceCapabilityValidation
         {
             CapabilityValueKind.Boolean => value.BooleanValue is not null,
             CapabilityValueKind.Integer => value.IntegerValue is { } integer
-                && (descriptor.Minimum is null || integer >= descriptor.Minimum)
-                && (descriptor.Maximum is null || integer <= descriptor.Maximum)
-                && (descriptor.Step is null or <= 0
-                    || (integer - (descriptor.Minimum ?? 0)) % descriptor.Step == 0),
+                                           && (descriptor.Minimum is null || integer >= descriptor.Minimum)
+                                           && (descriptor.Maximum is null || integer <= descriptor.Maximum)
+                                           && (descriptor.Step is null or <= 0
+                                               || (integer - (descriptor.Minimum ?? 0)) % descriptor.Step == 0),
             CapabilityValueKind.Choice => value.ChoiceValue is { Length: > 0 } choice
-                && descriptor.Choices.Any(item => string.Equals(
-                    item.Value,
-                    choice,
-                    StringComparison.Ordinal)),
+                                          && descriptor.Choices.Any(item => string.Equals(
+                                              item.Value,
+                                              choice,
+                                              StringComparison.Ordinal)),
             CapabilityValueKind.Color => value.ColorValue is >= 0 and <= 0xFFFFFF,
             CapabilityValueKind.Curve => CurveIsValid(value.CurveValue, descriptor),
             CapabilityValueKind.Text => PlainText.TryValidate(
@@ -984,10 +1022,10 @@ internal static class DeviceCapabilityValidation
 
     /// <summary>Checks a descriptor's section and category references against the declared layout.</summary>
     /// <remarks>
-    /// A section declared in the set is the plugin authoring its own overlay surface, so any role
-    /// may be placed there. Outside that layout the old rule stands: a semantic role keeps the home
-    /// WSGM gives it, and only a generic role may name a settings-manifest section — an unknown id
-    /// there falls back to a WSGM-owned group instead of failing, which is why it is not an error.
+    ///     A section declared in the set is the plugin authoring its own overlay surface, so any role
+    ///     may be placed there. Outside that layout the old rule stands: a semantic role keeps the home
+    ///     WSGM gives it, and only a generic role may name a settings-manifest section — an unknown id
+    ///     there falls back to a WSGM-owned group instead of failing, which is why it is not an error.
     /// </remarks>
     private static bool TryValidatePlacement(
         CapabilityDescriptor descriptor,
@@ -1064,8 +1102,8 @@ internal static class DeviceCapabilityValidation
         }
 
         if (descriptor.ValueKind is CapabilityValueKind.None != descriptor.SupportsAction
-            || descriptor.ValueKind is CapabilityValueKind.None
-                && (descriptor.SupportsRead || descriptor.SupportsWrite))
+            || (descriptor.ValueKind is CapabilityValueKind.None
+                && (descriptor.SupportsRead || descriptor.SupportsWrite)))
         {
             error = "Action and value-bearing descriptor shapes are inconsistent.";
             return false;
@@ -1075,16 +1113,16 @@ internal static class DeviceCapabilityValidation
         {
             case CapabilityValueKind.Integer
                 when descriptor.Minimum is null
-                || descriptor.Maximum is null
-                || descriptor.Minimum > descriptor.Maximum
-                || descriptor.Step is null or <= 0:
+                     || descriptor.Maximum is null
+                     || descriptor.Minimum > descriptor.Maximum
+                     || descriptor.Step is null or <= 0:
                 error = "Integer descriptors require an ordered range and positive step.";
                 return false;
             case CapabilityValueKind.Choice
                 when descriptor.Choices.Count is 0 or > MaxChoices
-                || descriptor.Choices.Any(choice => !DeviceIdentifier.IsValid(choice.Value, 64))
-                || descriptor.Choices.Select(choice => choice.Value).Distinct(StringComparer.Ordinal)
-                    .Count() != descriptor.Choices.Count:
+                     || descriptor.Choices.Any(choice => !DeviceIdentifier.IsValid(choice.Value, 64))
+                     || descriptor.Choices.Select(choice => choice.Value).Distinct(StringComparer.Ordinal)
+                         .Count() != descriptor.Choices.Count:
                 error = "Choice descriptor values are empty, invalid, oversized, or duplicated.";
                 return false;
         }
@@ -1121,53 +1159,58 @@ internal static class DeviceCapabilityValidation
         return true;
     }
 
-    private static bool RoleMatchesValueKind(CapabilityRole role, CapabilityValueKind kind) => role switch
+    private static bool RoleMatchesValueKind(CapabilityRole role, CapabilityValueKind kind)
     {
-        CapabilityRole.FanCurve => kind is CapabilityValueKind.Curve,
-        CapabilityRole.GenericAction => kind is CapabilityValueKind.None,
-        CapabilityRole.GenericToggle
-            or CapabilityRole.LightingPower
-            or CapabilityRole.VariableRefreshRate
-            or CapabilityRole.ChargeBypass => kind is CapabilityValueKind.Boolean,
-        CapabilityRole.GenericChoice
-            or CapabilityRole.ScenarioMode
-            or CapabilityRole.FanMode
-            or CapabilityRole.ChargeProtectionMode
-            or CapabilityRole.LightingEffect
-            or CapabilityRole.ControllerSource
-            or CapabilityRole.MotionSource => kind is CapabilityValueKind.Choice,
-        CapabilityRole.LightingZoneColor => kind is CapabilityValueKind.Color,
-        CapabilityRole.PowerSustainedLimit
-            or CapabilityRole.PowerSlowLimit
-            or CapabilityRole.PowerFastLimit
-            or CapabilityRole.PowerPeakLimit
-            or CapabilityRole.FanDuty
-            or CapabilityRole.FanTargetRpm
-            or CapabilityRole.FanMeasuredRpm
-            or CapabilityRole.ChargeLimit
-            or CapabilityRole.LightingBrightness
-            or CapabilityRole.LightingEffectSpeed
-            or CapabilityRole.GenericRange => kind is CapabilityValueKind.Integer,
-        CapabilityRole.OemControl or CapabilityRole.HapticSink => kind is CapabilityValueKind.None,
-        CapabilityRole.GenericText => kind is CapabilityValueKind.Text,
-        CapabilityRole.Telemetry or CapabilityRole.GenericReadOnly =>
-            kind is CapabilityValueKind.Boolean
-                or CapabilityValueKind.Integer
-                or CapabilityValueKind.Choice
-                // A read-only string — a firmware revision, a mode name the device reports.
-                or CapabilityValueKind.Text,
-        _ => true
-    };
+        return role switch
+        {
+            CapabilityRole.FanCurve => kind is CapabilityValueKind.Curve,
+            CapabilityRole.GenericAction => kind is CapabilityValueKind.None,
+            CapabilityRole.GenericToggle
+                or CapabilityRole.LightingPower
+                or CapabilityRole.VariableRefreshRate
+                or CapabilityRole.ChargeBypass => kind is CapabilityValueKind.Boolean,
+            CapabilityRole.GenericChoice
+                or CapabilityRole.ScenarioMode
+                or CapabilityRole.FanMode
+                or CapabilityRole.ChargeProtectionMode
+                or CapabilityRole.LightingEffect
+                or CapabilityRole.ControllerSource
+                or CapabilityRole.MotionSource => kind is CapabilityValueKind.Choice,
+            CapabilityRole.LightingZoneColor => kind is CapabilityValueKind.Color,
+            CapabilityRole.PowerSustainedLimit
+                or CapabilityRole.PowerSlowLimit
+                or CapabilityRole.PowerFastLimit
+                or CapabilityRole.PowerPeakLimit
+                or CapabilityRole.FanDuty
+                or CapabilityRole.FanTargetRpm
+                or CapabilityRole.FanMeasuredRpm
+                or CapabilityRole.ChargeLimit
+                or CapabilityRole.LightingBrightness
+                or CapabilityRole.LightingEffectSpeed
+                or CapabilityRole.GenericRange => kind is CapabilityValueKind.Integer,
+            CapabilityRole.OemControl or CapabilityRole.HapticSink => kind is CapabilityValueKind.None,
+            CapabilityRole.GenericText => kind is CapabilityValueKind.Text,
+            CapabilityRole.Telemetry or CapabilityRole.GenericReadOnly =>
+                kind is CapabilityValueKind.Boolean
+                    or CapabilityValueKind.Integer
+                    or CapabilityValueKind.Choice
+                    // A read-only string — a firmware revision, a mode name the device reports.
+                    or CapabilityValueKind.Text,
+            _ => true
+        };
+    }
 
-    /// <summary>Point count, strictly ascending inputs, and outputs inside whatever bounds the
-    /// descriptor declared — the same three the authored-profile check applies.</summary>
+    /// <summary>
+    ///     Point count, strictly ascending inputs, and outputs inside whatever bounds the
+    ///     descriptor declared — the same three the authored-profile check applies.
+    /// </summary>
     /// <remarks>
-    /// The output bounds are checked here and not only in <see cref="DeviceProfileValidation"/>
-    /// because a curve can also be written straight through <c>ExecuteCapabilityAsync</c>, without
-    /// passing a profile. Every other numeric kind on this path is held to the declared minimum and
-    /// maximum, and the refusal message promises "shape or bounds" for all of them. Only the bounds
-    /// the device actually declared are enforced: a descriptor that leaves one unset is saying it
-    /// has no limit there, and inventing one would refuse a curve the device would have accepted.
+    ///     The output bounds are checked here and not only in <see cref="DeviceProfileValidation" />
+    ///     because a curve can also be written straight through <c>ExecuteCapabilityAsync</c>, without
+    ///     passing a profile. Every other numeric kind on this path is held to the declared minimum and
+    ///     maximum, and the refusal message promises "shape or bounds" for all of them. Only the bounds
+    ///     the device actually declared are enforced: a descriptor that leaves one unset is saying it
+    ///     has no limit there, and inventing one would refuse a curve the device would have accepted.
     /// </remarks>
     private static bool CurveIsValid(IReadOnlyList<CurvePoint> points, CapabilityDescriptor descriptor)
     {

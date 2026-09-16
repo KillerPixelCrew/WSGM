@@ -22,7 +22,11 @@ public sealed class OverlayLayoutTests
     {
         using FakeDevice device = new();
         device.State = device.State with { Capabilities = [device.State.Capabilities[0] with { CanInvoke = true }] };
-        device.Invoke = (_, _) => { device.Notify(); return Task.CompletedTask; };
+        device.Invoke = (_, _) =>
+        {
+            device.Notify();
+            return Task.CompletedTask;
+        };
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         window.AttachDeviceBridge(device);
@@ -36,7 +40,10 @@ public sealed class OverlayLayoutTests
 
         return;
 
-        CardButton Action() => panel.GetVisualDescendants().OfType<CardButton>().Single();
+        CardButton Action()
+        {
+            return panel.GetVisualDescendants().OfType<CardButton>().Single();
+        }
     }
 
     [AvaloniaFact]
@@ -63,8 +70,11 @@ public sealed class OverlayLayoutTests
 
         return;
 
-        Button Header() => window.GetVisualDescendants().OfType<SectionPinHeader>()
-            .Single(header => header.IsEffectivelyVisible).GetVisualDescendants().OfType<Button>().Single();
+        Button Header()
+        {
+            return window.GetVisualDescendants().OfType<SectionPinHeader>()
+                .Single(header => header.IsEffectivelyVisible).GetVisualDescendants().OfType<Button>().Single();
+        }
     }
 
     [AvaloniaFact]
@@ -109,20 +119,37 @@ public sealed class OverlayLayoutTests
     {
         using FakeDevice device = new();
         List<DeviceOverlayCapability> writes = [];
-        device.Invoke = (capability, _) => { writes.Add(capability); return Task.CompletedTask; };
+        device.Invoke = (capability, _) =>
+        {
+            writes.Add(capability);
+            return Task.CompletedTask;
+        };
         using UiFixture fixture = new();
         device.State = device.State with
         {
-            Capabilities = [device.State.Capabilities[0],
-                new DeviceOverlayCapability("fixture.other", null, DeviceOverlaySection.Oem, DescriptorStatus.Available, "Other section", "", "", false),
+            Capabilities =
+            [
+                device.State.Capabilities[0],
+                new DeviceOverlayCapability("fixture.other", null, DeviceOverlaySection.Oem, DescriptorStatus.Available,
+                    "Other section", "", "", false),
                 new DeviceOverlayCapability("fixture.value", null, DeviceOverlaySection.Overview,
-                DescriptorStatus.Available, "Fixture value", "", "", true,
-                new CapabilityValue { Kind = kind, IntegerValue = 50, BooleanValue = false, ChoiceValue = "a", CurveValue = [new CurvePoint(30, 20), new CurvePoint(60, 50), new CurvePoint(90, 100)] })
-            {
-                ValueKind = kind, Writable = true, Minimum = 0, Maximum = 100, Step = 1,
-                Choices = [new CapabilityChoice("a", new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "First" }),
-                    new CapabilityChoice("b", new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Second" })]
-            }]
+                    DescriptorStatus.Available, "Fixture value", "", "", true,
+                    new CapabilityValue
+                    {
+                        Kind = kind, IntegerValue = 50, BooleanValue = false, ChoiceValue = "a",
+                        CurveValue = [new CurvePoint(30, 20), new CurvePoint(60, 50), new CurvePoint(90, 100)]
+                    })
+                {
+                    ValueKind = kind, Writable = true, Minimum = 0, Maximum = 100, Step = 1,
+                    Choices =
+                    [
+                        new CapabilityChoice("a",
+                            new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "First" }),
+                        new CapabilityChoice("b",
+                            new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Second" })
+                    ]
+                }
+            ]
         };
         var window = fixture.Overlay();
         window.AttachDeviceBridge(device);
@@ -154,7 +181,9 @@ public sealed class OverlayLayoutTests
                 Assert.False(choice.IsDropDownOpen);
                 break;
         }
-        var header = window.GetVisualDescendants().OfType<SectionPinHeader>().Single(header => header.IsEffectivelyVisible);
+
+        var header = window.GetVisualDescendants().OfType<SectionPinHeader>()
+            .Single(header => header.IsEffectivelyVisible);
         UiFixture.Click(window, header.GetVisualDescendants().OfType<Button>().Single());
         Assert.Equal(3, requests.Count);
         Assert.All(requests, id => Assert.Equal("section.device.overview", id));
@@ -164,8 +193,10 @@ public sealed class OverlayLayoutTests
             .Single(control => control.GetType() == type);
         Assert.Equal("pin:fixture.value", pinned.Tag);
         var pinnedSection = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
-        Assert.Contains(pinnedSection.GetVisualDescendants().OfType<CardButton>(), row => row.Title == "Processor temperature");
-        Assert.DoesNotContain(pinnedSection.GetVisualDescendants().OfType<CardButton>(), row => row.Title == "Other section");
+        Assert.Contains(pinnedSection.GetVisualDescendants().OfType<CardButton>(),
+            row => row.Title == "Processor temperature");
+        Assert.DoesNotContain(pinnedSection.GetVisualDescendants().OfType<CardButton>(),
+            row => row.Title == "Other section");
         pinned.Focus();
         device.Notify();
         Dispatcher.UIThread.RunJobs();
@@ -176,6 +207,7 @@ public sealed class OverlayLayoutTests
             UiFixture.Click(window, toggle);
             Assert.True(Assert.Single(writes).NextValue?.BooleanValue);
         }
+
         window.RequestSecondaryAction(pinned);
         Assert.Equal("section.device.overview", requests[^1]);
         device.State = device.State with { Visible = false };
@@ -186,7 +218,8 @@ public sealed class OverlayLayoutTests
         UiFixture.Click(window, unavailableHeader.GetVisualDescendants().OfType<Button>().Single());
         Assert.Equal("section.device.overview", requests[^1]);
         window.SetPins([]);
-        Assert.DoesNotContain(UiFixture.Named<Panel>(window, "PinnedSectionsGrid").GetVisualDescendants(), control => control.GetType() == type);
+        Assert.DoesNotContain(UiFixture.Named<Panel>(window, "PinnedSectionsGrid").GetVisualDescendants(),
+            control => control.GetType() == type);
     }
 
     [AvaloniaFact]
@@ -199,7 +232,8 @@ public sealed class OverlayLayoutTests
         var window = fixture.Overlay();
         var host = UiFixture.Named<StackPanel>(window, "DisplayBrightnessHost");
         DisplayTargetIdentity target = new("fixture", null, null, "Internal display", 1, 0, 1);
-        DisplayModeSnapshot modes = new(new ActiveDisplayPath(target, "fixture", 0, 120, 1), new DisplayMode(1920, 1200, 120),
+        DisplayModeSnapshot modes = new(new ActiveDisplayPath(target, "fixture", 0, 120, 1),
+            new DisplayMode(1920, 1200, 120),
             [new DisplayMode(1920, 1200, 60), new DisplayMode(1920, 1200, 120), new DisplayMode(1280, 800, 60)]);
         window.AttachBrightness(brightness, () => Task.FromResult<DisplayModeSnapshot?>(modes));
         UiFixture.Click(window, UiFixture.Tab(window, 2));

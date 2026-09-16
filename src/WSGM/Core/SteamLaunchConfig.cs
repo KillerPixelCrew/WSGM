@@ -24,29 +24,31 @@ public readonly record struct SteamLaunchDetails(
     string ShortcutStartDir);
 
 /// <summary>
-/// Reads and writes a game's launch configuration in the <em>running</em> Steam
-/// client over the CEF leg (<see cref="SteamCef"/>), so WSGM can point a game at
-/// <c>WSGM.Launch.exe</c> without the user editing anything by hand.
+///     Reads and writes a game's launch configuration in the <em>running</em> Steam
+///     client over the CEF leg (<see cref="SteamCef" />), so WSGM can point a game at
+///     <c>WSGM.Launch.exe</c> without the user editing anything by hand.
 /// </summary>
 /// <remarks>
-/// <para>Two different Steam APIs, because Steam treats the two kinds of entry
-/// differently. A real title takes <c>SteamClient.Apps.SetAppLaunchOptions</c>,
-/// where <c>%command%</c> expands to the game's own command line. A non-Steam
-/// shortcut ignores an exe-replacing launch option entirely and runs its original
-/// Target anyway, so there the wrapper is written into the Target
-/// (<c>SetShortcutExe</c>) and the real program moves into the Launch Arguments
-/// (<c>SetShortcutLaunchOptions</c>).</para>
-/// <para>Device-probed behaviour this depends on: Steam stores every one of these
-/// values <em>verbatim</em> — it neither adds nor strips the surrounding quotes its
-/// own shortcuts carry, and it does not touch backslashes — and it persists them to
-/// <c>shortcuts.vdf</c>/<c>localconfig.vdf</c> immediately, so no restart is needed.
-/// The start directory is deliberately never written: the game's own folder has to
-/// stay the working directory.</para>
+///     <para>
+///         Two different Steam APIs, because Steam treats the two kinds of entry
+///         differently. A real title takes <c>SteamClient.Apps.SetAppLaunchOptions</c>,
+///         where <c>%command%</c> expands to the game's own command line. A non-Steam
+///         shortcut ignores an exe-replacing launch option entirely and runs its original
+///         Target anyway, so there the wrapper is written into the Target
+///         (<c>SetShortcutExe</c>) and the real program moves into the Launch Arguments
+///         (<c>SetShortcutLaunchOptions</c>).
+///     </para>
+///     <para>
+///         Device-probed behaviour this depends on: Steam stores every one of these
+///         values <em>verbatim</em> — it neither adds nor strips the surrounding quotes its
+///         own shortcuts carry, and it does not touch backslashes — and it persists them to
+///         <c>shortcuts.vdf</c>/<c>localconfig.vdf</c> immediately, so no restart is needed.
+///         The start directory is deliberately never written: the game's own folder has to
+///         stay the working directory.
+///     </para>
 /// </remarks>
 public static class SteamLaunchConfig
 {
-    private static readonly TimeSpan Budget = TimeSpan.FromSeconds(20);
-
     // RegisterForAppDetails is a subscription, not a getter: it calls back with the
     // current details and again on every change. Steam answers a live app almost
     // immediately, so a short bound is enough to keep an unknown id from hanging.
@@ -55,12 +57,19 @@ public static class SteamLaunchConfig
     // Steam applies each setter on its own thread; give the write a moment to land
     // before the caller reads the value back to confirm it.
     private const int WriteSettleMs = 400;
+    private static readonly TimeSpan Budget = TimeSpan.FromSeconds(20);
+
+    private static string SettleJs =>
+        "await new Promise(r=>setTimeout(r," +
+        WriteSettleMs.ToString(CultureInfo.InvariantCulture) + "));";
 
     /// <summary>Reads a game's current launch configuration from the running client.</summary>
     /// <param name="appId">The Steam app id, or a non-Steam shortcut's generated id.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
-    /// <returns>The details, or <see langword="null"/> when Steam is unreachable or
-    /// does not know the id.</returns>
+    /// <returns>
+    ///     The details, or <see langword="null" /> when Steam is unreachable or
+    ///     does not know the id.
+    /// </returns>
     public static async Task<SteamLaunchDetails?> ReadAsync(
         long appId, CancellationToken cancellationToken = default)
     {
@@ -90,6 +99,7 @@ public static class SteamLaunchConfig
                     root.GetProperty("args").GetString() ?? "",
                     root.GetProperty("dir").GetString() ?? "");
             }
+
             var err = root.TryGetProperty("err", out var e) ? e.GetString() : "unknown error";
             Log.Warn($"Could not read launch configuration for {appId}: {err}.");
             return null;
@@ -105,7 +115,7 @@ public static class SteamLaunchConfig
     /// <param name="appId">The Steam app id, or a non-Steam shortcut's generated id.</param>
     /// <param name="isShortcut">Whether the id is a non-Steam shortcut.</param>
     /// <param name="mode">Which wrapper behaviours to enable.</param>
-    /// <param name="current">The game's current configuration, from <see cref="ReadAsync"/>.</param>
+    /// <param name="current">The game's current configuration, from <see cref="ReadAsync" />.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
     /// <returns>Whether Steam accepted the change.</returns>
     public static async Task<LaunchConfigResult> ApplyAsync(
@@ -167,6 +177,7 @@ public static class SteamLaunchConfig
                     $"Applying launch options for {appId} with a user-placed prefix ahead of " +
                     $"%command%, preserved and run at Steam's integrity before the wrapper: {prefix}");
             }
+
             var options = SteamCef.JsString(LaunchWrapperCommand.SteamLaunchOptions(
                 helper, mode, originals));
             expression =
@@ -214,6 +225,7 @@ public static class SteamLaunchConfig
                 SettleJs + "return JSON.stringify({ok:true});}" +
                 "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
         }
+
         var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
             .ConfigureAwait(false);
         return Interpret(result, "Applied. Launch the game from Steam as usual.");
@@ -236,6 +248,7 @@ public static class SteamLaunchConfig
                 return new LaunchConfigResult(
                     false, "The original program for this shortcut was not recorded.");
             }
+
             // Written back exactly as Steam reported it, quotes included — Steam
             // stores these verbatim, so anything else changes the shortcut.
             expression =
@@ -266,13 +279,14 @@ public static class SteamLaunchConfig
     /// <summary>Reports which wrapper behaviours a game is currently configured with.</summary>
     /// <param name="isShortcut">Whether the id is a non-Steam shortcut.</param>
     /// <param name="details">The game's current configuration.</param>
-    /// <returns>The active behaviours, or <see cref="LaunchWrapperMode.None"/>.</returns>
+    /// <returns>The active behaviours, or <see cref="LaunchWrapperMode.None" />.</returns>
     public static LaunchWrapperMode ModeFor(bool isShortcut, SteamLaunchDetails details)
     {
         if (!isShortcut)
         {
             return LaunchWrapperCommand.ModeFor(details.LaunchOptions);
         }
+
         // A shortcut splits the two halves WSGM wrote: the wrapper path sits in the
         // Target and the behaviour flags in the arguments, which never repeat the
         // path. Read them as one string so the mode is recognised.
@@ -282,15 +296,19 @@ public static class SteamLaunchConfig
             : LaunchWrapperMode.None;
     }
 
-    /// <summary>Derives what a game's launch configuration looked like before any
-    /// wrapper was written into it, so a snapshot taken for an already-wrapped game
-    /// records the real program rather than WSGM's own values. Needed whenever a
-    /// game is wrapped but WSGM holds no snapshot: the command was pasted by hand
-    /// from the clipboard fallback, or the configuration was restored/reset.</summary>
+    /// <summary>
+    ///     Derives what a game's launch configuration looked like before any
+    ///     wrapper was written into it, so a snapshot taken for an already-wrapped game
+    ///     records the real program rather than WSGM's own values. Needed whenever a
+    ///     game is wrapped but WSGM holds no snapshot: the command was pasted by hand
+    ///     from the clipboard fallback, or the configuration was restored/reset.
+    /// </summary>
     /// <param name="isShortcut">Whether the entry is a non-Steam shortcut.</param>
-    /// <param name="details">The game's current configuration, from <see cref="ReadAsync"/>.</param>
-    /// <returns>The pre-wrapper target, launch options/arguments and start directory.
-    /// An unwrapped game's values are returned unchanged.</returns>
+    /// <param name="details">The game's current configuration, from <see cref="ReadAsync" />.</param>
+    /// <returns>
+    ///     The pre-wrapper target, launch options/arguments and start directory.
+    ///     An unwrapped game's values are returned unchanged.
+    /// </returns>
     public static (string Target, string LaunchOptions, string StartDir) OriginalsFrom(
         bool isShortcut, SteamLaunchDetails details)
     {
@@ -300,26 +318,31 @@ public static class SteamLaunchConfig
                 ? details.ShortcutArguments
                 : details.LaunchOptions, details.ShortcutStartDir);
         }
+
         if (!isShortcut)
         {
             return (details.ShortcutTarget,
                 LaunchWrapperCommand.OriginalLaunchOptions(details.LaunchOptions),
                 details.ShortcutStartDir);
         }
+
         var (target, arguments) = OriginalFromWrappedArguments(details.ShortcutArguments);
         return (target, arguments, details.ShortcutStartDir);
     }
 
     /// <summary>Recovers the program a wrapped shortcut actually runs.</summary>
     /// <param name="arguments">The shortcut's current Launch Arguments.</param>
-    /// <returns>The original target and its own arguments, both empty when the value
-    /// does not look like something WSGM wrote.</returns>
+    /// <returns>
+    ///     The original target and its own arguments, both empty when the value
+    ///     does not look like something WSGM wrote.
+    /// </returns>
     internal static (string, string) OriginalFromWrappedArguments(string? arguments)
     {
         if (string.IsNullOrWhiteSpace(arguments))
         {
             return ("", "");
         }
+
         // Everything after the separator is what the shortcut used to launch: a
         // (possibly quoted) program path followed by its own arguments.
         var separator = arguments.IndexOf(" -- ", StringComparison.Ordinal);
@@ -339,26 +362,27 @@ public static class SteamLaunchConfig
                 ? (rest, "")
                 : (rest[..(end + 1)], rest[(end + 1)..].Trim());
         }
+
         var space = rest.IndexOf(' ');
         return space < 0 ? (rest, "") : (rest[..space], rest[(space + 1)..].Trim());
     }
 
     // Steam answers RegisterForAppDetails through a callback and keeps calling it,
     // so the subscription has to be unregistered on both paths or it leaks.
-    private static string DetailsPromiseJs(long appId) =>
-        "new Promise(res=>{let t;try{const h=SteamClient.Apps.RegisterForAppDetails(" +
-        Unsigned(appId) + ",d=>{clearTimeout(t);try{h.unregister();}catch(_){}res(d);});" +
-        "t=setTimeout(()=>{try{h.unregister();}catch(_){}res(null);}," + DetailsTimeoutMs + ");}" +
-        "catch(_){res(null);}})";
-
-    private static string SettleJs =>
-        "await new Promise(r=>setTimeout(r," +
-        WriteSettleMs.ToString(CultureInfo.InvariantCulture) + "));";
+    private static string DetailsPromiseJs(long appId)
+    {
+        return "new Promise(res=>{let t;try{const h=SteamClient.Apps.RegisterForAppDetails(" +
+               Unsigned(appId) + ",d=>{clearTimeout(t);try{h.unregister();}catch(_){}res(d);});" +
+               "t=setTimeout(()=>{try{h.unregister();}catch(_){}res(null);}," + DetailsTimeoutMs + ");}" +
+               "catch(_){res(null);}})";
+    }
 
     // appStore uses the unsigned 32-bit app id; a shortcut id stored in a signed int
     // reads back negative, so normalize to the unsigned value the client expects.
     private static string Unsigned(long appId)
-        => (appId < 0 ? unchecked((uint)appId) : appId).ToString(CultureInfo.InvariantCulture);
+    {
+        return (appId < 0 ? unchecked((uint)appId) : appId).ToString(CultureInfo.InvariantCulture);
+    }
 
     private static LaunchConfigResult Interpret(CefEvalResult result, string okMessage)
     {
@@ -368,10 +392,12 @@ public static class SteamLaunchConfig
         {
             return new LaunchConfigResult(false, "Steam isn't reachable — is it running?");
         }
+
         if (result.Value is null)
         {
             return new LaunchConfigResult(false, "No response from Steam.");
         }
+
         try
         {
             using var document = JsonDocument.Parse(result.Value);
@@ -380,6 +406,7 @@ public static class SteamLaunchConfig
             {
                 return new LaunchConfigResult(true, okMessage);
             }
+
             var err = root.TryGetProperty("err", out var e) ? e.GetString() : "unknown error";
             Log.Warn($"Launch configuration change failed: {err}.");
             return new LaunchConfigResult(false, err ?? "Steam rejected the change.");

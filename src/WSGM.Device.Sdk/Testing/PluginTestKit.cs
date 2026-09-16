@@ -13,16 +13,16 @@ namespace WSGM.Device.Sdk.Testing;
 /// <remarks>The adapter records only the semantic publications available to production plugins.</remarks>
 public sealed class TestPluginHostAdapter : IPluginHostAdapter
 {
-    private readonly Lock _gate = new();
-    private readonly List<CapabilityDescriptorSet> _descriptorSets = [];
     private readonly List<CapabilityState> _capabilityStates = [];
-    private readonly List<IReadOnlyList<PhysicalDeviceIdentity>> _physicalDeviceSets = [];
+    private readonly List<(DeviceTraceLevel Level, string Scope, string Key, string Message)> _changes = [];
     private readonly List<CanonicalControllerSample> _controllerSamples = [];
+    private readonly List<CapabilityDescriptorSet> _descriptorSets = [];
+    private readonly Lock _gate = new();
     private readonly List<IReadOnlyList<OemControlDescriptor>> _oemControlSets = [];
     private readonly List<OemControlEvent> _oemEvents = [];
+    private readonly List<IReadOnlyList<PhysicalDeviceIdentity>> _physicalDeviceSets = [];
     private readonly List<PluginSettingsManifest> _settingsManifests = [];
     private readonly List<(DeviceTraceLevel Level, string Scope, string Message)> _traces = [];
-    private readonly List<(DeviceTraceLevel Level, string Scope, string Key, string Message)> _changes = [];
 
     /// <summary>Creates an adapter for one cycle generation.</summary>
     /// <param name="cycleGeneration">Cycle generation exposed to the plugin.</param>
@@ -31,9 +31,6 @@ public sealed class TestPluginHostAdapter : IPluginHostAdapter
         ArgumentOutOfRangeException.ThrowIfNegative(cycleGeneration);
         CycleGeneration = cycleGeneration;
     }
-
-    /// <inheritdoc />
-    public long CycleGeneration { get; }
 
     /// <summary>Descriptor replacements in publication order.</summary>
     public IReadOnlyList<CapabilityDescriptorSet> DescriptorSets => Snapshot(_descriptorSets);
@@ -62,28 +59,35 @@ public sealed class TestPluginHostAdapter : IPluginHostAdapter
 
     /// <summary>Trace lines in emission order.</summary>
     /// <remarks>
-    /// Recorded rather than discarded so a plugin's diagnostics are testable like anything else it
-    /// publishes. A test that asserts a decision was traced is what keeps instrumentation from
-    /// being quietly deleted later.
+    ///     Recorded rather than discarded so a plugin's diagnostics are testable like anything else it
+    ///     publishes. A test that asserts a decision was traced is what keeps instrumentation from
+    ///     being quietly deleted later.
     /// </remarks>
     public IReadOnlyList<(DeviceTraceLevel Level, string Scope, string Message)> Traces =>
         Snapshot(_traces);
 
-    /// <summary>Keyed state lines in emission order, from <see cref="PluginTrace.Change"/>.</summary>
+    /// <summary>Keyed state lines in emission order, from <see cref="PluginTrace.Change" />.</summary>
     public IReadOnlyList<(DeviceTraceLevel Level, string Scope, string Key, string Message)> Changes =>
         Snapshot(_changes);
 
     /// <inheritdoc />
+    public long CycleGeneration { get; }
+
+    /// <inheritdoc />
     public ValueTask PublishDescriptorsAsync(
         CapabilityDescriptorSet descriptors,
-        CancellationToken cancellationToken) =>
-        RecordAsync(_descriptorSets, descriptors, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        return RecordAsync(_descriptorSets, descriptors, cancellationToken);
+    }
 
     /// <inheritdoc />
     public ValueTask PublishCapabilityStateAsync(
         CapabilityState state,
-        CancellationToken cancellationToken) =>
-        RecordAsync(_capabilityStates, state, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        return RecordAsync(_capabilityStates, state, cancellationToken);
+    }
 
     /// <inheritdoc />
     public ValueTask PublishPhysicalDevicesAsync(
@@ -95,15 +99,17 @@ public sealed class TestPluginHostAdapter : IPluginHostAdapter
         PublishedOutput = output;
         return RecordAsync(
             _physicalDeviceSets,
-            (IReadOnlyList<PhysicalDeviceIdentity>)[.. devices],
+            [.. devices],
             cancellationToken);
     }
 
     /// <inheritdoc />
     public ValueTask PublishControllerSampleAsync(
         CanonicalControllerSample sample,
-        CancellationToken cancellationToken) =>
-        RecordAsync(_controllerSamples, sample, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        return RecordAsync(_controllerSamples, sample, cancellationToken);
+    }
 
     /// <inheritdoc />
     public ValueTask PublishOemControlsAsync(
@@ -113,21 +119,25 @@ public sealed class TestPluginHostAdapter : IPluginHostAdapter
         ArgumentNullException.ThrowIfNull(controls);
         return RecordAsync(
             _oemControlSets,
-            (IReadOnlyList<OemControlDescriptor>)[.. controls],
+            [.. controls],
             cancellationToken);
     }
 
     /// <inheritdoc />
     public ValueTask PublishOemEventAsync(
         OemControlEvent controlEvent,
-        CancellationToken cancellationToken) =>
-        RecordAsync(_oemEvents, controlEvent, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        return RecordAsync(_oemEvents, controlEvent, cancellationToken);
+    }
 
     /// <inheritdoc />
     public ValueTask PublishSettingsManifestAsync(
         PluginSettingsManifest manifest,
-        CancellationToken cancellationToken) =>
-        RecordAsync(_settingsManifests, manifest, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        return RecordAsync(_settingsManifests, manifest, cancellationToken);
+    }
 
     /// <inheritdoc />
     public void Trace(DeviceTraceLevel level, string scope, string message)
@@ -145,9 +155,9 @@ public sealed class TestPluginHostAdapter : IPluginHostAdapter
 
     /// <inheritdoc />
     /// <remarks>
-    /// Recorded with its key but without suppression: a test asserting that a poll loop reports a
-    /// transition should see every call it made, and a test asserting suppression would be testing
-    /// the host's dedup rather than the plugin's decision to report.
+    ///     Recorded with its key but without suppression: a test asserting that a poll loop reports a
+    ///     transition should see every call it made, and a test asserting suppression would be testing
+    ///     the host's dedup rather than the plugin's decision to report.
     /// </remarks>
     public void TraceChange(DeviceTraceLevel level, string scope, string key, string message)
     {

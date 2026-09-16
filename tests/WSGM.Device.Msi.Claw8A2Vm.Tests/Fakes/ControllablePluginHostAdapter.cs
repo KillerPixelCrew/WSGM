@@ -8,15 +8,15 @@ namespace WSGM.Device.Msi.Claw8A2Vm.Tests.Fakes;
 
 internal sealed class ControllablePluginHostAdapter(long cycleGeneration) : IPluginHostAdapter
 {
-    private readonly TestPluginHostAdapter _inner = new(cycleGeneration);
-    private readonly Lock _gate = new();
-    private readonly List<(string Scope, string Message)> _faults = [];
     private readonly TaskCompletionSource _controllerSampleEntered =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private readonly List<(string Scope, string Message)> _faults = [];
+    private readonly Lock _gate = new();
+    private readonly TestPluginHostAdapter _inner = new(cycleGeneration);
+
     private readonly TaskCompletionSource _oemEventEntered =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-    public long CycleGeneration => _inner.CycleGeneration;
 
     public bool FailNextNonEmptyOemPublication { get; set; }
 
@@ -24,7 +24,9 @@ internal sealed class ControllablePluginHostAdapter(long cycleGeneration) : IPlu
 
     public bool BlockOemEvents { get; init; }
     public TaskCompletionSource? CapabilityPublicationBlock { get; set; }
-    public TaskCompletionSource CapabilityPublicationEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public TaskCompletionSource CapabilityPublicationEntered { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public IReadOnlyList<CapabilityDescriptorSet> DescriptorSets => _inner.DescriptorSets;
 
@@ -49,10 +51,14 @@ internal sealed class ControllablePluginHostAdapter(long cycleGeneration) : IPlu
 
     public Task OemEventEntered => _oemEventEntered.Task;
 
+    public long CycleGeneration => _inner.CycleGeneration;
+
     public ValueTask PublishDescriptorsAsync(
         CapabilityDescriptorSet descriptors,
-        CancellationToken cancellationToken) =>
-        _inner.PublishDescriptorsAsync(descriptors, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        return _inner.PublishDescriptorsAsync(descriptors, cancellationToken);
+    }
 
     public ValueTask PublishCapabilityStateAsync(
         CapabilityState state,
@@ -62,6 +68,7 @@ internal sealed class ControllablePluginHostAdapter(long cycleGeneration) : IPlu
         {
             return _inner.PublishCapabilityStateAsync(state, cancellationToken);
         }
+
         CapabilityPublicationEntered.TrySetResult();
         return new ValueTask(blocked.Task);
     }
@@ -69,8 +76,10 @@ internal sealed class ControllablePluginHostAdapter(long cycleGeneration) : IPlu
     public ValueTask PublishPhysicalDevicesAsync(
         IReadOnlyList<PhysicalDeviceIdentity> devices,
         HapticCapabilities? output,
-        CancellationToken cancellationToken) =>
-        _inner.PublishPhysicalDevicesAsync(devices, output, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        return _inner.PublishPhysicalDevicesAsync(devices, output, cancellationToken);
+    }
 
     public async ValueTask PublishControllerSampleAsync(
         CanonicalControllerSample sample,
@@ -114,11 +123,15 @@ internal sealed class ControllablePluginHostAdapter(long cycleGeneration) : IPlu
 
     public ValueTask PublishSettingsManifestAsync(
         PluginSettingsManifest manifest,
-        CancellationToken cancellationToken) =>
-        _inner.PublishSettingsManifestAsync(manifest, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        return _inner.PublishSettingsManifestAsync(manifest, cancellationToken);
+    }
 
-    public void Trace(DeviceTraceLevel level, string scope, string message) =>
+    public void Trace(DeviceTraceLevel level, string scope, string message)
+    {
         _inner.Trace(level, scope, message);
+    }
 
     public void ReportFault(string scope, string message)
     {

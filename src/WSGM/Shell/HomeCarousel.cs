@@ -6,14 +6,14 @@ using WSGM.Core;
 namespace WSGM.Shell;
 
 /// <summary>
-/// WSGM's instruction to Big Picture Home's carousel: which games are on a library that is not
-/// attached, and whether uninstalled games are wanted.
+///     WSGM's instruction to Big Picture Home's carousel: which games are on a library that is not
+///     attached, and whether uninstalled games are wanted.
 /// </summary>
 /// <remarks>
-/// Built from the same card reading as the library badge (<see cref="LibraryBadges"/>), so the
-/// carousel and the badge can never disagree about which library is attached. Steam's own installed
-/// flag already drops a pulled card's games; the list here is what makes that authoritative in the
-/// moment before Steam catches up, and it is WSGM's card model rather than Steam's that decides.
+///     Built from the same card reading as the library badge (<see cref="LibraryBadges" />), so the
+///     carousel and the badge can never disagree about which library is attached. Steam's own installed
+///     flag already drops a pulled card's games; the list here is what makes that authoritative in the
+///     moment before Steam catches up, and it is WSGM's card model rather than Steam's that decides.
 /// </remarks>
 internal static class HomeCarousel
 {
@@ -21,8 +21,8 @@ internal static class HomeCarousel
     /// <param name="libraries">The tracked libraries, or null before the card model was read once.</param>
     /// <param name="includeUninstalled">Whether owned games that are not installed are listed.</param>
     /// <returns>
-    /// The app ids on a disconnected library, minus any that an attached library also holds, in
-    /// ascending order so an unchanged reading publishes identically.
+    ///     The app ids on a disconnected library, minus any that an attached library also holds, in
+    ///     ascending order so an unchanged reading publishes identically.
     /// </returns>
     internal static SteamHomeCarouselState Build(SteamLibraryBadgeState? libraries, bool includeUninstalled)
     {
@@ -48,8 +48,8 @@ internal static class HomeCarousel
 
 /// <summary>Hears what the Home carousel holds and writes it to the log.</summary>
 /// <remarks>
-/// The report is the carousel's own account, once per change, so a pasted <c>wsgm.log</c> says what
-/// Home showed after a card was pulled or a game installed without anyone attaching to Steam.
+///     The report is the carousel's own account, once per change, so a pasted <c>wsgm.log</c> says what
+///     Home showed after a card was pulled or a game installed without anyone attaching to Steam.
 /// </remarks>
 internal sealed class HomeCarouselBackend : ISteamHomeCarouselBackend
 {
@@ -67,8 +67,8 @@ internal sealed class HomeCarouselBackend : ISteamHomeCarouselBackend
             report.Fallback
                 ? $"Home carousel: nothing on the attached libraries qualified; showing Steam's own {report.Items} entries."
                 : $"Home carousel: {report.Items} entries ({report.Purchases} new purchases, {report.Installed} installed, "
-                    + $"{report.Uninstalled} uninstalled), {report.Excluded} games on disconnected libraries left out, "
-                    + $"collection tracking {(report.Tracking ? "on" : "off")}.");
+                  + $"{report.Uninstalled} uninstalled), {report.Excluded} games on disconnected libraries left out, "
+                  + $"collection tracking {(report.Tracking ? "on" : "off")}.");
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 }

@@ -37,9 +37,9 @@ internal sealed record DescriptorRow(
 {
     /// <summary>The range this row is set over, or null when pressing it is the interaction.</summary>
     /// <remarks>
-    /// A row that carries a range or options is a control, not a button. Cycling was fine while a
-    /// row had four sensible values; a frame limit has hundreds, and stepping to 280 one preset at
-    /// a time is not an interaction anyone completes.
+    ///     A row that carries a range or options is a control, not a button. Cycling was fine while a
+    ///     row had four sensible values; a frame limit has hundreds, and stepping to 280 one preset at
+    ///     a time is not an interaction anyone completes.
     /// </remarks>
     public DescriptorRange? Range { get; init; }
 
@@ -55,11 +55,11 @@ internal sealed record DescriptorRow(
 /// <param name="Maximum">Inclusive upper bound.</param>
 /// <param name="Step">Movement per pad nudge; at least 1.</param>
 /// <param name="OffBelow">
-/// The lowest value the row means anything at, or zero when every position is a real value. The
-/// frame limit has one: the slider must still reach zero, because zero is how the row is switched
-/// off and there is no separate switch, but the caps under the panel's floor are not values any
-/// other surface will accept. Everything below this reads and commits as zero rather than as a cap
-/// the Quick Access row would then refuse to draw.
+///     The lowest value the row means anything at, or zero when every position is a real value. The
+///     frame limit has one: the slider must still reach zero, because zero is how the row is switched
+///     off and there is no separate switch, but the caps under the panel's floor are not values any
+///     other surface will accept. Everything below this reads and commits as zero rather than as a cap
+///     the Quick Access row would then refuse to draw.
 /// </param>
 internal readonly record struct DescriptorRange(int Minimum, int Maximum, int Step, int OffBelow = 0);
 
@@ -69,7 +69,7 @@ internal readonly record struct DescriptorRange(int Minimum, int Maximum, int St
 internal sealed record DescriptorOption(int Value, string Label);
 
 /// <summary>
-/// Renders a closed semantic row descriptor with the shared card appearance and status vocabulary.
+///     Renders a closed semantic row descriptor with the shared card appearance and status vocabulary.
 /// </summary>
 internal sealed class DescriptorStatusRow : CardButton
 {

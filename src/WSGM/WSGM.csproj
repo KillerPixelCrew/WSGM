@@ -25,32 +25,32 @@
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
   <ItemGroup>
-    <AvaloniaResource Include="Assets\**" />
+    <AvaloniaResource Include="Assets\**"/>
     <!-- LoadingIndicators remains diffable vendored source, but is compiled into
          WSGM instead of producing a one-consumer assembly. Link fixes its avares
          path inside this assembly while preserving the relative theme includes
          and the LoadingIndicators.Avalonia namespace. -->
     <AvaloniaResource
-        Include="..\..\external\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\**\*.axaml"
-        Link="ThirdParty\LoadingIndicators\%(RecursiveDir)%(Filename)%(Extension)" />
+      Include="..\..\external\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\**\*.axaml"
+      Link="ThirdParty\LoadingIndicators\%(RecursiveDir)%(Filename)%(Extension)"/>
     <EmbeddedResource Include="Core\SteamUiAssets\*.js"
-                      LogicalName="WSGM.Core.SteamUiAssets.%(Filename)%(Extension)" />
+                      LogicalName="WSGM.Core.SteamUiAssets.%(Filename)%(Extension)"/>
   </ItemGroup>
   <ItemGroup>
     <Compile
-        Include="..\..\external\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\LoadingIndicator.cs"
-        Link="ThirdParty\LoadingIndicators\LoadingIndicator.cs" />
+      Include="..\..\external\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\LoadingIndicator.cs"
+      Link="ThirdParty\LoadingIndicators\LoadingIndicator.cs"/>
     <Compile
-        Include="..\..\external\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\LoadingIndicatorMode.cs"
-        Link="ThirdParty\LoadingIndicators\LoadingIndicatorMode.cs" />
+      Include="..\..\external\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\LoadingIndicatorMode.cs"
+      Link="ThirdParty\LoadingIndicators\LoadingIndicatorMode.cs"/>
     <!-- The Steam Input Lease submodule's binding is the single managed ABI source. Both
          WSGM and WSGM.Launch compile it directly; there is no application mirror.
          PlatformSupport.cs is the binding project's own assembly attribute: compiled here it
          would declare WSGM a Windows 10 1809 assembly instead of the 19041 it targets. -->
     <Compile
-        Include="..\..\external\steam-input-lease\bindings\SteamInterop.Net\*.cs"
-        Exclude="..\..\external\steam-input-lease\bindings\SteamInterop.Net\PlatformSupport.cs"
-        LinkBase="SteamInterop" />
+      Include="..\..\external\steam-input-lease\bindings\SteamInterop.Net\*.cs"
+      Exclude="..\..\external\steam-input-lease\bindings\SteamInterop.Net\PlatformSupport.cs"
+      LinkBase="SteamInterop"/>
   </ItemGroup>
   <ItemGroup>
     <!-- Steam Input Lease injects this gate into steam.exe while a WSGM input
@@ -60,7 +60,7 @@
           Condition="'$(SkipNativeArtifacts)' != 'true'"
           Link="%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
+          CopyToPublishDirectory="PreserveNewest"/>
     <!-- steam-input-lease.exe is deliberately NOT shipped: WSGM.Launch.exe is WSGM's
          single user-facing wrapper and links the canonical binding source, so it
          holds the lease itself and carries the launcher's status/rescan diagnostics.
@@ -69,12 +69,12 @@
           Condition="'$(SkipNativeArtifacts)' != 'true'"
           Link="%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
+          CopyToPublishDirectory="PreserveNewest"/>
     <None Include="Native\SteamInputLease\*.md"
           Condition="'$(SkipNativeArtifacts)' != 'true'"
           Link="%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
+          CopyToPublishDirectory="PreserveNewest"/>
     <!-- Virtual controller targets. VIIPER presents a virtual USB device in
          userspace over usbip-win2's generic signed kernel driver, so WSGM ships
          no driver of its own and needs no kernel code per controller type. Its
@@ -86,62 +86,62 @@
           Condition="'$(SkipNativeArtifacts)' != 'true'"
           Link="%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
+          CopyToPublishDirectory="PreserveNewest"/>
     <!-- Third-party license texts for managed packages we redistribute. Same
          ship-beside-the-exe pattern as the SteamInputLease license files above;
          the installer lists them explicitly in [Files]. -->
     <None Include="Licenses\*.txt"
           Link="%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
+          CopyToPublishDirectory="PreserveNewest"/>
     <!-- WSGM is GPL-3.0-or-later. Ship the repository's authoritative license
          as part of every core output instead of maintaining a second copy. -->
     <None Include="..\..\LICENSE"
           Link="LICENSE.txt"
           CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
+          CopyToPublishDirectory="PreserveNewest"/>
   </ItemGroup>
   <ItemGroup>
     <!-- Plugins are loaded dynamically; the shared SDK preserves type identity
          without making the installed package a production project reference. -->
     <ProjectReference
-        Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj" />
-    <ProjectReference Include="..\WSGM.Plugin.Sdk\WSGM.Plugin.Sdk.csproj" />
+      Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj"/>
+    <ProjectReference Include="..\WSGM.Plugin.Sdk\WSGM.Plugin.Sdk.csproj"/>
     <!-- Wi-Fi, Bluetooth, audio endpoint and panel brightness control. Extracted to its own
          repository because nothing in it is specific to WSGM or to gaming; it is pinned as a
          submodule so this branch keeps a known-good revision while the library moves. -->
     <ProjectReference
-        Include="..\..\external\windows-device-control\src\WindowsDeviceControl\WindowsDeviceControl.csproj" />
+      Include="..\..\external\windows-device-control\src\WindowsDeviceControl\WindowsDeviceControl.csproj"/>
     <!-- The CDP transport, patch lifecycle, bridge and module contract. WSGM keeps the surfaces:
          the gates, the QAM rows and the components are its product, not the toolkit's. -->
     <ProjectReference
-        Include="..\..\external\steam-ui-toolkit\src\SteamUiToolkit\SteamUiToolkit.csproj" />
+      Include="..\..\external\steam-ui-toolkit\src\SteamUiToolkit\SteamUiToolkit.csproj"/>
   </ItemGroup>
   <ItemGroup>
     <!-- Every Steam UI type used to live in WSGM.Core, and the patches and session host reference
          them constantly. A global using keeps that one move from touching thirty files for no
          behavioural reason. -->
-    <Using Include="SteamUiToolkit" />
+    <Using Include="SteamUiToolkit"/>
   </ItemGroup>
   <ItemGroup>
     <!-- 1-9: how hard the GC works to keep the heap small; 9 = maximum. -->
-    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="9" />
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="9"/>
   </ItemGroup>
   <ItemGroup>
     <!-- Pinned exactly: a shell replacement must ship the patch level that was
          tested on device, and rebuilding a tag must reproduce the same binaries. -->
-    <PackageReference Include="Avalonia" Version="12.1.2" />
-    <PackageReference Include="Avalonia.Desktop" Version="12.1.2" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.2" />
+    <PackageReference Include="Avalonia" Version="12.1.2"/>
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.2"/>
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2"/>
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.2"/>
     <!-- FluentAvaloniaTheme (the runtime accent pipeline regenerates its shades via
          CustomAccentColor) plus WinUI-style controls such as FAInfoBar and ToggleSwitch.
          3.x is the first line built against Avalonia 12. -->
-    <PackageReference Include="FluentAvaloniaUI" Version="3.1.0" />
+    <PackageReference Include="FluentAvaloniaUI" Version="3.1.0"/>
     <!-- Pinned: FluentAvaloniaUI's transitive ColorPicker can resolve below the
          Avalonia version above — the explicit pin removes the version skew. -->
-    <PackageReference Include="Avalonia.Controls.ColorPicker" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Controls.ColorPicker" Version="12.1.2"/>
     <!-- Controller input; bundles SDL3.dll for win-x64. -->
-    <PackageReference Include="ppy.SDL3-CS" Version="2026.722.0" />
+    <PackageReference Include="ppy.SDL3-CS" Version="2026.722.0"/>
   </ItemGroup>
 </Project>

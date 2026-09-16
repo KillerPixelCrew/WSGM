@@ -66,9 +66,9 @@ internal enum PerformanceReadbackQuality
 
 /// <summary>Canonical WSGM application identity plus optional Steam and RTSS enrichment.</summary>
 /// <remarks>
-/// <see cref="ApplicationId"/> is authoritative whenever this record exists. Steam can name a game
-/// before Windows exposes its foreground executable, so <see cref="RtssProfileName"/> is optional:
-/// policy remains per-application while RTSS writes wait for that enrichment.
+///     <see cref="ApplicationId" /> is authoritative whenever this record exists. Steam can name a game
+///     before Windows exposes its foreground executable, so <see cref="RtssProfileName" /> is optional:
+///     policy remains per-application while RTSS writes wait for that enrichment.
 /// </remarks>
 internal sealed record PerformanceApplicationTarget(
     string ApplicationId,
@@ -81,19 +81,25 @@ internal sealed record PerformanceValues(int? FrameLimit, int? OverlayLevel)
 {
     internal static readonly PerformanceValues Empty = new(null, null);
 
-    internal int? ValueFor(PerformanceControl control) => control switch
+    internal int? ValueFor(PerformanceControl control)
     {
-        PerformanceControl.FrameLimit => FrameLimit,
-        PerformanceControl.OverlayLevel => OverlayLevel,
-        _ => null
-    };
+        return control switch
+        {
+            PerformanceControl.FrameLimit => FrameLimit,
+            PerformanceControl.OverlayLevel => OverlayLevel,
+            _ => null
+        };
+    }
 
-    internal PerformanceValues With(PerformanceControl control, int value) => control switch
+    internal PerformanceValues With(PerformanceControl control, int value)
     {
-        PerformanceControl.FrameLimit => this with { FrameLimit = value },
-        PerformanceControl.OverlayLevel => this with { OverlayLevel = value },
-        _ => this
-    };
+        return control switch
+        {
+            PerformanceControl.FrameLimit => this with { FrameLimit = value },
+            PerformanceControl.OverlayLevel => this with { OverlayLevel = value },
+            _ => this
+        };
+    }
 }
 
 /// <summary>One persistent per-application override.</summary>
@@ -121,27 +127,36 @@ internal sealed record RtssCapabilities(
     bool FrameLimitReadback,
     bool OverlayLevelReadback)
 {
-    internal bool Supports(PerformanceControl control) => control switch
+    internal bool Supports(PerformanceControl control)
     {
-        PerformanceControl.FrameLimit => MinimumFrameLimit >= 0
-            && MaximumFrameLimit >= MinimumFrameLimit,
-        PerformanceControl.OverlayLevel => OverlayLevels.Count > 0,
-        _ => false
-    };
+        return control switch
+        {
+            PerformanceControl.FrameLimit => MinimumFrameLimit >= 0
+                                             && MaximumFrameLimit >= MinimumFrameLimit,
+            PerformanceControl.OverlayLevel => OverlayLevels.Count > 0,
+            _ => false
+        };
+    }
 
-    internal bool IsValid(PerformanceControl control, int value) => control switch
+    internal bool IsValid(PerformanceControl control, int value)
     {
-        PerformanceControl.FrameLimit => value >= MinimumFrameLimit && value <= MaximumFrameLimit,
-        PerformanceControl.OverlayLevel => OverlayLevels.Contains(value),
-        _ => false
-    };
+        return control switch
+        {
+            PerformanceControl.FrameLimit => value >= MinimumFrameLimit && value <= MaximumFrameLimit,
+            PerformanceControl.OverlayLevel => OverlayLevels.Contains(value),
+            _ => false
+        };
+    }
 
-    internal bool HasVerifiedReadback(PerformanceControl control) => control switch
+    internal bool HasVerifiedReadback(PerformanceControl control)
     {
-        PerformanceControl.FrameLimit => FrameLimitReadback,
-        PerformanceControl.OverlayLevel => OverlayLevelReadback,
-        _ => false
-    };
+        return control switch
+        {
+            PerformanceControl.FrameLimit => FrameLimitReadback,
+            PerformanceControl.OverlayLevel => OverlayLevelReadback,
+            _ => false
+        };
+    }
 }
 
 /// <summary>One bounded adapter discovery result. Process identity is folded into Generation.</summary>
@@ -173,8 +188,10 @@ internal sealed record RtssApplyResult(bool Applied, string? Diagnostic);
 /// <summary>Adapter boundary used by the shared service and deterministic tests.</summary>
 internal interface IRtssAdapter : IAsyncDisposable
 {
-    /// <summary>Applies the Custom overlay's configuration (selector level 4). A cheap handoff
-    /// to the adapter's renderer; adapters without one ignore it.</summary>
+    /// <summary>
+    ///     Applies the Custom overlay's configuration (selector level 4). A cheap handoff
+    ///     to the adapter's renderer; adapters without one ignore it.
+    /// </summary>
     /// <param name="settings">The widget order and per-widget detail.</param>
     void ApplyOsdCustomization(RtssOsdCustomSettings settings);
 
@@ -185,11 +202,11 @@ internal interface IRtssAdapter : IAsyncDisposable
     /// <summary>Whether RTSS already holds a profile with this exact name.</summary>
     /// <param name="rtssProfileName">The application profile name; empty means the global profile.</param>
     /// <remarks>
-    /// Saving an RTSS profile that does not exist creates it, so the service asks first: a
-    /// per-application profile is only written when the user opted the application in or RTSS
-    /// already carries one whose explicit values would otherwise override the global write.
-    /// Without this check every focused executable grew a profile
-    /// (device-observed 2026-09-02).
+    ///     Saving an RTSS profile that does not exist creates it, so the service asks first: a
+    ///     per-application profile is only written when the user opted the application in or RTSS
+    ///     already carries one whose explicit values would otherwise override the global write.
+    ///     Without this check every focused executable grew a profile
+    ///     (device-observed 2026-09-02).
     /// </remarks>
     bool ProfileExists(string rtssProfileName);
 

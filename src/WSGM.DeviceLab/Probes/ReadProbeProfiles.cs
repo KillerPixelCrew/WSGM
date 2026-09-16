@@ -49,7 +49,7 @@ internal sealed record CompiledReadProbeDescriptor(
 internal static class BuiltInReadProbeRegistry
 {
     private static readonly Dictionary<(string Id, int Version), IReadProbeProfile> Profiles =
-        new Dictionary<(string, int), IReadProbeProfile>
+        new()
         {
             [(MsiWmiVersionProbe.ProbeId, 1)] = new MsiWmiVersionProbe(),
             [(MsiEmbeddedControllerVersionProbe.ProbeId, 1)] = new MsiEmbeddedControllerVersionProbe(),
@@ -58,8 +58,10 @@ internal static class BuiltInReadProbeRegistry
             [(MsiChargeLimitProbe.ProbeId, 1)] = new MsiChargeLimitProbe()
         };
 
-    public static bool TryResolve(string id, int version, out IReadProbeProfile profile) =>
-        Profiles.TryGetValue((id, version), out profile!);
+    public static bool TryResolve(string id, int version, out IReadProbeProfile profile)
+    {
+        return Profiles.TryGetValue((id, version), out profile!);
+    }
 }
 
 internal static class ReadProbeExecutor
@@ -123,7 +125,9 @@ internal static class ReadProbeExecutor
         ReadProbeWorkerResponse Response(
             ReadProbeWorkerStatus status,
             IReadOnlyList<ReadProbeSample> observed,
-            string? error = null) => new()
+            string? error = null)
+        {
+            return new ReadProbeWorkerResponse
             {
                 SchemaVersion = 1,
                 ProbeId = request.ProbeId,
@@ -133,6 +137,7 @@ internal static class ReadProbeExecutor
                 Error = error,
                 HardwareMutationObserved = false
             };
+        }
     }
 }
 
@@ -214,7 +219,9 @@ internal abstract class MsiWmiReadProbeProfile(
         long value,
         long crossCheck,
         int length,
-        long elapsedMilliseconds) => new()
+        long elapsedMilliseconds)
+    {
+        return new ReadProbeSample
         {
             ValueKind = ReadProbeValueKind.Integer,
             StatusCode = 1,
@@ -225,6 +232,7 @@ internal abstract class MsiWmiReadProbeProfile(
             CrossCheckValue = crossCheck.ToString(CultureInfo.InvariantCulture),
             CrossCheckNumericValue = crossCheck
         };
+    }
 }
 
 internal sealed class MsiWmiVersionProbe()
@@ -246,8 +254,8 @@ internal sealed class MsiWmiVersionProbe()
             primary,
             crossCheck,
             stopwatch.ElapsedMilliseconds,
-            statusCode: 1,
-            encodedLength: 4));
+            1,
+            4));
     }
 }
 
@@ -270,8 +278,8 @@ internal sealed class MsiEmbeddedControllerVersionProbe()
             primary,
             crossCheck,
             stopwatch.ElapsedMilliseconds,
-            statusCode: 1,
-            encodedLength: response.Length));
+            1,
+            response.Length));
     }
 }
 
@@ -308,14 +316,14 @@ internal sealed class MsiFanRpmProbe()
             primary,
             crossCheck,
             stopwatch.ElapsedMilliseconds,
-            statusCode: 1,
-            encodedLength: 5));
+            1,
+            5));
     }
 
     private static string Decode(byte[] response)
     {
-        var firstDivisor = response[2] << 8 | response[3];
-        var secondDivisor = response[4] << 8 | response[5];
+        var firstDivisor = (response[2] << 8) | response[3];
+        var secondDivisor = (response[4] << 8) | response[5];
         if (firstDivisor == 0 || secondDivisor == 0)
         {
             throw new InvalidDataException("Get_Fan returned a zero tachometer divisor.");
@@ -349,7 +357,9 @@ internal static class ReadProbeSamples
         string crossCheck,
         long elapsedMilliseconds,
         int statusCode = 0,
-        int? encodedLength = null) => new()
+        int? encodedLength = null)
+    {
+        return new ReadProbeSample
         {
             ValueKind = kind,
             StatusCode = statusCode,
@@ -358,4 +368,5 @@ internal static class ReadProbeSamples
             ElapsedMilliseconds = checked((int)elapsedMilliseconds),
             CrossCheckValue = crossCheck
         };
+    }
 }

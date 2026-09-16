@@ -31,7 +31,16 @@ internal sealed class DesktopTray : IDisposable
         _icon.Clicked += (_, _) => open();
     }
 
-    internal void SetDesktop(bool desktop) => _icon.IsVisible = desktop;
+    public void Dispose()
+    {
+        _icon.Dispose();
+        _settings?.Close();
+    }
+
+    internal void SetDesktop(bool desktop)
+    {
+        _icon.IsVisible = desktop;
+    }
 
     private static void Add(NativeMenu menu, string title, Action action)
     {
@@ -49,13 +58,8 @@ internal sealed class DesktopTray : IDisposable
             _settings.Show();
             Log.Info($"Settings opened in resident process {Environment.ProcessId}.");
         }
+
         _settings.WindowState = WindowState.Normal;
         _settings.Activate();
-    }
-
-    public void Dispose()
-    {
-        _icon.Dispose();
-        _settings?.Close();
     }
 }

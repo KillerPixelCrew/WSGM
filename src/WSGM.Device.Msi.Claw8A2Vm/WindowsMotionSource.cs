@@ -10,12 +10,30 @@ namespace WSGM.Device.Msi.Claw8A2Vm;
 
 internal sealed class WindowsClawMotionSource : IClawMotionSource
 {
+    /// <summary>
+    ///     Report a refined zero-rate offset only once it has moved by more than the residual a single
+    ///     rest window can resolve, so a settling estimate does not fill the log with noise.
+    /// </summary>
+    private const float MinimumLoggedBiasChange = 0.05f;
+
+    /// <summary>
+    ///     Roughly ten seconds of reports. Reaching this without a measured offset means the device
+    ///     never held still, which is the decisive fact behind an uncorrected drift complaint.
+    /// </summary>
+    private const ulong UncalibratedReportSampleCount = 1000;
+
+    /// <summary>
+    ///     Poll faster than the physical sensor's 10 ms minimum report interval so scheduler jitter
+    ///     cannot routinely skip a hardware report. The counter prevents duplicate publication.
+    /// </summary>
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(2);
+
     private readonly Lock _gate = new();
     private readonly Func<Func<MotionSample, ValueTask>, MotionWorkerSession?> _open;
     private readonly TimeSpan _stopTimeout;
+    private bool _disposed;
     private MotionWorkerSession? _session;
     private Task? _stopTask;
-    private bool _disposed;
 
     internal WindowsClawMotionSource(
         Func<Func<MotionSample, ValueTask>, MotionWorkerSession?>? open = null,
@@ -24,24 +42,6 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
         _open = open ?? OpenSession;
         _stopTimeout = stopTimeout ?? TimeSpan.FromSeconds(2);
     }
-
-    /// <summary>
-    /// Poll faster than the physical sensor's 10 ms minimum report interval so scheduler jitter
-    /// cannot routinely skip a hardware report. The counter prevents duplicate publication.
-    /// </summary>
-    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(2);
-
-    /// <summary>
-    /// Report a refined zero-rate offset only once it has moved by more than the residual a single
-    /// rest window can resolve, so a settling estimate does not fill the log with noise.
-    /// </summary>
-    private const float MinimumLoggedBiasChange = 0.05f;
-
-    /// <summary>
-    /// Roughly ten seconds of reports. Reaching this without a measured offset means the device
-    /// never held still, which is the decisive fact behind an uncorrected drift complaint.
-    /// </summary>
-    private const ulong UncalibratedReportSampleCount = 1000;
 
     public ValueTask<bool> StartAsync(
         Func<MotionSample, ValueTask> publish,
@@ -56,11 +56,13 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
             {
                 return ValueTask.FromResult(false);
             }
+
             if (_stopTask is not null)
             {
                 _session = null;
                 _stopTask = null;
             }
+
             _session ??= _open(publish);
             return ValueTask.FromResult(_session is not null);
         }
@@ -76,6 +78,7 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
                 cancellationToken.ThrowIfCancellationRequested();
                 return;
             }
+
             // Keep ownership until both workers and disposal finish, even if this wait expires.
             _stopTask ??= Task.Run(_session.DrainAsync, CancellationToken.None);
             stopTask = _stopTask;
@@ -90,6 +93,7 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
         {
             _disposed = true;
         }
+
         await StopAsync(CancellationToken.None).ConfigureAwait(false);
     }
 
@@ -119,9 +123,9 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
 
     /// <summary>Builds one canonical sample from physical LSM6DSO sensor-space vectors.</summary>
     /// <remarks>
-    /// Both physical collections share the same die axes. Steam Deck packets carry those raw axes,
-    /// while Steam and SDL expose them to applications as X, Z, -Y. This is the only conversion in
-    /// the plugin; the Neptune encoder applies the inverse when it writes the raw packet slots.
+    ///     Both physical collections share the same die axes. Steam Deck packets carry those raw axes,
+    ///     while Steam and SDL expose them to applications as X, Z, -Y. This is the only conversion in
+    ///     the plugin; the Neptune encoder applies the inverse when it writes the raw packet slots.
     /// </remarks>
     internal static MotionSample CreateSample(
         Vector3 rawAngularVelocity,
@@ -146,8 +150,10 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
         };
     }
 
-    private static Vector3 ToApplicationBasis(Vector3 raw) =>
-        new(raw.X, raw.Z, -raw.Y);
+    private static Vector3 ToApplicationBasis(Vector3 raw)
+    {
+        return new Vector3(raw.X, raw.Z, -raw.Y);
+    }
 
     private static void Produce(
         LegacyPhysicalMotionSensors sensors,
@@ -247,21 +253,21 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
 
 /// <summary>Subtracts this IMU's measured zero-rate offset without absorbing aiming motion.</summary>
 /// <remarks>
-/// <para>
-/// Correction is plain subtraction: no deadband and no zero-hold, so sensor noise stays continuous
-/// and every rate a target integrates is the rate the die reported. The offset is measured from
-/// rest windows recognized by three device-derived gates, whose thresholds come from stationary
-/// captures taken on the reference unit — see "This part's gyroscope has a zero-rate offset" in the
-/// plugin README for the measured numbers.
-/// </para>
-/// <para>
-/// A steady yaw is the one motion no acceleration gate can distinguish from rest, so a device that
-/// starts up already turning slowly — on a train or in a car — can measure that turn as its offset.
-/// That is unavoidable without an external heading reference, so the design makes it survivable
-/// instead: the magnitude limit bounds how wrong the value can be, and a run of agreeing windows
-/// re-acquires. A single clamp on refinement would instead freeze the wrong value for the whole
-/// device cycle, because the honest windows that follow are exactly the ones a clamp rejects.
-/// </para>
+///     <para>
+///         Correction is plain subtraction: no deadband and no zero-hold, so sensor noise stays continuous
+///         and every rate a target integrates is the rate the die reported. The offset is measured from
+///         rest windows recognized by three device-derived gates, whose thresholds come from stationary
+///         captures taken on the reference unit — see "This part's gyroscope has a zero-rate offset" in the
+///         plugin README for the measured numbers.
+///     </para>
+///     <para>
+///         A steady yaw is the one motion no acceleration gate can distinguish from rest, so a device that
+///         starts up already turning slowly — on a train or in a car — can measure that turn as its offset.
+///         That is unavoidable without an external heading reference, so the design makes it survivable
+///         instead: the magnitude limit bounds how wrong the value can be, and a run of agreeing windows
+///         re-acquires. A single clamp on refinement would instead freeze the wrong value for the whole
+///         device cycle, because the honest windows that follow are exactly the ones a clamp rejects.
+///     </para>
 /// </remarks>
 internal sealed class StationaryGyroBiasCalibrator
 {
@@ -269,16 +275,16 @@ internal sealed class StationaryGyroBiasCalibrator
     internal const int WindowSampleCount = 200;
 
     /// <summary>
-    /// Per-axis peak-to-peak angular rate a rest window may span. The noisiest axis spans up to
-    /// 1.47 degrees/second across 200 stationary reports, so this admits every real rest window
-    /// while a hand's changing rate breaks the window immediately.
+    ///     Per-axis peak-to-peak angular rate a rest window may span. The noisiest axis spans up to
+    ///     1.47 degrees/second across 200 stationary reports, so this admits every real rest window
+    ///     while a hand's changing rate breaks the window immediately.
     /// </summary>
     private const float MaximumAxisSpan = 2f;
 
     /// <summary>
-    /// Per-axis peak-to-peak acceleration a rest window may span, in g. Stationary reports span at
-    /// most 0.023 g; 0.05 g still detects roughly 1.4 degrees/second of pitch or roll, which is
-    /// what makes a slowly tilted device fail the gate instead of teaching a false offset.
+    ///     Per-axis peak-to-peak acceleration a rest window may span, in g. Stationary reports span at
+    ///     most 0.023 g; 0.05 g still detects roughly 1.4 degrees/second of pitch or roll, which is
+    ///     what makes a slowly tilted device fail the gate instead of teaching a false offset.
     /// </summary>
     private const float MaximumAccelerationSpan = 0.05f;
 
@@ -289,8 +295,8 @@ internal sealed class StationaryGyroBiasCalibrator
     private const float MaximumGravityMagnitude = 1.15f;
 
     /// <summary>
-    /// The largest offset magnitude accepted as hardware, in degrees/second. This part's measured
-    /// offset is under 1; anything far above it is a sustained rotation, not a zero-rate error.
+    ///     The largest offset magnitude accepted as hardware, in degrees/second. This part's measured
+    ///     offset is under 1; anything far above it is a sustained rotation, not a zero-rate error.
     /// </summary>
     private const float MaximumBiasMagnitude = 5f;
 
@@ -301,18 +307,19 @@ internal sealed class StationaryGyroBiasCalibrator
     internal const float RefinementWeight = 0.25f;
 
     /// <summary>
-    /// Consecutive rest windows that agree with each other but not with the measured offset before
-    /// that offset is replaced outright. One distant window is contamination; a run of them means
-    /// the offset was measured during motion, or the part genuinely drifted past refinement range.
+    ///     Consecutive rest windows that agree with each other but not with the measured offset before
+    ///     that offset is replaced outright. One distant window is contamination; a run of them means
+    ///     the offset was measured during motion, or the part genuinely drifted past refinement range.
     /// </summary>
     internal const int ReacquireWindowCount = 3;
 
-    private int _count;
-    private Vector3 _angularSum;
-    private Vector3 _angularMinimum;
-    private Vector3 _angularMaximum;
-    private Vector3 _accelerationMinimum;
     private Vector3 _accelerationMaximum;
+    private Vector3 _accelerationMinimum;
+    private Vector3 _angularMaximum;
+    private Vector3 _angularMinimum;
+    private Vector3 _angularSum;
+
+    private int _count;
     private Vector3? _distantCandidate;
     private int _distantCount;
 
@@ -324,8 +331,8 @@ internal sealed class StationaryGyroBiasCalibrator
     /// <param name="angularVelocity">Sensor-space angular velocity in degrees/second.</param>
     /// <param name="acceleration">The same report's acceleration in g, used only to detect rest.</param>
     /// <returns>
-    /// The angular velocity less the measured offset, or unchanged while no offset is known. A
-    /// caller receiving an uncorrected value is being told honestly that rest has not occurred.
+    ///     The angular velocity less the measured offset, or unchanged while no offset is known. A
+    ///     caller receiving an uncorrected value is being told honestly that rest has not occurred.
     /// </returns>
     public Vector3 Correct(Vector3 angularVelocity, Vector3 acceleration)
     {
@@ -382,7 +389,7 @@ internal sealed class StationaryGyroBiasCalibrator
             // afterwards is exactly this far away — require a run of windows that agree with each
             // other, then take the newest outright.
             _distantCount = _distantCandidate is { } previous
-                && !Exceeds(Vector3.Abs(candidate - previous), MaximumRefinementDelta)
+                            && !Exceeds(Vector3.Abs(candidate - previous), MaximumRefinementDelta)
                 ? _distantCount + 1
                 : 1;
             _distantCandidate = candidate;
@@ -406,8 +413,10 @@ internal sealed class StationaryGyroBiasCalibrator
         _distantCount = 0;
     }
 
-    private static bool Exceeds(Vector3 value, float limit) =>
-        value.X > limit || value.Y > limit || value.Z > limit;
+    private static bool Exceeds(Vector3 value, float limit)
+    {
+        return value.X > limit || value.Y > limit || value.Z > limit;
+    }
 
     private void Accumulate(Vector3 angularVelocity, Vector3 acceleration)
     {

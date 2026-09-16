@@ -3,12 +3,12 @@ using System.Text.Json.Serialization;
 namespace WSGM.Device.Sdk.Capabilities;
 
 /// <summary>
-/// Why a capability is unavailable, degraded, or refused a command.
+///     Why a capability is unavailable, degraded, or refused a command.
 /// </summary>
 /// <remarks>
-/// A closed taxonomy rather than a message string, because the UI has to decide what to *do*: offer
-/// a retry, point at a missing prerequisite, name the conflicting owner, or say nothing can be done.
-/// A free-text reason would force that decision back onto string matching.
+///     A closed taxonomy rather than a message string, because the UI has to decide what to *do*: offer
+///     a retry, point at a missing prerequisite, name the conflicting owner, or say nothing can be done.
+///     A free-text reason would force that decision back onto string matching.
 /// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<CapabilityReasonCode>))]
 public enum CapabilityReasonCode
@@ -51,12 +51,12 @@ public enum CapabilityReasonCode
 }
 
 /// <summary>
-/// A structured reason, carrying separate user-facing and diagnostic detail.
+///     A structured reason, carrying separate user-facing and diagnostic detail.
 /// </summary>
 /// <remarks>
-/// The split is deliberate. <see cref="Detail"/> may name a provider, a conflicting process, or a
-/// firmware version — useful in a log, wrong in an overlay tile. WSGM renders the code through its
-/// own localized strings and shows the detail only in diagnostics.
+///     The split is deliberate. <see cref="Detail" /> may name a provider, a conflicting process, or a
+///     firmware version — useful in a log, wrong in an overlay tile. WSGM renders the code through its
+///     own localized strings and shows the detail only in diagnostics.
 /// </remarks>
 /// <param name="Code">The stable reason.</param>
 /// <param name="Detail">Diagnostic detail, never rendered as the primary user-facing message.</param>

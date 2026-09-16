@@ -22,10 +22,10 @@ public static class SteamUiAssetCatalog
     public static string LoadNativeQamBootstrap()
     {
         using var stream = Assembly.GetExecutingAssembly()
-            .GetManifestResourceStream(NativeQamBootstrapResource)
-            ?? throw new InvalidDataException("Embedded Steam UI bootstrap is missing.");
+                               .GetManifestResourceStream(NativeQamBootstrapResource)
+                           ?? throw new InvalidDataException("Embedded Steam UI bootstrap is missing.");
         using var reader = new StreamReader(
-            stream, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: true);
+            stream, new UTF8Encoding(false, true), true);
         var source = reader.ReadToEnd();
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source)));
         return !string.Equals(hash, NativeQamBootstrapSha256, StringComparison.Ordinal)

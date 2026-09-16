@@ -8,7 +8,7 @@ public sealed class GameModeCardServicePolicyTests
     public void Decide_InitialGameModeBootWithCefEnabled_StartsBothCardServices()
     {
         var state = GameModeCardServicePolicy.Decide(
-            gameModeActive: true, overlayTestOnly: false, cefMasterEnabled: true);
+            true, false, true);
 
         Assert.True(state.WatchAppManifests);
         Assert.True(state.ReconcileSteamLibraries);
@@ -18,7 +18,7 @@ public sealed class GameModeCardServicePolicyTests
     public void Decide_GameModeWithCefDisabled_OnlyWatchesAppManifests()
     {
         var state = GameModeCardServicePolicy.Decide(
-            gameModeActive: true, overlayTestOnly: false, cefMasterEnabled: false);
+            true, false, false);
 
         Assert.True(state.WatchAppManifests);
         Assert.False(state.ReconcileSteamLibraries);
@@ -31,7 +31,7 @@ public sealed class GameModeCardServicePolicyTests
         // leave Steam's list from the desktop too. Manifest watching serves the library tabs, which
         // are a game-mode surface, and stays with game mode.
         var state = GameModeCardServicePolicy.Decide(
-            gameModeActive: false, overlayTestOnly: false, cefMasterEnabled: true);
+            false, false, true);
 
         Assert.False(state.WatchAppManifests);
         Assert.True(state.ReconcileSteamLibraries);
@@ -42,7 +42,7 @@ public sealed class GameModeCardServicePolicyTests
     {
         // The safe mode must never drive the live Steam client or touch a card.
         var state = GameModeCardServicePolicy.Decide(
-            gameModeActive: true, overlayTestOnly: true, cefMasterEnabled: true);
+            true, true, true);
 
         Assert.False(state.WatchAppManifests);
         Assert.False(state.ReconcileSteamLibraries);
@@ -52,7 +52,7 @@ public sealed class GameModeCardServicePolicyTests
     public void Decide_DesktopModeWithCefDisabled_StartsNothing()
     {
         var state = GameModeCardServicePolicy.Decide(
-            gameModeActive: false, overlayTestOnly: false, cefMasterEnabled: false);
+            false, false, false);
 
         Assert.False(state.WatchAppManifests);
         Assert.False(state.ReconcileSteamLibraries);

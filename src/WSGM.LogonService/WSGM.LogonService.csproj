@@ -21,10 +21,10 @@
     <!-- The boot manifest is the only contract between the per-user app and this
          SYSTEM service — one shared source file, no project reference (the service
          must not pull in Avalonia or the rest of WSGM). -->
-    <Compile Include="..\WSGM\Core\BootManifest.cs" Link="Shared\BootManifest.cs" />
-    <Compile Include="..\WSGM\Core\AtomicFile.cs" Link="Shared\AtomicFile.cs" />
+    <Compile Include="..\WSGM\Core\BootManifest.cs" Link="Shared\BootManifest.cs"/>
+    <Compile Include="..\WSGM\Core\AtomicFile.cs" Link="Shared\AtomicFile.cs"/>
     <!-- Rotating diagnostics log, shared with the launch wrapper the same way. -->
-    <Compile Include="..\WSGM.Launch\RotatingFileLog.cs" Link="Shared\RotatingFileLog.cs" />
-    <Compile Include="..\WSGM\Interop\Win32Common.cs" Link="Shared\Win32Common.cs" />
+    <Compile Include="..\WSGM.Launch\RotatingFileLog.cs" Link="Shared\RotatingFileLog.cs"/>
+    <Compile Include="..\WSGM\Interop\Win32Common.cs" Link="Shared\Win32Common.cs"/>
   </ItemGroup>
 </Project>

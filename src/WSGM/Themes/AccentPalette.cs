@@ -7,21 +7,27 @@ using FluentAvalonia.Styling;
 
 namespace WSGM.Themes;
 
-/// <summary>Runtime accent-color pipeline. Parses the configured accent string and
-/// applies it to the running application: FluentAvalonia regenerates its accent
-/// shades via <c>CustomAccentColor</c>, and the <c>Hc*</c> accent resource family in
-/// <c>Palette.axaml</c> is shadowed in <c>Application.Resources</c> so every
-/// DynamicResource consumer re-resolves live.</summary>
+/// <summary>
+///     Runtime accent-color pipeline. Parses the configured accent string and
+///     applies it to the running application: FluentAvalonia regenerates its accent
+///     shades via <c>CustomAccentColor</c>, and the <c>Hc*</c> accent resource family in
+///     <c>Palette.axaml</c> is shadowed in <c>Application.Resources</c> so every
+///     DynamicResource consumer re-resolves live.
+/// </summary>
 public static class AccentPalette
 {
-    /// <summary>The default WSGM accent (Handheld Companion orange), used when the
-    /// configured value is missing or unparsable. The single source for the accent
-    /// digits.</summary>
+    /// <summary>
+    ///     The default WSGM accent (Handheld Companion orange), used when the
+    ///     configured value is missing or unparsable. The single source for the accent
+    ///     digits.
+    /// </summary>
     public const string DefaultAccent = "#FFFF9D3D";
 
-    /// <summary>Parses a configured accent color string. The result is always
-    /// fully opaque (see <see cref="ForceOpaque"/>): an #AARRGGBB value keeps its
-    /// RGB but drops its alpha.</summary>
+    /// <summary>
+    ///     Parses a configured accent color string. The result is always
+    ///     fully opaque (see <see cref="ForceOpaque" />): an #AARRGGBB value keeps its
+    ///     RGB but drops its alpha.
+    /// </summary>
     /// <param name="value">The configured color text (e.g. "#FF9D3D"), or null.</param>
     /// <returns>The parsed color forced opaque, or the default accent when the value is missing or invalid.</returns>
     public static Color Parse(string? value)
@@ -30,12 +36,15 @@ public static class AccentPalette
         {
             return ForceOpaque(color);
         }
+
         return Color.Parse(DefaultAccent);
     }
 
-    /// <summary>Applies the accent color to the application's theme and accent
-    /// resources. The accent is normalized to full opacity first (see
-    /// <see cref="ForceOpaque"/>).</summary>
+    /// <summary>
+    ///     Applies the accent color to the application's theme and accent
+    ///     resources. The accent is normalized to full opacity first (see
+    ///     <see cref="ForceOpaque" />).
+    /// </summary>
     /// <param name="app">The running Avalonia application.</param>
     /// <param name="accent">The accent color to apply.</param>
     public static void Apply(Application app, Color accent)
@@ -52,17 +61,27 @@ public static class AccentPalette
         app.Resources["HcOnAccentCaptionBrush"] = new ImmutableSolidColorBrush(onAccentCaption);
     }
 
-    /// <summary>Normalizes an accent to full opacity (A = 255), keeping its RGB.
-    /// A translucent global accent is never rendered as-composited anyway, and a
-    /// low-alpha value would let <see cref="UseBlackForeground"/> (which reads raw
-    /// RGB) pick an unreadable on-accent foreground — so the applied accent is
-    /// always opaque.</summary>
-    internal static Color ForceOpaque(Color accent) => new(0xFF, accent.R, accent.G, accent.B);
+    /// <summary>
+    ///     Normalizes an accent to full opacity (A = 255), keeping its RGB.
+    ///     A translucent global accent is never rendered as-composited anyway, and a
+    ///     low-alpha value would let <see cref="UseBlackForeground" /> (which reads raw
+    ///     RGB) pick an unreadable on-accent foreground — so the applied accent is
+    ///     always opaque.
+    /// </summary>
+    internal static Color ForceOpaque(Color accent)
+    {
+        return new Color(0xFF, accent.R, accent.G, accent.B);
+    }
 
-    /// <summary>Decides whether black text is more legible than white on the given
-    /// accent. Black wins when its WCAG contrast ratio against the accent exceeds
-    /// white's, which reduces to relative luminance &gt; 0.1791.</summary>
-    internal static bool UseBlackForeground(Color accent) => RelativeLuminance(accent) > 0.1791;
+    /// <summary>
+    ///     Decides whether black text is more legible than white on the given
+    ///     accent. Black wins when its WCAG contrast ratio against the accent exceeds
+    ///     white's, which reduces to relative luminance &gt; 0.1791.
+    /// </summary>
+    internal static bool UseBlackForeground(Color accent)
+    {
+        return RelativeLuminance(accent) > 0.1791;
+    }
 
     /// <summary>WCAG relative luminance of an sRGB color (0 = black, 1 = white).</summary>
     internal static double RelativeLuminance(Color color)

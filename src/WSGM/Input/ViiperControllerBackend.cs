@@ -15,24 +15,24 @@ using WSGM.Interop;
 namespace WSGM.Input;
 
 /// <summary>
-/// The production virtual-controller backend, over VIIPER's in-process USBIP server.
+///     The production virtual-controller backend, over VIIPER's in-process USBIP server.
 /// </summary>
 /// <remarks>
-/// VIIPER presents a virtual USB device through <c>usbip-win2</c>'s generic signed kernel driver, so
-/// WSGM ships no driver of its own and needs no per-device kernel code. WSGM packs the device's own
-/// target-specific wire state and submits it; VIIPER re-emits it to the host.
-/// <para>
-/// Everything here fails closed and fails quiet. A missing library, a missing USBIP driver, or a
-/// refused attach leaves controller management unavailable with a reason, and never takes down the
-/// shell, SDL input, or the Steam Input lease.
-/// </para>
+///     VIIPER presents a virtual USB device through <c>usbip-win2</c>'s generic signed kernel driver, so
+///     WSGM ships no driver of its own and needs no per-device kernel code. WSGM packs the device's own
+///     target-specific wire state and submits it; VIIPER re-emits it to the host.
+///     <para>
+///         Everything here fails closed and fails quiet. A missing library, a missing USBIP driver, or a
+///         refused attach leaves controller management unavailable with a reason, and never takes down the
+///         shell, SDL input, or the Steam Input lease.
+///     </para>
 /// </remarks>
 internal sealed class ViiperControllerBackend : IHidBackend
 {
     /// <summary>Loopback endpoint the in-process USBIP server binds.</summary>
     /// <remarks>
-    /// Loopback only. The virtual controller is local to this machine, and VIIPER's optional network
-    /// mode would expose input devices to it.
+    ///     Loopback only. The virtual controller is local to this machine, and VIIPER's optional network
+    ///     mode would expose input devices to it.
     /// </remarks>
     private const string ListenAddress = "127.0.0.1:0";
 
@@ -41,6 +41,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
 
     /// <summary>Steam haptic command identifiers in the Deck's feedback report.</summary>
     private const byte HapticPulseCommandId = 0x8F;
+
     private const byte HapticCommandId = 0xEA;
     private const byte RumbleCommandId = 0xEB;
     private const byte HapticEventCommandId = 0xDC;
@@ -48,27 +49,28 @@ internal sealed class ViiperControllerBackend : IHidBackend
 
     /// <summary>Feedback command ids Steam sends that deliberately produce no motor output.</summary>
     /// <remarks>
-    /// Configuration and identity chatter observed live: clear-mappings, attribute and string
-    /// queries, settings writes, default-settings load and default-mappings, audio mapping, the
-    /// haptic gain set, and the empty frame. Anything outside this set is a protocol novelty and
-    /// is worth its bounded log line.
+    ///     Configuration and identity chatter observed live: clear-mappings, attribute and string
+    ///     queries, settings writes, default-settings load and default-mappings, audio mapping, the
+    ///     haptic gain set, and the empty frame. Anything outside this set is a protocol novelty and
+    ///     is worth its bounded log line.
     /// </remarks>
     private static readonly FrozenSet<byte> KnownIgnoredFeedback =
         FrozenSet.ToFrozenSet<byte>(
             [0x00, 0x81, 0x83, 0x85, 0x87, 0x8E, 0xAE, 0xC1, HapticGainCommandId]);
+
     private static readonly TimeSpan MaxEmulatedPulseDuration = TimeSpan.FromSeconds(5);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly ConcurrentDictionary<byte, int> _undecodedFeedback = new();
-    private GCHandle _self;
-    private bool _initialized;
     private uint _deviceId;
-    private uint _fastHandle;
     private ManagedControllerTarget? _deviceKind;
-    private long _generation;
-    private HidTargetHandle? _target;
-    private long? _removalUnverifiedGeneration;
     private bool _disposed;
+    private uint _fastHandle;
+    private long _generation;
+    private bool _initialized;
+    private long? _removalUnverifiedGeneration;
+    private GCHandle _self;
+    private HidTargetHandle? _target;
 
     /// <summary>The targets for which this build carries complete VIIPER wire encoders.</summary>
     internal static IReadOnlyList<ManagedControllerTarget> SupportedTargets { get; } =
@@ -78,13 +80,13 @@ internal sealed class ViiperControllerBackend : IHidBackend
         ManagedControllerTarget.DualShock4
     ];
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public event EventHandler<HidTargetOutput>? OutputReceived;
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public event EventHandler<long>? TargetLost;
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public async Task<HidBackendHealth> DiscoverAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -107,7 +109,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
         }
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public async Task<HidTargetHandle> CreateTargetAsync(
         ManagedControllerTarget kind,
         CanonicalControllerSample initialNeutralState,
@@ -179,10 +181,10 @@ internal sealed class ViiperControllerBackend : IHidBackend
         }
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     /// <remarks>
-    /// VIIPER attaches synchronously, so a returned handle already means the host accepted the
-    /// device. There is nothing further to wait for.
+    ///     VIIPER attaches synchronously, so a returned handle already means the host accepted the
+    ///     device. There is nothing further to wait for.
     /// </remarks>
     public Task<bool> WaitForEnumerationAsync(
         HidTargetHandle target,
@@ -192,7 +194,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
         return Task.FromResult(_target?.Generation == target.Generation);
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public async ValueTask<bool> PublishAsync(
         HidTargetHandle target,
         CanonicalControllerSample sample,
@@ -243,11 +245,11 @@ internal sealed class ViiperControllerBackend : IHidBackend
         return false;
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     /// <remarks>
-    /// A neutral packet that was not written is a failure, not a dropped sample: the caller is
-    /// asking for the target to be left quiet before a handoff, and reporting success for a report
-    /// the device never took is how a held control survives make-safe.
+    ///     A neutral packet that was not written is a failure, not a dropped sample: the caller is
+    ///     asking for the target to be left quiet before a handoff, and reporting success for a report
+    ///     the device never took is how a held control survives make-safe.
     /// </remarks>
     public async Task NeutralizeAsync(
         HidTargetHandle target,
@@ -261,7 +263,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
         }
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public async Task RemoveTargetAsync(HidTargetHandle target, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(target);
@@ -288,7 +290,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
         }
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public Task<bool> WaitForRemovalAsync(
         HidTargetHandle target,
         CancellationToken cancellationToken)
@@ -299,7 +301,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
             && _target?.Generation != target.Generation);
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
@@ -366,7 +368,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
             {
                 NativeViiper.Shutdown();
                 detail = "The controller backend could not create its bus: "
-                    + NativeViiper.TakeLastError();
+                         + NativeViiper.TakeLastError();
                 return false;
             }
         }
@@ -396,12 +398,12 @@ internal sealed class ViiperControllerBackend : IHidBackend
     }
 
     /// <summary>
-    /// Subscribes to the host's feedback reports so rumble reaches the physical device.
+    ///     Subscribes to the host's feedback reports so rumble reaches the physical device.
     /// </summary>
     /// <remarks>
-    /// The callback runs on a library thread, so it does the least possible work: decode, raise, and
-    /// return. A strong handle carries the instance across the native boundary because
-    /// <c>UnmanagedCallersOnly</c> cannot capture one, and it is released on disposal.
+    ///     The callback runs on a library thread, so it does the least possible work: decode, raise, and
+    ///     return. A strong handle carries the instance across the native boundary because
+    ///     <c>UnmanagedCallersOnly</c> cannot capture one, and it is released on disposal.
     /// </remarks>
     private unsafe void RegisterFeedbackUnderGate(uint deviceId)
     {
@@ -473,8 +475,8 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 {
                     Log.Warn(
                         $"Unknown {target.Kind} feedback frame ({seen}/4 shown): "
-                            + $"length={length}, "
-                            + $"bytes={Convert.ToHexString(report[..Math.Min(length, 24)])}.");
+                        + $"length={length}, "
+                        + $"bytes={Convert.ToHexString(report[..Math.Min(length, 24)])}.");
                 }
 
                 return;
@@ -502,11 +504,11 @@ internal sealed class ViiperControllerBackend : IHidBackend
 
     /// <summary>Decodes one VIIPER target feedback frame into canonical physical motors.</summary>
     /// <remarks>
-    /// Steam uses ordinary 16-bit rumble and two trackpad-haptic commands for the Deck target.
-    /// The Claw has ERM motors rather than Deck trackpad actuators, so haptics are represented as
-    /// symmetric motor strength. A pulse also carries the bounded time after which the output
-    /// router must send zero; leaving that timer in the native callback would let an old pulse stop
-    /// a newer route or leave a latched physical motor running during teardown.
+    ///     Steam uses ordinary 16-bit rumble and two trackpad-haptic commands for the Deck target.
+    ///     The Claw has ERM motors rather than Deck trackpad actuators, so haptics are represented as
+    ///     symmetric motor strength. A pulse also carries the bounded time after which the output
+    ///     router must send zero; leaving that timer in the native callback would let an old pulse stop
+    ///     a newer route or leave a latched physical motor running during teardown.
     /// </remarks>
     internal static DecodedHapticFeedback? DecodeFeedback(
         ManagedControllerTarget kind,
@@ -537,61 +539,61 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 // the envelope to full strength and crushes the dynamics.
                 return new DecodedHapticFeedback(
                     BinaryPrimitives.ReadUInt16LittleEndian(report[5..7])
-                        / (float)ushort.MaxValue,
+                    / (float)ushort.MaxValue,
                     BinaryPrimitives.ReadUInt16LittleEndian(report[7..9])
-                        / (float)ushort.MaxValue);
+                    / (float)ushort.MaxValue);
             case [HapticEventCommandId, ..] when report.Length >= 4:
+            {
+                // Steam-private haptic event (0xDC), observed from Steam's own rumble paths on
+                // Windows where ID_TRIGGER_RUMBLE_CMD never arrives: length 2, then what the
+                // SC2-generation protocol documents as side and command (0 stop, 1 click,
+                // 2 strong click). Protocol intent; the output router renders it against the
+                // plugin's declared motor physics.
+                var strength = report[3] switch
                 {
-                    // Steam-private haptic event (0xDC), observed from Steam's own rumble paths on
-                    // Windows where ID_TRIGGER_RUMBLE_CMD never arrives: length 2, then what the
-                    // SC2-generation protocol documents as side and command (0 stop, 1 click,
-                    // 2 strong click). Protocol intent; the output router renders it against the
-                    // plugin's declared motor physics.
-                    var strength = report[3] switch
-                    {
-                        0 => 0f,
-                        1 => 0.5f,
-                        _ => 1f
-                    };
-                    return strength <= 0f
-                        ? new DecodedHapticFeedback(0f, 0f)
-                        : new DecodedHapticFeedback(strength, strength, TimeSpan.FromMilliseconds(150));
-                }
+                    0 => 0f,
+                    1 => 0.5f,
+                    _ => 1f
+                };
+                return strength <= 0f
+                    ? new DecodedHapticFeedback(0f, 0f)
+                    : new DecodedHapticFeedback(strength, strength, TimeSpan.FromMilliseconds(150));
+            }
             case [HapticGainCommandId, ..] when report.Length >= 2:
                 // Companion gain set (0xE2) for the event above. It configures rather than
                 // plays; decoding it as output would cancel the pulse it accompanies.
                 return null;
             case [HapticCommandId, ..] when report.Length >= 6:
-                {
-                    // Steam's interaction haptics (button/gyro feedback). The frames captured live
-                    // (`EA 0D side style level gain …`) carry small enum levels, not the legacy
-                    // 0..255 intensity: presses arrive as style 2 level 3, releases as style 1
-                    // level 2. Scaling the level as a byte made every click near-zero. This decode
-                    // is protocol intent only — level over the enum range as a bounded click — and
-                    // the output router renders it against the plugin's declared motor physics.
-                    var strength = Math.Min(1f, report[4] / 3f);
-                    return strength <= 0f
-                        ? new DecodedHapticFeedback(0f, 0f)
-                        : new DecodedHapticFeedback(strength, strength, TimeSpan.FromMilliseconds(35));
-                }
+            {
+                // Steam's interaction haptics (button/gyro feedback). The frames captured live
+                // (`EA 0D side style level gain …`) carry small enum levels, not the legacy
+                // 0..255 intensity: presses arrive as style 2 level 3, releases as style 1
+                // level 2. Scaling the level as a byte made every click near-zero. This decode
+                // is protocol intent only — level over the enum range as a bounded click — and
+                // the output router renders it against the plugin's declared motor physics.
+                var strength = Math.Min(1f, report[4] / 3f);
+                return strength <= 0f
+                    ? new DecodedHapticFeedback(0f, 0f)
+                    : new DecodedHapticFeedback(strength, strength, TimeSpan.FromMilliseconds(35));
+            }
             case [HapticPulseCommandId, ..] when report.Length >= 10:
-                {
-                    var period = BinaryPrimitives.ReadUInt16LittleEndian(report[5..7]);
-                    var count = BinaryPrimitives.ReadUInt16LittleEndian(report[7..9]);
-                    var value = Math.Min(byte.MaxValue, count * 16 + report[9]);
-                    // Protocol intent only: Steam's gyro ticks legitimately request one millisecond
-                    // at sub-percent intensity, and whether that is renderable is the plugin's
-                    // declared motor physics, applied by the output router.
-                    var strength = value / (float)byte.MaxValue;
-                    var requestedMilliseconds = Math.Ceiling(period * (long)count / 1000d);
-                    var stopAfter = TimeSpan.FromMilliseconds(Math.Clamp(
-                        requestedMilliseconds,
-                        1,
-                        MaxEmulatedPulseDuration.TotalMilliseconds));
-                    return strength <= 0f
-                        ? new DecodedHapticFeedback(0f, 0f)
-                        : new DecodedHapticFeedback(strength, strength, stopAfter);
-                }
+            {
+                var period = BinaryPrimitives.ReadUInt16LittleEndian(report[5..7]);
+                var count = BinaryPrimitives.ReadUInt16LittleEndian(report[7..9]);
+                var value = Math.Min(byte.MaxValue, count * 16 + report[9]);
+                // Protocol intent only: Steam's gyro ticks legitimately request one millisecond
+                // at sub-percent intensity, and whether that is renderable is the plugin's
+                // declared motor physics, applied by the output router.
+                var strength = value / (float)byte.MaxValue;
+                var requestedMilliseconds = Math.Ceiling(period * (long)count / 1000d);
+                var stopAfter = TimeSpan.FromMilliseconds(Math.Clamp(
+                    requestedMilliseconds,
+                    1,
+                    MaxEmulatedPulseDuration.TotalMilliseconds));
+                return strength <= 0f
+                    ? new DecodedHapticFeedback(0f, 0f)
+                    : new DecodedHapticFeedback(strength, strength, stopAfter);
+            }
             default:
                 return null;
         }
@@ -638,16 +640,16 @@ internal sealed class ViiperControllerBackend : IHidBackend
         Log.Change(
             "controller.viiper.submit",
             $"VIIPER rejected an input frame on device {BusId}:{_deviceId}: status={status}, "
-                + $"{NativeViiper.TakeLastError()}.",
+            + $"{NativeViiper.TakeLastError()}.",
             LogLevel.Warn);
         return false;
     }
 
     /// <summary>Removes the VIIPER device and reports whether the library confirmed it.</summary>
-    /// <returns><see langword="true"/> when removal was accepted.</returns>
+    /// <returns><see langword="true" /> when removal was accepted.</returns>
     /// <remarks>
-    /// The status must be read: a refused detach leaves the old virtual controller enumerated, and
-    /// <see cref="WaitForRemovalAsync"/> has to report that rather than WSGM's own bookkeeping.
+    ///     The status must be read: a refused detach leaves the old virtual controller enumerated, and
+    ///     <see cref="WaitForRemovalAsync" /> has to report that rather than WSGM's own bookkeeping.
     /// </remarks>
     private bool RemoveDeviceUnderGate()
     {
@@ -694,11 +696,11 @@ internal sealed class ViiperControllerBackend : IHidBackend
 
     /// <summary>Runs one native call; a status the caller needs is captured inside the action.</summary>
     /// <remarks>
-    /// Deliberately the only overload. A former <c>Func&lt;int&gt;</c> twin forwarded here through
-    /// <c>() => _ = action()</c>, and that lambda's int-valued body binds to <c>Func&lt;int&gt;</c>
-    /// — itself — rather than <c>Action</c>, so every removal and shutdown recursed until the
-    /// thread's stack was gone (device-observed 2026-09-01: Windows reported that it could not
-    /// create a new stack guard page). One delegate shape leaves nothing to resolve.
+    ///     Deliberately the only overload. A former <c>Func&lt;int&gt;</c> twin forwarded here through
+    ///     <c>() => _ = action()</c>, and that lambda's int-valued body binds to <c>Func&lt;int&gt;</c>
+    ///     — itself — rather than <c>Action</c>, so every removal and shutdown recursed until the
+    ///     thread's stack was gone (device-observed 2026-09-01: Windows reported that it could not
+    ///     create a new stack guard page). One delegate shape leaves nothing to resolve.
     /// </remarks>
     internal static void SafeNative(Action action, string operation)
     {
@@ -707,7 +709,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
             action();
         }
         catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException
-            or SEHException)
+                                       or SEHException)
         {
             Log.Warn($"Controller backend could not {operation}: {ex.Message}");
         }

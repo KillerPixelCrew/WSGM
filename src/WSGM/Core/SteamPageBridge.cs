@@ -5,18 +5,18 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-/// <summary>Reads which game page the user is viewing from Steam's own library UI over the CEF
-/// leg (<see cref="SteamCef"/>): the focused element's React fiber first, then the largest
-/// visible wide library-asset image in the rendered DOM, then the library route.</summary>
+/// <summary>
+///     Reads which game page the user is viewing from Steam's own library UI over the CEF
+///     leg (<see cref="SteamCef" />): the focused element's React fiber first, then the largest
+///     visible wide library-asset image in the rendered DOM, then the library route.
+/// </summary>
 /// <remarks>
-/// The library badge that used to live here is a toolkit surface now
-/// (<c>SteamLibraryBadgeSurface</c>, fed by <c>Shell\LibraryBadges</c>); nothing in this class
-/// writes to the page.
+///     The library badge that used to live here is a toolkit surface now
+///     (<c>SteamLibraryBadgeSurface</c>, fed by <c>Shell\LibraryBadges</c>); nothing in this class
+///     writes to the page.
 /// </remarks>
 public static class SteamPageBridge
 {
-    private static readonly TimeSpan Budget = TimeSpan.FromSeconds(8);
-
     // Current-game detection, two signals in priority order — the focused element's React fiber,
     // then the largest wide visible library-asset image. Both live-verified; the rules and their
     // evidence are in docs\steam-cef.md.
@@ -50,14 +50,18 @@ public static class SteamPageBridge
         @"(()=>{try{const m=window.location.pathname.match(/\/library\/app\/(\d+)/);" +
         "return m?Number(m[1]):0;}catch(e){return 0;}})()";
 
-    /// <summary>The app id of the game page the user is currently viewing, or 0 when
-    /// not on a game page / unreachable. In the visible window two signals run in
-    /// order (both live-verified, see <c>CurrentAppIdJs</c>): the FOCUSED element's
-    /// React fiber first, then the largest wide library-asset image.
-    /// Fallback for pages with neither (custom shortcuts): the library route in
-    /// SharedJSContext (live-verified). The matching signal is named in the log line,
-    /// so a detection that silently changed which one carries it is diagnosable from a
-    /// pasted wsgm.log.</summary>
+    private static readonly TimeSpan Budget = TimeSpan.FromSeconds(8);
+
+    /// <summary>
+    ///     The app id of the game page the user is currently viewing, or 0 when
+    ///     not on a game page / unreachable. In the visible window two signals run in
+    ///     order (both live-verified, see <c>CurrentAppIdJs</c>): the FOCUSED element's
+    ///     React fiber first, then the largest wide library-asset image.
+    ///     Fallback for pages with neither (custom shortcuts): the library route in
+    ///     SharedJSContext (live-verified). The matching signal is named in the log line,
+    ///     so a detection that silently changed which one carries it is diagnosable from a
+    ///     pasted wsgm.log.
+    /// </summary>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     public static async Task<long> GetCurrentAppIdAsync(CancellationToken cancellationToken = default)
     {
@@ -70,14 +74,16 @@ public static class SteamPageBridge
             Log.Info($"Steam current app {fromPage} ({ParseSignal(result)}).");
             return fromPage;
         }
+
         var routeResult = await SteamUiTransportSession.EvaluateAsync(
-            "JSON.stringify({ok:true,id:" + RouteAppIdJs + "})", Budget, cancellationToken)
+                "JSON.stringify({ok:true,id:" + RouteAppIdJs + "})", Budget, cancellationToken)
             .ConfigureAwait(false);
         var fromRoute = ParseAppId(routeResult);
         if (fromRoute > 0)
         {
             Log.Info($"Steam current app {fromRoute} (library route).");
         }
+
         return fromRoute;
     }
 
@@ -87,6 +93,7 @@ public static class SteamPageBridge
         {
             return 0;
         }
+
         try
         {
             using var document = JsonDocument.Parse(result.Value);
@@ -100,18 +107,22 @@ public static class SteamPageBridge
         {
             Log.Warn($"Current-app parse failed: {ex.Message}");
         }
+
         return 0;
     }
 
-    /// <summary>Names the in-page signal that produced the app id, for the log line.
-    /// Falls back to the old generic label if the shape is ever missing, so a decode
-    /// surprise degrades the diagnostic instead of the detection.</summary>
+    /// <summary>
+    ///     Names the in-page signal that produced the app id, for the log line.
+    ///     Falls back to the old generic label if the shape is ever missing, so a decode
+    ///     surprise degrades the diagnostic instead of the detection.
+    /// </summary>
     private static string ParseSignal(CefEvalResult result)
     {
         if (result.Value is null)
         {
             return "in-page";
         }
+
         try
         {
             using var document = JsonDocument.Parse(result.Value);
@@ -125,6 +136,7 @@ public static class SteamPageBridge
         {
             // ParseAppId already logged whatever went wrong with this payload.
         }
+
         return "in-page";
     }
 }

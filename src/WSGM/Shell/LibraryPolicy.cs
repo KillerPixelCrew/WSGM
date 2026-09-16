@@ -14,12 +14,16 @@ internal enum LibraryTransition
     /// <summary>Steam's view already matches the card that is in the reader.</summary>
     None,
 
-    /// <summary>Registrations exist for a library that is not on this volume any
-    /// more; remove them and add nothing.</summary>
+    /// <summary>
+    ///     Registrations exist for a library that is not on this volume any
+    ///     more; remove them and add nothing.
+    /// </summary>
     Purge,
 
-    /// <summary>Registrations exist for a DIFFERENT card, and the card now in the
-    /// reader carries its own library; replace them.</summary>
+    /// <summary>
+    ///     Registrations exist for a DIFFERENT card, and the card now in the
+    ///     reader carries its own library; replace them.
+    /// </summary>
     Replace,
 
     /// <summary>The card carries a library Steam does not know about; add it.</summary>
@@ -27,42 +31,43 @@ internal enum LibraryTransition
 }
 
 /// <summary>
-/// The one owner of whether a removable library is registered with Steam.
+///     The one owner of whether a removable library is registered with Steam.
 /// </summary>
 /// <remarks>
-/// Adopt, eject and format are the only transitions, which is Steam's own storage model rather
-/// than a second one beside it. Everything that can change a removable library's registration goes
-/// through here: the overlay's eject panel, Steam's revived storage pages, the format flow, and
-/// volume arrival and departure. Detection stays with <see cref="CardVolumeMonitor" />, which
-/// reports what it saw and no longer decides anything.
-/// <para>
-/// The reason for one owner is a fault, not tidiness. The monitor treated "a library is on a
-/// mounted volume and Steam does not list it" as sufficient reason to register it. A media-level
-/// eject leaves the card physically in the reader, Windows remounts it within seconds, and the
-/// monitor put back the registration the user had just ejected — from either surface, since both
-/// end at the same physical eject. An eject is now an intent that outlives the remount, and only a
-/// card actually leaving, or an explicit adopt, clears it.
-/// </para>
+///     Adopt, eject and format are the only transitions, which is Steam's own storage model rather
+///     than a second one beside it. Everything that can change a removable library's registration goes
+///     through here: the overlay's eject panel, Steam's revived storage pages, the format flow, and
+///     volume arrival and departure. Detection stays with <see cref="CardVolumeMonitor" />, which
+///     reports what it saw and no longer decides anything.
+///     <para>
+///         The reason for one owner is a fault, not tidiness. The monitor treated "a library is on a
+///         mounted volume and Steam does not list it" as sufficient reason to register it. A media-level
+///         eject leaves the card physically in the reader, Windows remounts it within seconds, and the
+///         monitor put back the registration the user had just ejected — from either surface, since both
+///         end at the same physical eject. An eject is now an intent that outlives the remount, and only a
+///         card actually leaving, or an explicit adopt, clears it.
+///     </para>
 /// </remarks>
 internal sealed class LibraryPolicy
 {
     /// <summary>Volume roots ejected on purpose, with the library identity that was on them.</summary>
     /// <remarks>
-    /// Keyed by volume root rather than library path because the eject surfaces name a drive, not
-    /// a folder. The value is the content id that was ejected: a different card in the same reader
-    /// is a different library and must register normally, so the intent is matched on identity and
-    /// not on the slot.
+    ///     Keyed by volume root rather than library path because the eject surfaces name a drive, not
+    ///     a folder. The value is the content id that was ejected: a different card in the same reader
+    ///     is a different library and must register normally, so the intent is matched on identity and
+    ///     not on the slot.
     /// </remarks>
     private readonly Dictionary<string, string> _ejected = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly Lock _gate = new();
 
     /// <summary>Runs before the media is ejected.</summary>
     /// <param name="entry">The row being ejected.</param>
     /// <returns>A task that completes when the policy is ready for the eject.</returns>
     /// <remarks>
-    /// Unregistering happens here, before the media goes, and the intent is recorded with it. Both
-    /// are undone by <see cref="EjectedAsync" /> when Windows refuses the eject, because a card
-    /// that never went anywhere must not be left out of Steam's list.
+    ///     Unregistering happens here, before the media goes, and the intent is recorded with it. Both
+    ///     are undone by <see cref="EjectedAsync" /> when Windows refuses the eject, because a card
+    ///     that never went anywhere must not be left out of Steam's list.
     /// </remarks>
     public async Task EjectingAsync(RemovableDriveEntry entry)
     {
@@ -115,11 +120,14 @@ internal sealed class LibraryPolicy
     /// <summary>The card library paths that would sit on one row's volumes.</summary>
     /// <param name="entry">The row being ejected.</param>
     /// <returns>One path per mounted letter, in the layout the card scan uses.</returns>
-    private static string[] LibraryPathsOn(RemovableDriveEntry entry) =>
-    [
-        .. SteamStorageBridge.SplitLetters(entry.Letters)
-            .Select(path => Path.Combine(path, "SteamLibrary"))
-    ];
+    private static string[] LibraryPathsOn(RemovableDriveEntry entry)
+    {
+        return
+        [
+            .. SteamStorageBridge.SplitLetters(entry.Letters)
+                .Select(path => Path.Combine(path, "SteamLibrary"))
+        ];
+    }
 
     /// <summary>The library identity at a path, or empty when it carries none.</summary>
     /// <param name="libraryPath">The card library path.</param>
@@ -136,7 +144,7 @@ internal sealed class LibraryPolicy
         {
             // An unreadable marker on a card about to leave is not worth failing an eject over.
             Log.Warn($"Library policy: could not read the library marker at {libraryPath}: "
-                + ex.Message);
+                     + ex.Message);
             return "";
         }
     }
@@ -159,8 +167,8 @@ internal sealed class LibraryPolicy
 
                 _ejected[root] = contentId ?? "";
                 Log.Info($"Library policy: {root} ejected on purpose"
-                    + $"{(contentId is { Length: > 0 } ? $" (library {contentId})" : "")}; "
-                    + "it will not be re-registered until the card is replaced or adopted.");
+                         + $"{(contentId is { Length: > 0 } ? $" (library {contentId})" : "")}; "
+                         + "it will not be re-registered until the card is replaced or adopted.");
             }
         }
     }
@@ -168,8 +176,8 @@ internal sealed class LibraryPolicy
     /// <summary>Forgets a standing eject intent for a volume.</summary>
     /// <param name="path">Any path on the volume.</param>
     /// <remarks>
-    /// Called when the media actually leaves and when the user adopts the volume again. Both mean
-    /// the intent has been served or overridden, and a remount after either is an ordinary insert.
+    ///     Called when the media actually leaves and when the user adopts the volume again. Both mean
+    ///     the intent has been served or overridden, and a remount after either is an ordinary insert.
     /// </remarks>
     internal void ClearEjected(string path)
     {
@@ -222,7 +230,7 @@ internal sealed class LibraryPolicy
             // A different card in the same slot. The intent was about the one that left.
             _ejected.Remove(root);
             Log.Info($"Library policy: {root} now holds a different library ({contentId}); "
-                + "the standing eject no longer applies.");
+                     + "the standing eject no longer applies.");
             return false;
         }
     }
@@ -245,28 +253,30 @@ internal sealed class LibraryPolicy
             // still lists at this path belongs to a card that has left the reader.
             return registered.Count > 0 ? LibraryTransition.Purge : LibraryTransition.None;
         }
+
         if (registered.Count == 0)
         {
             return LibraryTransition.Add;
         }
+
         // Exactly the one registration, and it is this card's: leave it alone. Any
         // other shape - a different id, or this id sitting next to a stale duplicate -
         // has to be rebuilt, because Steam offers no way to drop just one of them by
         // identity.
         return registered.Count == 1
-            && string.Equals(registered[0], cardContentId, StringComparison.Ordinal)
-                ? LibraryTransition.None
-                : LibraryTransition.Replace;
+               && string.Equals(registered[0], cardContentId, StringComparison.Ordinal)
+            ? LibraryTransition.None
+            : LibraryTransition.Replace;
     }
 
     /// <summary>Applies one transition through Steam's own front end.</summary>
     /// <param name="transition">What the registrations at this path need.</param>
     /// <param name="libraryPath">The card library, for example <c>E:\SteamLibrary</c>.</param>
     /// <param name="cardLabel">
-    /// The label the card's own marker carries, empty when it has none. Passed on an add because
-    /// Steam's label belongs to the PATH registration, not the card: re-registering a reader path
-    /// leaves the previous card's label in place, and Steam's storage page then names this card
-    /// after the last one. An empty label is left as null so Steam keeps its own default.
+    ///     The label the card's own marker carries, empty when it has none. Passed on an add because
+    ///     Steam's label belongs to the PATH registration, not the card: re-registering a reader path
+    ///     leaves the previous card's label in place, and Steam's storage page then names this card
+    ///     after the last one. An empty label is left as null so Steam keeps its own default.
     /// </param>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     /// <returns>Whether Steam's list changed.</returns>
@@ -283,7 +293,7 @@ internal sealed class LibraryPolicy
             // list a pulled card's folder -- read as done while the registration stayed in
             // libraryfolders.vdf (Claw, 2026-09-11).
             Log.Info($"Library policy: Steam answered the removal of {libraryPath} with "
-                + $"{removal.Status}{(removal.Detail is { Length: > 0 } ? $" ({removal.Detail})" : "")}.");
+                     + $"{removal.Status}{(removal.Detail is { Length: > 0 } ? $" ({removal.Detail})" : "")}.");
 
             // Both mean Steam's list no longer carries the path, which is what a purge is for. A
             // path Steam had already dropped is not a failure to retry, and reporting it as one
@@ -297,8 +307,8 @@ internal sealed class LibraryPolicy
         // there is nothing there to drop, so one call covers both.
         var add = await SteamCdp.AddLibraryAsync(
             libraryPath,
-            label: string.IsNullOrWhiteSpace(cardLabel) ? null : cardLabel,
-            replaceExisting: transition == LibraryTransition.Replace,
+            string.IsNullOrWhiteSpace(cardLabel) ? null : cardLabel,
+            transition == LibraryTransition.Replace,
             cancellationToken).ConfigureAwait(false);
         return add.Status is SteamLibraryAddStatus.Added or SteamLibraryAddStatus.AlreadyPresent;
     }
@@ -308,11 +318,13 @@ internal sealed class LibraryPolicy
     /// <param name="cancellationToken">Cancels the exchange.</param>
     /// <returns>Whether Steam's list changed.</returns>
     /// <remarks>
-    /// Ordered before the physical eject on purpose. Ejecting first leaves Steam holding a library
-    /// on a volume that is gone, which is the state its own UI renders as a disconnected drive and
-    /// which the monitor then has to clean up on a later pass.
+    ///     Ordered before the physical eject on purpose. Ejecting first leaves Steam holding a library
+    ///     on a volume that is gone, which is the state its own UI renders as a disconnected drive and
+    ///     which the monitor then has to clean up on a later pass.
     /// </remarks>
     private static Task<bool> UnregisterAsync(
-        string libraryPath, CancellationToken cancellationToken) =>
-        ApplyAsync(LibraryTransition.Purge, libraryPath, "", cancellationToken);
+        string libraryPath, CancellationToken cancellationToken)
+    {
+        return ApplyAsync(LibraryTransition.Purge, libraryPath, "", cancellationToken);
+    }
 }

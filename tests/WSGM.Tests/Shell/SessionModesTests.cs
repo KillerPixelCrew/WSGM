@@ -8,7 +8,7 @@ public sealed class SessionModesTests
     [Fact]
     public void PreviewTransitionRequests_AreInert()
     {
-        var modes = new SessionModes(new AppConfig(), monitor: null);
+        var modes = new SessionModes(new AppConfig(), null);
         var desktopStarting = 0;
         var gameModeEntered = 0;
         var warnings = 0;
@@ -29,13 +29,13 @@ public sealed class SessionModesTests
     public void LiveConstructor_RequiresExplorerDesktopHost()
     {
         Assert.Throws<ArgumentNullException>(() =>
-            new SessionModes(new AppConfig(), monitor: null, desktopHost: null!));
+            new SessionModes(new AppConfig(), null, null!));
     }
 
     [Fact]
     public async Task ShutdownRequest_PreventsNewTransitions()
     {
-        var modes = new SessionModes(new AppConfig(), monitor: null);
+        var modes = new SessionModes(new AppConfig(), null);
 
         modes.RequestShutdown();
         var accepted = modes.TryBeginTransition("test transition");
@@ -48,7 +48,7 @@ public sealed class SessionModesTests
     [Fact]
     public async Task WaitForTransitionAsync_CompletesOnlyAfterActiveTransitionEnds()
     {
-        var modes = new SessionModes(new AppConfig(), monitor: null);
+        var modes = new SessionModes(new AppConfig(), null);
         modes.BeginTransition();
 
         var waiting = modes.WaitForTransitionAsync();

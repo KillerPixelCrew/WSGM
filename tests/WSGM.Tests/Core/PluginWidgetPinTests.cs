@@ -15,7 +15,9 @@ public sealed class PluginWidgetPinTests
         PluginWidgetPins.Set(pins, second, true);
         PluginWidgetPins.Set(pins, first, true);
         PluginWidgetPins.Move(pins, second, -1);
-        var restored = PluginWidgetPins.Normalize(JsonSerializer.Deserialize<List<PluginWidgetPin>>(JsonSerializer.Serialize(pins)));
+        var restored =
+            PluginWidgetPins.Normalize(
+                JsonSerializer.Deserialize<List<PluginWidgetPin>>(JsonSerializer.Serialize(pins)));
         Assert.Equal([second, first], restored);
         PluginWidgetPins.Set(restored, second, false);
         Assert.Equal(first, Assert.Single(restored));

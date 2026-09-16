@@ -8,11 +8,11 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>The half of the entry transaction the resident session owns: the saved configuration,
-/// the splash, the display work and the plugin actions.
-///
-/// <see cref="SessionModes"/> owns the other half: Explorer, Steam and the game-mode surfaces.
-/// The interface keeps SessionModes independent of the session that implements this half.
+/// <summary>
+///     The half of the entry transaction the resident session owns: the saved configuration,
+///     the splash, the display work and the plugin actions.
+///     <see cref="SessionModes" /> owns the other half: Explorer, Steam and the game-mode surfaces.
+///     The interface keeps SessionModes independent of the session that implements this half.
 /// </summary>
 internal interface IGameModeEntryServices
 {
@@ -62,57 +62,81 @@ internal interface IGameModeEntryServices
     /// <returns>One result per step.</returns>
     Task<IReadOnlyList<PluginActionStepResult>> RunLeaveActionsAsync();
 
-    /// <summary>Puts the desktop layout back when Game Mode ends: the layout recorded at entry, or
-    /// the configured Desktop layout, whichever this configuration owes.</summary>
+    /// <summary>
+    ///     Puts the desktop layout back when Game Mode ends: the layout recorded at entry, or
+    ///     the configured Desktop layout, whichever this configuration owes.
+    /// </summary>
     /// <returns>A warning when it could not be restored, otherwise null.</returns>
     Task<string?> ApplyReturnLayoutAsync();
 }
 
-/// <summary>Joins the session's services to the Explorer, Steam and commit primitives
-/// <see cref="SessionModes"/> owns, and remembers whether Explorer actually left so a failure after
-/// that point can be recovered rather than reported.</summary>
+/// <summary>
+///     Joins the session's services to the Explorer, Steam and commit primitives
+///     <see cref="SessionModes" /> owns, and remembers whether Explorer actually left so a failure after
+///     that point can be recovered rather than reported.
+/// </summary>
 internal sealed class SessionModesEntryBackend(SessionModes modes, ExplorerDesktopHost desktopHost)
     : IGameModeEntryBackend
 {
+    /// <inheritdoc />
+    public void SetStatus(string line)
+    {
+        modes.GameModeEntryServices?.SetStatus(line);
+    }
 
     /// <inheritdoc />
-    public void SetStatus(string line) => modes.GameModeEntryServices?.SetStatus(line);
+    public Task ArmSteamDetectionAsync()
+    {
+        return modes.GameModeEntryServices?.ArmSteamDetectionAsync() ?? Task.CompletedTask;
+    }
 
     /// <inheritdoc />
-    public Task ArmSteamDetectionAsync() =>
-        modes.GameModeEntryServices?.ArmSteamDetectionAsync() ?? Task.CompletedTask;
+    public void SetCancellable(bool cancellable)
+    {
+        modes.GameModeEntryServices?.SetCancellable(cancellable);
+    }
 
     /// <inheritdoc />
-    public void SetCancellable(bool cancellable) => modes.GameModeEntryServices?.SetCancellable(cancellable);
-
-    /// <inheritdoc />
-    public Task<DisplayArrangement> ObserveAsync() =>
-        modes.GameModeEntryServices?.ObserveAsync() ?? Task.Run(DisplayLayouts.Observe);
+    public Task<DisplayArrangement> ObserveAsync()
+    {
+        return modes.GameModeEntryServices?.ObserveAsync() ?? Task.Run(DisplayLayouts.Observe);
+    }
 
     /// <inheritdoc />
     public Task<DisplayArrangement> WaitForDisplaysAsync(
-        IReadOnlyList<DisplayTargetIdentity> targets, CancellationToken cancellationToken) =>
-        modes.GameModeEntryServices is { } services
+        IReadOnlyList<DisplayTargetIdentity> targets, CancellationToken cancellationToken)
+    {
+        return modes.GameModeEntryServices is { } services
             ? services.WaitForDisplaysAsync(targets, cancellationToken)
             : ObserveAsync();
+    }
 
     /// <inheritdoc />
-    public Task<DisplayLayoutResult> ApplyLayoutAsync(DisplayLayout layout, CancellationToken cancellationToken) =>
-        modes.GameModeEntryServices?.ApplyLayoutAsync(layout, cancellationToken)
-        ?? Task.FromResult(new DisplayLayoutResult(DisplayLayoutOutcome.Rejected, [], 0, false, false, [],
-            "This session cannot change displays."));
+    public Task<DisplayLayoutResult> ApplyLayoutAsync(DisplayLayout layout, CancellationToken cancellationToken)
+    {
+        return modes.GameModeEntryServices?.ApplyLayoutAsync(layout, cancellationToken)
+               ?? Task.FromResult(new DisplayLayoutResult(DisplayLayoutOutcome.Rejected, [], 0, false, false, [],
+                   "This session cannot change displays."));
+    }
 
     /// <inheritdoc />
-    public Task PersistPendingReturnAsync(DisplayLayout? layout) =>
-        modes.GameModeEntryServices?.PersistPendingReturnAsync(layout) ?? Task.CompletedTask;
+    public Task PersistPendingReturnAsync(DisplayLayout? layout)
+    {
+        return modes.GameModeEntryServices?.PersistPendingReturnAsync(layout) ?? Task.CompletedTask;
+    }
 
     /// <inheritdoc />
-    public Task ApplyDefaultPostureAsync() => Task.Run(modes.ApplyGameModePosture);
+    public Task ApplyDefaultPostureAsync()
+    {
+        return Task.Run(modes.ApplyGameModePosture);
+    }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<PluginActionStepResult>> RunEnterActionsAsync(CancellationToken cancellationToken) =>
-        modes.GameModeEntryServices?.RunEnterActionsAsync(cancellationToken)
-        ?? Task.FromResult<IReadOnlyList<PluginActionStepResult>>([]);
+    public Task<IReadOnlyList<PluginActionStepResult>> RunEnterActionsAsync(CancellationToken cancellationToken)
+    {
+        return modes.GameModeEntryServices?.RunEnterActionsAsync(cancellationToken)
+               ?? Task.FromResult<IReadOnlyList<PluginActionStepResult>>([]);
+    }
 
     /// <inheritdoc />
     public async Task<bool> PrepareExplorerExitAsync()
@@ -141,8 +165,10 @@ internal sealed class SessionModesEntryBackend(SessionModes modes, ExplorerDeskt
     }
 
     /// <inheritdoc />
-    public Task<bool> ReturnToDesktopAsync(DisplayLayout? layout, bool runLeaveActions) =>
-        modes.ReturnToDesktopAsync(layout, runLeaveActions);
+    public Task<bool> ReturnToDesktopAsync(DisplayLayout? layout, bool runLeaveActions)
+    {
+        return modes.ReturnToDesktopAsync(layout, runLeaveActions);
+    }
 
     /// <inheritdoc />
     public async Task<string?> RequestBigPictureAsync()
@@ -159,6 +185,8 @@ internal sealed class SessionModesEntryBackend(SessionModes modes, ExplorerDeskt
     }
 
     /// <inheritdoc />
-    public async Task CommitGameModeAsync() =>
+    public async Task CommitGameModeAsync()
+    {
         await Dispatcher.UIThread.InvokeAsync(modes.CommitGameMode);
+    }
 }

@@ -25,13 +25,13 @@ public enum CommandProgress
 }
 
 /// <summary>
-/// WSGM's view of one capability: what the plugin last reported, plus what WSGM wants and is doing
-/// about it.
+///     WSGM's view of one capability: what the plugin last reported, plus what WSGM wants and is doing
+///     about it.
 /// </summary>
 /// <remarks>
-/// The split from <see cref="CapabilityState"/> is the point. The plugin owns observation; WSGM owns
-/// intent. Keeping intent out of the plugin's message is what stops a device that happens to boot at
-/// 15 W from being treated as though the user chose 15 W.
+///     The split from <see cref="CapabilityState" /> is the point. The plugin owns observation; WSGM owns
+///     intent. Keeping intent out of the plugin's message is what stops a device that happens to boot at
+///     15 W from being treated as though the user chose 15 W.
 /// </remarks>
 public sealed record CapabilityProjection
 {
@@ -41,7 +41,7 @@ public sealed record CapabilityProjection
     /// <summary>The value WSGM wants, or null when no layer supplies one.</summary>
     public CapabilityValue? DesiredValue { get; init; }
 
-    /// <summary>Which layer supplied <see cref="DesiredValue"/>.</summary>
+    /// <summary>Which layer supplied <see cref="DesiredValue" />.</summary>
     public DeviceDesiredValueSource DesiredSource { get; init; } = DeviceDesiredValueSource.None;
 
     /// <summary>The value of an in-flight request, shown while a command is pending.</summary>
@@ -51,12 +51,12 @@ public sealed record CapabilityProjection
     public CommandProgress Progress { get; init; } = CommandProgress.Idle;
 
     /// <summary>
-    /// Whether the desired value is outside what the current descriptor accepts.
+    ///     Whether the desired value is outside what the current descriptor accepts.
     /// </summary>
     /// <remarks>
-    /// Set after a descriptor generation change narrowed a range. The persisted value is kept rather
-    /// than clamped: silently moving a user's 30 W request to 25 W because firmware changed would be
-    /// a decision made on their behalf and never surfaced.
+    ///     Set after a descriptor generation change narrowed a range. The persisted value is kept rather
+    ///     than clamped: silently moving a user's 30 W request to 25 W because firmware changed would be
+    ///     a decision made on their behalf and never surfaced.
     /// </remarks>
     public bool DesiredValueOutOfRange { get; init; }
 }

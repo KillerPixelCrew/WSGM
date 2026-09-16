@@ -4,16 +4,20 @@ using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;
 
-/// <summary>What names a tracked card. A card reader hands every card the same drive
-/// letter, and Steam's <c>libraryfolders.vdf</c> label belongs to the registration at
-/// that path, so a swap leaves the new card's content id carrying the previous card's
-/// label. The card's own <c>libraryfolder.vdf</c> marker is the only name that travels
-/// with the media, so it is the only one discovery follows.</summary>
+/// <summary>
+///     What names a tracked card. A card reader hands every card the same drive
+///     letter, and Steam's <c>libraryfolders.vdf</c> label belongs to the registration at
+///     that path, so a swap leaves the new card's content id carrying the previous card's
+///     label. The card's own <c>libraryfolder.vdf</c> marker is the only name that travels
+///     with the media, so it is the only one discovery follows.
+/// </summary>
 public class CardNameAuthorityTests
 {
     private static LibraryTabManager.Discovered Card(
         string contentId, string markerLabel, string fallbackName = "Library (E:)")
-        => new(contentId, fallbackName, [], markerLabel);
+    {
+        return new LibraryTabManager.Discovered(contentId, fallbackName, [], markerLabel);
+    }
 
     private static AppConfig ConfigWith(params (string ContentId, string Name)[] cards)
     {
@@ -27,11 +31,14 @@ public class CardNameAuthorityTests
                 Enabled = true
             });
         }
+
         return config;
     }
 
     private static string NameOf(AppConfig config, string contentId)
-        => config.CardLibraries.Single(card => card.ContentId == contentId).Name;
+    {
+        return config.CardLibraries.Single(card => card.ContentId == contentId).Name;
+    }
 
     [Fact]
     public void AnUntrackedCardIsAddedEnabledUnderItsMarkerLabel()

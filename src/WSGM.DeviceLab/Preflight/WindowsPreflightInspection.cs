@@ -68,7 +68,10 @@ internal static class DeviceLabOwnerInspector
     private const string ProductionOwnerName = @"Global\WSGM.DeviceOwner";
 
     /// <summary>Returns the exact machine-wide production owner object name.</summary>
-    public static string OwnerObjectName() => ProductionOwnerName;
+    public static string OwnerObjectName()
+    {
+        return ProductionOwnerName;
+    }
 
     /// <summary>Checks whether WSGM already owns device integration on this machine.</summary>
     /// <returns>Fail-closed owner presence.</returns>
@@ -84,8 +87,8 @@ internal static class DeviceLabOwnerInspector
             };
         }
         catch (Exception exception) when (exception is UnauthorizedAccessException
-            or WaitHandleCannotBeOpenedException
-            or IOException)
+                                              or WaitHandleCannotBeOpenedException
+                                              or IOException)
         {
             return new DeviceLabOwnerInspection
             {
@@ -106,16 +109,16 @@ internal static class DeviceLabOwnerInspector
     /// <param name="ownerObjectName">Exact named-mutex object.</param>
     /// <returns>An absent result with a handle-held reservation, or a fail-closed refusal.</returns>
     /// <remarks>
-    /// The mutex is deliberately created unowned. WSGM elects its one coordinator from named-object
-    /// creation, so keeping this handle open is the lease; waiting or releasing would add thread
-    /// affinity across asynchronous plugin cleanup without improving exclusion.
+    ///     The mutex is deliberately created unowned. WSGM elects its one coordinator from named-object
+    ///     creation, so keeping this handle open is the lease; waiting or releasing would add thread
+    ///     affinity across asynchronous plugin cleanup without improving exclusion.
     /// </remarks>
     internal static DeviceLabOwnerReservationResult Reserve(string ownerObjectName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(ownerObjectName);
         try
         {
-            Mutex handle = new(initiallyOwned: false, ownerObjectName, out var createdNew);
+            Mutex handle = new(false, ownerObjectName, out var createdNew);
             if (createdNew)
             {
                 return ReservationResult(
@@ -127,8 +130,8 @@ internal static class DeviceLabOwnerInspector
             return ReservationResult(DeviceOwnerDiscoveryState.Present);
         }
         catch (Exception exception) when (exception is UnauthorizedAccessException
-            or WaitHandleCannotBeOpenedException
-            or IOException)
+                                              or WaitHandleCannotBeOpenedException
+                                              or IOException)
         {
             return ReservationResult(DeviceOwnerDiscoveryState.Unknown, detail: exception.GetType().Name);
         }
@@ -137,7 +140,9 @@ internal static class DeviceLabOwnerInspector
     private static DeviceLabOwnerReservationResult ReservationResult(
         DeviceOwnerDiscoveryState state,
         DeviceLabOwnerReservation? reservation = null,
-        string? detail = null) => new()
+        string? detail = null)
+    {
+        return new DeviceLabOwnerReservationResult
         {
             Inspection = new DeviceLabOwnerInspection
             {
@@ -146,4 +151,5 @@ internal static class DeviceLabOwnerInspector
             },
             Reservation = reservation
         };
+    }
 }

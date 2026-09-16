@@ -11,7 +11,9 @@ public sealed class SdkCapabilitySectionTests
         string? customTitle = null,
         string? customDescription = null,
         SectionIcon icon = SectionIcon.Fan,
-        IReadOnlyList<CapabilityCategory>? categories = null) => new()
+        IReadOnlyList<CapabilityCategory>? categories = null)
+    {
+        return new CapabilitySection
         {
             SectionId = id,
             Key = key,
@@ -20,16 +22,20 @@ public sealed class SdkCapabilitySectionTests
             Icon = icon,
             Categories = categories ?? []
         };
+    }
 
     private static CapabilityCategory Category(
         string id = "readings",
         SettingSectionKey key = SettingSectionKey.Custom,
-        string? customTitle = "Readings") => new()
+        string? customTitle = "Readings")
+    {
+        return new CapabilityCategory
         {
             CategoryId = id,
             Key = key,
             CustomTitle = customTitle
         };
+    }
 
     [Fact]
     public void AKeyedSectionValidates()
@@ -62,14 +68,14 @@ public sealed class SdkCapabilitySectionTests
     [InlineData("has/slash")]
     public void AnIllegalSectionIdIsRefused(string id)
     {
-        Assert.False(Section(id: id).TryValidate(out _));
+        Assert.False(Section(id).TryValidate(out _));
     }
 
     [Fact]
     public void AnOverlongSectionIdIsRefused()
     {
         Assert.False(
-            Section(id: new string('a', CapabilitySection.MaxSectionIdLength + 1))
+            Section(new string('a', CapabilitySection.MaxSectionIdLength + 1))
                 .TryValidate(out _));
     }
 
@@ -98,7 +104,7 @@ public sealed class SdkCapabilitySectionTests
 
         // The failing child is named so a plugin author can find it in a long declaration.
         Assert.False(
-            Section(categories: [Category(id: "has spaces")]).TryValidate(out var error));
+            Section(categories: [Category("has spaces")]).TryValidate(out var error));
         Assert.Contains("has spaces", error);
     }
 
@@ -118,7 +124,7 @@ public sealed class SdkCapabilitySectionTests
         CapabilityCategory[] categories =
         [
             .. Enumerable.Range(0, CapabilitySection.MaxCategories + 1)
-                .Select(index => Category(id: $"category-{index}"))
+                .Select(index => Category($"category-{index}"))
         ];
 
         Assert.False(Section(categories: categories).TryValidate(out _));
@@ -147,9 +153,11 @@ public sealed class SdkCapabilitySectionTests
     public void PluginsCanAddCategoriesAndCustomSections()
     {
         var power = DeviceSections.Power with
-        { Categories = [new CapabilityCategory { CategoryId = "fans", Key = SettingSectionKey.Fans }] };
+        {
+            Categories = [new CapabilityCategory { CategoryId = "fans", Key = SettingSectionKey.Fans }]
+        };
         var custom = new CapabilitySection
-        { SectionId = "extra", Key = SettingSectionKey.Custom, CustomTitle = "Extra" };
+            { SectionId = "extra", Key = SettingSectionKey.Custom, CustomTitle = "Extra" };
         Assert.True(power.TryValidate(out _));
         var sections = DeviceSections.IncludePredefined([power, custom]);
         Assert.Equal(5, sections.Count);
@@ -162,7 +170,9 @@ public sealed class SdkCapabilitySectionTests
     public void ExistingDeclarationsKeepCategoriesAndUseSharedMetadata()
     {
         var legacy = DeviceSections.Power with
-        { Key = SettingSectionKey.Custom, CustomTitle = "Legacy", SortOrder = 9 };
+        {
+            Key = SettingSectionKey.Custom, CustomTitle = "Legacy", SortOrder = 9
+        };
         Assert.True(legacy.TryValidate(out _));
         var shared = DeviceSections.IncludePredefined([legacy])[0];
         Assert.Equal(DeviceSections.Power.Key, shared.Key);

@@ -17,10 +17,10 @@ public enum DeviceProfileScope
 /// <summary>Which authored profile is in force, and where the choice came from.</summary>
 /// <param name="Profile">The profile to apply, or null when none is in force.</param>
 /// <param name="ApplicationScoped">
-/// Whether an application override supplied it rather than the global choice.
+///     Whether an application override supplied it rather than the global choice.
 /// </param>
 /// <param name="Diagnostic">
-/// Why nothing is in force, or why a selection was ignored. Null when a profile resolved cleanly.
+///     Why nothing is in force, or why a selection was ignored. Null when a profile resolved cleanly.
 /// </param>
 public readonly record struct DeviceProfileResolution(
     DeviceAuthoredProfile? Profile,
@@ -28,13 +28,13 @@ public readonly record struct DeviceProfileResolution(
     string? Diagnostic);
 
 /// <summary>
-/// Reads, writes, and resolves which authored profile is in force.
+///     Reads, writes, and resolves which authored profile is in force.
 /// </summary>
 /// <remarks>
-/// This writes only which profile is chosen and never a profile's contents; the precedence and
-/// dangling-selection rules are stated in <c>docs\device-integration.md</c> §Authored profiles.
-/// Every write goes through the caller's own configuration mutation, so this holds no state and the
-/// cross-process config lock stays owned by <c>ConfigStore</c> rather than being taken twice.
+///     This writes only which profile is chosen and never a profile's contents; the precedence and
+///     dangling-selection rules are stated in <c>docs\device-integration.md</c> §Authored profiles.
+///     Every write goes through the caller's own configuration mutation, so this holds no state and the
+///     cross-process config lock stays owned by <c>ConfigStore</c> rather than being taken twice.
 /// </remarks>
 public static class DeviceProfileSelectionStore
 {
@@ -43,7 +43,7 @@ public static class DeviceProfileSelectionStore
     /// <param name="capabilityId">The capability being read.</param>
     /// <param name="applicationId">The running application, or null for none.</param>
     /// <param name="applicationScoped">
-    /// Whether the answer came from an application override rather than the global choice.
+    ///     Whether the answer came from an application override rather than the global choice.
     /// </param>
     /// <returns>The chosen profile id, or null when nothing is chosen.</returns>
     public static string? ReadSelection(
@@ -65,14 +65,14 @@ public static class DeviceProfileSelectionStore
     /// <param name="profiles">Profiles authored for the device.</param>
     /// <param name="capabilityId">The capability being resolved.</param>
     /// <param name="applicationId">
-    /// The canonical running-application identity, or null when none is running.
+    ///     The canonical running-application identity, or null when none is running.
     /// </param>
     /// <returns>The profile to apply and where the choice came from.</returns>
     /// <remarks>
-    /// Selections reference a profile by id, so this is also where a reference to a profile the user
-    /// has since deleted is caught. It resolves to nothing and says so, because applying a stale
-    /// profile would be worse than applying none and silently applying none is what makes it
-    /// undiagnosable.
+    ///     Selections reference a profile by id, so this is also where a reference to a profile the user
+    ///     has since deleted is caught. It resolves to nothing and says so, because applying a stale
+    ///     profile would be worse than applying none and silently applying none is what makes it
+    ///     undiagnosable.
     /// </remarks>
     public static DeviceProfileResolution Resolve(
         IReadOnlyList<DeviceProfileSelection> selections,
@@ -92,11 +92,11 @@ public static class DeviceProfileSelectionStore
         var profileId = ReadSelection(selection, applicationId, out var applicationScoped);
         if (applicationScoped)
         {
-            return Find(profiles, profileId!, applicationScoped: true, applicationId);
+            return Find(profiles, profileId!, true, applicationId);
         }
 
         return profileId is { Length: > 0 }
-            ? Find(profiles, profileId, applicationScoped: false, applicationId: null)
+            ? Find(profiles, profileId, false, null)
             : new DeviceProfileResolution(null, false, null);
     }
 
@@ -106,14 +106,14 @@ public static class DeviceProfileSelectionStore
     /// <param name="profileId">The profile to choose, or null to clear.</param>
     /// <param name="target">Whether this is the global choice or an application override.</param>
     /// <param name="applicationId">
-    /// The application the override belongs to. Required for
-    /// <see cref="DeviceProfileScope.Application"/>.
+    ///     The application the override belongs to. Required for
+    ///     <see cref="DeviceProfileScope.Application" />.
     /// </param>
     /// <returns>Whether anything changed.</returns>
     /// <remarks>
-    /// Clearing an application override falls back to the global choice, which is the difference
-    /// between "this game uses the default" and "this game uses nothing" — the first is what a user
-    /// clearing an override means, and there is no way to express the second on purpose.
+    ///     Clearing an application override falls back to the global choice, which is the difference
+    ///     between "this game uses the default" and "this game uses nothing" — the first is what a user
+    ///     clearing an override means, and there is no way to express the second on purpose.
     /// </remarks>
     public static bool SetSelection(
         PluginSettingsScope scope,
@@ -216,9 +216,11 @@ public static class DeviceProfileSelectionStore
 
     private static DeviceProfileSelection? Find(
         IReadOnlyList<DeviceProfileSelection> selections,
-        string capabilityId) =>
-        selections.FirstOrDefault(candidate =>
+        string capabilityId)
+    {
+        return selections.FirstOrDefault(candidate =>
             string.Equals(candidate.CapabilityId, capabilityId, StringComparison.Ordinal));
+    }
 
     private static DeviceProfileResolution Find(
         IReadOnlyList<DeviceAuthoredProfile> profiles,

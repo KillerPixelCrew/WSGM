@@ -7,12 +7,12 @@ using static WSGM.Tests.Builders.ControllerSamples;
 namespace WSGM.Tests.Input;
 
 /// <summary>
-/// Which source drives WSGM's own navigation, and what happens to controls held across a change.
+///     Which source drives WSGM's own navigation, and what happens to controls held across a change.
 /// </summary>
 /// <remarks>
-/// The swap itself is easy. The hard part is a button held while the source changes: without
-/// explicit handling it produces a press edge on the new source that the user never made, or a
-/// release that never arrives and leaves the control latched. These pin both.
+///     The swap itself is easy. The hard part is a button held while the source changes: without
+///     explicit handling it produces a press edge on the new source that the user never made, or a
+///     release that never arrives and leaves the control latched. These pin both.
 /// </remarks>
 public sealed class UiInputRouterTests
 {

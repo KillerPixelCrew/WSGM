@@ -5,7 +5,7 @@
         WindowDecorations="None" CanResize="False" Topmost="True"
         ShowInTaskbar="False" Background="{StaticResource HcHeroCardBrush}">
 
-    <!-- Windows-style sign-in cover, now driven by SplashConfig: background color/
+  <!-- Windows-style sign-in cover, now driven by SplashConfig: background color/
          image, vignette, and freely placed text/spinner/logo elements are all built
          in code-behind (hidden elements are OMITTED from the tree, never
          IsVisible=false — StackPanel Spacing must not gap around ghosts). Shown
@@ -13,27 +13,27 @@
          mirror, the controller fallback if SDL input is ever swallowed while it is
          up. (No-activate was tried and did not change the black-BP symptom.)
          The desktop button stays the last child so it is always topmost. -->
-    <Panel x:Name="RootPanel">
-        <!-- Hidden until a transition has something to say. A Game Mode entry that is waiting on a
+  <Panel x:Name="RootPanel">
+    <!-- Hidden until a transition has something to say. A Game Mode entry that is waiting on a
              TV behind an HDMI switch can sit here indefinitely, and a blank cover with a button
              gives the user nothing to judge that wait by. Bottom-left, opposite the button. -->
-        <TextBlock x:Name="StatusText" IsVisible="False" TextWrapping="Wrap" MaxWidth="520"
-                   HorizontalAlignment="Left" VerticalAlignment="Bottom"
-                   Margin="28,0,0,32" Foreground="{StaticResource HcTextMutedBrush}" />
-        <Button x:Name="DesktopButton" Content="Switch to desktop" Click="OnDesktop" Classes="on-black"
-                HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                Margin="0,0,28,24" MinHeight="44" MinWidth="160" Padding="14,8" />
-    </Panel>
+    <TextBlock x:Name="StatusText" IsVisible="False" TextWrapping="Wrap" MaxWidth="520"
+               HorizontalAlignment="Left" VerticalAlignment="Bottom"
+               Margin="28,0,0,32" Foreground="{StaticResource HcTextMutedBrush}" />
+    <Button x:Name="DesktopButton" Content="Switch to desktop" Click="OnDesktop" Classes="on-black"
+            HorizontalAlignment="Right" VerticalAlignment="Bottom"
+            Margin="0,0,28,24" MinHeight="44" MinWidth="160" Padding="14,8" />
+  </Panel>
 
-    <Window.Styles>
-        <!-- Shared.axaml's on-black button style carries the splash button's
+  <Window.Styles>
+    <!-- Shared.axaml's on-black button style carries the splash button's
              surface colors and the unified accent focus border; only the muted
              resting foreground (white on focus) is splash-specific. -->
-        <Style Selector="Button#DesktopButton">
-            <Setter Property="Foreground" Value="{StaticResource HcTextMutedBrush}" />
-        </Style>
-        <Style Selector="Button#DesktopButton:focus-visible">
-            <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
-        </Style>
-    </Window.Styles>
+    <Style Selector="Button#DesktopButton">
+      <Setter Property="Foreground" Value="{StaticResource HcTextMutedBrush}" />
+    </Style>
+    <Style Selector="Button#DesktopButton:focus-visible">
+      <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
+    </Style>
+  </Window.Styles>
 </Window>

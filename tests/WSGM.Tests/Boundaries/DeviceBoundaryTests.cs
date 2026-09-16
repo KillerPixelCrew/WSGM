@@ -70,10 +70,12 @@ public sealed class DeviceBoundaryTests
         Assert.Empty(sdk.Descendants("PackageReference"));
     }
 
-    private static IEnumerable<string> ProjectReferences(string relativePath) =>
-        RepositoryFiles.LoadProject(relativePath)
+    private static IEnumerable<string> ProjectReferences(string relativePath)
+    {
+        return RepositoryFiles.LoadProject(relativePath)
             .Descendants("ProjectReference")
             .Select(reference => reference.Attribute("Include")?.Value)
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(path => Path.GetFileNameWithoutExtension(path!));
+    }
 }

@@ -8,17 +8,18 @@ namespace WSGM.Device.Sdk.Glyphs;
 
 /// <summary>Reparse-safe bounded reader for one already selected immutable package directory.</summary>
 /// <remarks>
-/// Reads deny write and delete sharing and re-check every existing path component after the file
-/// handle is open. This is still a data reader only; package selection and trust remain with the
-/// runtime or Device Lab caller.
+///     Reads deny write and delete sharing and re-check every existing path component after the file
+///     handle is open. This is still a data reader only; package selection and trust remain with the
+///     runtime or Device Lab caller.
 /// </remarks>
 public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
 {
     private static readonly SearchValues<char> IdentifierCharacters =
         SearchValues.Create("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-");
 
-    private readonly string _root;
     private readonly string _prefix;
+
+    private readonly string _root;
 
     /// <summary>Opens a fixed package root without creating it.</summary>
     /// <param name="packageRoot">Existing expanded package directory.</param>
@@ -46,13 +47,13 @@ public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
             attributes = File.GetAttributes(directory);
         }
         catch (Exception exception) when (exception is DirectoryNotFoundException
-            or FileNotFoundException)
+                                              or FileNotFoundException)
         {
             return [];
         }
         catch (Exception exception) when (exception is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException)
+                                              or UnauthorizedAccessException
+                                              or NotSupportedException)
         {
             throw new InvalidDataException("The glyph profile directory could not be inspected.", exception);
         }
@@ -72,8 +73,8 @@ public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
                     .Where(path => !IsLink(path))
                     .Select(Path.GetFileNameWithoutExtension)
                     .Where(id => !string.IsNullOrEmpty(id)
-                        && id.Length <= GlyphProfileLimits.MaxIdentifierLength
-                        && id.AsSpan().IndexOfAnyExcept(IdentifierCharacters) < 0)
+                                 && id.Length <= GlyphProfileLimits.MaxIdentifierLength
+                                 && id.AsSpan().IndexOfAnyExcept(IdentifierCharacters) < 0)
                     .Select(id => id!)
                     .Distinct(StringComparer.Ordinal)
                     .Order(StringComparer.Ordinal)
@@ -85,8 +86,8 @@ public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
             ];
         }
         catch (Exception exception) when (exception is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException)
+                                              or UnauthorizedAccessException
+                                              or NotSupportedException)
         {
             throw new InvalidDataException("The glyph profile directory could not be enumerated.", exception);
         }
@@ -113,7 +114,7 @@ public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.Read,
-                bufferSize: 64 * 1024,
+                64 * 1024,
                 FileOptions.SequentialScan);
             if (stream.Length <= 0 || stream.Length > maximumBytes || !PathChainIsPlain(path))
             {
@@ -131,8 +132,8 @@ public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
             return true;
         }
         catch (Exception exception) when (exception is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException)
+                                              or UnauthorizedAccessException
+                                              or NotSupportedException)
         {
             return false;
         }
@@ -162,8 +163,8 @@ public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
             return true;
         }
         catch (Exception exception) when (exception is ArgumentException
-            or NotSupportedException
-            or PathTooLongException)
+                                              or NotSupportedException
+                                              or PathTooLongException)
         {
             return false;
         }
@@ -178,14 +179,15 @@ public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
 
         var current = _root;
         foreach (var segment in Path.GetRelativePath(_root, path).Split(
-            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
-            StringSplitOptions.RemoveEmptyEntries))
+                     [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                     StringSplitOptions.RemoveEmptyEntries))
         {
             current = Path.Combine(current, segment);
             if (!File.Exists(current) && !Directory.Exists(current))
             {
                 return false;
             }
+
             if (IsLink(current))
             {
                 return false;
@@ -201,6 +203,6 @@ public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
             ? new DirectoryInfo(path)
             : new FileInfo(path);
         return info.Exists && (info.LinkTarget is not null
-            || (info.Attributes & FileAttributes.ReparsePoint) != 0);
+                               || (info.Attributes & FileAttributes.ReparsePoint) != 0);
     }
 }

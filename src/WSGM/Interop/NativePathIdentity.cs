@@ -19,7 +19,6 @@ internal readonly record struct NativePathInformation(
 /// <summary>Reads filesystem identity without following application-owned path conventions.</summary>
 internal static partial class NativePathIdentityReader
 {
-
     /// <summary>Returns the identity of an existing file or directory, or null when it is absent.</summary>
     internal static NativePathIdentity? Read(string path)
     {
@@ -43,7 +42,8 @@ internal static partial class NativePathIdentityReader
                 $"Could not inspect filesystem identity for '{path}'.",
                 new Win32Exception(openError));
         }
-        using SafeFileHandle handle = new(rawHandle, ownsHandle: true);
+
+        using SafeFileHandle handle = new(rawHandle, true);
 
         if (!TryRead(handle, out var information, out var error))
         {
@@ -63,8 +63,8 @@ internal static partial class NativePathIdentityReader
     {
         ArgumentNullException.ThrowIfNull(handle);
         if (GetFileInformationByHandle(
-            handle.DangerousGetHandle(),
-            out var information) == 0)
+                handle.DangerousGetHandle(),
+                out var information) == 0)
         {
             result = default;
             error = Marshal.GetLastPInvokeError();
@@ -89,6 +89,11 @@ internal static partial class NativePathIdentityReader
         return true;
     }
 
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial int GetFileInformationByHandle(
+        nint file,
+        out ByHandleFileInformation information);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct NativeFileTime
     {
@@ -110,9 +115,4 @@ internal static partial class NativePathIdentityReader
         public uint FileIndexHigh;
         public uint FileIndexLow;
     }
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    private static partial int GetFileInformationByHandle(
-        nint file,
-        out ByHandleFileInformation information);
 }

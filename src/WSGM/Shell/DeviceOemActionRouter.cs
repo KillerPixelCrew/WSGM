@@ -35,15 +35,22 @@ internal sealed record DeviceOemActionServices
 /// <summary>WSGM-owned assignment and runtime-availability policy for physical OEM controls.</summary>
 internal static class OemActionRules
 {
-    internal static bool IsAssignable(OemAction action, OemControlPlacement placement) =>
-        !IsVirtualTargetButton(action) || placement is OemControlPlacement.Rear;
+    internal static bool IsAssignable(OemAction action, OemControlPlacement placement)
+    {
+        return !IsVirtualTargetButton(action) || placement is OemControlPlacement.Rear;
+    }
 
-    internal static bool IsVirtualTargetButton(OemAction action) => action
-        is OemAction.VirtualTargetRearButton1
-        or OemAction.VirtualTargetRearButton2;
+    internal static bool IsVirtualTargetButton(OemAction action)
+    {
+        return action
+            is OemAction.VirtualTargetRearButton1
+            or OemAction.VirtualTargetRearButton2;
+    }
 
-    internal static bool IsAvailable(OemAction action, bool targetHasRearButtons) =>
-        !IsVirtualTargetButton(action) || targetHasRearButtons;
+    internal static bool IsAvailable(OemAction action, bool targetHasRearButtons)
+    {
+        return !IsVirtualTargetButton(action) || targetHasRearButtons;
+    }
 }
 
 /// <summary>Maps canonical OEM events to the closed WSGM-owned action vocabulary.</summary>
@@ -52,18 +59,36 @@ internal sealed class DeviceOemActionRouter : IDisposable
     private const int MaxControls = 16;
     private const int MaxDeduplicationEntries = 256;
     private static readonly TimeSpan DeduplicationWindow = TimeSpan.FromSeconds(30);
-    private readonly Lock _gate = new();
     private readonly Dictionary<string, OemControlDescriptor> _controls = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, DateTimeOffset> _recentEvents = new(StringComparer.Ordinal);
+    private readonly Lock _gate = new();
     private readonly CancellationTokenSource _lifetime = new();
-    private DevicePluginRuntime? _client;
-    private DeviceOemActionServices? _actions;
-    private DeviceDesiredProfile? _profile;
-    private long _cycleGeneration;
+    private readonly Dictionary<string, DateTimeOffset> _recentEvents = new(StringComparer.Ordinal);
     private long _actionGeneration;
+    private DeviceOemActionServices? _actions;
+    private DevicePluginRuntime? _client;
     private bool _controllerManagementEnabled;
-    private bool _targetHasRearButtons;
+    private long _cycleGeneration;
     private bool _disposed;
+    private DeviceDesiredProfile? _profile;
+    private bool _targetHasRearButtons;
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            _disposed = true;
+            DetachUnderGate();
+            ResetUnderGate();
+        }
+
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+    }
 
     internal void ConfigureActions(DeviceOemActionServices actions)
     {
@@ -126,24 +151,6 @@ internal sealed class DeviceOemActionRouter : IDisposable
         }
     }
 
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        lock (_gate)
-        {
-            _disposed = true;
-            DetachUnderGate();
-            ResetUnderGate();
-        }
-
-        _lifetime.Cancel();
-        _lifetime.Dispose();
-    }
-
     private void OnControls(IReadOnlyList<OemControlDescriptor> controls)
     {
         lock (_gate)
@@ -182,7 +189,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
                 || DateTimeOffset.UtcNow - input.Timestamp > DeduplicationWindow)
             {
                 Log.Warn($"Device OEM event rejected: control={input.ControlId}, "
-                    + $"generation={input.SourceGeneration}.");
+                         + $"generation={input.SourceGeneration}.");
                 return;
             }
 
@@ -204,7 +211,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
             action = ResolveActionUnderGate(control);
             if (!OemActionRules.IsAssignable(action, control.Placement)
                 || !OemActionRules.IsAvailable(action, _targetHasRearButtons)
-                || control.RequiresControllerAcquisition && !_controllerManagementEnabled)
+                || (control.RequiresControllerAcquisition && !_controllerManagementEnabled))
             {
                 Log.Warn($"Device OEM action unavailable: control={control.ControlId}, action={action}.");
                 return;
@@ -265,7 +272,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
                 _ => true
             };
             Log.Info($"Device OEM action: control={input.ControlId}, action={action}, "
-                + $"completed={completed}.");
+                     + $"completed={completed}.");
         }
         catch (OperationCanceledException)
         {
@@ -294,9 +301,9 @@ internal sealed class DeviceOemActionRouter : IDisposable
     private void ExpireDeduplicationUnderGate(DateTimeOffset now)
     {
         foreach (var key in _recentEvents
-            .Where(item => now - item.Value > DeduplicationWindow)
-            .Select(item => item.Key)
-            .ToArray())
+                     .Where(item => now - item.Value > DeduplicationWindow)
+                     .Select(item => item.Key)
+                     .ToArray())
         {
             _recentEvents.Remove(key);
         }
@@ -307,9 +314,9 @@ internal sealed class DeviceOemActionRouter : IDisposable
         }
 
         foreach (var key in _recentEvents.OrderBy(item => item.Value)
-            .Take(_recentEvents.Count - MaxDeduplicationEntries + 1)
-            .Select(item => item.Key)
-            .ToArray())
+                     .Take(_recentEvents.Count - MaxDeduplicationEntries + 1)
+                     .Select(item => item.Key)
+                     .ToArray())
         {
             _recentEvents.Remove(key);
         }
@@ -332,7 +339,9 @@ internal sealed class DeviceOemActionRouter : IDisposable
         _controls.Clear();
     }
 
-    private static bool ValidControl(OemControlDescriptor control) =>
-        DeviceIdentifier.IsValid(control.ControlId, 64)
-        && control.Display.TryValidate(out _);
+    private static bool ValidControl(OemControlDescriptor control)
+    {
+        return DeviceIdentifier.IsValid(control.ControlId, 64)
+               && control.Display.TryValidate(out _);
+    }
 }

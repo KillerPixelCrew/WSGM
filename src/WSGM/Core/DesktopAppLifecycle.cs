@@ -20,7 +20,11 @@ internal sealed record DesktopAppRule(
 
 /// <summary>An exact current-session process captured before desktop takeover.</summary>
 internal sealed record DesktopAppInstance(
-    DesktopAppRule Rule, int ProcessId, DateTime StartTime, string ExecutablePath, bool Elevated = false);
+    DesktopAppRule Rule,
+    int ProcessId,
+    DateTime StartTime,
+    string ExecutablePath,
+    bool Elevated = false);
 
 /// <summary>Process operations kept separate from the session's restoration ownership.</summary>
 internal interface IDesktopAppBackend
@@ -31,37 +35,52 @@ internal interface IDesktopAppBackend
     Task<ScheduledTaskLaunchDisposition> RestartAsync(DesktopAppInstance instance, DateTimeOffset deadline);
 }
 
-/// <summary>Remembers only applications affected by this takeover. The desktop host serializes
-/// access and restores them only after a usable desktop exists.</summary>
+/// <summary>
+///     Remembers only applications affected by this takeover. The desktop host serializes
+///     access and restores them only after a usable desktop exists.
+/// </summary>
 internal sealed class DesktopAppLifecycle(IDesktopAppBackend backend, Action<string> warn)
 {
+    private readonly List<DesktopAppInstance> _pending = [];
+
     // Add integrations here, with their primary process names rather than service/helper names.
     // Without an exit command/window, terminate only the captured process tree.
     internal static IReadOnlyList<DesktopAppRule> Rules { get; } =
     [
         new("DisplayFusion", ["DisplayFusion"], "DisplayFusionCommand.exe", "-closeall", ""),
         new("Wallpaper Engine", ["wallpaper32", "wallpaper64"], null, "", "-silent", ExitWindowClass: "WPEEventWindow"),
-        new("LittleBigMouse UI", ["LittleBigMouse.Ui.Avalonia"], null, "", "", CloseMainWindowFirst: true),
+        new("LittleBigMouse UI", ["LittleBigMouse.Ui.Avalonia"], null, "", "", true),
         new("LittleBigMouse hook", ["LittleBigMouse.Hook"], null, "", "", CreateNoWindow: true)
     ];
 
-    private readonly List<DesktopAppInstance> _pending = [];
-
     internal static bool MatchesPath(string path)
     {
-        if (AppLauncher.IsProtocol(path)) { return false; }
+        if (AppLauncher.IsProtocol(path))
+        {
+            return false;
+        }
+
         var name = Path.GetFileNameWithoutExtension(path);
-        return Rules.Any(rule => rule.ProcessNames.Any(processName => string.Equals(name, processName, StringComparison.OrdinalIgnoreCase)));
+        return Rules.Any(rule =>
+            rule.ProcessNames.Any(processName => string.Equals(name, processName, StringComparison.OrdinalIgnoreCase)));
     }
 
     internal async Task<bool> StopAsync(CancellationToken cancellationToken)
     {
         // An unsettled earlier request is not permission to dispatch another stop.
-        if (_pending.Count != 0) { return false; }
+        if (_pending.Count != 0)
+        {
+            return false;
+        }
+
         List<DesktopAppInstance> captured = [];
         try
         {
-            foreach (var rule in Rules) { captured.AddRange(backend.Capture(rule)); }
+            foreach (var rule in Rules)
+            {
+                captured.AddRange(backend.Capture(rule));
+            }
+
             foreach (var instance in captured)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -69,12 +88,18 @@ internal sealed class DesktopAppLifecycle(IDesktopAppBackend backend, Action<str
                 _pending.Add(instance);
                 await backend.StopAsync(instance, cancellationToken).ConfigureAwait(false);
             }
+
             foreach (var rule in Rules)
             {
-                if (backend.Capture(rule).Count == 0) { continue; }
+                if (backend.Capture(rule).Count == 0)
+                {
+                    continue;
+                }
+
                 warn($"{rule.Name} is still running; preserving Explorer.");
                 return false;
             }
+
             return true;
         }
         catch (Exception ex)
@@ -91,15 +116,24 @@ internal sealed class DesktopAppLifecycle(IDesktopAppBackend backend, Action<str
         Array.Reverse(pending);
         foreach (var instance in pending)
         {
-            if (!_pending.Contains(instance)) { continue; }
+            if (!_pending.Contains(instance))
+            {
+                continue;
+            }
+
             try
             {
-                if (DateTimeOffset.UtcNow >= deadline) { return; }
+                if (DateTimeOffset.UtcNow >= deadline)
+                {
+                    return;
+                }
+
                 if (backend.IsRunning(instance))
                 {
                     ForgetExecutable(instance);
                     continue;
                 }
+
                 var result = await backend.RestartAsync(instance, deadline)
                     .ConfigureAwait(false);
                 if (result is not ScheduledTaskLaunchDisposition.NotDispatched)
@@ -107,6 +141,7 @@ internal sealed class DesktopAppLifecycle(IDesktopAppBackend backend, Action<str
                     // Unknown dispatch must not be retried, including on the next desktop return.
                     ForgetExecutable(instance);
                 }
+
                 if (result is not ScheduledTaskLaunchDisposition.Dispatched)
                 {
                     warn($"Restoring {instance.Rule.Name}: {result}.");
@@ -119,7 +154,9 @@ internal sealed class DesktopAppLifecycle(IDesktopAppBackend backend, Action<str
         }
     }
 
-    private void ForgetExecutable(DesktopAppInstance instance) =>
+    private void ForgetExecutable(DesktopAppInstance instance)
+    {
         _pending.RemoveAll(candidate => string.Equals(
             candidate.ExecutablePath, instance.ExecutablePath, StringComparison.OrdinalIgnoreCase));
+    }
 }

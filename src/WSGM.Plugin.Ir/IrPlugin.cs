@@ -8,125 +8,99 @@ namespace WSGM.Plugin.Ir;
 public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPluginUi
 {
     private const string UsbTransport = "usb", WifiTransport = "wifi";
+
     // Half-second polls, bounded to the ten minutes a sequence's delays may add up to.
     private const int SequencePollLimit = 1200;
     private readonly Func<IrEndpointTarget, IIrEndpoint> _createEndpoint;
-
-    /// <summary>Creates an inactive plugin. Resources are acquired only by explicit connection.</summary>
-    public IrPlugin() : this(IrEndpointConnection.Create) { }
-
-    internal IrPlugin(Func<IrEndpointTarget, IIrEndpoint> createEndpoint) => _createEndpoint = createEndpoint;
     private readonly SemaphoreSlim _lane = new(1, 1);
-    private IPluginHost? _host;
     private PluginContext? _context;
     private IIrEndpoint? _endpoint;
+    private IPluginHost? _host;
+    private string _lastCommand = "";
     private IrLibrary _library = IrLibrary.Empty;
-    private IrRemoteCatalog? _remotes;
     private IrPairing? _pairing;
     private string _port = "", _transport = UsbTransport, _hostName = "";
-    private string _lastCommand = "";
+    private IrRemoteCatalog? _remotes;
     private long _sequence;
     private bool _stopped = true;
 
-    /// <inheritdoc />
-    public string Id => "wsgm.ir";
+    /// <summary>Creates an inactive plugin. Resources are acquired only by explicit connection.</summary>
+    public IrPlugin() : this(IrEndpointConnection.Create)
+    {
+    }
+
+    internal IrPlugin(Func<IrEndpointTarget, IIrEndpoint> createEndpoint)
+    {
+        _createEndpoint = createEndpoint;
+    }
 
     /// <inheritdoc />
     public IReadOnlyList<PluginSetting> Settings { get; } =
     [
         new("port", "USB serial port", PluginSettingKind.Text, new PluginValue(Text: "")),
-        new("transport", "Endpoint connection", PluginSettingKind.Text, new PluginValue(Text: UsbTransport), Choices: [UsbTransport, WifiTransport]),
-        new("host", "Wi-Fi host name or IP (empty uses the paired endpoint)", PluginSettingKind.Text, new PluginValue(Text: ""))
-    ];
-
-    private static PluginSetting Text(string key, string label, string value = "") =>
-        new(key, label, PluginSettingKind.Text, new PluginValue(Text: value));
-
-    /// <inheritdoc />
-    public IReadOnlyList<PluginAction> Actions { get; } =
-    [
-        new("discover", "Find USB endpoints", []),
-        new("connect", "Connect IR endpoint", []),
-        new("wifi-setup", "Pair Wi-Fi over USB", [Text("ssid", "Network name (SSID)"), Text("password", "Network password")]),
-        new("wifi-clear", "Forget Wi-Fi over USB", []),
-        new("learn", "Learn command", [Text("device", "Device", "Remote"), Text("name", "Command name", "Learned command")]),
-        new("select", "Select command", [Text("command", "Device / command name")]),
-        new("rename", "Rename selected command", [Text("device", "Device"), Text("name", "Command name")]),
-        new("relearn", "Relearn selected command", []),
-        new("timing", "Edit repeat timing", [
-            new PluginSetting("repeats", "Additional repeats", PluginSettingKind.Number, new PluginValue(Number: 0), 0, 4),
-            new PluginSetting("gap-ms", "Gap between repeats (ms)", PluginSettingKind.Number, new PluginValue(Number: 40), 0, 200)]),
-        new("save-scene", "Create or replace scene", [Text("name", "Scene name"),
-            Text("commands", "Device / command names, separated by semicolons"),
-            new PluginSetting("delay-ms", "Delay after each command (ms)", PluginSettingKind.Number, new PluginValue(Number: 100), 0, 5000)]),
-        new("delete-scene", "Delete scene", [Text("scene", "Scene name")]),
-        new("send", "Send command", [Text("command", "Command (selected or Device / Name)", "selected")]),
-        new("set-carrier", "Override carrier frequency", [Text("command", "Command (selected or Device / Name)", "selected"),
-            new PluginSetting("carrier-hz", "Carrier frequency (Hz)", PluginSettingKind.Number, new PluginValue(Number: 38000), 20000, 60000)]),
-        new("reset-carrier", "Use captured carrier metadata", [Text("command", "Command (selected or Device / Name)", "selected")]),
-        new("scene", "Run scene", [Text("scene", "Scene name")]),
-        new("delete", "Delete command", [Text("command", "Command (selected or Device / Name)", "selected")]),
-        new("export", "Back up command library", []),
-        new("import", "Restore command library backup", []),
-        new("remote-refresh", "Read built-in remotes", []),
-        new("remote-press", "Press a built-in remote button",
-            [Text("remote", "Remote id"), Text("button", "Button id"),
-             new PluginSetting("delay-ms", "Wait after pressing (ms)", PluginSettingKind.Number, new PluginValue(Number: 0), 0, 5000)]),
-        new("remote-run", "Run a built-in remote sequence",
-            [Text("remote", "Remote id"), Text("sequence", "Sequence id"),
-             new PluginSetting("wait", "Wait for the sequence to finish", PluginSettingKind.Boolean, new PluginValue(Boolean: true))]),
-        new("remote-climate", "Set a built-in air conditioner",
-            [Text("remote", "Remote id"),
-             new PluginSetting("power", "On", PluginSettingKind.Boolean, new PluginValue(Boolean: true)),
-             Text("mode", "Mode", "cool"),
-             new PluginSetting("degrees", "Temperature", PluginSettingKind.Number, new PluginValue(Number: 24), 10, 90),
-             Text("fan", "Fan", "auto"),
-             new PluginSetting("toggle-swing", "Toggle swing", PluginSettingKind.Boolean, new PluginValue(Boolean: false))])
+        new("transport", "Endpoint connection", PluginSettingKind.Text, new PluginValue(Text: UsbTransport),
+            Choices: [UsbTransport, WifiTransport]),
+        new("host", "Wi-Fi host name or IP (empty uses the paired endpoint)", PluginSettingKind.Text,
+            new PluginValue(Text: ""))
     ];
 
     /// <inheritdoc />
-    public IReadOnlyList<PluginWidget> Widgets { get; } =
-    [
-        new("selected-command", "IR remote", ["selected", "send"], Icon: "action", NavigationCategory: "commands")
-    ];
+    public async ValueTask<PluginConfigurationResult> ConfigureAsync(PluginConfiguration configuration,
+        PluginContext context, CancellationToken cancellationToken)
+    {
+        var port = Value(configuration, "port") ?? "";
+        var transport = Value(configuration, "transport") ?? UsbTransport;
+        var hostName = (Value(configuration, "host") ?? "").Trim();
+        if (port.Length != 0 && (!port.StartsWith("COM", StringComparison.OrdinalIgnoreCase)
+                                 || !int.TryParse(port.AsSpan(3), out var number) || number <= 0))
+        {
+            return new PluginConfigurationResult(configuration.Revision, PluginConfigurationOutcome.Rejected,
+                "Select a COM port.");
+        }
+
+        if (transport is not (UsbTransport or WifiTransport))
+        {
+            return new PluginConfigurationResult(configuration.Revision, PluginConfigurationOutcome.Rejected,
+                "Endpoint connection must be usb or wifi.");
+        }
+
+        if (hostName.Length > 253 || hostName.Any(char.IsWhiteSpace))
+        {
+            return new PluginConfigurationResult(configuration.Revision, PluginConfigurationOutcome.Rejected,
+                "Enter a host name or IP address without spaces.");
+        }
+
+        await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_port == port && _transport == transport && _hostName == hostName)
+            {
+                return new PluginConfigurationResult(configuration.Revision, PluginConfigurationOutcome.Applied);
+            }
+
+            if (_endpoint is not null)
+            {
+                await _endpoint.DisposeAsync().ConfigureAwait(false);
+                _endpoint = null;
+            }
+
+            _port = port;
+            _transport = transport;
+            _hostName = hostName;
+            return new PluginConfigurationResult(configuration.Revision, PluginConfigurationOutcome.Applied);
+        }
+        finally
+        {
+            _lane.Release();
+        }
+    }
 
     /// <inheritdoc />
-    public IReadOnlyList<PluginUiContribution> Contributions { get; } =
-    [
-        new("status", "IR endpoint", "infrared", PluginUiKind.Status, StateKey: "status"),
-        new("library", "Command library", "infrared", PluginUiKind.Status, StateKey: "library"),
-        new("selected", "Selected command", "commands", PluginUiKind.Status, StateKey: "selected"),
-        new("select", "Select command", "commands", PluginUiKind.Action, ActionId: "select"),
-        new("rename", "Rename selected command", "commands", PluginUiKind.Action, ActionId: "rename"),
-        new("relearn", "Relearn selected command", "commands", PluginUiKind.Action, ActionId: "relearn"),
-        new("timing", "Edit repeat timing", "commands", PluginUiKind.Action, ActionId: "timing"),
-        new("delete", "Delete command", "commands", PluginUiKind.Action, ActionId: "delete"),
-        new("save-scene", "Create or replace scene", "scenes", PluginUiKind.Action, ActionId: "save-scene"),
-        new("scene", "Run scene", "scenes", PluginUiKind.Action, ActionId: "scene"),
-        new("delete-scene", "Delete scene", "scenes", PluginUiKind.Action, ActionId: "delete-scene"),
-        new("import", "Restore command library backup", "library", PluginUiKind.Action, ActionId: "import"),
-        new("ports", "USB ports", "infrared", PluginUiKind.Status, StateKey: "ports"),
-        new("discover", "Find USB endpoints", "infrared", PluginUiKind.Action, ActionId: "discover"),
-        new("connect", "Connect IR endpoint", "infrared", PluginUiKind.Action, ActionId: "connect"),
-        new("network", "Wi-Fi pairing", "network", PluginUiKind.Status, StateKey: "network"),
-        new("wifi-setup", "Pair Wi-Fi over USB", "network", PluginUiKind.Action, ActionId: "wifi-setup"),
-        new("wifi-clear", "Forget Wi-Fi over USB", "network", PluginUiKind.Action, ActionId: "wifi-clear"),
-        new("learn", "Learn command", "infrared", PluginUiKind.Action, ActionId: "learn"),
-        new("send", "Test selected command", "infrared", PluginUiKind.Action, ActionId: "send"),
-        new("carrier-source", "Carrier provenance", "infrared", PluginUiKind.Status, StateKey: "carrier-source"),
-        new("carrier", "Carrier frequency override (Hz)", "infrared", PluginUiKind.Slider,
-            StateKey: "carrier-hz", ActionId: "set-carrier", ArgumentKey: "carrier-hz"),
-        new("reset-carrier", "Use captured carrier metadata", "infrared", PluginUiKind.Action, ActionId: "reset-carrier"),
-        new("export", "Back up command library", "infrared", PluginUiKind.Action, ActionId: "export"),
-        new("remotes", "Built-in remotes", "remotes", PluginUiKind.Status, StateKey: "remotes"),
-        new("remote-refresh", "Read built-in remotes", "remotes", PluginUiKind.Action, ActionId: "remote-refresh"),
-        new("remote-press", "Press a built-in remote button", "remotes", PluginUiKind.Action, ActionId: "remote-press"),
-        new("remote-run", "Run a built-in remote sequence", "remotes", PluginUiKind.Action, ActionId: "remote-run"),
-        new("remote-climate", "Set a built-in air conditioner", "remotes", PluginUiKind.Action, ActionId: "remote-climate")
-    ];
+    public string Id => "wsgm.ir";
 
     /// <inheritdoc />
-    public async ValueTask<PluginHealth> StartAsync(IPluginHost host, PluginContext context, CancellationToken cancellationToken)
+    public async ValueTask<PluginHealth> StartAsync(IPluginHost host, PluginContext context,
+        CancellationToken cancellationToken)
     {
         _host = host;
         _context = context;
@@ -134,7 +108,8 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         _pairing = await IrPairing.LoadAsync(PairingPath(context), cancellationToken).ConfigureAwait(false);
         _lastCommand = _library.SelectedCommandId ?? _library.Commands.LastOrDefault()?.Id ?? "";
         _stopped = false;
-        Publish("status", "Choose the endpoint connection in plugin preferences. Learn and send identify it on demand.");
+        Publish("status",
+            "Choose the endpoint connection in plugin preferences. Learn and send identify it on demand.");
         PublishNetwork();
         PublishLibrary();
         PublishRemotes();
@@ -150,8 +125,10 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     }
 
     /// <inheritdoc />
-    public async ValueTask SuspendAsync(PluginContext context, CancellationToken cancellationToken) =>
+    public async ValueTask SuspendAsync(PluginContext context, CancellationToken cancellationToken)
+    {
         _ = await StopAsync(context, cancellationToken).ConfigureAwait(false);
+    }
 
     /// <inheritdoc />
     public ValueTask ResumeAsync(PluginContext context, CancellationToken cancellationToken)
@@ -164,40 +141,99 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     }
 
     /// <inheritdoc />
-    public async ValueTask<PluginConfigurationResult> ConfigureAsync(PluginConfiguration configuration,
-        PluginContext context, CancellationToken cancellationToken)
+    public async ValueTask<bool> StopAsync(PluginContext context, CancellationToken cancellationToken)
     {
-        var port = Value(configuration, "port") ?? "";
-        var transport = Value(configuration, "transport") ?? UsbTransport;
-        var hostName = (Value(configuration, "host") ?? "").Trim();
-        if (port.Length != 0 && (!port.StartsWith("COM", StringComparison.OrdinalIgnoreCase)
-            || !int.TryParse(port.AsSpan(3), out var number) || number <= 0))
-        {
-            return new PluginConfigurationResult(configuration.Revision, PluginConfigurationOutcome.Rejected, "Select a COM port.");
-        }
-        if (transport is not (UsbTransport or WifiTransport))
-        {
-            return new PluginConfigurationResult(configuration.Revision, PluginConfigurationOutcome.Rejected, "Endpoint connection must be usb or wifi.");
-        }
-        if (hostName.Length > 253 || hostName.Any(char.IsWhiteSpace))
-        {
-            return new PluginConfigurationResult(configuration.Revision, PluginConfigurationOutcome.Rejected, "Enter a host name or IP address without spaces.");
-        }
         await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_port == port && _transport == transport && _hostName == hostName)
+            _stopped = true;
+            if (_endpoint is null)
             {
-                return new PluginConfigurationResult(configuration.Revision, PluginConfigurationOutcome.Applied);
+                return true;
             }
-            if (_endpoint is not null) { await _endpoint.DisposeAsync().ConfigureAwait(false); _endpoint = null; }
-            _port = port;
-            _transport = transport;
-            _hostName = hostName;
-            return new PluginConfigurationResult(configuration.Revision, PluginConfigurationOutcome.Applied);
+
+            await _endpoint.DisposeAsync().ConfigureAwait(false);
+            _endpoint = null;
+            return true;
         }
-        finally { _lane.Release(); }
+        finally
+        {
+            _lane.Release();
+        }
     }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        if (_context is { } context)
+        {
+            await StopAsync(context, CancellationToken.None).ConfigureAwait(false);
+        }
+
+        _host = null;
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<PluginAction> Actions { get; } =
+    [
+        new("discover", "Find USB endpoints", []),
+        new("connect", "Connect IR endpoint", []),
+        new("wifi-setup", "Pair Wi-Fi over USB",
+            [Text("ssid", "Network name (SSID)"), Text("password", "Network password")]),
+        new("wifi-clear", "Forget Wi-Fi over USB", []),
+        new("learn", "Learn command",
+            [Text("device", "Device", "Remote"), Text("name", "Command name", "Learned command")]),
+        new("select", "Select command", [Text("command", "Device / command name")]),
+        new("rename", "Rename selected command", [Text("device", "Device"), Text("name", "Command name")]),
+        new("relearn", "Relearn selected command", []),
+        new("timing", "Edit repeat timing", [
+            new PluginSetting("repeats", "Additional repeats", PluginSettingKind.Number, new PluginValue(Number: 0), 0,
+                4),
+            new PluginSetting("gap-ms", "Gap between repeats (ms)", PluginSettingKind.Number,
+                new PluginValue(Number: 40), 0, 200)
+        ]),
+        new("save-scene", "Create or replace scene", [
+            Text("name", "Scene name"),
+            Text("commands", "Device / command names, separated by semicolons"),
+            new PluginSetting("delay-ms", "Delay after each command (ms)", PluginSettingKind.Number,
+                new PluginValue(Number: 100), 0, 5000)
+        ]),
+        new("delete-scene", "Delete scene", [Text("scene", "Scene name")]),
+        new("send", "Send command", [Text("command", "Command (selected or Device / Name)", "selected")]),
+        new("set-carrier", "Override carrier frequency", [
+            Text("command", "Command (selected or Device / Name)", "selected"),
+            new PluginSetting("carrier-hz", "Carrier frequency (Hz)", PluginSettingKind.Number,
+                new PluginValue(Number: 38000), 20000, 60000)
+        ]),
+        new("reset-carrier", "Use captured carrier metadata",
+            [Text("command", "Command (selected or Device / Name)", "selected")]),
+        new("scene", "Run scene", [Text("scene", "Scene name")]),
+        new("delete", "Delete command", [Text("command", "Command (selected or Device / Name)", "selected")]),
+        new("export", "Back up command library", []),
+        new("import", "Restore command library backup", []),
+        new("remote-refresh", "Read built-in remotes", []),
+        new("remote-press", "Press a built-in remote button",
+        [
+            Text("remote", "Remote id"), Text("button", "Button id"),
+            new PluginSetting("delay-ms", "Wait after pressing (ms)", PluginSettingKind.Number,
+                new PluginValue(Number: 0), 0, 5000)
+        ]),
+        new("remote-run", "Run a built-in remote sequence",
+        [
+            Text("remote", "Remote id"), Text("sequence", "Sequence id"),
+            new PluginSetting("wait", "Wait for the sequence to finish", PluginSettingKind.Boolean,
+                new PluginValue(true))
+        ]),
+        new("remote-climate", "Set a built-in air conditioner",
+        [
+            Text("remote", "Remote id"),
+            new PluginSetting("power", "On", PluginSettingKind.Boolean, new PluginValue(true)),
+            Text("mode", "Mode", "cool"),
+            new PluginSetting("degrees", "Temperature", PluginSettingKind.Number, new PluginValue(Number: 24), 10, 90),
+            Text("fan", "Fan", "auto"),
+            new PluginSetting("toggle-swing", "Toggle swing", PluginSettingKind.Boolean, new PluginValue(false))
+        ])
+    ];
 
     /// <inheritdoc />
     public async ValueTask<PluginActionResult> ExecuteActionAsync(PluginActionRequest request, PluginContext context,
@@ -208,8 +244,10 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         {
             if (_stopped || _context?.Generation != context.Generation)
             {
-                return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected, "Plugin generation changed.");
+                return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
+                    "Plugin generation changed.");
             }
+
             // The firmware closes idle TCP clients after two minutes. A cached identity cannot
             // prove that socket is still alive. Start each explicit Wi-Fi action on a fresh link,
             // before any emission, rather than discovering the stale connection with an IR write.
@@ -218,30 +256,44 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                 _endpoint = null;
                 await previousEndpoint.DisposeAsync().ConfigureAwait(false);
             }
+
             Publish("status", $"{request.ActionId} requested", request.OperationId);
             switch (request.ActionId)
             {
                 case "discover":
                     string[] ports = [.. SerialPort.GetPortNames().Order(StringComparer.Ordinal)];
-                    Publish("ports", ports.Length == 0 ? "No USB serial ports found." : string.Join(", ", ports), request.OperationId);
+                    Publish("ports", ports.Length == 0 ? "No USB serial ports found." : string.Join(", ", ports),
+                        request.OperationId);
                     break;
                 case "connect":
-                    if (_endpoint is not null) { await _endpoint.DisposeAsync().ConfigureAwait(false); _endpoint = null; }
+                    if (_endpoint is not null)
+                    {
+                        await _endpoint.DisposeAsync().ConfigureAwait(false);
+                        _endpoint = null;
+                    }
+
                     await EndpointAsync(request.OperationId, cancellationToken).ConfigureAwait(false);
-                    return new PluginActionResult(request.OperationId, PluginActionOutcome.AppliedVerified, "Endpoint identity verified.");
+                    return new PluginActionResult(request.OperationId, PluginActionOutcome.AppliedVerified,
+                        "Endpoint identity verified.");
                 case "wifi-setup":
                     if (Arg("ssid").Trim().Length == 0)
                     {
-                        return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected, "Enter the network name. Use Forget Wi-Fi to clear it.");
+                        return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
+                            "Enter the network name. Use Forget Wi-Fi to clear it.");
                     }
-                    return await PairAsync(Arg("ssid"), Arg("password"), request.OperationId, context, cancellationToken).ConfigureAwait(false);
+
+                    return await PairAsync(Arg("ssid"), Arg("password"), request.OperationId, context,
+                        cancellationToken).ConfigureAwait(false);
                 case "wifi-clear":
-                    return await PairAsync("", "", request.OperationId, context, cancellationToken).ConfigureAwait(false);
+                    return await PairAsync("", "", request.OperationId, context, cancellationToken)
+                        .ConfigureAwait(false);
                 case "learn":
                     if (_library.Commands.Any(item => item.Device == Arg("device") && item.Name == Arg("name")))
                     {
-                        return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected, "This command already exists. Select it and use Relearn.");
+                        return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
+                            "This command already exists. Select it and use Relearn.");
                     }
+
                     var payload = await LearnAsync(request.OperationId, cancellationToken).ConfigureAwait(false);
                     var id = Guid.NewGuid().ToString("N");
                     var learned = _library with
@@ -255,21 +307,26 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     break;
                 case "select":
                     var selected = ResolveCommand(Arg("command"));
-                    await SaveLibraryAsync(_library with { SelectedCommandId = selected.Id }, context, cancellationToken).ConfigureAwait(false);
+                    await SaveLibraryAsync(_library with { SelectedCommandId = selected.Id }, context,
+                        cancellationToken).ConfigureAwait(false);
                     _lastCommand = selected.Id;
                     break;
                 case "rename":
                     var renamed = ResolveCommand("selected") with { Device = Arg("device"), Name = Arg("name") };
-                    if (_library.Commands.Any(item => item.Id != renamed.Id && item.Device == renamed.Device && item.Name == renamed.Name))
+                    if (_library.Commands.Any(item =>
+                            item.Id != renamed.Id && item.Device == renamed.Device && item.Name == renamed.Name))
                     {
-                        return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected, "This device already has a command with that name.");
+                        return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
+                            "This device already has a command with that name.");
                     }
+
                     await ReplaceCommandAsync(renamed, context, cancellationToken).ConfigureAwait(false);
                     break;
                 case "relearn":
                     var previous = ResolveCommand("selected");
                     var capture = await LearnAsync(request.OperationId, cancellationToken).ConfigureAwait(false);
-                    await ReplaceCommandAsync(previous with { Payload = capture }, context, cancellationToken).ConfigureAwait(false);
+                    await ReplaceCommandAsync(previous with { Payload = capture }, context, cancellationToken)
+                        .ConfigureAwait(false);
                     break;
                 case "timing":
                     await ReplaceCommandAsync(ResolveCommand("selected") with
@@ -280,7 +337,8 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     break;
                 case "save-scene":
                     var name = Arg("name");
-                    var names = Arg("commands").Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                    var names = Arg("commands").Split(';',
+                        StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
                     var delay = IntegerArgument(request, "delay-ms", 0, 5000);
                     var existing = _library.Scenes.FirstOrDefault(item => item.Name == name);
                     IrScene created = new(existing?.Id ?? Guid.NewGuid().ToString("N"), name,
@@ -292,7 +350,8 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     break;
                 case "delete-scene":
                     var removed = ResolveScene(Arg("scene"));
-                    await SaveLibraryAsync(_library with { Scenes = [.. _library.Scenes.Where(item => item.Id != removed.Id)] },
+                    await SaveLibraryAsync(
+                        _library with { Scenes = [.. _library.Scenes.Where(item => item.Id != removed.Id)] },
                         context, cancellationToken).ConfigureAwait(false);
                     break;
                 case "set-carrier":
@@ -305,16 +364,20 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                         var value = request.Arguments["carrier-hz"].Number ?? double.NaN;
                         if (!double.IsFinite(value) || value != Math.Truncate(value) || value is < 20000 or > 60000)
                         {
-                            return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected, "Carrier must be an integer from 20000 to 60000 Hz.");
+                            return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
+                                "Carrier must be an integer from 20000 to 60000 Hz.");
                         }
+
                         frequency = (int)value;
                     }
+
                     var edited = _library with
                     {
                         Commands =
                         [
                             .. _library.Commands.Select(item => item.Id == commandId
-                                ? original with { CarrierOverrideHz = frequency } : item)
+                                ? original with { CarrierOverrideHz = frequency }
+                                : item)
                         ]
                     };
                     await edited.SaveAsync(LibraryPath(context), cancellationToken).ConfigureAwait(false);
@@ -323,7 +386,8 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                 case "send":
                     await SendAsync(Arg("command"), request.OperationId, cancellationToken).ConfigureAwait(false);
                     Publish("status", "IR emitted; appliance state is not verified.", request.OperationId);
-                    return new PluginActionResult(request.OperationId, PluginActionOutcome.Dispatched, "IR emitted; appliance state is not verified.");
+                    return new PluginActionResult(request.OperationId, PluginActionOutcome.Dispatched,
+                        "IR emitted; appliance state is not verified.");
                 case "scene":
                     var scene = ResolveScene(Arg("scene"));
                     foreach (var step in scene.Steps)
@@ -331,7 +395,9 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                         await SendAsync(step.CommandId, request.OperationId, cancellationToken).ConfigureAwait(false);
                         await Task.Delay(step.DelayAfterMs, cancellationToken).ConfigureAwait(false);
                     }
-                    return new PluginActionResult(request.OperationId, PluginActionOutcome.Dispatched, "Scene emitted; appliance state is not verified.");
+
+                    return new PluginActionResult(request.OperationId, PluginActionOutcome.Dispatched,
+                        "Scene emitted; appliance state is not verified.");
                 case "delete":
                     var removedId = ResolveCommand(Arg("command")).Id;
                     if (_library.Scenes.Any(item => item.Steps.Any(step => step.CommandId == removedId)))
@@ -339,6 +405,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                         return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
                             "This command is used by a scene. Edit or delete that scene first.");
                     }
+
                     var deleted = _library with
                     {
                         Commands = [.. _library.Commands.Where(item => item.Id != removedId)],
@@ -346,14 +413,24 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     };
                     await deleted.SaveAsync(LibraryPath(context), cancellationToken).ConfigureAwait(false);
                     _library = deleted;
-                    if (_lastCommand == removedId) { _lastCommand = ""; }
+                    if (_lastCommand == removedId)
+                    {
+                        _lastCommand = "";
+                    }
+
                     break;
                 case "export":
-                    await _library.SaveAsync(Path.Combine(context.StateDirectory, "library.backup.json"), cancellationToken).ConfigureAwait(false);
+                    await _library
+                        .SaveAsync(Path.Combine(context.StateDirectory, "library.backup.json"), cancellationToken)
+                        .ConfigureAwait(false);
                     break;
                 case "import":
                     var backup = Path.Combine(context.StateDirectory, "library.backup.json");
-                    if (!File.Exists(backup)) { throw new FileNotFoundException("No command library backup exists."); }
+                    if (!File.Exists(backup))
+                    {
+                        throw new FileNotFoundException("No command library backup exists.");
+                    }
+
                     var restored = await IrLibrary.LoadAsync(backup, cancellationToken).ConfigureAwait(false);
                     await restored.SaveAsync(LibraryPath(context), cancellationToken).ConfigureAwait(false);
                     _library = restored;
@@ -367,26 +444,82 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                 case "remote-climate":
                     return await RemoteActionAsync(request, cancellationToken).ConfigureAwait(false);
                 default:
-                    return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected, "Unknown IR action.");
+                    return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
+                        "Unknown IR action.");
             }
+
             PublishLibrary();
             Publish("status", $"{request.ActionId} completed", request.OperationId);
             return new PluginActionResult(request.OperationId, PluginActionOutcome.AppliedVerified);
 
-            string Arg(string key) => request.Arguments[key].Text ?? "";
+            string Arg(string key)
+            {
+                return request.Arguments[key].Text ?? "";
+            }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             Publish("status", $"{request.ActionId} failed: {ex.Message}", request.OperationId);
             return new PluginActionResult(request.OperationId, PluginActionOutcome.Unconfirmed, ex.Message);
         }
-        finally { _lane.Release(); }
+        finally
+        {
+            _lane.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<PluginWidget> Widgets { get; } =
+    [
+        new("selected-command", "IR remote", ["selected", "send"], "action", NavigationCategory: "commands")
+    ];
+
+    /// <inheritdoc />
+    public IReadOnlyList<PluginUiContribution> Contributions { get; } =
+    [
+        new("status", "IR endpoint", "infrared", PluginUiKind.Status, "status"),
+        new("library", "Command library", "infrared", PluginUiKind.Status, "library"),
+        new("selected", "Selected command", "commands", PluginUiKind.Status, "selected"),
+        new("select", "Select command", "commands", PluginUiKind.Action, ActionId: "select"),
+        new("rename", "Rename selected command", "commands", PluginUiKind.Action, ActionId: "rename"),
+        new("relearn", "Relearn selected command", "commands", PluginUiKind.Action, ActionId: "relearn"),
+        new("timing", "Edit repeat timing", "commands", PluginUiKind.Action, ActionId: "timing"),
+        new("delete", "Delete command", "commands", PluginUiKind.Action, ActionId: "delete"),
+        new("save-scene", "Create or replace scene", "scenes", PluginUiKind.Action, ActionId: "save-scene"),
+        new("scene", "Run scene", "scenes", PluginUiKind.Action, ActionId: "scene"),
+        new("delete-scene", "Delete scene", "scenes", PluginUiKind.Action, ActionId: "delete-scene"),
+        new("import", "Restore command library backup", "library", PluginUiKind.Action, ActionId: "import"),
+        new("ports", "USB ports", "infrared", PluginUiKind.Status, "ports"),
+        new("discover", "Find USB endpoints", "infrared", PluginUiKind.Action, ActionId: "discover"),
+        new("connect", "Connect IR endpoint", "infrared", PluginUiKind.Action, ActionId: "connect"),
+        new("network", "Wi-Fi pairing", "network", PluginUiKind.Status, "network"),
+        new("wifi-setup", "Pair Wi-Fi over USB", "network", PluginUiKind.Action, ActionId: "wifi-setup"),
+        new("wifi-clear", "Forget Wi-Fi over USB", "network", PluginUiKind.Action, ActionId: "wifi-clear"),
+        new("learn", "Learn command", "infrared", PluginUiKind.Action, ActionId: "learn"),
+        new("send", "Test selected command", "infrared", PluginUiKind.Action, ActionId: "send"),
+        new("carrier-source", "Carrier provenance", "infrared", PluginUiKind.Status, "carrier-source"),
+        new("carrier", "Carrier frequency override (Hz)", "infrared", PluginUiKind.Slider,
+            "carrier-hz", "set-carrier", "carrier-hz"),
+        new("reset-carrier", "Use captured carrier metadata", "infrared", PluginUiKind.Action,
+            ActionId: "reset-carrier"),
+        new("export", "Back up command library", "infrared", PluginUiKind.Action, ActionId: "export"),
+        new("remotes", "Built-in remotes", "remotes", PluginUiKind.Status, "remotes"),
+        new("remote-refresh", "Read built-in remotes", "remotes", PluginUiKind.Action, ActionId: "remote-refresh"),
+        new("remote-press", "Press a built-in remote button", "remotes", PluginUiKind.Action, ActionId: "remote-press"),
+        new("remote-run", "Run a built-in remote sequence", "remotes", PluginUiKind.Action, ActionId: "remote-run"),
+        new("remote-climate", "Set a built-in air conditioner", "remotes", PluginUiKind.Action,
+            ActionId: "remote-climate")
+    ];
+
+    private static PluginSetting Text(string key, string label, string value = "")
+    {
+        return new PluginSetting(key, label, PluginSettingKind.Text, new PluginValue(Text: value));
     }
 
     /// <summary>
-    /// Returns an endpoint with a verified identity, identifying it first when no verified connection
-    /// exists. Identification only reads; this lets route automation send after a restart or a dropped
-    /// link without a manual Connect, while emission still needs an explicit send or scene.
+    ///     Returns an endpoint with a verified identity, identifying it first when no verified connection
+    ///     exists. Identification only reads; this lets route automation send after a restart or a dropped
+    ///     link without a manual Connect, while emission still needs an explicit send or scene.
     /// </summary>
     private async Task<IIrEndpoint> EndpointAsync(Guid operation, CancellationToken token)
     {
@@ -395,13 +528,16 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         {
             return _endpoint;
         }
+
         var identity = await _endpoint.IdentifyAsync(token).ConfigureAwait(false);
         Publish("status", Describe(identity), operation);
         return _endpoint;
     }
 
-    /// <summary>Reads the endpoint's built-in remotes and publishes them as the ids an action takes.
-    /// Reading is a read: nothing is emitted.</summary>
+    /// <summary>
+    ///     Reads the endpoint's built-in remotes and publishes them as the ids an action takes.
+    ///     Reading is a read: nothing is emitted.
+    /// </summary>
     private async Task RefreshRemotesAsync(Guid operation, CancellationToken token)
     {
         var endpoint = await EndpointAsync(operation, token).ConfigureAwait(false);
@@ -410,9 +546,9 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     }
 
     /// <summary>
-    /// Runs one built-in remote action. The endpoint owns the remotes, so its own catalog decides
-    /// which ids exist: an unknown one is looked up once more against a fresh read before it is
-    /// refused, because the firmware may have been reflashed since the last read.
+    ///     Runs one built-in remote action. The endpoint owns the remotes, so its own catalog decides
+    ///     which ids exist: an unknown one is looked up once more against a fresh read before it is
+    ///     refused, because the firmware may have been reflashed since the last read.
     /// </summary>
     private async Task<PluginActionResult> RemoteActionAsync(PluginActionRequest request, CancellationToken token)
     {
@@ -430,6 +566,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
             await RefreshRemotesAsync(request.OperationId, token).ConfigureAwait(false);
             remote = Find(remoteId);
         }
+
         if (remote is null)
         {
             return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
@@ -445,6 +582,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
                         $"\"{remote.Name}\" has no button \"{button}\".");
                 }
+
                 var delay = IntegerArgument(request, "delay-ms", 0, 5000);
                 await endpoint.PressAsync(remote.Id, button, token).ConfigureAwait(false);
                 await Task.Delay(delay, token).ConfigureAwait(false);
@@ -456,11 +594,13 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
                         $"\"{remote.Name}\" has no sequence \"{sequence}\".");
                 }
+
                 await endpoint.RunSequenceAsync(remote.Id, sequence, token).ConfigureAwait(false);
                 if (request.Arguments["wait"].Boolean == true)
                 {
                     await WaitForSequenceAsync(endpoint, token).ConfigureAwait(false);
                 }
+
                 break;
             default:
                 if (remote.Climate is null)
@@ -468,13 +608,17 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
                         $"\"{remote.Name}\" is not an air conditioner.");
                 }
+
                 var degrees = request.Arguments["degrees"].Number ?? double.NaN;
                 IrClimateRequest climate = new(
                     request.Arguments["power"].Boolean ?? true, Arg("mode"), degrees, Arg("fan"),
                     request.Arguments["toggle-swing"].Boolean ?? false);
                 if (!remote.Climate.Modes.Contains(climate.Mode) || !remote.Climate.Fans.Contains(climate.Fan)
-                    || !double.IsFinite(degrees) || degrees < remote.Climate.MinDegrees || degrees > remote.Climate.MaxDegrees
-                    || (climate.ToggleSwing && remote.Climate.Swing != "toggle"))
+                                                                 || !double.IsFinite(degrees) ||
+                                                                 degrees < remote.Climate.MinDegrees ||
+                                                                 degrees > remote.Climate.MaxDegrees
+                                                                 || (climate.ToggleSwing &&
+                                                                     remote.Climate.Swing != "toggle"))
                 {
                     return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
                         $"\"{remote.Name}\" accepts modes {string.Join("/", remote.Climate.Modes)}, "
@@ -482,20 +626,31 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                         + $"{remote.Climate.MinDegrees:0}-{remote.Climate.MaxDegrees:0} degrees"
                         + (remote.Climate.Swing == "toggle" ? "." : ", and has no swing."));
                 }
+
                 await endpoint.ClimateAsync(remote.Id, climate, token).ConfigureAwait(false);
                 break;
         }
 
         Publish("status", "IR emitted; appliance state is not verified.", request.OperationId);
-        return new PluginActionResult(request.OperationId, PluginActionOutcome.Dispatched, "IR emitted; appliance state is not verified.");
+        return new PluginActionResult(request.OperationId, PluginActionOutcome.Dispatched,
+            "IR emitted; appliance state is not verified.");
 
-        IrRemote? Find(string id) => _remotes?.Remotes.FirstOrDefault(item => item.Id == id || item.Name == id);
-        string Arg(string key) => request.Arguments[key].Text ?? "";
+        IrRemote? Find(string id)
+        {
+            return _remotes?.Remotes.FirstOrDefault(item => item.Id == id || item.Name == id);
+        }
+
+        string Arg(string key)
+        {
+            return request.Arguments[key].Text ?? "";
+        }
     }
 
-    /// <summary>Waits for a started sequence to finish by polling the endpoint's own flag. A
-    /// cancelled wait sends the endpoint's cancel, which is a distinct operation and never a retry
-    /// of the sequence.</summary>
+    /// <summary>
+    ///     Waits for a started sequence to finish by polling the endpoint's own flag. A
+    ///     cancelled wait sends the endpoint's cancel, which is a distinct operation and never a retry
+    ///     of the sequence.
+    /// </summary>
     private static async Task WaitForSequenceAsync(IIrEndpoint endpoint, CancellationToken token)
     {
         try
@@ -504,7 +659,10 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(500), token).ConfigureAwait(false);
                 var identity = await endpoint.IdentifyAsync(token).ConfigureAwait(false);
-                if (!identity.SequenceRunning) { return; }
+                if (!identity.SequenceRunning)
+                {
+                    return;
+                }
             }
         }
         catch (OperationCanceledException)
@@ -514,22 +672,32 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         }
     }
 
-    private void PublishRemotes() => Publish("remotes", _remotes is null || _remotes.Remotes.Length == 0
-        ? "No built-in remotes were read from the endpoint."
-        : string.Join("\n", _remotes.Remotes.Select(remote =>
-            $"{remote.Id} ({remote.Name}): "
-            + string.Join(", ", remote.Buttons.Take(24).Select(button => button.Id))
-            + (remote.Sequences.Length == 0 ? "" : "; sequences " + string.Join(", ", remote.Sequences.Select(item => item.Id)))
-            + (remote.Climate is null ? "" : "; climate"))));
+    private void PublishRemotes()
+    {
+        Publish("remotes", _remotes is null || _remotes.Remotes.Length == 0
+            ? "No built-in remotes were read from the endpoint."
+            : string.Join("\n", _remotes.Remotes.Select(remote =>
+                $"{remote.Id} ({remote.Name}): "
+                + string.Join(", ", remote.Buttons.Take(24).Select(button => button.Id))
+                + (remote.Sequences.Length == 0
+                    ? ""
+                    : "; sequences " + string.Join(", ", remote.Sequences.Select(item => item.Id)))
+                + (remote.Climate is null ? "" : "; climate"))));
+    }
 
     private IrEndpointTarget Target()
     {
         if (_transport == WifiTransport)
         {
-            if (_pairing is null) { throw new InvalidOperationException("Pair the endpoint over USB first, or choose the USB connection."); }
+            if (_pairing is null)
+            {
+                throw new InvalidOperationException("Pair the endpoint over USB first, or choose the USB connection.");
+            }
+
             var address = _hostName.Length != 0 ? _hostName : _pairing.Hostname;
             return new IrEndpointTarget(true, address, _pairing.Token);
         }
+
         return string.IsNullOrEmpty(_port)
             ? throw new InvalidOperationException("Select a USB serial port in plugin preferences first.")
             : new IrEndpointTarget(false, _port, null);
@@ -543,15 +711,25 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     }
 
     /// <summary>
-    /// Pairs over USB regardless of the configured transport: the cable proves possession, the plugin
-    /// mints the pairing token, and the endpoint stores credentials and token itself. An empty SSID
-    /// clears both sides. Credentials and the token are never published as state.
+    ///     Pairs over USB regardless of the configured transport: the cable proves possession, the plugin
+    ///     mints the pairing token, and the endpoint stores credentials and token itself. An empty SSID
+    ///     clears both sides. Credentials and the token are never published as state.
     /// </summary>
-    private async Task<PluginActionResult> PairAsync(string ssid, string password, Guid operation, PluginContext context,
+    private async Task<PluginActionResult> PairAsync(string ssid, string password, Guid operation,
+        PluginContext context,
         CancellationToken token)
     {
-        if (string.IsNullOrEmpty(_port)) { throw new InvalidOperationException("Select the USB serial port the endpoint is attached to first."); }
-        if (_endpoint is not null) { await _endpoint.DisposeAsync().ConfigureAwait(false); _endpoint = null; }
+        if (string.IsNullOrEmpty(_port))
+        {
+            throw new InvalidOperationException("Select the USB serial port the endpoint is attached to first.");
+        }
+
+        if (_endpoint is not null)
+        {
+            await _endpoint.DisposeAsync().ConfigureAwait(false);
+            _endpoint = null;
+        }
+
         await using var usb = _createEndpoint(new IrEndpointTarget(false, _port, null));
         await usb.IdentifyAsync(token).ConfigureAwait(false);
         if (ssid.Length == 0)
@@ -560,8 +738,10 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
             _pairing = null;
             File.Delete(PairingPath(context));
             PublishNetwork();
-            return new PluginActionResult(operation, PluginActionOutcome.AppliedVerified, "The endpoint forgot its Wi-Fi network and pairing token.");
+            return new PluginActionResult(operation, PluginActionOutcome.AppliedVerified,
+                "The endpoint forgot its Wi-Fi network and pairing token.");
         }
+
         var pairingToken = _pairing?.Token ?? Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(24));
         var identity = await usb.ConfigureNetworkAsync(ssid, password, pairingToken, token).ConfigureAwait(false);
         var hostname = string.IsNullOrWhiteSpace(identity.Hostname) ? "" : identity.Hostname + ".local";
@@ -575,28 +755,39 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
             await Task.Delay(TimeSpan.FromSeconds(1), token).ConfigureAwait(false);
             identity = await usb.IdentifyAsync(token).ConfigureAwait(false);
         }
+
         if (identity.WifiConnected && !string.IsNullOrEmpty(identity.Ip))
         {
             _pairing = pairing with { Ip = identity.Ip };
             await _pairing.SaveAsync(PairingPath(context), token).ConfigureAwait(false);
             PublishNetwork();
-            return new PluginActionResult(operation, PluginActionOutcome.AppliedVerified, $"Endpoint joined the network as {_pairing.Hostname} ({identity.Ip}).");
+            return new PluginActionResult(operation, PluginActionOutcome.AppliedVerified,
+                $"Endpoint joined the network as {_pairing.Hostname} ({identity.Ip}).");
         }
+
         PublishNetwork();
         return new PluginActionResult(operation, PluginActionOutcome.Unconfirmed,
             "The endpoint stored the network and token but has not joined yet. Check the SSID and password, then Connect.");
     }
 
-    private static string? Value(PluginConfiguration configuration, string key) =>
-        configuration.Values.TryGetValue(key, out var value) ? value.Text : null;
+    private static string? Value(PluginConfiguration configuration, string key)
+    {
+        return configuration.Values.TryGetValue(key, out var value) ? value.Text : null;
+    }
 
-    private static string Describe(IrEndpointIdentity identity) =>
-        $"{identity.Model} {identity.Identity}, firmware {identity.Firmware}, protocol {identity.Protocol}"
-        + (identity.WifiConnected ? $", Wi-Fi {identity.Ip}" : identity.WifiConfigured ? ", Wi-Fi configured but not connected" : "");
+    private static string Describe(IrEndpointIdentity identity)
+    {
+        return $"{identity.Model} {identity.Identity}, firmware {identity.Firmware}, protocol {identity.Protocol}"
+               + (identity.WifiConnected ? $", Wi-Fi {identity.Ip}" :
+                   identity.WifiConfigured ? ", Wi-Fi configured but not connected" : "");
+    }
 
-    private void PublishNetwork() => Publish("network", _pairing is null
-        ? "Not paired. Pair over USB to enable the Wi-Fi connection."
-        : $"Paired with {_pairing.Hostname}" + (_pairing.Ip.Length != 0 ? $" (last address {_pairing.Ip})" : ""));
+    private void PublishNetwork()
+    {
+        Publish("network", _pairing is null
+            ? "Not paired. Pair over USB to enable the Wi-Fi connection."
+            : $"Paired with {_pairing.Hostname}" + (_pairing.Ip.Length != 0 ? $" (last address {_pairing.Ip})" : ""));
+    }
 
     private static int IntegerArgument(PluginActionRequest request, string key, int minimum, int maximum)
     {
@@ -605,79 +796,98 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         {
             throw new ArgumentException($"{key} must be an integer from {minimum} to {maximum}.");
         }
+
         return (int)value;
     }
+
     private IrCommand ResolveCommand(string name)
     {
-        if (name is "selected" or "last") { name = _lastCommand; }
-        var matches = _library.Commands.Where(item => item.Id == name || $"{item.Device} / {item.Name}" == name).ToArray();
-        return matches.Length == 1 ? matches[0] : throw new InvalidOperationException("Select an existing, unambiguous Device / command name.");
+        if (name is "selected" or "last")
+        {
+            name = _lastCommand;
+        }
+
+        var matches = _library.Commands.Where(item => item.Id == name || $"{item.Device} / {item.Name}" == name)
+            .ToArray();
+        return matches.Length == 1
+            ? matches[0]
+            : throw new InvalidOperationException("Select an existing, unambiguous Device / command name.");
     }
-    private IrScene ResolveScene(string name) => _library.Scenes.FirstOrDefault(item => item.Id == name || item.Name == name)
-        ?? throw new InvalidOperationException("Choose an existing scene name.");
+
+    private IrScene ResolveScene(string name)
+    {
+        return _library.Scenes.FirstOrDefault(item => item.Id == name || item.Name == name)
+               ?? throw new InvalidOperationException("Choose an existing scene name.");
+    }
+
     private async Task SaveLibraryAsync(IrLibrary library, PluginContext context, CancellationToken token)
     {
         await library.SaveAsync(LibraryPath(context), token).ConfigureAwait(false);
         _library = library;
     }
-    private Task ReplaceCommandAsync(IrCommand command, PluginContext context, CancellationToken token) =>
-        SaveLibraryAsync(_library with { Commands = [.. _library.Commands.Select(item => item.Id == command.Id ? command : item)] }, context, token);
+
+    private Task ReplaceCommandAsync(IrCommand command, PluginContext context, CancellationToken token)
+    {
+        return SaveLibraryAsync(
+            _library with { Commands = [.. _library.Commands.Select(item => item.Id == command.Id ? command : item)] },
+            context, token);
+    }
+
     private async Task SendAsync(string id, Guid operation, CancellationToken token)
     {
         var command = ResolveCommand(id);
         var endpoint = await EndpointAsync(operation, token).ConfigureAwait(false);
-        await endpoint.TransmitAsync(command.TransmitPayload, command.Repeats, command.GapMs, token).ConfigureAwait(false);
+        await endpoint.TransmitAsync(command.TransmitPayload, command.Repeats, command.GapMs, token)
+            .ConfigureAwait(false);
     }
-    private static string LibraryPath(PluginContext context) => Path.Combine(context.StateDirectory, "library.json");
-    private static string PairingPath(PluginContext context) => Path.Combine(context.StateDirectory, "endpoint.json");
+
+    private static string LibraryPath(PluginContext context)
+    {
+        return Path.Combine(context.StateDirectory, "library.json");
+    }
+
+    private static string PairingPath(PluginContext context)
+    {
+        return Path.Combine(context.StateDirectory, "endpoint.json");
+    }
+
     private void PublishLibrary()
     {
         Publish("library", $"{_library.Commands.Length} commands, {_library.Scenes.Length} scenes\n"
-            + string.Join("\n", _library.Commands.Take(30).Select(item => $"{item.Device} / {item.Name}"))
-            + "\nScenes: " + string.Join(", ", _library.Scenes.Take(30).Select(item => item.Name)));
+                           + string.Join("\n",
+                               _library.Commands.Take(30).Select(item => $"{item.Device} / {item.Name}"))
+                           + "\nScenes: " + string.Join(", ", _library.Scenes.Take(30).Select(item => item.Name)));
         var selected = _library.Commands.FirstOrDefault(item => item.Id == _lastCommand);
-        Publish("selected", selected is null ? "No command selected" : $"{selected.Device} / {selected.Name}; repeats {selected.Repeats}, gap {selected.GapMs} ms");
+        Publish("selected",
+            selected is null
+                ? "No command selected"
+                : $"{selected.Device} / {selected.Name}; repeats {selected.Repeats}, gap {selected.GapMs} ms");
         if (selected is null)
         {
             Publish("carrier-source", "Learn or select a command first.");
             return;
         }
-        Publish("carrier-source", $"{selected.TransmitPayload.CarrierHz} Hz ({selected.TransmitPayload.CarrierSource}); captured value: {selected.Payload.CarrierHz} Hz ({selected.Payload.CarrierSource})");
+
+        Publish("carrier-source",
+            $"{selected.TransmitPayload.CarrierHz} Hz ({selected.TransmitPayload.CarrierSource}); captured value: {selected.Payload.CarrierHz} Hz ({selected.Payload.CarrierSource})");
         if (_host is { } host && _context is { } context)
         {
-            host.PublishState(new PluginStatePublication(context.Instance, context.Generation, Interlocked.Increment(ref _sequence),
-                "carrier-hz", new PluginValue(Number: selected.TransmitPayload.CarrierHz), PluginStateOrigin.Initialization));
+            host.PublishState(new PluginStatePublication(context.Instance, context.Generation,
+                Interlocked.Increment(ref _sequence),
+                "carrier-hz", new PluginValue(Number: selected.TransmitPayload.CarrierHz),
+                PluginStateOrigin.Initialization));
         }
     }
+
     private void Publish(string key, string text, Guid? operation = null)
     {
         if (_host is { } host && _context is { } context)
         {
-            host.PublishState(new PluginStatePublication(context.Instance, context.Generation, Interlocked.Increment(ref _sequence), key,
+            host.PublishState(new PluginStatePublication(context.Instance, context.Generation,
+                Interlocked.Increment(ref _sequence), key,
                 new PluginValue(Text: text.Length <= 4096 ? text : text[..4096]),
-                operation.HasValue ? PluginStateOrigin.Action : PluginStateOrigin.Initialization, OperationId: operation));
+                operation.HasValue ? PluginStateOrigin.Action : PluginStateOrigin.Initialization,
+                OperationId: operation));
         }
-    }
-
-    /// <inheritdoc />
-    public async ValueTask<bool> StopAsync(PluginContext context, CancellationToken cancellationToken)
-    {
-        await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            _stopped = true;
-            if (_endpoint is null) { return true; }
-            await _endpoint.DisposeAsync().ConfigureAwait(false);
-            _endpoint = null;
-            return true;
-        }
-        finally { _lane.Release(); }
-    }
-
-    /// <inheritdoc />
-    public async ValueTask DisposeAsync()
-    {
-        if (_context is { } context) { await StopAsync(context, CancellationToken.None).ConfigureAwait(false); }
-        _host = null;
     }
 }

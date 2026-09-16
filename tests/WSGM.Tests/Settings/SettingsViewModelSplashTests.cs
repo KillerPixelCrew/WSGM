@@ -46,8 +46,10 @@ public sealed class SettingsViewModelSplashTests
         Assert.Equal((false, false, true), viewModel.DeviceEditsMade);
     }
 
-    private static string Json(SplashConfig splash) =>
-        JsonSerializer.Serialize(splash, ConfigJsonContext.Default.SplashConfig);
+    private static string Json(SplashConfig splash)
+    {
+        return JsonSerializer.Serialize(splash, ConfigJsonContext.Default.SplashConfig);
+    }
 
     [Fact]
     public void LoadSplashThenBuildSplashConfigRoundTripsEveryField()
@@ -156,8 +158,10 @@ public sealed class SettingsViewModelSplashTests
     // ConfigStore.Save, so testing it at all meant overwriting the developer's real
     // %LOCALAPPDATA%\WSGM\config.json. Nothing below touches the file system.
 
-    private static AppConfig ConfigWith(string logo, string background) =>
-        new() { Splash = new SplashConfig { LogoImagePath = logo, BackgroundImagePath = background } };
+    private static AppConfig ConfigWith(string logo, string background)
+    {
+        return new AppConfig { Splash = new SplashConfig { LogoImagePath = logo, BackgroundImagePath = background } };
+    }
 
     [Fact]
     public void RepairWithNoFailedSlotsChangesNothingAndReportsNoFailure()

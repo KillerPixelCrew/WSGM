@@ -1,25 +1,20 @@
 # WSGM.Tests
 
-This project contains deterministic xUnit coverage for the main application, launcher, and logon
-service.
+This project contains deterministic xUnit coverage for the main application, launcher, and logon service.
 
-- Test parallelization is disabled because many tests exercise process-wide state, environment
-  variables, current directories, native seams, or named resources. Do not re-enable it without
-  removing those shared-state hazards.
-- Use per-test temporary directories and explicit dependency seams. Never read or write the real
-  LocalAppData WSGM tree, installed package, Steam session, shell state, hardware, display
-  configuration, service manager, UAC state, or global input hooks.
-- Registry tests may use only a unique disposable subtree below HKCU\Software\WSGM.Tests and must
-  remove it reliably.
-- Do not initialize the production Log singleton. Capture diagnostics through injected sinks or
-  test-local abstractions.
-- Name tests for the observable contract and cover success, rejection, cancellation, partial
-  failure, repetition, and cleanup where relevant.
-- Test files sit in the folder of the production type they cover (Core, Shell, Overlay and so on),
-  and tests for one type share one class. Keep test-only helpers in this project: in Fakes and
-  Builders once more than one test class needs them. Helpers several test projects need live in
-  tests/Shared, linked as source, with an MIT SPDX header and no xUnit API. Do not add production
-  branches solely to make a test convenient.
+- Test parallelization is disabled because many tests exercise process-wide state, environment variables, current
+  directories, native seams, or named resources. Do not re-enable it without removing those shared-state hazards.
+- Use per-test temporary directories and explicit dependency seams. Never read or write the real LocalAppData WSGM tree,
+  installed package, Steam session, shell state, hardware, display configuration, service manager, UAC state, or global
+  input hooks.
+- Registry tests may use only a unique disposable subtree below HKCU\Software\WSGM.Tests and must remove it reliably.
+- Do not initialize the production Log singleton. Capture diagnostics through injected sinks or test-local abstractions.
+- Name tests for the observable contract and cover success, rejection, cancellation, partial failure, repetition, and
+  cleanup where relevant.
+- Test files sit in the folder of the production type they cover (Core, Shell, Overlay and so on), and tests for one
+  type share one class. Keep test-only helpers in this project: in Fakes and Builders once more than one test class
+  needs them. Helpers several test projects need live in tests/Shared, linked as source, with an MIT SPDX header and no
+  xUnit API. Do not add production branches solely to make a test convenient.
 
 During iteration, run the narrowest filter that proves the change:
 

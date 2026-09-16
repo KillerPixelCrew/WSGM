@@ -12,12 +12,14 @@ using Path = Avalonia.Controls.Shapes.Path;
 
 namespace WSGM.Overlay;
 
-/// <summary>Renders a controller button glyph from the bundled Kenney CC0 SVGs.
-/// The SVGs are simple single/multi &lt;path fill d&gt; files, so they are parsed
-/// directly into Avalonia geometry, avoiding a second SVG rendering dependency.
-/// Button names are by LABEL ("a" shows the style's A/Cross art); the confirm
-/// action always displays "a" — for Nintendo the INPUT mapping swaps instead
-/// (see GamepadNavigation), so the labeled-A button confirms in every style.</summary>
+/// <summary>
+///     Renders a controller button glyph from the bundled Kenney CC0 SVGs.
+///     The SVGs are simple single/multi &lt;path fill d&gt; files, so they are parsed
+///     directly into Avalonia geometry, avoiding a second SVG rendering dependency.
+///     Button names are by LABEL ("a" shows the style's A/Cross art); the confirm
+///     action always displays "a" — for Nintendo the INPUT mapping swaps instead
+///     (see GamepadNavigation), so the labeled-A button confirms in every style.
+/// </summary>
 public sealed partial class GlyphIcon : ContentControl
 {
     /// <summary>Defines the Avalonia property that selects the controller-glyph family.</summary>
@@ -33,16 +35,8 @@ public sealed partial class GlyphIcon : ContentControl
     // Parsed once per style and button: a sheet open builds many glyphs, and each used to reopen the
     // asset and run the same regex and geometry parse. Geometry and immutable brushes are shared
     // safely by the Path controls that draw them. Only the UI thread builds glyphs.
-    private static readonly Dictionary<string, (Geometry Data, IBrush Fill)[]> ParsedGlyphs = new(StringComparer.Ordinal);
-
-    [GeneratedRegex("<path\\b[^>]*>", RegexOptions.Singleline)]
-    private static partial Regex PathRegex();
-
-    [GeneratedRegex("\\bfill=\"(?<fill>[^\"]+)\"")]
-    private static partial Regex FillRegex();
-
-    [GeneratedRegex("\\bd=\"(?<data>[^\"]+)\"", RegexOptions.Singleline)]
-    private static partial Regex DataRegex();
+    private static readonly Dictionary<string, (Geometry Data, IBrush Fill)[]> ParsedGlyphs =
+        new(StringComparer.Ordinal);
 
     /// <summary>Gets or sets the controller-glyph family to render.</summary>
     public GlyphStyle GlyphStyle
@@ -57,6 +51,15 @@ public sealed partial class GlyphIcon : ContentControl
         get => GetValue(ButtonProperty);
         set => SetValue(ButtonProperty, value);
     }
+
+    [GeneratedRegex("<path\\b[^>]*>", RegexOptions.Singleline)]
+    private static partial Regex PathRegex();
+
+    [GeneratedRegex("\\bfill=\"(?<fill>[^\"]+)\"")]
+    private static partial Regex FillRegex();
+
+    [GeneratedRegex("\\bd=\"(?<data>[^\"]+)\"", RegexOptions.Singleline)]
+    private static partial Regex DataRegex();
 
     /// <inheritdoc />
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -104,11 +107,15 @@ public sealed partial class GlyphIcon : ContentControl
                     {
                         continue;
                     }
+
                     var fill = FillRegex().Match(tag.Value);
                     parsed.Add((
                         Geometry.Parse(data.Groups["data"].Value),
-                        new ImmutableSolidColorBrush(fill.Success ? Color.Parse(fill.Groups["fill"].Value) : Colors.White)));
+                        new ImmutableSolidColorBrush(fill.Success
+                            ? Color.Parse(fill.Groups["fill"].Value)
+                            : Colors.White)));
                 }
+
                 paths = [.. parsed];
                 if (paths.Length > 0)
                 {

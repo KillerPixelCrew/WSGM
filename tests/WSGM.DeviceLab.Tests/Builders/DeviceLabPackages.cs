@@ -7,9 +7,12 @@ namespace WSGM.DeviceLab.Tests.Builders;
 internal static class DeviceLabPackages
 {
     /// <summary>Boundaries whose live data directory is a never-created child of the temporary root.</summary>
-    internal static DeviceLabPathBoundaries Boundaries(TemporaryDirectory temporary) => new()
+    internal static DeviceLabPathBoundaries Boundaries(TemporaryDirectory temporary)
     {
-        LiveDataDirectory = temporary.GetPath("never-live-data"),
-        BroadHomeDirectories = []
-    };
+        return new DeviceLabPathBoundaries
+        {
+            LiveDataDirectory = temporary.GetPath("never-live-data"),
+            BroadHomeDirectories = []
+        };
+    }
 }

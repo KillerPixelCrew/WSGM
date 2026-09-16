@@ -8,37 +8,49 @@ public sealed class DeviceProfileApplierTests
 {
     private const string Fan = "thermal.fan-curve";
 
-    private static DeviceAuthoredProfile Profile(int output = 50) => new()
+    private static DeviceAuthoredProfile Profile(int output = 50)
     {
-        ProfileId = "quiet",
-        Name = "Quiet",
-        CapabilityId = Fan,
-        Curve =
-        [
-            new AuthoredCurvePoint { Input = 0, Output = output },
-            new AuthoredCurvePoint { Input = 100, Output = output }
-        ]
-    };
+        return new DeviceAuthoredProfile
+        {
+            ProfileId = "quiet",
+            Name = "Quiet",
+            CapabilityId = Fan,
+            Curve =
+            [
+                new AuthoredCurvePoint { Input = 0, Output = output },
+                new AuthoredCurvePoint { Input = 100, Output = output }
+            ]
+        };
+    }
 
-    private static DeviceProfileSelection Selection(string? global = "quiet") => new()
+    private static DeviceProfileSelection Selection(string? global = "quiet")
     {
-        CapabilityId = Fan,
-        GlobalProfileId = global
-    };
+        return new DeviceProfileSelection
+        {
+            CapabilityId = Fan,
+            GlobalProfileId = global
+        };
+    }
 
-    /// <summary>The device answered a write. Unverified is the interesting default: most EC writes
-    /// have no readback, and the applier must still treat that as applied.</summary>
+    /// <summary>
+    ///     The device answered a write. Unverified is the interesting default: most EC writes
+    ///     have no readback, and the applier must still treat that as applied.
+    /// </summary>
     private static Task<CapabilityCommandResult> Answer(
-        CommandOutcome outcome = CommandOutcome.AppliedUnverified) =>
-        Task.FromResult(new CapabilityCommandResult
+        CommandOutcome outcome = CommandOutcome.AppliedUnverified)
+    {
+        return Task.FromResult(new CapabilityCommandResult
         {
             CommandId = Guid.NewGuid(),
             Outcome = outcome,
             CompletedAt = DateTimeOffset.UnixEpoch
         });
+    }
 
     private static CapabilityDescriptor Descriptor(
-        CapabilityValueKind kind = CapabilityValueKind.Curve) => new()
+        CapabilityValueKind kind = CapabilityValueKind.Curve)
+    {
+        return new CapabilityDescriptor
         {
             CapabilityId = Fan,
             Role = CapabilityRole.FanCurve,
@@ -49,6 +61,7 @@ public sealed class DeviceProfileApplierTests
             SupportsWrite = true,
             Persistence = CapabilityPersistence.Volatile
         };
+    }
 
     [Fact]
     public async Task AResolvedProfileIsSentAsACurve()
@@ -121,7 +134,7 @@ public sealed class DeviceProfileApplierTests
 
         var outcome = await DeviceProfileApplier.ApplyAsync(
             [Selection()],
-            [Profile(output: 500)],
+            [Profile(500)],
             Fan,
             null,
             _ => Descriptor(),

@@ -4,13 +4,15 @@ using Avalonia.Threading;
 
 namespace WSGM.Input;
 
-/// <summary>The union/hold-timer chord state machine shared by the recorder and the
-/// watcher, modelled on Handheld Companion's InputsManager: buttons accumulate into
-/// a union that only clears on full release (so a combo does not need frame-perfect
-/// presses), and a hold timer restarted on every state change promotes the chord to
-/// "hold". State is tracked per physical pad: a chord must complete on ONE
-/// controller — buttons held on another pad neither join the union nor block the
-/// full-release detection.</summary>
+/// <summary>
+///     The union/hold-timer chord state machine shared by the recorder and the
+///     watcher, modelled on Handheld Companion's InputsManager: buttons accumulate into
+///     a union that only clears on full release (so a combo does not need frame-perfect
+///     presses), and a hold timer restarted on every state change promotes the chord to
+///     "hold". State is tracked per physical pad: a chord must complete on ONE
+///     controller — buttons held on another pad neither join the union nor block the
+///     full-release detection.
+/// </summary>
 internal sealed class ChordTracker : IDisposable
 {
     /// <summary>Time with no state change before a held chord counts as a hold.</summary>
@@ -19,24 +21,23 @@ internal sealed class ChordTracker : IDisposable
     /// <summary>Time with no input at all before recording gives up.</summary>
     public static readonly TimeSpan RecordingExpiry = TimeSpan.FromSeconds(3);
 
-    /// <summary>One pad's chord episode. Union accumulates until full release.</summary>
-    internal sealed class Pad
-    {
-        public GamepadButtons Union;
-        /// <summary>Set by a consumer that acted on HoldElapsed so it does not act
-        /// again (further state changes restart the hold timer) until full release.</summary>
-        public bool HoldConsumed;
-        public readonly DispatcherTimer HoldTimer = new() { Interval = Hold };
-    }
-
     private readonly Dictionary<uint, Pad> _pads = new();
 
-    /// <summary>The hold time elapsed with no state change on this pad. Can fire
-    /// again after further state changes unless the consumer sets HoldConsumed.</summary>
+    public void Dispose()
+    {
+        Reset();
+    }
+
+    /// <summary>
+    ///     The hold time elapsed with no state change on this pad. Can fire
+    ///     again after further state changes unless the consumer sets HoldConsumed.
+    /// </summary>
     public event Action<Pad>? HoldElapsed;
 
-    /// <summary>The pad was fully released; Union is the accumulated press chord.
-    /// The pad's episode state resets after the handlers return.</summary>
+    /// <summary>
+    ///     The pad was fully released; Union is the accumulated press chord.
+    ///     The pad's episode state resets after the handlers return.
+    /// </summary>
     public event Action<Pad>? Released;
 
     /// <summary>Feed one pad's full state (from GamepadService.StateChanged).</summary>
@@ -59,7 +60,7 @@ internal sealed class ChordTracker : IDisposable
 
         if (state != 0)
         {
-            pad.Union |= state;         // union, cleared only on full release
+            pad.Union |= state; // union, cleared only on full release
             pad.HoldTimer.Start();
             return;
         }
@@ -88,5 +89,17 @@ internal sealed class ChordTracker : IDisposable
         }
     }
 
-    public void Dispose() => Reset();
+    /// <summary>One pad's chord episode. Union accumulates until full release.</summary>
+    internal sealed class Pad
+    {
+        public readonly DispatcherTimer HoldTimer = new() { Interval = Hold };
+
+        /// <summary>
+        ///     Set by a consumer that acted on HoldElapsed so it does not act
+        ///     again (further state changes restart the hold timer) until full release.
+        /// </summary>
+        public bool HoldConsumed;
+
+        public GamepadButtons Union;
+    }
 }

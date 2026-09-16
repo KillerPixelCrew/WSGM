@@ -7,27 +7,31 @@ using static WSGM.Interop.NativeDisplay;
 
 namespace WSGM.Core;
 
-/// <summary>Owns the display state WSGM changes through DisplayConfig packets: per-monitor
-/// scaling (the 100%/125%/150% setting) via the undocumented-but-ABI-stable DPI packets — the
-/// same mechanism the Settings app uses, applying INSTANTLY with no logoff (live-verified) and
-/// PERSISTING in the registry — and Windows HDR (advanced color) per active display. Scaling
-/// persistence is why the pre-game values are stored in WSGM's config and restored on desktop
-/// mode, clean exit, panic, and recovery. Game mode runs at 100% so DPI-unaware games render
-/// 1:1 on the panel. HDR is queried and set on the path TARGET, never the GDI source; see
-/// docs\power-and-display.md. A configured Game Mode layout owns resolution, position, refresh,
-/// per-display scaling and HDR instead, through <see cref="WindowsDeviceControl.DisplayLayouts"/>;
-/// this class remains the scaling posture Default entry applies and the snapshot recovery
-/// restores.</summary>
+/// <summary>
+///     Owns the display state WSGM changes through DisplayConfig packets: per-monitor
+///     scaling (the 100%/125%/150% setting) via the undocumented-but-ABI-stable DPI packets — the
+///     same mechanism the Settings app uses, applying INSTANTLY with no logoff (live-verified) and
+///     PERSISTING in the registry — and Windows HDR (advanced color) per active display. Scaling
+///     persistence is why the pre-game values are stored in WSGM's config and restored on desktop
+///     mode, clean exit, panic, and recovery. Game mode runs at 100% so DPI-unaware games render
+///     1:1 on the panel. HDR is queried and set on the path TARGET, never the GDI source; see
+///     docs\power-and-display.md. A configured Game Mode layout owns resolution, position, refresh,
+///     per-display scaling and HDR instead, through <see cref="WindowsDeviceControl.DisplayLayouts" />;
+///     this class remains the scaling posture Default entry applies and the snapshot recovery
+///     restores.
+/// </summary>
 public static unsafe class DisplayScale
 {
     // Index 0 = 100%. Recommended = DpiVals[abs(MinScaleRel)].
     private static readonly uint[] DpiVals = [100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500];
 
-    /// <summary>Game mode: capture ALL current per-display scalings into the config
-    /// (unless a crashed session already left captured values there), persist them,
-    /// and only then drop every display to 100% — capture-then-set ordering so a
-    /// crash between the two can never lose the originals. When the save fails,
-    /// scaling is left untouched.</summary>
+    /// <summary>
+    ///     Game mode: capture ALL current per-display scalings into the config
+    ///     (unless a crashed session already left captured values there), persist them,
+    ///     and only then drop every display to 100% — capture-then-set ordering so a
+    ///     crash between the two can never lose the originals. When the save fails,
+    ///     scaling is left untouched.
+    /// </summary>
     public static void ApplyGameMode(AppConfig config)
     {
         var sources = GetActiveSources();
@@ -46,6 +50,7 @@ public static unsafe class DisplayScale
             {
                 continue;
             }
+
             var name = GetSourceDeviceName(source.Adapter, source.SourceId);
             if (name.Length == 0)
             {
@@ -53,9 +58,11 @@ public static unsafe class DisplayScale
                 // would sit in the config forever, re-logged on every restore.
                 // Leave this display's scaling untouched rather than lower a value
                 // we could not identify for restore.
-                Log.Warn($"Display scale: device name query failed for a display at {current}% — leaving it unchanged.");
+                Log.Warn(
+                    $"Display scale: device name query failed for a display at {current}% — leaving it unchanged.");
                 continue;
             }
+
             captured.Add(new DisplayScaleEntry { DeviceName = name, Percent = (int)current });
             // A surviving snapshot means the previous game-mode session did not
             // finish restoring every display.  A dock/undock can expose a different
@@ -92,13 +99,21 @@ public static unsafe class DisplayScale
         }
     }
 
-    /// <summary>Recovery path for clean exit, panic, uninstall and shell repair. Restores any
-    /// pending scaling snapshot; the layout a Game Mode session owes the desktop is separate and
-    /// belongs to <see cref="GameModeLaunchRecovery"/>.</summary>
-    public static void RestoreSaved(AppConfig config) => RestoreDpiSnapshot(config);
+    /// <summary>
+    ///     Recovery path for clean exit, panic, uninstall and shell repair. Restores any
+    ///     pending scaling snapshot; the layout a Game Mode session owes the desktop is separate and
+    ///     belongs to <see cref="GameModeLaunchRecovery" />.
+    /// </summary>
+    public static void RestoreSaved(AppConfig config)
+    {
+        RestoreDpiSnapshot(config);
+    }
 
     /// <summary>Handles an intentional transition into desktop mode.</summary>
-    public static void ApplyDesktopMode(AppConfig config) => RestoreDpiSnapshot(config);
+    public static void ApplyDesktopMode(AppConfig config)
+    {
+        RestoreDpiSnapshot(config);
+    }
 
     private static void RestoreDpiSnapshot(AppConfig config)
     {
@@ -106,24 +121,27 @@ public static unsafe class DisplayScale
         {
             return;
         }
+
         var sources = GetActiveSources();
         if (sources.Count == 0)
         {
             Log.Warn("Display scale: no active display sources — keeping saved values for a later restore.");
             return;
         }
+
         var named = sources
             .Select(source => (Source: source, Name: GetSourceDeviceName(source.Adapter, source.SourceId)))
             .ToList();
 
         var remaining = new List<DisplayScaleEntry>();
-        var positional = 0;   // next active source for ""-named entries
+        var positional = 0; // next active source for ""-named entries
         foreach (var entry in config.SavedDisplayScaleEntries)
         {
             if (entry.Percent is not (>= 100 and <= 500))
             {
-                continue;   // garbage value — dropping it is the only safe move
+                continue; // garbage value — dropping it is the only safe move
             }
+
             if (string.IsNullOrEmpty(entry.DeviceName))
             {
                 // Written by an older build whose name query failed: "" can never
@@ -133,53 +151,72 @@ public static unsafe class DisplayScale
                 if (positional < named.Count &&
                     TrySetScale(named[positional].Source, (uint)entry.Percent))
                 {
-                    Log.Info($"Display scale restored to {entry.Percent}% (unnamed legacy entry, positional -> '{named[positional].Name}').");
+                    Log.Info(
+                        $"Display scale restored to {entry.Percent}% (unnamed legacy entry, positional -> '{named[positional].Name}').");
                 }
                 else
                 {
                     Log.Warn($"Display scale: dropping unmatchable unnamed entry ({entry.Percent}%).");
                 }
+
                 positional++;
                 continue;
             }
+
             var idx = named.FindIndex(s => string.Equals(s.Name, entry.DeviceName, StringComparison.OrdinalIgnoreCase));
             if (idx < 0)
             {
-                Log.Warn($"Display scale: display '{entry.DeviceName}' not active — keeping {entry.Percent}% for a later restore.");
+                Log.Warn(
+                    $"Display scale: display '{entry.DeviceName}' not active — keeping {entry.Percent}% for a later restore.");
                 remaining.Add(entry);
                 continue;
             }
+
             if (TrySetScale(named[idx].Source, (uint)entry.Percent))
             {
                 Log.Info($"Display scale restored to {entry.Percent}% ({entry.DeviceName}).");
             }
             else
             {
-                remaining.Add(entry);   // transient set failure — retry on the next restore path
+                remaining.Add(entry); // transient set failure — retry on the next restore path
             }
         }
+
         config.SavedDisplayScaleEntries = remaining;
-        try { PersistScaleEntries(remaining); } catch (Exception ex) { Log.Warn($"Display scale: could not persist restore: {ex.Message}"); }
+        try
+        {
+            PersistScaleEntries(remaining);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Display scale: could not persist restore: {ex.Message}");
+        }
     }
 
-    /// <summary>Persists ONLY the display-scale snapshot, through the config store's
-    /// read-modify-write path. Callers hand in a LONG-LIVED <see cref="AppConfig"/> —
-    /// the shell session's, on every game/desktop transition — and saving that whole
-    /// object would overwrite every field another process persisted since it was
-    /// loaded (see ConfigStore's contract), so a mode switch could silently revert
-    /// settings the user had just saved. Callers mirror the same values onto their own
-    /// instance so it stays in step with what went to disk.</summary>
+    /// <summary>
+    ///     Persists ONLY the display-scale snapshot, through the config store's
+    ///     read-modify-write path. Callers hand in a LONG-LIVED <see cref="AppConfig" /> —
+    ///     the shell session's, on every game/desktop transition — and saving that whole
+    ///     object would overwrite every field another process persisted since it was
+    ///     loaded (see ConfigStore's contract), so a mode switch could silently revert
+    ///     settings the user had just saved. Callers mirror the same values onto their own
+    ///     instance so it stays in step with what went to disk.
+    /// </summary>
     /// <param name="entries">The scale entries to persist (empty clears the snapshot).</param>
     private static void PersistScaleEntries(List<DisplayScaleEntry> entries)
-        => ConfigStore.Mutate(fresh => fresh.SavedDisplayScaleEntries = entries);
+    {
+        ConfigStore.Mutate(fresh => fresh.SavedDisplayScaleEntries = entries);
+    }
 
-    /// <summary>The display-scale percent WSGM's own UI should render at. Game
-    /// mode forces every display to 100%, which makes DIP-sized WSGM surfaces
-    /// physically tiny on dense handheld panels — so the overlay/taskbar upscale
-    /// themselves to the user's DESKTOP scaling: the pre-game-mode snapshot when
-    /// one exists, otherwise the panel's Windows-recommended scale (the snapshot
-    /// only captures displays that weren't already at 100%). Returns 100 when
-    /// nothing better is known.</summary>
+    /// <summary>
+    ///     The display-scale percent WSGM's own UI should render at. Game
+    ///     mode forces every display to 100%, which makes DIP-sized WSGM surfaces
+    ///     physically tiny on dense handheld panels — so the overlay/taskbar upscale
+    ///     themselves to the user's DESKTOP scaling: the pre-game-mode snapshot when
+    ///     one exists, otherwise the panel's Windows-recommended scale (the snapshot
+    ///     only captures displays that weren't already at 100%). Returns 100 when
+    ///     nothing better is known.
+    /// </summary>
     /// <param name="config">The configuration holding the pre-game-mode scale snapshot.</param>
     public static uint GetUiScalePercent(AppConfig config)
     {
@@ -187,15 +224,16 @@ public static unsafe class DisplayScale
         {
             var sources = GetActiveSources();
             foreach (var saved in sources
-                .Select(source => GetSourceDeviceName(source.Adapter, source.SourceId))
-                .Select(name => config.SavedDisplayScaleEntries.Find(
-                    e => string.Equals(e.DeviceName, name, StringComparison.OrdinalIgnoreCase))))
+                         .Select(source => GetSourceDeviceName(source.Adapter, source.SourceId))
+                         .Select(name => config.SavedDisplayScaleEntries.Find(e =>
+                             string.Equals(e.DeviceName, name, StringComparison.OrdinalIgnoreCase))))
             {
                 if (saved is { Percent: >= 100 and <= 500 })
                 {
                     return (uint)saved.Percent;
                 }
             }
+
             if (sources.Count > 0 && TryGetScale(sources[0], out var current, out var recommended, out _))
             {
                 return PickUiScalePercent(null, current, recommended);
@@ -205,24 +243,31 @@ public static unsafe class DisplayScale
         {
             Log.Warn($"Display scale: UI scale query failed: {ex.Message}");
         }
+
         return 100;
     }
 
-    /// <summary>The pure UI-scale decision: a valid saved desktop percent wins;
-    /// otherwise the larger of the current and Windows-recommended scale (in game
-    /// mode current is the forced 100, so recommended carries panels whose
-    /// desktop already ran at 100%).</summary>
+    /// <summary>
+    ///     The pure UI-scale decision: a valid saved desktop percent wins;
+    ///     otherwise the larger of the current and Windows-recommended scale (in game
+    ///     mode current is the forced 100, so recommended carries panels whose
+    ///     desktop already ran at 100%).
+    /// </summary>
     /// <param name="savedPercent">The pre-game-mode snapshot value, or null.</param>
     /// <param name="currentPercent">The display's current scale percent.</param>
     /// <param name="recommendedPercent">The display's Windows-recommended percent.</param>
     public static uint PickUiScalePercent(int? savedPercent, uint currentPercent, uint recommendedPercent)
-        => savedPercent is >= 100 and <= 500
+    {
+        return savedPercent is >= 100 and <= 500
             ? (uint)savedPercent
             : Math.Max(Math.Max(currentPercent, recommendedPercent), 100);
+    }
 
-    /// <summary>Decides whether a display may be lowered after its scale was read.
-    /// A fresh capture owns every successfully identified value; during crash
-    /// recovery only a source already present in the durable snapshot is owned.</summary>
+    /// <summary>
+    ///     Decides whether a display may be lowered after its scale was read.
+    ///     A fresh capture owns every successfully identified value; during crash
+    ///     recovery only a source already present in the durable snapshot is owned.
+    /// </summary>
     /// <param name="freshCapture">Whether no earlier recovery snapshot exists.</param>
     /// <param name="savedEntries">The durable, device-keyed recovery snapshot.</param>
     /// <param name="deviceName">The active source's GDI device name.</param>
@@ -230,13 +275,18 @@ public static unsafe class DisplayScale
         bool freshCapture,
         IReadOnlyList<DisplayScaleEntry> savedEntries,
         string deviceName)
-        => freshCapture || savedEntries.Any(entry =>
+    {
+        return freshCapture || savedEntries.Any(entry =>
             string.Equals(entry.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase));
+    }
 
     internal static int NormalizeConfiguredPercent(int percent)
-        => (int)DpiVals.MinBy(candidate => Math.Abs((int)candidate - percent));
+    {
+        return (int)DpiVals.MinBy(candidate => Math.Abs((int)candidate - percent));
+    }
 
-    private static bool TryGetScale((Luid Adapter, uint SourceId) source, out uint currentPct, out uint recommendedPct, out uint maxPct)
+    private static bool TryGetScale((Luid Adapter, uint SourceId) source, out uint currentPct, out uint recommendedPct,
+        out uint maxPct)
     {
         currentPct = recommendedPct = maxPct = 0;
         var get = new DpiScaleGet
@@ -253,12 +303,14 @@ public static unsafe class DisplayScale
         {
             return false;
         }
+
         var cur = Math.Clamp(get.CurScaleRel, get.MinScaleRel, get.MaxScaleRel);
         var rec = Math.Abs(get.MinScaleRel);
         if (rec + get.MaxScaleRel + 1 > DpiVals.Length)
         {
             return false;
         }
+
         currentPct = DpiVals[rec + cur];
         recommendedPct = DpiVals[rec];
         maxPct = DpiVals[rec + get.MaxScaleRel];
@@ -271,10 +323,12 @@ public static unsafe class DisplayScale
         {
             return false;
         }
+
         if (percent == current)
         {
             return true;
         }
+
         percent = Math.Clamp(percent, 100u, max);
         var idx = Array.IndexOf(DpiVals, percent);
         var recIdx = Array.IndexOf(DpiVals, recommended);
@@ -282,6 +336,7 @@ public static unsafe class DisplayScale
         {
             return false;
         }
+
         var set = new DpiScaleSet
         {
             Header =
@@ -298,6 +353,7 @@ public static unsafe class DisplayScale
         {
             Log.Warn($"Display scale: set {percent}% failed.");
         }
+
         return ok;
     }
 
@@ -311,11 +367,13 @@ public static unsafe class DisplayScale
             {
                 return result;
             }
+
             for (var i = 0; i < numPaths; i++)
             {
                 var key = (paths[i].SourceInfo.AdapterId, paths[i].SourceInfo.Id);
                 if (!result.Exists(x => x.Item2 == key.Id
-                    && x.Item1.LowPart == key.AdapterId.LowPart && x.Item1.HighPart == key.AdapterId.HighPart))
+                                        && x.Item1.LowPart == key.AdapterId.LowPart &&
+                                        x.Item1.HighPart == key.AdapterId.HighPart))
                 {
                     result.Add(key);
                 }
@@ -325,6 +383,7 @@ public static unsafe class DisplayScale
         {
             Log.Warn($"Display scale: enumeration failed: {ex.Message}");
         }
+
         return result;
     }
 
@@ -344,14 +403,17 @@ public static unsafe class DisplayScale
             {
                 return null;
             }
+
             paths = new PathInfo[numPaths];
             var modes = new ModeInfo[numModes];
             status = QueryDisplayConfig(QdcOnlyActivePaths, ref numPaths, paths, ref numModes, modes, 0);
         } while (status == ErrorInsufficientBuffer && ++attempts < 5);
+
         if (status == 0)
         {
             return paths;
         }
+
         Log.Warn($"{context}: QueryDisplayConfig failed with {status}.");
         return null;
     }
@@ -372,6 +434,7 @@ public static unsafe class DisplayScale
         {
             return "";
         }
+
         var name = new ReadOnlySpan<char>(packet.ViewGdiDeviceName, 32);
         var len = name.IndexOf('\0');
         return new string(len >= 0 ? name[..len] : name);

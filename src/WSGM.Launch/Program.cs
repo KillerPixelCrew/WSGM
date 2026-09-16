@@ -12,29 +12,36 @@ namespace WSGM.Launch;
 internal static class Program
 {
     private const string ChildArgument = "--medium-child";
-    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(20);
-    private static readonly TimeSpan LaunchReportTimeout = TimeSpan.FromMinutes(2);
 
     // Carried in the medium child's failure message so the elevated parent can tell
     // "de-elevation is impossible on this machine" (UAC off) from a transient error
     // and fail open instead of leaving the game unlaunchable.
     internal const string NoMediumTokenMarker = "UAC appears to be disabled";
 
-    /// <summary>The failure the medium child reports when Task Scheduler could not
-    /// give it a limited token, which is what UAC being switched off looks like.</summary>
+    /// <summary>
+    ///     The failure the medium child reports when Task Scheduler could not
+    ///     give it a limited token, which is what UAC being switched off looks like.
+    /// </summary>
     internal const string DisabledUacFailureMessage = NoMediumTokenMarker
-        + "; Task Scheduler did not provide a medium-integrity token.";
+                                                      + "; Task Scheduler did not provide a medium-integrity token.";
 
-    /// <summary>Decides whether the elevated parent may launch the target itself after
-    /// the helper reported a failure. The marker alone is not enough: it arrives over an
-    /// unauthenticated pipe, so anything able to connect could ask this elevated process
-    /// to start an arbitrary command at high integrity — the exact outcome
-    /// <c>--deelevate</c> exists to prevent. The parent's OWN token is the second,
-    /// unspoofable condition.</summary>
+    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan LaunchReportTimeout = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    ///     Decides whether the elevated parent may launch the target itself after
+    ///     the helper reported a failure. The marker alone is not enough: it arrives over an
+    ///     unauthenticated pipe, so anything able to connect could ask this elevated process
+    ///     to start an arbitrary command at high integrity — the exact outcome
+    ///     <c>--deelevate</c> exists to prevent. The parent's OWN token is the second,
+    ///     unspoofable condition.
+    /// </summary>
     /// <param name="error">The failure text the medium-integrity helper reported.</param>
-    /// <param name="hasLinkedLimitedToken">Whether this process holds a full split token
-    /// with a linked limited token (<see cref="Elevation.HasLinkedLimitedToken"/>);
-    /// <c>null</c> when the token could not be queried.</param>
+    /// <param name="hasLinkedLimitedToken">
+    ///     Whether this process holds a full split token
+    ///     with a linked limited token (<see cref="Elevation.HasLinkedLimitedToken" />);
+    ///     <c>null</c> when the token could not be queried.
+    /// </param>
     /// <returns><c>true</c> when the target may be launched as-is.</returns>
     // The parent reads its OWN token rather than the peer's on purpose. Identifying the
     // peer (GetNamedPipeClientProcessId + OpenProcess) races the genuine child, which
@@ -47,8 +54,10 @@ internal static class Program
     // unqueryable token (null) also keeps failing open; only a confirmed split token,
     // where de-elevation genuinely was possible, refuses.
     internal static bool ShouldFailOpen(string error, bool? hasLinkedLimitedToken)
-        => error.Contains(NoMediumTokenMarker, StringComparison.Ordinal)
-            && hasLinkedLimitedToken != true;
+    {
+        return error.Contains(NoMediumTokenMarker, StringComparison.Ordinal)
+               && hasLinkedLimitedToken != true;
+    }
 
     private static async Task<int> Main(string[] args)
     {
@@ -74,10 +83,12 @@ internal static class Program
                 Console.WriteLine(CommandLine.UsageText);
                 return 0;
             }
+
             if (options.Status)
             {
                 return RunStatus(options);
             }
+
             if (options.Rescan)
             {
                 return RunRescan(options);
@@ -141,8 +152,9 @@ internal static class Program
             else
             {
                 LaunchLog.Warn("Steam Input lease released, but Steam controller recovery did not run"
-                    + $" ({run.Release.Recovery}: {run.Release.RecoveryMessage ?? "no reason reported"}).");
+                               + $" ({run.Release.Recovery}: {run.Release.RecoveryMessage ?? "no reason reported"}).");
             }
+
             return unchecked((int)run.ExitCode);
         }
         catch (Exception ex)
@@ -219,14 +231,15 @@ internal static class Program
             pipeSecurity.AddAccessRule(new PipeAccessRule(
                 identity.User!, PipeAccessRights.FullControl, AccessControlType.Allow));
         }
+
         await using var pipe = NamedPipeServerStreamAcl.Create(
             pipeName,
             PipeDirection.InOut,
             1,
             PipeTransmissionMode.Byte,
             PipeOptions.Asynchronous,
-            inBufferSize: 0,
-            outBufferSize: 0,
+            0,
+            0,
             pipeSecurity);
 
         var executablePath = Environment.ProcessPath;
@@ -284,6 +297,7 @@ internal static class Program
                 LaunchLog.Error($"Medium-integrity launch failed: {error}");
                 return await FailOpenOrGiveUpAsync(error, payload);
             }
+
             if (started != 1)
             {
                 LaunchLog.Error($"Medium-integrity helper returned invalid status {started}.");
@@ -314,8 +328,10 @@ internal static class Program
         }
     }
 
-    /// <summary>Launches the target as-is when the medium child reported that
-    /// de-elevation is impossible on this machine, and gives up otherwise.</summary>
+    /// <summary>
+    ///     Launches the target as-is when the medium child reported that
+    ///     de-elevation is impossible on this machine, and gives up otherwise.
+    /// </summary>
     private static async Task<int> FailOpenOrGiveUpAsync(string error, LaunchPayload payload)
     {
         // Fail open, on the same rule the lease follows: a game that never starts
@@ -399,7 +415,7 @@ internal static class Program
             {
                 LaunchLog.Error(
                     $"Target pid {process.Id} could not be captured before wrapper publication; "
-                        + "stopping it rather than running an untracked game tree.");
+                    + "stopping it rather than running an untracked game tree.");
                 StopTargetTree(process, job);
                 await WaitForExitBoundedAsync(process).ConfigureAwait(false);
                 await WriteLaunchFailureAsync(
@@ -430,10 +446,11 @@ internal static class Program
                 await WaitForExitBoundedAsync(process).ConfigureAwait(false);
                 return 1;
             }
+
             launchResponseSent = true;
             LaunchLog.Info($"Launched {Path.GetFileName(payload.Arguments[0])} at medium integrity " +
-                              $"(pid {process.Id}); preserving Steam wrapper lifetime" +
-                              " for its process tree.");
+                           $"(pid {process.Id}); preserving Steam wrapper lifetime" +
+                           " for its process tree.");
 
             using var disconnectCancellation = new CancellationTokenSource();
             var parentDisconnected = WaitForParentDisconnectAsync(pipe, disconnectCancellation.Token);
@@ -452,7 +469,14 @@ internal static class Program
             await targetFinished.ConfigureAwait(false);
 
             await disconnectCancellation.CancelAsync();
-            try { await parentDisconnected; } catch (OperationCanceledException) { }
+            try
+            {
+                await parentDisconnected;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
             await PipeProtocol.WriteInt32Async(pipe, process.ExitCode, CancellationToken.None);
             await pipe.FlushAsync(CancellationToken.None);
             return process.ExitCode;
@@ -473,12 +497,15 @@ internal static class Program
             {
                 LaunchLog.Error($"Could not report the failure to the Steam wrapper: {reportEx.Message}");
             }
+
             return 1;
         }
     }
 
-    /// <summary>Ends the target and everything it spawned, so nothing keeps running
-    /// once the wrapper Steam is watching can no longer track it.</summary>
+    /// <summary>
+    ///     Ends the target and everything it spawned, so nothing keeps running
+    ///     once the wrapper Steam is watching can no longer track it.
+    /// </summary>
     private static void StopTargetTree(Process process, JobObject? job)
     {
         // The job reaches descendants whose intermediate parent already exited,
@@ -490,7 +517,7 @@ internal static class Program
 
         try
         {
-            process.Kill(entireProcessTree: true);
+            process.Kill(true);
         }
         catch (Exception ex)
         {
@@ -505,24 +532,28 @@ internal static class Program
         {
             return 1;
         }
+
         using var job = JobObject.TryCapture(process.Handle);
         if (job is null)
         {
             LaunchLog.Error(
                 $"Target pid {process.Id} could not be captured; stopping it rather than "
-                    + "running an untracked game tree.");
+                + "running an untracked game tree.");
             StopTargetTree(process, job);
             await WaitForExitBoundedAsync(process).ConfigureAwait(false);
             return 1;
         }
+
         LaunchLog.Info($"Wrapper already has medium integrity; target started directly (pid {process.Id}).");
         await WaitForTreeAsync(process, job, CancellationToken.None);
         return process.ExitCode;
     }
 
-    /// <summary>Waits for the started process AND anything it spawned, so a game
-    /// behind a launcher keeps the wrapper (and with it Steam's idea of a running
-    /// game, and any held Steam Input lease) alive for its real lifetime.</summary>
+    /// <summary>
+    ///     Waits for the started process AND anything it spawned, so a game
+    ///     behind a launcher keeps the wrapper (and with it Steam's idea of a running
+    ///     game, and any held Steam Input lease) alive for its real lifetime.
+    /// </summary>
     private static async Task WaitForTreeAsync(
         Process process, JobObject job, CancellationToken cancellationToken)
     {

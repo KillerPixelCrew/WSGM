@@ -88,7 +88,7 @@ public sealed class NativeQamAudioProjectionTests
         audio.InputEndpoints.Add(Endpoint("mic", "Microphone"));
         // ApplyInputVolume records what Windows reported. The public setter is the user's path and
         // queues a hardware write, which a test must never take.
-        audio.ApplyInputVolume(75, muted: false);
+        audio.ApplyInputVolume(75, false);
 
         var state = AudioManagerNativeQamAudioService.Project(audio);
 
@@ -101,7 +101,7 @@ public sealed class NativeQamAudioProjectionTests
     {
         var audio = Manager();
         audio.InputEndpoints.Add(Endpoint("mic", "Microphone"));
-        audio.ApplyInputVolume(60, muted: true);
+        audio.ApplyInputVolume(60, true);
 
         var state = AudioManagerNativeQamAudioService.Project(audio);
 
@@ -127,12 +127,18 @@ public sealed class NativeQamAudioProjectionTests
     {
         var audio = Manager();
         audio.InputEndpoints.Add(Endpoint("mic", "Microphone"));
-        audio.ApplyInputVolume(0, muted: true);
+        audio.ApplyInputVolume(0, true);
 
         Assert.Equal(0, AudioManagerNativeQamAudioService.Project(audio).InputVolumePercent);
     }
 
-    private static AudioManager Manager() => new();
+    private static AudioManager Manager()
+    {
+        return new AudioManager();
+    }
 
-    private static AudioEndpointEntry Endpoint(string id, string name) => new(id, name);
+    private static AudioEndpointEntry Endpoint(string id, string name)
+    {
+        return new AudioEndpointEntry(id, name);
+    }
 }

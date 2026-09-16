@@ -3,24 +3,32 @@ using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;
 
-/// <summary>Pure logic of the taskbar status cluster: clock and date formatting and
-/// battery interpretation (incl. the GetSystemPowerStatus unknown markers). The Wi-Fi
-/// state wording shown in the button flyout is covered by RadioManagerTests.</summary>
+/// <summary>
+///     Pure logic of the taskbar status cluster: clock and date formatting and
+///     battery interpretation (incl. the GetSystemPowerStatus unknown markers). The Wi-Fi
+///     state wording shown in the button flyout is covered by RadioManagerTests.
+/// </summary>
 public sealed class SystemStatusTests
 {
     [Fact]
     public void ClockFormatsAsTwentyFourHourHoursAndMinutes()
-        => Assert.Equal("21:37", SystemStatus.FormatClock(new DateTime(2026, 8, 8, 21, 37, 45)));
+    {
+        Assert.Equal("21:37", SystemStatus.FormatClock(new DateTime(2026, 8, 8, 21, 37, 45)));
+    }
 
     [Fact]
     public void ClockZeroPadsTheEarlyHours()
-        => Assert.Equal("09:05", SystemStatus.FormatClock(new DateTime(2026, 8, 8, 9, 5, 0)));
+    {
+        Assert.Equal("09:05", SystemStatus.FormatClock(new DateTime(2026, 8, 8, 9, 5, 0)));
+    }
 
     [Fact]
     public void DateFormatsAsDayNameDayNumberAndMonth()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             "Sat 08 Aug",
             SystemStatus.FormatDate(new DateTime(2026, 8, 8), CultureInfo.InvariantCulture));
+    }
 
     [Theory]
     [InlineData(true, (byte)1, (byte)87, true, 87, "87%")] // healthy battery
@@ -37,5 +45,4 @@ public sealed class SystemStatusTests
         Assert.Equal(expectedPercent, batteryPercent);
         Assert.Equal(expectedText, text);
     }
-
 }

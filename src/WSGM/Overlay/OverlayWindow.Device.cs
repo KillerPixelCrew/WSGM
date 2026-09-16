@@ -34,17 +34,22 @@ public partial class OverlayWindow
         }
     }
 
-    private void OnDeviceChanged() => QueueLiveRefresh(DeviceLiveRefresh);
+    private void OnDeviceChanged()
+    {
+        QueueLiveRefresh(DeviceLiveRefresh);
+    }
 
-    /// <summary>True while focus is on an interactive value control inside <paramref name="list"/> —
-    /// a slider, dropdown, toggle or textbox the user is adjusting. A telemetry-driven rebuild while
-    /// one is focused would destroy it under the user, so the refresh is skipped until they leave.</summary>
+    /// <summary>
+    ///     True while focus is on an interactive value control inside <paramref name="list" /> —
+    ///     a slider, dropdown, toggle or textbox the user is adjusting. A telemetry-driven rebuild while
+    ///     one is focused would destroy it under the user, so the refresh is skipped until they leave.
+    /// </summary>
     /// <param name="list">The panel about to be torn down and rebuilt.</param>
     /// <remarks>
-    /// Asked for both row lists. The performance rows are a separate panel from the capability list
-    /// but rebuild on the same kind of event — RTSS republishes its readback every poll — so the
-    /// frame-limit slider was the one value control on the Device page with no such protection:
-    /// focus landed on it and the next readback two seconds later deleted the control under it.
+    ///     Asked for both row lists. The performance rows are a separate panel from the capability list
+    ///     but rebuild on the same kind of event — RTSS republishes its readback every poll — so the
+    ///     frame-limit slider was the one value control on the Device page with no such protection:
+    ///     focus landed on it and the next readback two seconds later deleted the control under it.
     /// </remarks>
     private bool IsEditingValueIn(Control list)
     {
@@ -74,13 +79,13 @@ public partial class OverlayWindow
     }
 
     /// <summary>
-    /// Redraws the written activation hints as the device's own buttons, where one resolved.
+    ///     Redraws the written activation hints as the device's own buttons, where one resolved.
     /// </summary>
     /// <remarks>
-    /// Written letters stay in the markup and remain the fallback, so this only ever adds. That
-    /// matters on the two machines it will not resolve for — one with no glyph profile, and one
-    /// where the input actually reaching WSGM is not the managed handheld's — because a hint showing
-    /// a Claw button while the user holds an Xbox pad is worse than the letter it replaced.
+    ///     Written letters stay in the markup and remain the fallback, so this only ever adds. That
+    ///     matters on the two machines it will not resolve for — one with no glyph profile, and one
+    ///     where the input actually reaching WSGM is not the managed handheld's — because a hint showing
+    ///     a Claw button while the user holds an Xbox pad is worse than the letter it replaced.
     /// </remarks>
     /// <summary>Renders what a device package on this install is missing, if anything.</summary>
     private void RefreshDevicePrerequisites()
@@ -98,11 +103,18 @@ public partial class OverlayWindow
         DevicePrerequisiteEnable.IsVisible = advice.CanEnableIntegration;
     }
 
-    private void OnEnableDeviceIntegration(object? sender, RoutedEventArgs e) => _ = EnableDeviceIntegrationAsync();
+    private void OnEnableDeviceIntegration(object? sender, RoutedEventArgs e)
+    {
+        _ = EnableDeviceIntegrationAsync();
+    }
 
     private async Task EnableDeviceIntegrationAsync()
     {
-        if (_devicePrerequisites is not { } prerequisites) { return; }
+        if (_devicePrerequisites is not { } prerequisites)
+        {
+            return;
+        }
+
         DevicePrerequisiteEnable.IsEnabled = false;
         try
         {
@@ -126,11 +138,16 @@ public partial class OverlayWindow
         HomeAppButton.TrailingGlyph = _deviceBridge?.NavigationHint(GlyphControlId.FaceSouth);
     }
 
-    private void OnPerformanceChanged() => QueueLiveRefresh(PerformanceLiveRefresh);
+    private void OnPerformanceChanged()
+    {
+        QueueLiveRefresh(PerformanceLiveRefresh);
+    }
 
-    /// <summary>Coalesces telemetry-driven redraws and keeps the current visual tree alive for the
-    /// complete pointer gesture. Replacing a button after pointer-down but before pointer-up drops
-    /// its Click, which presents as a button that needs a second tap.</summary>
+    /// <summary>
+    ///     Coalesces telemetry-driven redraws and keeps the current visual tree alive for the
+    ///     complete pointer gesture. Replacing a button after pointer-down but before pointer-up drops
+    ///     its Click, which presents as a button that needs a second tap.
+    /// </summary>
     private void QueueLiveRefresh(int refreshes)
     {
         Interlocked.Or(ref _pendingLiveRefreshes, refreshes);
@@ -165,9 +182,10 @@ public partial class OverlayWindow
             {
                 RefreshPerformancePanel();
             }
+
             if ((refreshes & DeviceLiveRefresh) != 0
-                || (refreshes & PerformanceLiveRefresh) != 0
-                    && _navigation.IsVisible(OverlayDestination.Device))
+                || ((refreshes & PerformanceLiveRefresh) != 0
+                    && _navigation.IsVisible(OverlayDestination.Device)))
             {
                 RefreshDevicePanel();
             }
@@ -176,7 +194,9 @@ public partial class OverlayWindow
             // layout before restoring the offset so its temporary shorter extent cannot clamp it.
             ContentScroller.UpdateLayout();
             if (page == _navigation.Page && sectionId == _navigation.SectionId)
-            { ContentScroller.Offset = offset; }
+            {
+                ContentScroller.Offset = offset;
+            }
         }
         finally
         {
@@ -188,13 +208,19 @@ public partial class OverlayWindow
         {
             ScheduleLiveRefresh();
         }
+
         return;
 
-        static void KeepViewport(object? sender, RequestBringIntoViewEventArgs args) => args.Handled = true;
+        static void KeepViewport(object? sender, RequestBringIntoViewEventArgs args)
+        {
+            args.Handled = true;
+        }
     }
 
     private void OnPointerPressedForLiveRefresh(object? sender, PointerPressedEventArgs e)
-        => _pressedPointers.Add(e.Pointer);
+    {
+        _pressedPointers.Add(e.Pointer);
+    }
 
     private void OnPointerReleasedForLiveRefresh(object? sender, PointerReleasedEventArgs e)
     {
@@ -224,6 +250,7 @@ public partial class OverlayWindow
         {
             return;
         }
+
         if (!_opened)
         {
             _rendersAwaitingOpen |= DeviceRenderAwaitingOpen;
@@ -237,19 +264,23 @@ public partial class OverlayWindow
         ConfigureTabs(snapshot.Visible);
         var powerPage = _navigation.Page is OverlayPage.Device or OverlayPage.DevicePowerAndThermals
                         || (_navigation.Page == OverlayPage.DevicePluginSection
-                            && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, _navigation.SectionId ?? string.Empty)
+                            && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot,
+                                _navigation.SectionId ?? string.Empty)
                             == DeviceOverlaySection.PowerAndThermals);
         DevicePowerSchemeHost.IsVisible = powerPage;
         DeviceWindowsPower.IsVisible = _powerSchemeSelection is not null;
-        DevicePowerPresetContainer.IsVisible = powerPage && _navigation.Page != OverlayPage.Device && snapshot.Visible && DevicePowerPresetHost.IsVisible;
-        ManualTdpHost.IsVisible = snapshot.Visible && ManualTdpHost.Children.OfType<ManualTdpModeView>().Any(view => view.IsVisible);
+        DevicePowerPresetContainer.IsVisible = powerPage && _navigation.Page != OverlayPage.Device &&
+                                               snapshot.Visible && DevicePowerPresetHost.IsVisible;
+        ManualTdpHost.IsVisible = snapshot.Visible &&
+                                  ManualTdpHost.Children.OfType<ManualTdpModeView>().Any(view => view.IsVisible);
         DevicePowerOverview.IsVisible = powerPage;
         DeviceWidgetsExpander.IsVisible = _navigation.Page == OverlayPage.Device;
         RefreshDeviceSectionPins(snapshot);
         // Only on a hybrid CPU whose active scheme exposes the policy. Everywhere else the section
         // would open on a control that has nothing to offer.
         DeviceHybridCores.IsVisible = powerPage && _hybridCoreSelection?.Status.Supported is true;
-        DeviceStatusTitle.IsVisible = DeviceStatusDetail.IsVisible = _navigation.Page == OverlayPage.Device && snapshot.Visible;
+        DeviceStatusTitle.IsVisible =
+            DeviceStatusDetail.IsVisible = _navigation.Page == OverlayPage.Device && snapshot.Visible;
         DeviceStatusTitle.Text = snapshot.Status;
         DeviceStatusDetail.Text = snapshot.Detail;
         RefreshDevicePrerequisites();
@@ -261,13 +292,14 @@ public partial class OverlayWindow
         // row before it commits. Refresh existing sliders in place; their pending user edits take
         // precedence over readback. The next change after focus moves on rebuilds as normal.
         if (_renderedDevicePage == _navigation.Page && _renderedDeviceSection == _navigation.SectionId
-            && IsEditingValueIn(DeviceCapabilityList))
+                                                    && IsEditingValueIn(DeviceCapabilityList))
         {
             foreach (var row in DeviceCapabilityList.GetLogicalDescendants().OfType<DeviceSliderRow>())
             {
                 var capability = snapshot.Capabilities.FirstOrDefault(item =>
                     Equals(row.Tag, item.InstanceId is { Length: > 0 }
-                        ? $"{item.CapabilityId}#{item.InstanceId}" : item.CapabilityId));
+                        ? $"{item.CapabilityId}#{item.InstanceId}"
+                        : item.CapabilityId));
                 if (capability is not null && RendersAsSlider(capability))
                 {
                     row.RefreshReadback(capability.Minimum!.Value, capability.Maximum!.Value,
@@ -280,8 +312,10 @@ public partial class OverlayWindow
                         capability.Step ?? 1, capability.CurrentValue?.IntegerValue ?? 0, false);
                 }
             }
+
             return;
         }
+
         var focusedKey = GetTopLevel(this)?.FocusManager?.GetFocusedElement()
             is Control focused
             ? focused.Tag as string
@@ -324,15 +358,15 @@ public partial class OverlayWindow
         Log.Change(
             "overlay.device.render",
             $"Device page: page={_navigation.Page}, "
-                + $"section={openSection?.ToString() ?? openPluginSection ?? "menu"}, "
-                + $"rows={DeviceCapabilityList.Children.Count}, "
-                + $"capabilities={snapshot.Capabilities.Count}, "
-                + $"glyphSelection={snapshot.GlyphSelection is not null}, "
-                + $"autoTdp={snapshot.AutoTdp is not null}, "
-                + $"controller={snapshot.Controller is not null}, "
-                + $"profile={snapshot.Profile is not null}, "
-                + $"performanceProfiles={performance?.ProfileRows.Count ?? 0}, "
-                + $"recovery={snapshot.Recovery is not null}",
+            + $"section={openSection?.ToString() ?? openPluginSection ?? "menu"}, "
+            + $"rows={DeviceCapabilityList.Children.Count}, "
+            + $"capabilities={snapshot.Capabilities.Count}, "
+            + $"glyphSelection={snapshot.GlyphSelection is not null}, "
+            + $"autoTdp={snapshot.AutoTdp is not null}, "
+            + $"controller={snapshot.Controller is not null}, "
+            + $"profile={snapshot.Profile is not null}, "
+            + $"performanceProfiles={performance?.ProfileRows.Count ?? 0}, "
+            + $"recovery={snapshot.Recovery is not null}",
             DeviceCapabilityList.Children.Count == 0 ? LogLevel.Warn : LogLevel.Info);
 
         restoreFocus?.Focus(NavigationMethod.Directional);
@@ -341,12 +375,12 @@ public partial class OverlayWindow
     }
 
     /// <summary>
-    /// Renders the additional Device sections below the Power and Performance overview.
+    ///     Renders the additional Device sections below the Power and Performance overview.
     /// </summary>
     /// <remarks>
-    /// A menu rather than one long list. The whole surface is a few rows tall on a handheld, and a
-    /// list that needs scrolling is a list a controller cannot cross quickly. Each card carries the
-    /// most serious status inside it, so a fault is visible without opening the page.
+    ///     A menu rather than one long list. The whole surface is a few rows tall on a handheld, and a
+    ///     list that needs scrolling is a list a controller cannot cross quickly. Each card carries the
+    ///     most serious status inside it, so a fault is visible without opening the page.
     /// </remarks>
     private DescriptorStatusRow? RenderDeviceSectionMenu(
         DeviceOverlaySnapshot snapshot,
@@ -382,7 +416,11 @@ public partial class OverlayWindow
         foreach (var entry in sectionPages)
         {
             if (!snapshot.Visible && (entry.Section == DeviceOverlaySection.PowerAndThermals
-                || entry.PluginSectionId == DeviceSections.PowerId)) { continue; }
+                                      || entry.PluginSectionId == DeviceSections.PowerId))
+            {
+                continue;
+            }
+
             var key = DeviceOverlaySectionPages.FocusKey(entry);
             DescriptorStatusRow row = new();
             row.Classes.Add("tile");
@@ -392,7 +430,7 @@ public partial class OverlayWindow
                 entry.Title,
                 entry.Description,
                 entry.Count.ToString(CultureInfo.InvariantCulture),
-                CanInvoke: true,
+                true,
                 entry.Status));
             if (SectionIconFor(entry.Icon) is { } sectionIcon)
             {
@@ -429,8 +467,12 @@ public partial class OverlayWindow
         string sectionId,
         string? focusedKey)
     {
-        if (DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, sectionId) == DeviceOverlaySection.ControllerAndMotion)
-        { return RenderControllerPage(snapshot, focusedKey, "section.device.plugin." + sectionId + ".configuration"); }
+        if (DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, sectionId) ==
+            DeviceOverlaySection.ControllerAndMotion)
+        {
+            return RenderControllerPage(snapshot, focusedKey, "section.device.plugin." + sectionId + ".configuration");
+        }
+
         var pluginSection = snapshot.PluginSections
             .FirstOrDefault(candidate => string.Equals(
                 candidate.SectionId,
@@ -454,35 +496,55 @@ public partial class OverlayWindow
         }
 
         DescriptorStatusRow? restoreFocus = null;
-        var columns = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 16, Margin = new Thickness(0, 12, 0, 0) };
+        var columns = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 16, Margin = new Thickness(0, 12, 0, 0)
+        };
         StackPanel[] stacks = [new() { Spacing = 16 }, new() { Spacing = 16 }];
-        for (var i = 0; i < stacks.Length; i++) { Grid.SetColumn(stacks[i], i); columns.Children.Add(stacks[i]); }
+        for (var i = 0; i < stacks.Length; i++)
+        {
+            Grid.SetColumn(stacks[i], i);
+            columns.Children.Add(stacks[i]);
+        }
+
         DeviceCapabilityList.Children.Add(columns);
         var groupIndex = 0;
         foreach (var section in DevicePinSections(snapshot).Where(section => section.PluginSectionId == sectionId))
         {
             var content = CreateSection(section.Id, section.Title);
             restoreFocus = AddDeviceSectionRows(snapshot, section, content, focusedKey) ?? restoreFocus;
-            if (content.Children.Count == 1) { continue; }
+            if (content.Children.Count == 1)
+            {
+                continue;
+            }
+
             stacks[groupIndex++ % 2].Children.Add(new Border { Classes = { "device-group" }, Child = content });
         }
-        if (groupIndex == 1) { Grid.SetColumnSpan(stacks[0], 2); }
+
+        if (groupIndex == 1)
+        {
+            Grid.SetColumnSpan(stacks[0], 2);
+        }
+
         return restoreFocus;
     }
 
     /// <summary>WSGM's geometry for a declared section icon, or null for the shared default.</summary>
-    private static StreamGeometry? SectionIconFor(SectionIcon icon) => icon switch
+    private static StreamGeometry? SectionIconFor(SectionIcon icon)
     {
-        SectionIcon.Power => Icons.Power,
-        SectionIcon.Fan => Icons.Snowflake,
-        SectionIcon.Battery => Icons.Battery,
-        SectionIcon.Lighting => Icons.Palette,
-        SectionIcon.Controller => Icons.Grid4,
-        SectionIcon.Display => Icons.Monitor,
-        SectionIcon.Gauge => Icons.ListLines,
-        SectionIcon.Wrench => Icons.Wrench,
-        _ => null
-    };
+        return icon switch
+        {
+            SectionIcon.Power => Icons.Power,
+            SectionIcon.Fan => Icons.Snowflake,
+            SectionIcon.Battery => Icons.Battery,
+            SectionIcon.Lighting => Icons.Palette,
+            SectionIcon.Controller => Icons.Grid4,
+            SectionIcon.Display => Icons.Monitor,
+            SectionIcon.Gauge => Icons.ListLines,
+            SectionIcon.Wrench => Icons.Wrench,
+            _ => null
+        };
+    }
 
     private DescriptorStatusRow? RenderDeviceSection(
         DeviceOverlaySnapshot snapshot,
@@ -490,18 +552,31 @@ public partial class OverlayWindow
         string? focusedKey)
     {
         if (section == DeviceOverlaySection.ControllerAndMotion)
-        { return RenderControllerPage(snapshot, focusedKey, "section.device.controller-and-motion"); }
-        var definition = DevicePinSections(snapshot).FirstOrDefault(candidate => candidate.Id == DeviceOverlaySectionPages.FocusKey(section).Replace("device.section.", "section.device.", StringComparison.Ordinal));
-        if (definition is null) { return null; }
+        {
+            return RenderControllerPage(snapshot, focusedKey, "section.device.controller-and-motion");
+        }
+
+        var definition = DevicePinSections(snapshot).FirstOrDefault(candidate =>
+            candidate.Id == DeviceOverlaySectionPages.FocusKey(section)
+                .Replace("device.section.", "section.device.", StringComparison.Ordinal));
+        if (definition is null)
+        {
+            return null;
+        }
+
         var content = CreateSection(definition.Id, definition.Title);
         var restoreFocus = AddDeviceSectionRows(snapshot, definition, content, focusedKey);
-        if (content.Children.Count > 1) { DeviceCapabilityList.Children.Add(content); }
+        if (content.Children.Count > 1)
+        {
+            DeviceCapabilityList.Children.Add(content);
+        }
+
         return restoreFocus;
     }
 
     /// <summary>
-    /// Draws the rows WSGM owns for one section: the ones that are configuration or policy rather
-    /// than device capabilities, and therefore never arrive through the capability list.
+    ///     Draws the rows WSGM owns for one section: the ones that are configuration or policy rather
+    ///     than device capabilities, and therefore never arrive through the capability list.
     /// </summary>
     /// <param name="snapshot">The current Device snapshot.</param>
     /// <param name="section">The WSGM-owned section being drawn.</param>
@@ -510,10 +585,10 @@ public partial class OverlayWindow
     /// <param name="includePreview">Whether to show the source page's glyph input preview.</param>
     /// <returns>The row to restore focus to, or null when none of these held it.</returns>
     /// <remarks>
-    /// Split out because these rows are drawn on two different pages: the WSGM section's own, and —
-    /// when the plugin declares a section for the same subject — that declared page, which absorbs
-    /// them. One body for both, so the controller target cannot appear on the page the menu counted
-    /// it into and be missing from the page it actually opens.
+    ///     Split out because these rows are drawn on two different pages: the WSGM section's own, and —
+    ///     when the plugin declares a section for the same subject — that declared page, which absorbs
+    ///     them. One body for both, so the controller target cannot appear on the page the menu counted
+    ///     it into and be missing from the page it actually opens.
     /// </remarks>
     private DescriptorStatusRow? RenderOwnedDeviceRows(
         DeviceOverlaySnapshot snapshot,
@@ -576,69 +651,72 @@ public partial class OverlayWindow
             // because they are genuinely different things: the hardware profile comes from the plugin
             // and switches its own values, while this chooses between curves the user drew in Settings.
             case DeviceOverlaySection.PowerAndThermals when snapshot.AuthoredProfile is { } authored:
+            {
+                const string authoredFocusKey = "device.authored-profile";
+                DescriptorStatusRow authoredRow = new();
+                authoredRow.Apply(new DescriptorRow(
+                    authoredFocusKey,
+                    authored.Title,
+                    authored.Description,
+                    authored.TrailingText,
+                    authored.CanInvoke,
+                    authored.Status));
+                authoredRow.Click += (_, _) => _ = RunDeviceCommandAsync(
+                    "Fan profile change", (bridge, token) => bridge.CycleAuthoredProfileAsync(token));
+                target.Children.Add(authoredRow);
+                if (string.Equals(authoredFocusKey, focusedKey, StringComparison.Ordinal))
                 {
-                    const string authoredFocusKey = "device.authored-profile";
-                    DescriptorStatusRow authoredRow = new();
-                    authoredRow.Apply(new DescriptorRow(
-                        authoredFocusKey,
-                        authored.Title,
-                        authored.Description,
-                        authored.TrailingText,
-                        authored.CanInvoke,
-                        authored.Status));
-                    authoredRow.Click += (_, _) => _ = RunDeviceCommandAsync(
-                        "Fan profile change", (bridge, token) => bridge.CycleAuthoredProfileAsync(token));
-                    target.Children.Add(authoredRow);
-                    if (string.Equals(authoredFocusKey, focusedKey, StringComparison.Ordinal))
-                    {
-                        restoreFocus = authoredRow;
-                    }
-                    break;
+                    restoreFocus = authoredRow;
                 }
+
+                break;
+            }
             // The controller target is WSGM's own setting, not a plugin capability, so it is placed on
             // its page directly for the same reason AutoTDP and glyph selection are.
             case DeviceOverlaySection.ControllerAndMotion when snapshot.Controller is { } controller:
+            {
+                const string controllerFocusKey = "device.controller-target";
+                DescriptorStatusRow row = new();
+                row.Apply(new DescriptorRow(
+                    controllerFocusKey,
+                    controller.Title,
+                    controller.Description,
+                    controller.TrailingText,
+                    controller.CanInvoke,
+                    controller.Status));
+                row.Click += (_, _) => _ = RunDeviceCommandAsync(
+                    "Controller target change", (bridge, token) => bridge.CycleControllerTargetAsync(token));
+                target.Children.Add(row);
+                if (string.Equals(controllerFocusKey, focusedKey, StringComparison.Ordinal))
                 {
-                    const string controllerFocusKey = "device.controller-target";
-                    DescriptorStatusRow row = new();
-                    row.Apply(new DescriptorRow(
-                        controllerFocusKey,
-                        controller.Title,
-                        controller.Description,
-                        controller.TrailingText,
-                        controller.CanInvoke,
-                        controller.Status));
-                    row.Click += (_, _) => _ = RunDeviceCommandAsync(
-                        "Controller target change", (bridge, token) => bridge.CycleControllerTargetAsync(token));
-                    target.Children.Add(row);
-                    if (string.Equals(controllerFocusKey, focusedKey, StringComparison.Ordinal))
-                    {
-                        restoreFocus = row;
-                    }
-                    break;
+                    restoreFocus = row;
                 }
+
+                break;
+            }
             // Recovery is an action on the device cycle itself rather than on the device, so it is not a
             // capability either. It appears only while there is something to recover.
             case DeviceOverlaySection.Diagnostics when snapshot.Recovery is { } recovery:
+            {
+                const string recoveryFocusKey = "device.retry";
+                DescriptorStatusRow row = new();
+                row.Apply(new DescriptorRow(
+                    recoveryFocusKey,
+                    recovery.Title,
+                    recovery.Description,
+                    recovery.TrailingText,
+                    true,
+                    recovery.Status));
+                row.Click += (_, _) => _ = RunDeviceCommandAsync(
+                    "Device integration retry", (bridge, token) => bridge.RetryDeviceCycleAsync(token));
+                target.Children.Add(row);
+                if (string.Equals(recoveryFocusKey, focusedKey, StringComparison.Ordinal))
                 {
-                    const string recoveryFocusKey = "device.retry";
-                    DescriptorStatusRow row = new();
-                    row.Apply(new DescriptorRow(
-                        recoveryFocusKey,
-                        recovery.Title,
-                        recovery.Description,
-                        recovery.TrailingText,
-                        true,
-                        recovery.Status));
-                    row.Click += (_, _) => _ = RunDeviceCommandAsync(
-                        "Device integration retry", (bridge, token) => bridge.RetryDeviceCycleAsync(token));
-                    target.Children.Add(row);
-                    if (string.Equals(recoveryFocusKey, focusedKey, StringComparison.Ordinal))
-                    {
-                        restoreFocus = row;
-                    }
-                    break;
+                    restoreFocus = row;
                 }
+
+                break;
+            }
         }
 
         // Glyph selection is WSGM's own control rather than a plugin capability, so it is placed
@@ -652,7 +730,7 @@ public partial class OverlayWindow
         // After the selection row it is the result of, so changing the selection and seeing what it
         // produced reads top to bottom.
         if (includePreview && section is DeviceOverlaySection.ControllerAndMotion
-            && snapshot.GlyphPreview is { } preview)
+                           && snapshot.GlyphPreview is { } preview)
         {
             RenderGlyphPreview(preview, target);
         }
@@ -661,19 +739,19 @@ public partial class OverlayWindow
     }
 
     /// <summary>
-    /// Draws the plugin's own glyphs, and lights the one being pressed.
+    ///     Draws the plugin's own glyphs, and lights the one being pressed.
     /// </summary>
     /// <param name="preview">The resolved preview.</param>
     /// <param name="target">The section body containing the preview.</param>
     /// <remarks>
-    /// The preview answers the two questions a glyph profile can fail at, and it answers them with
-    /// the same picture: whether the artwork resolves at all, and whether pressing a control reaches
-    /// WSGM as the control the artwork claims. Neither is answerable from a list of names.
-    /// <para>
-    /// The tiles are not focusable. This is something to look at while pressing buttons on the
-    /// device, so making it a focus stop would put a wall of stops between the selection row above
-    /// it and whatever follows, for controls that do nothing when activated.
-    /// </para>
+    ///     The preview answers the two questions a glyph profile can fail at, and it answers them with
+    ///     the same picture: whether the artwork resolves at all, and whether pressing a control reaches
+    ///     WSGM as the control the artwork claims. Neither is answerable from a list of names.
+    ///     <para>
+    ///         The tiles are not focusable. This is something to look at while pressing buttons on the
+    ///         device, so making it a focus stop would put a wall of stops between the selection row above
+    ///         it and whatever follows, for controls that do nothing when activated.
+    ///     </para>
     /// </remarks>
     private void RenderGlyphPreview(DeviceOverlayGlyphPreview preview, Panel target)
     {
@@ -739,8 +817,8 @@ public partial class OverlayWindow
 
     /// <summary>Applies the last physical sample to the preview tiles.</summary>
     /// <remarks>
-    /// Class-based rather than by setting a brush, so the lit appearance lives in the theme with
-    /// every other visual state instead of as a literal colour here.
+    ///     Class-based rather than by setting a brush, so the lit appearance lives in the theme with
+    ///     every other visual state instead of as a literal colour here.
     /// </remarks>
     private void ApplyGlyphInputTest()
     {
@@ -755,10 +833,10 @@ public partial class OverlayWindow
     /// <param name="command">The command to run against the current source.</param>
     /// <returns>A task completing once the command has run or failed.</returns>
     /// <remarks>
-    /// These commands are WSGM's own rather than plugin capabilities, so they do not go through the
-    /// capability invoke path. They still need its lifetime and failure handling: a device command
-    /// that throws must never take the overlay with it, and one that is cancelled by the overlay
-    /// closing is not a failure worth logging.
+    ///     These commands are WSGM's own rather than plugin capabilities, so they do not go through the
+    ///     capability invoke path. They still need its lifetime and failure handling: a device command
+    ///     that throws must never take the overlay with it, and one that is cancelled by the overlay
+    ///     closing is not a failure worth logging.
     /// </remarks>
     private async Task RunDeviceCommandAsync(
         string description,
@@ -787,9 +865,9 @@ public partial class OverlayWindow
     private void EnterDevicePluginSection(string sectionId)
     {
         if (!_navigation.Push(
-            OverlayPage.DevicePluginSection,
-            CurrentSemanticFocusKey(),
-            sectionId))
+                OverlayPage.DevicePluginSection,
+                CurrentSemanticFocusKey(),
+                sectionId))
         {
             return;
         }
@@ -810,8 +888,8 @@ public partial class OverlayWindow
     private void EnterDeviceSection(DeviceOverlaySection section)
     {
         if (!_navigation.Push(
-            DeviceOverlaySectionPages.PageFor(section),
-            CurrentSemanticFocusKey()))
+                DeviceOverlaySectionPages.PageFor(section),
+                CurrentSemanticFocusKey()))
         {
             return;
         }
@@ -841,9 +919,9 @@ public partial class OverlayWindow
 
     /// <summary>Leaves a plugin-declared section page for the Device menu.</summary>
     /// <remarks>
-    /// The same body as <see cref="LeaveDeviceSection"/>, for the page type that has no section
-    /// enum to name. Both redraws are needed: the capability list still holds the section's rows,
-    /// and the shared performance rows belong to one page, so what leaving shows is decided here.
+    ///     The same body as <see cref="LeaveDeviceSection" />, for the page type that has no section
+    ///     enum to name. Both redraws are needed: the capability list still holds the section's rows,
+    ///     and the shared performance rows belong to one page, so what leaving shows is decided here.
     /// </remarks>
     private void LeaveDevicePluginSection()
     {
@@ -859,9 +937,9 @@ public partial class OverlayWindow
     /// <summary>Starts or stops the glyph input test's sample observation.</summary>
     /// <param name="observe">Whether the page that draws the samples is showing.</param>
     /// <remarks>
-    /// Idempotent in both directions, because the page can be entered and left by several paths —
-    /// the section card, Back, a destination change, and the overlay closing — and each of them
-    /// calls this without knowing what the others did.
+    ///     Idempotent in both directions, because the page can be entered and left by several paths —
+    ///     the section card, Back, a destination change, and the overlay closing — and each of them
+    ///     calls this without knowing what the others did.
     /// </remarks>
     private void UpdateGlyphInputObservation(bool observe)
     {
@@ -896,9 +974,9 @@ public partial class OverlayWindow
     /// <summary>Marshals one physical sample onto the UI thread and lights what it presses.</summary>
     /// <param name="sample">The unfiltered sample the plugin reported.</param>
     /// <remarks>
-    /// The set is compared before posting, so a controller sitting still — which is most samples —
-    /// costs one set comparison on the sampling thread and nothing on the UI thread. Without that,
-    /// a 250 Hz stream would post 250 dispatcher items a second to change nothing.
+    ///     The set is compared before posting, so a controller sitting still — which is most samples —
+    ///     costs one set comparison on the sampling thread and nothing on the UI thread. Without that,
+    ///     a 250 Hz stream would post 250 dispatcher items a second to change nothing.
     /// </remarks>
     private void OnPhysicalGlyphSample(CanonicalControllerSample sample)
     {
@@ -920,9 +998,14 @@ public partial class OverlayWindow
         });
     }
 
-    /// <summary>True when a capability should render as a slider: a writable integer with a real
-    /// declared range. Colour keeps its editor; everything else stays a row.</summary>
-    private static bool RendersAsSlider(DeviceOverlayCapability capability) =>
-        capability is { ValueKind: CapabilityValueKind.Integer, Writable: true, Minimum: { } min, Maximum: { } max }
-        && max > min;
+    /// <summary>
+    ///     True when a capability should render as a slider: a writable integer with a real
+    ///     declared range. Colour keeps its editor; everything else stays a row.
+    /// </summary>
+    private static bool RendersAsSlider(DeviceOverlayCapability capability)
+    {
+        return capability is
+                   { ValueKind: CapabilityValueKind.Integer, Writable: true, Minimum: { } min, Maximum: { } max }
+               && max > min;
+    }
 }

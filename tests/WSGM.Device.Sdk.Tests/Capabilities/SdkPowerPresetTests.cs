@@ -6,8 +6,14 @@ namespace WSGM.Device.Sdk.Tests.Capabilities;
 
 public sealed class SdkPowerPresetTests
 {
-    private static CapabilityDescriptor[] Pair(params DevicePowerPreset[] presets) =>
-        [Limit(CapabilityRole.PowerSustainedLimit) with { PowerPresets = presets }, Limit(CapabilityRole.PowerSlowLimit)];
+    private static CapabilityDescriptor[] Pair(params DevicePowerPreset[] presets)
+    {
+        return
+        [
+            Limit(CapabilityRole.PowerSustainedLimit) with { PowerPresets = presets },
+            Limit(CapabilityRole.PowerSlowLimit)
+        ];
+    }
 
     [Fact]
     public void EmptyPresetsPreserveExistingDescriptors()
@@ -30,7 +36,7 @@ public sealed class SdkPowerPresetTests
         list.Clear();
         Assert.Equal(preset, Assert.Single(fromArray.PowerPresets));
         Assert.Equal(preset, Assert.Single(fromList.PowerPresets));
-        var exposed = Assert.IsType<IList<DevicePowerPreset>>(fromArray.PowerPresets, exactMatch: false);
+        var exposed = Assert.IsType<IList<DevicePowerPreset>>(fromArray.PowerPresets, false);
         Assert.True(exposed.IsReadOnly);
         Assert.Throws<NotSupportedException>(() => exposed[0] = array[0]);
     }
@@ -54,8 +60,12 @@ public sealed class SdkPowerPresetTests
     [InlineData("valid", "Valid", 9, 8, 0)]
     [InlineData("valid", "Valid", 8, 38, 0)]
     [InlineData("valid", "Valid", 8, 9, 99)]
-    public void InvalidPresetsAreRejected(string id, string name, int sustained, int slow, int mode) =>
-        Assert.False(DevicePowerPreset.TryValidate(Pair(new DevicePowerPreset(id, name, sustained, slow, (DevicePowerMode)mode)), out _));
+    public void InvalidPresetsAreRejected(string id, string name, int sustained, int slow, int mode)
+    {
+        Assert.False(
+            DevicePowerPreset.TryValidate(Pair(new DevicePowerPreset(id, name, sustained, slow, (DevicePowerMode)mode)),
+                out _));
+    }
 
     [Fact]
     public void MissingAmbiguousReadonlyOrSteppedPartnersAreRejected()
@@ -73,14 +83,16 @@ public sealed class SdkPowerPresetTests
     {
         var preset = new DevicePowerPreset("battery", "Battery", 8, 9, DevicePowerMode.BetterBattery);
         Assert.False(DevicePowerPreset.TryValidate(Pair(preset, preset), out _));
-        Assert.False(DevicePowerPreset.TryValidate(Pair([.. Enumerable.Range(0, 17).Select(i => preset with { Id = $"p{i}" })]), out _));
+        Assert.False(
+            DevicePowerPreset.TryValidate(Pair([.. Enumerable.Range(0, 17).Select(i => preset with { Id = $"p{i}" })]),
+                out _));
     }
 
     [Fact]
     public void ScenarioTargetsRequireBothSourcesAndOneWritableChoiceCapability()
     {
         var preset = new DevicePowerPreset("battery", "Battery", 8, 9, DevicePowerMode.BetterBattery)
-        { ScenarioOnAc = "eco", ScenarioOnDc = "comfort" };
+            { ScenarioOnAc = "eco", ScenarioOnDc = "comfort" };
         var scenario = new CapabilityDescriptor
         {
             CapabilityId = "scenario",
@@ -90,8 +102,11 @@ public sealed class SdkPowerPresetTests
             Display = new CapabilityDisplay { Key = DisplayKey.PerformanceProfile },
             SupportsRead = true,
             SupportsWrite = true,
-            Choices = [new CapabilityChoice("eco", new CapabilityDisplay { Key = DisplayKey.PerformanceProfile }),
-                new CapabilityChoice("comfort", new CapabilityDisplay { Key = DisplayKey.PerformanceProfile })]
+            Choices =
+            [
+                new CapabilityChoice("eco", new CapabilityDisplay { Key = DisplayKey.PerformanceProfile }),
+                new CapabilityChoice("comfort", new CapabilityDisplay { Key = DisplayKey.PerformanceProfile })
+            ]
         };
         Assert.True(DevicePowerPreset.TryValidate([.. Pair(preset), scenario], out _));
         Assert.Equal(preset, JsonSerializer.Deserialize<DevicePowerPreset>(JsonSerializer.Serialize(preset)));
@@ -102,8 +117,10 @@ public sealed class SdkPowerPresetTests
         Assert.False(DevicePowerPreset.TryValidate([.. Pair(preset), scenario with { AvailableOnDc = false }], out _));
         Assert.False(DevicePowerPreset.TryValidate([.. Pair(preset), scenario with { AvailableOnAc = false }], out _));
         Assert.False(DevicePowerPreset.TryValidate([.. Pair(preset with { ScenarioOnDc = null }), scenario], out _));
-        Assert.False(DevicePowerPreset.TryValidate([.. Pair(preset with { ScenarioOnAc = "missing" }), scenario], out _));
-        Assert.False(DevicePowerPreset.TryValidate([.. Pair(preset with { ScenarioOnDc = "missing" }), scenario], out _));
+        Assert.False(
+            DevicePowerPreset.TryValidate([.. Pair(preset with { ScenarioOnAc = "missing" }), scenario], out _));
+        Assert.False(
+            DevicePowerPreset.TryValidate([.. Pair(preset with { ScenarioOnDc = "missing" }), scenario], out _));
         var json = JsonSerializer.Serialize(scenario with { Choices = null! });
         var malformed = JsonSerializer.Deserialize<CapabilityDescriptor>(json)!;
         Assert.Null(malformed.Choices);

@@ -12,19 +12,18 @@ using WSGM.Interop;
 
 namespace WSGM.Overlay;
 
-/// <summary>The shared on-screen keyboard, in its own window beside the quick-access
-/// sidebar. Owns its editing <see cref="TextBox"/>; the final text is handed back via
-/// <see cref="Accepted"/> when the user confirms. Opened and gamepad-coordinated by
-/// <c>OverlayController</c> (focus crosses left/right between this window and the
-/// sidebar at their edges).</summary>
+/// <summary>
+///     The shared on-screen keyboard, in its own window beside the quick-access
+///     sidebar. Owns its editing <see cref="TextBox" />; the final text is handed back via
+///     <see cref="Accepted" /> when the user confirms. Opened and gamepad-coordinated by
+///     <c>OverlayController</c> (focus crosses left/right between this window and the
+///     sidebar at their edges).
+/// </summary>
 public partial class KeyboardWindow : Window
 {
     private readonly double _uiScale;
-    private bool _committed;
     private bool _closePending;
-
-    /// <summary>Raised with the final text when the user accepts.</summary>
-    public event Action<string>? Accepted;
+    private bool _committed;
 
     /// <summary>Design-time constructor for the XAML loader.</summary>
     public KeyboardWindow()
@@ -57,6 +56,9 @@ public partial class KeyboardWindow : Window
         };
     }
 
+    /// <summary>Raised with the final text when the user accepts.</summary>
+    public event Action<string>? Accepted;
+
     private void ApplyScale()
     {
         var factor = Math.Clamp(_uiScale / StatusPanel.CurrentWindowScale(this), 1.0, 3.0);
@@ -66,11 +68,20 @@ public partial class KeyboardWindow : Window
         }
     }
 
-    private void OnAccept(object? sender, RoutedEventArgs e) => Commit();
+    private void OnAccept(object? sender, RoutedEventArgs e)
+    {
+        Commit();
+    }
 
-    private void OnCancel(object? sender, RoutedEventArgs e) => DeferredClose();
+    private void OnCancel(object? sender, RoutedEventArgs e)
+    {
+        DeferredClose();
+    }
 
-    private void OnPasteRequested(object? sender, EventArgs e) => _ = PasteAsync();
+    private void OnPasteRequested(object? sender, EventArgs e)
+    {
+        _ = PasteAsync();
+    }
 
     private async Task PasteAsync()
     {
@@ -79,6 +90,7 @@ public partial class KeyboardWindow : Window
         {
             return;
         }
+
         try
         {
             var text = await clipboard.TryGetTextAsync();
@@ -99,6 +111,7 @@ public partial class KeyboardWindow : Window
         {
             return;
         }
+
         _committed = true;
         Accepted?.Invoke(Input.Text ?? "");
         DeferredClose();
@@ -110,13 +123,16 @@ public partial class KeyboardWindow : Window
         {
             return;
         }
+
         _closePending = true;
         DispatcherTimer.RunOnce(Close, TouchInput.CloseGrace);
     }
 
 
-    /// <summary>Focuses the first key so the user can start typing immediately (used on
-    /// open and when gamepad focus crosses in from the sidebar).</summary>
+    /// <summary>
+    ///     Focuses the first key so the user can start typing immediately (used on
+    ///     open and when gamepad focus crosses in from the sidebar).
+    /// </summary>
     public void FocusDefault()
     {
         InputElement target = FocusSearch.First<Button>(

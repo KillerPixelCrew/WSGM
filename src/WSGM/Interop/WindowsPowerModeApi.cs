@@ -11,6 +11,13 @@ internal interface IPowerModeApi
 
 internal sealed class WindowsPowerModeApi : IPowerModeApi
 {
-    public Guid Read() => WindowsPower.GetEffectiveMode();
-    public void Set(Guid mode) => WindowsPower.SetActiveMode(mode);
+    public Guid Read()
+    {
+        return WindowsPower.GetEffectiveMode();
+    }
+
+    public void Set(Guid mode)
+    {
+        WindowsPower.SetActiveMode(mode);
+    }
 }

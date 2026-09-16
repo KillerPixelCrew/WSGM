@@ -37,32 +37,35 @@ public sealed class RegistryValueSnapshotTests
 
         snapshot.Restore(scope.Key, config);
 
-        Assert.Equal("%TEMP%\\shell.exe", scope.Key.GetValue("Shell", null, RegistryValueOptions.DoNotExpandEnvironmentNames));
+        Assert.Equal("%TEMP%\\shell.exe",
+            scope.Key.GetValue("Shell", null, RegistryValueOptions.DoNotExpandEnvironmentNames));
         Assert.Equal(RegistryValueKind.ExpandString, scope.Key.GetValueKind("Shell"));
     }
 
     private static RegistryValueSnapshot<string?> CreateSnapshot()
-        => new(
+    {
+        return new RegistryValueSnapshot<string?>(
             "Shell",
-            absentValue: null,
-            writeFallback: string.Empty,
-            defaultKind: RegistryValueKind.String,
-            coerce: static value => value as string ?? string.Empty,
-            normalizeKind: static kind => kind == RegistryValueKind.ExpandString
+            null,
+            string.Empty,
+            RegistryValueKind.String,
+            static value => value as string ?? string.Empty,
+            static kind => kind == RegistryValueKind.ExpandString
                 ? RegistryValueKind.ExpandString
                 : RegistryValueKind.String,
-            load: static config => new RegistryValueSnapshot<string?>.State(
+            static config => new RegistryValueSnapshot<string?>.State(
                 config.PreviousShellSnapshotCaptured,
                 config.PreviousShellValueExists,
                 config.PreviousShellValue,
                 config.PreviousShellValueKind),
-            store: static (config, state) =>
+            static (config, state) =>
             {
                 config.PreviousShellSnapshotCaptured = state.Captured;
                 config.PreviousShellValueExists = state.Exists;
                 config.PreviousShellValue = state.Value;
                 config.PreviousShellValueKind = state.Kind;
             });
+    }
 
     private sealed class TestRegistryKey : IDisposable
     {
@@ -73,13 +76,13 @@ public sealed class RegistryValueSnapshotTests
         {
             var path = Key.Name["HKEY_CURRENT_USER\\".Length..];
             Key.Dispose();
-            Registry.CurrentUser.DeleteSubKeyTree(path, throwOnMissingSubKey: false);
+            Registry.CurrentUser.DeleteSubKeyTree(path, false);
             try
             {
                 // CreateSubKey made the parent implicitly; leaving it behind is machine
                 // residue from a suite that must leave none. DeleteSubKey throws while a
                 // concurrent scope still has a child there — that is the correct no-op.
-                Registry.CurrentUser.DeleteSubKey("Software\\WSGM.Tests", throwOnMissingSubKey: false);
+                Registry.CurrentUser.DeleteSubKey("Software\\WSGM.Tests", false);
             }
             catch
             {

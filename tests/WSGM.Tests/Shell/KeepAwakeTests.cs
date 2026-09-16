@@ -10,7 +10,7 @@ public sealed class KeepAwakeTests
     [Fact]
     public void FirstActiveSampleAcquiresImmediately()
     {
-        var (hold, streak) = KeepAwakeService.NextDownloadHold(currentHold: false, inactiveStreak: 0, sampleActive: true);
+        var (hold, streak) = KeepAwakeService.NextDownloadHold(false, 0, true);
 
         Assert.True(hold);
         Assert.Equal(0, streak);
@@ -19,7 +19,7 @@ public sealed class KeepAwakeTests
     [Fact]
     public void ActiveSampleResetsAnExistingInactiveStreak()
     {
-        var (hold, streak) = KeepAwakeService.NextDownloadHold(currentHold: true, inactiveStreak: 1, sampleActive: true);
+        var (hold, streak) = KeepAwakeService.NextDownloadHold(true, 1, true);
 
         Assert.True(hold);
         Assert.Equal(0, streak);
@@ -28,7 +28,7 @@ public sealed class KeepAwakeTests
     [Fact]
     public void SingleInactivePollKeepsTheHold()
     {
-        var (hold, streak) = KeepAwakeService.NextDownloadHold(currentHold: true, inactiveStreak: 0, sampleActive: false);
+        var (hold, streak) = KeepAwakeService.NextDownloadHold(true, 0, false);
 
         Assert.True(hold);
         Assert.Equal(1, streak);
@@ -37,8 +37,8 @@ public sealed class KeepAwakeTests
     [Fact]
     public void ConsecutiveInactivePollsReleaseTheHold()
     {
-        var (hold1, streak1) = KeepAwakeService.NextDownloadHold(currentHold: true, inactiveStreak: 0, sampleActive: false);
-        var (hold2, streak2) = KeepAwakeService.NextDownloadHold(hold1, streak1, sampleActive: false);
+        var (hold1, streak1) = KeepAwakeService.NextDownloadHold(true, 0, false);
+        var (hold2, streak2) = KeepAwakeService.NextDownloadHold(hold1, streak1, false);
 
         Assert.False(hold2);
         Assert.Equal(KeepAwakeService.ReleaseAfterInactivePolls, streak2);
@@ -50,7 +50,7 @@ public sealed class KeepAwakeTests
         var state = (Hold: false, InactiveStreak: 0);
         for (var i = 0; i < 5; i++)
         {
-            state = KeepAwakeService.NextDownloadHold(state.Hold, state.InactiveStreak, sampleActive: false);
+            state = KeepAwakeService.NextDownloadHold(state.Hold, state.InactiveStreak, false);
             Assert.False(state.Hold);
         }
 
@@ -61,10 +61,10 @@ public sealed class KeepAwakeTests
     [Fact]
     public void HoldReacquiresAfterAReleaseWhenActivityResumes()
     {
-        var state = KeepAwakeService.NextDownloadHold(currentHold: true, inactiveStreak: 1, sampleActive: false);
+        var state = KeepAwakeService.NextDownloadHold(true, 1, false);
         Assert.False(state.Hold);
 
-        state = KeepAwakeService.NextDownloadHold(state.Hold, state.InactiveStreak, sampleActive: true);
+        state = KeepAwakeService.NextDownloadHold(state.Hold, state.InactiveStreak, true);
 
         Assert.True(state.Hold);
         Assert.Equal(0, state.InactiveStreak);
@@ -108,7 +108,9 @@ public sealed class KeepAwakeTests
 
     [Fact]
     public void ParseReturnsNullForErrorPayloads()
-        => Assert.Null(SteamDownloads.Parse("""{"err":"timeout"}"""));
+    {
+        Assert.Null(SteamDownloads.Parse("""{"err":"timeout"}"""));
+    }
 
     [Theory]
     [InlineData(null)]
@@ -117,7 +119,9 @@ public sealed class KeepAwakeTests
     [InlineData("not json")]
     [InlineData("[1,2,3]")]
     public void ParseReturnsNullForUnusablePayloads(string? json)
-        => Assert.Null(SteamDownloads.Parse(json));
+    {
+        Assert.Null(SteamDownloads.Parse(json));
+    }
 
     [Fact]
     public void ParseDefaultsMissingFieldsToInactive()
@@ -138,44 +142,48 @@ public sealed class KeepAwakeTests
     [InlineData("None", false, false)]
     [InlineData("", false, false)]
     public void IsActiveRequiresARealUnpausedState(string state, bool paused, bool expected)
-        => Assert.Equal(expected, SteamDownloads.IsActive(state, paused));
+    {
+        Assert.Equal(expected, SteamDownloads.IsActive(state, paused));
+    }
 
     [Fact]
     public void ResolveActivity_ReachableIdleSnapshot_EndsKnownActivity()
     {
         var overview = new DownloadOverview(false, "None", false, 0, 0);
 
-        Assert.False(SteamDownloads.ResolveActivity(currentActive: true, steamAlive: true, overview));
+        Assert.False(SteamDownloads.ResolveActivity(true, true, overview));
     }
 
     [Fact]
     public void ResolveActivity_UnreachableLiveClient_DoesNotInventDownloadCompletion()
     {
         Assert.True(SteamDownloads.ResolveActivity(
-            currentActive: true,
-            steamAlive: true,
-            overview: null));
+            true,
+            true,
+            null));
     }
 
     [Fact]
     public void ResolveActivity_DeadSteamClient_EndsKnownActivity()
     {
         Assert.False(SteamDownloads.ResolveActivity(
-            currentActive: true,
-            steamAlive: false,
-            overview: null));
+            true,
+            false,
+            null));
     }
 
     // ---- PowerTimeouts: preset cycling and labels ----
 
     [Theory]
-    [InlineData(60, 180)]      // preset -> next preset
-    [InlineData(3600, 0)]      // longest preset -> Never
-    [InlineData(0, 60)]        // Never wraps to the shortest
-    [InlineData(120, 180)]     // custom value snaps to the next longer preset
-    [InlineData(7200, 0)]      // custom beyond the longest preset -> Never
+    [InlineData(60, 180)] // preset -> next preset
+    [InlineData(3600, 0)] // longest preset -> Never
+    [InlineData(0, 60)] // Never wraps to the shortest
+    [InlineData(120, 180)] // custom value snaps to the next longer preset
+    [InlineData(7200, 0)] // custom beyond the longest preset -> Never
     public void NextPresetCyclesLongerThenNeverThenWraps(int current, int expected)
-        => Assert.Equal(expected, PowerTimeouts.NextPreset(current));
+    {
+        Assert.Equal(expected, PowerTimeouts.NextPreset(current));
+    }
 
     [Fact]
     public void NextPresetVisitsEveryPresetExactlyOncePerLap()
@@ -186,8 +194,7 @@ public sealed class KeepAwakeTests
         {
             Assert.True(seen.Add(value));
             value = PowerTimeouts.NextPreset(value);
-        }
-        while (value != 60);
+        } while (value != 60);
 
         Assert.Equal(PowerTimeouts.PresetsSeconds.Length, seen.Count);
     }
@@ -205,5 +212,7 @@ public sealed class KeepAwakeTests
     [InlineData(29, "<1 min")]
     [InlineData(59, "<1 min")]
     public void DescribeFormatsTimeoutsForTheBadge(int seconds, string expected)
-        => Assert.Equal(expected, PowerTimeouts.Describe(seconds));
+    {
+        Assert.Equal(expected, PowerTimeouts.Describe(seconds));
+    }
 }

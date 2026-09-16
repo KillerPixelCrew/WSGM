@@ -42,7 +42,8 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             using var endpoint = HidEndpointEnumerator.FindMcu()
-                                 ?? throw new FileNotFoundException("The exact A2VM MCU HID collection was not present.");
+                                 ?? throw new FileNotFoundException(
+                                     "The exact A2VM MCU HID collection was not present.");
             await using var stream = endpoint.OpenReadWrite();
             var request = CreateRequest(0x04);
             request[5] = 1;
@@ -53,10 +54,10 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
             var response = await ReadMatchingAsync(
                 stream,
                 report => report[0] == 0x10
-                    && report[4] == 0x05
-                    && report[5] == 1
-                    && report[6] == (byte)(address >> 8)
-                    && report[7] == (byte)(address & 0xFF),
+                          && report[4] == 0x05
+                          && report[5] == 1
+                          && report[6] == (byte)(address >> 8)
+                          && report[7] == (byte)(address & 0xFF),
                 TimeSpan.FromSeconds(1),
                 cancellationToken).ConfigureAwait(false);
             if (response[8] != length || 9 + length > response.Length)
@@ -88,7 +89,8 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             using var endpoint = HidEndpointEnumerator.FindMcu()
-                                 ?? throw new FileNotFoundException("The exact A2VM MCU HID collection was not present.");
+                                 ?? throw new FileNotFoundException(
+                                     "The exact A2VM MCU HID collection was not present.");
             await using var stream = endpoint.OpenReadWrite();
             var request = CreateRequest(0x21);
             request[5] = 1;
@@ -128,7 +130,8 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             using (var endpoint = HidEndpointEnumerator.FindMcu()
-                                  ?? throw new FileNotFoundException("The exact A2VM MCU HID collection was not present."))
+                                  ?? throw new FileNotFoundException(
+                                      "The exact A2VM MCU HID collection was not present."))
             {
                 if (!HidEndpointEnumerator.SamePhysicalLocation(
                         endpoint.PhysicalLocation,
@@ -164,7 +167,8 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
                 await Task.Delay(TimeSpan.FromMilliseconds(50), cancellationToken).ConfigureAwait(false);
             }
 
-            throw new TimeoutException("The controller did not re-enumerate in the requested mode at its physical location.");
+            throw new TimeoutException(
+                "The controller did not re-enumerate in the requested mode at its physical location.");
         }
         finally
         {
@@ -232,15 +236,17 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
 internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
     : IClawControllerSource
 {
+    private readonly Lock _gate = new();
+
     private readonly ClawOemButtonLatch _oemButtons =
         oemButtons ?? throw new ArgumentNullException(nameof(oemButtons));
-    private readonly Lock _gate = new();
+
     private readonly SemaphoreSlim _writeSerializer = new(1, 1);
     private HidEndpoint? _endpoint;
-    private FileStream? _stream;
     private CancellationTokenSource? _readerCancellation;
     private Task? _readerTask;
     private long _sequence;
+    private FileStream? _stream;
 
     public ValueTask<ControllerTopology?> DiscoverAsync(CancellationToken cancellationToken)
     {
@@ -266,7 +272,8 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
             }
 
             _endpoint = HidEndpointEnumerator.FindDirectInputGamepad()
-                ?? throw new FileNotFoundException("The reviewed DirectInput gamepad collection was unavailable.");
+                        ?? throw new FileNotFoundException(
+                            "The reviewed DirectInput gamepad collection was unavailable.");
             _stream = _endpoint.OpenReadWrite();
             _readerCancellation = new CancellationTokenSource();
             _sequence = 0;
@@ -390,7 +397,10 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
         }
     }
 
-    public async ValueTask DisposeAsync() => await StopAsync(CancellationToken.None).ConfigureAwait(false);
+    public async ValueTask DisposeAsync()
+    {
+        await StopAsync(CancellationToken.None).ConfigureAwait(false);
+    }
 
     private static async Task ObserveReaderAsync(
         Task reader,
@@ -481,6 +491,11 @@ internal sealed class HidEndpoint : IDisposable
 
     public required string PhysicalLocation { get; init; }
 
+    public void Dispose()
+    {
+        _disposed = true;
+    }
+
     public FileStream OpenReadWrite()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -494,14 +509,12 @@ internal sealed class HidEndpoint : IDisposable
             0);
         if (!handle.IsInvalid)
         {
-            return new FileStream(handle, FileAccess.ReadWrite, 4096, isAsync: true);
+            return new FileStream(handle, FileAccess.ReadWrite, 4096, true);
         }
 
         handle.Dispose();
         throw new IOException($"The HID collection could not be opened (Win32 {Marshal.GetLastWin32Error()}).");
     }
-
-    public void Dispose() => _disposed = true;
 }
 
 internal static class HidEndpointEnumerator
@@ -512,30 +525,36 @@ internal static class HidEndpointEnumerator
         PropertyId = 37
     };
 
-    public static HidEndpoint? FindMcu() => Enumerate().FirstOrDefault(endpoint =>
-        endpoint.ProductId switch
-        {
-            ClawHardwareFacts.XInputProductId => endpoint is { UsagePage: 0xFFA0, Usage: 0x0001 },
-            ClawHardwareFacts.DirectInputProductId => endpoint is { UsagePage: 0xFFF0, Usage: 0x0040 },
-            _ => false
-        }
-        && endpoint is { InputLength: 64, OutputLength: 64 });
+    public static HidEndpoint? FindMcu()
+    {
+        return Enumerate().FirstOrDefault(endpoint =>
+            endpoint.ProductId switch
+            {
+                ClawHardwareFacts.XInputProductId => endpoint is { UsagePage: 0xFFA0, Usage: 0x0001 },
+                ClawHardwareFacts.DirectInputProductId => endpoint is { UsagePage: 0xFFF0, Usage: 0x0040 },
+                _ => false
+            }
+            && endpoint is { InputLength: 64, OutputLength: 64 });
+    }
 
     /// <summary>The DirectInput pad the MCU presents after switching to that mode.</summary>
     /// <returns>The endpoint, or null when it cannot be found.</returns>
     /// <remarks>
-    /// The exact PID, usage and report length distinguish the physical gamepad collection from the
-    /// MCU vendor command collection. Controller input on the reference unit is supplied through
-    /// this matching path.
+    ///     The exact PID, usage and report length distinguish the physical gamepad collection from the
+    ///     MCU vendor command collection. Controller input on the reference unit is supplied through
+    ///     this matching path.
     /// </remarks>
-    public static HidEndpoint? FindDirectInputGamepad() => Enumerate().FirstOrDefault(endpoint =>
-        endpoint is
-        {
-            ProductId: ClawHardwareFacts.DirectInputProductId,
-            UsagePage: 0x0001,
-            Usage: 0x0005,
-            InputLength: 64
-        });
+    public static HidEndpoint? FindDirectInputGamepad()
+    {
+        return Enumerate().FirstOrDefault(endpoint =>
+            endpoint is
+            {
+                ProductId: ClawHardwareFacts.DirectInputProductId,
+                UsagePage: 0x0001,
+                Usage: 0x0005,
+                InputLength: 64
+            });
+    }
 
     public static ControllerTopology? DiscoverControllerTopology()
     {
@@ -599,8 +618,10 @@ internal static class HidEndpointEnumerator
         }
     }
 
-    public static bool SamePhysicalLocation(string left, string right) =>
-        string.Equals(CompositeLocation(left), CompositeLocation(right), StringComparison.OrdinalIgnoreCase);
+    public static bool SamePhysicalLocation(string left, string right)
+    {
+        return string.Equals(CompositeLocation(left), CompositeLocation(right), StringComparison.OrdinalIgnoreCase);
+    }
 
     private static List<HidEndpoint> Enumerate()
     {
@@ -618,7 +639,7 @@ internal static class HidEndpointEnumerator
         var endpoints = new List<HidEndpoint>();
         try
         {
-            for (uint index = 0; ; index++)
+            for (uint index = 0;; index++)
             {
                 NativeHid.DeviceInterfaceData interfaceData = new()
                 {
@@ -819,62 +840,6 @@ internal static partial class NativeHid
     public const int HIDP_STATUS_SUCCESS = 0x00110000;
     public static readonly nint InvalidHandleValue = new(-1);
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct DeviceInterfaceData
-    {
-        public uint Size;
-        public Guid InterfaceClassGuid;
-        public uint Flags;
-        public nuint Reserved;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct DeviceInfoData
-    {
-        public uint Size;
-        public Guid ClassGuid;
-        public uint DeviceInstance;
-        public nuint Reserved;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct HidAttributes
-    {
-        public int Size;
-        public ushort VendorId;
-        public ushort ProductId;
-        public ushort VersionNumber;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct HidCaps
-    {
-        public ushort Usage;
-        public ushort UsagePage;
-        public ushort InputReportByteLength;
-        public ushort OutputReportByteLength;
-        public ushort FeatureReportByteLength;
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 17)]
-        public ushort[] Reserved;
-        public ushort NumberLinkCollectionNodes;
-        public ushort NumberInputButtonCaps;
-        public ushort NumberInputValueCaps;
-        public ushort NumberInputDataIndices;
-        public ushort NumberOutputButtonCaps;
-        public ushort NumberOutputValueCaps;
-        public ushort NumberOutputDataIndices;
-        public ushort NumberFeatureButtonCaps;
-        public ushort NumberFeatureValueCaps;
-        public ushort NumberFeatureDataIndices;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct DevPropKey
-    {
-        public Guid FormatId;
-        public uint PropertyId;
-    }
-
     [LibraryImport("hid.dll")]
     public static partial void HidD_GetHidGuid(out Guid hidGuid);
 
@@ -971,4 +936,62 @@ internal static partial class NativeHid
         uint creationDisposition,
         uint flagsAndAttributes,
         nint templateFile);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct DeviceInterfaceData
+    {
+        public uint Size;
+        public Guid InterfaceClassGuid;
+        public uint Flags;
+        public nuint Reserved;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct DeviceInfoData
+    {
+        public uint Size;
+        public Guid ClassGuid;
+        public uint DeviceInstance;
+        public nuint Reserved;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct HidAttributes
+    {
+        public int Size;
+        public ushort VendorId;
+        public ushort ProductId;
+        public ushort VersionNumber;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct HidCaps
+    {
+        public ushort Usage;
+        public ushort UsagePage;
+        public ushort InputReportByteLength;
+        public ushort OutputReportByteLength;
+        public ushort FeatureReportByteLength;
+
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 17)]
+        public ushort[] Reserved;
+
+        public ushort NumberLinkCollectionNodes;
+        public ushort NumberInputButtonCaps;
+        public ushort NumberInputValueCaps;
+        public ushort NumberInputDataIndices;
+        public ushort NumberOutputButtonCaps;
+        public ushort NumberOutputValueCaps;
+        public ushort NumberOutputDataIndices;
+        public ushort NumberFeatureButtonCaps;
+        public ushort NumberFeatureValueCaps;
+        public ushort NumberFeatureDataIndices;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct DevPropKey
+    {
+        public Guid FormatId;
+        public uint PropertyId;
+    }
 }

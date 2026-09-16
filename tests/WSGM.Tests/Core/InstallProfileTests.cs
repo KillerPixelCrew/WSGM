@@ -25,7 +25,9 @@ public sealed class InstallProfileTests
     [InlineData(null)]
     [InlineData("full")]
     public void AValueThatNamesNoModeIsRefused(string? value)
-        => Assert.False(InstallProfile.TryParse(value, out _));
+    {
+        Assert.False(InstallProfile.TryParse(value, out _));
+    }
 
     [Fact]
     public void TheModeIsReadFromSetupsArguments()
@@ -41,7 +43,7 @@ public sealed class InstallProfileTests
     {
         AppConfig config = new();
 
-        Assert.True(InstallProfile.Apply(config, InstallProfileKind.Minimal, freshInstall: true));
+        Assert.True(InstallProfile.Apply(config, InstallProfileKind.Minimal, true));
 
         Assert.True(config.StartAtSignIn);
         Assert.Equal(SessionStartMode.Game, config.StartMode);
@@ -55,7 +57,7 @@ public sealed class InstallProfileTests
         // package and leaving it off would read as a broken install.
         AppConfig config = new();
 
-        Assert.True(InstallProfile.Apply(config, InstallProfileKind.Claw8A2Vm, freshInstall: true));
+        Assert.True(InstallProfile.Apply(config, InstallProfileKind.Claw8A2Vm, true));
 
         Assert.Equal(SessionStartMode.Game, config.StartMode);
         Assert.True(config.DeviceIntegration.Enabled);
@@ -66,7 +68,7 @@ public sealed class InstallProfileTests
     {
         AppConfig config = new();
 
-        Assert.True(InstallProfile.Apply(config, InstallProfileKind.DesktopFirst, freshInstall: true));
+        Assert.True(InstallProfile.Apply(config, InstallProfileKind.DesktopFirst, true));
 
         Assert.True(config.StartAtSignIn);
         Assert.Equal(SessionStartMode.Desktop, config.StartMode);
@@ -88,7 +90,7 @@ public sealed class InstallProfileTests
             DeviceIntegration = { Enabled = true }
         };
 
-        Assert.False(InstallProfile.Apply(config, kind, freshInstall: false));
+        Assert.False(InstallProfile.Apply(config, kind, false));
 
         Assert.False(config.StartAtSignIn);
         Assert.Equal(SessionStartMode.Desktop, config.StartMode);
@@ -102,7 +104,7 @@ public sealed class InstallProfileTests
         // the Steam autostart takeover is still consented to rather than assumed.
         AppConfig config = new();
 
-        InstallProfile.Apply(config, InstallProfileKind.DesktopFirst, freshInstall: true);
+        InstallProfile.Apply(config, InstallProfileKind.DesktopFirst, true);
 
         Assert.True(QuickSetup.ShouldShow(config));
     }

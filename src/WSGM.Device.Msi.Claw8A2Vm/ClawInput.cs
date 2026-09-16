@@ -8,28 +8,28 @@ using WSGM.Device.Sdk.Plugin;
 namespace WSGM.Device.Msi.Claw8A2Vm;
 
 /// <summary>
-/// Carries an OEM button press from the firmware's WMI event into the controller sample stream.
+///     Carries an OEM button press from the firmware's WMI event into the controller sample stream.
 /// </summary>
 /// <remarks>
-/// The Claw's two front buttons are physical controller buttons, and they belong on the virtual
-/// target as its Steam and Quick Access buttons — that is what they are printed for, and Steam
-/// answers its own controller natively. They were reaching WSGM as semantic OEM events and going no
-/// further, so the virtual Steam Deck had neither button: the controller configurator listed no
-/// such controls, nothing was bound to them, and no glyph could appear for a control Steam did not
-/// believe existed.
-/// <para>
-/// A latch is needed because the firmware does not put them in the DirectInput report at all. They
-/// arrive as MSI WMI events — one event per press, with no release — while samples are produced by
-/// the pad reader at about 125 Hz. Holding the bit for <see cref="HoldDuration"/> turns that single
-/// event into a press and a release the virtual pad can actually deliver.
-/// </para>
+///     The Claw's two front buttons are physical controller buttons, and they belong on the virtual
+///     target as its Steam and Quick Access buttons — that is what they are printed for, and Steam
+///     answers its own controller natively. They were reaching WSGM as semantic OEM events and going no
+///     further, so the virtual Steam Deck had neither button: the controller configurator listed no
+///     such controls, nothing was bound to them, and no glyph could appear for a control Steam did not
+///     believe existed.
+///     <para>
+///         A latch is needed because the firmware does not put them in the DirectInput report at all. They
+///         arrive as MSI WMI events — one event per press, with no release — while samples are produced by
+///         the pad reader at about 125 Hz. Holding the bit for <see cref="HoldDuration" /> turns that single
+///         event into a press and a release the virtual pad can actually deliver.
+///     </para>
 /// </remarks>
 internal sealed class ClawOemButtonLatch
 {
     /// <summary>How long a latched button stays down.</summary>
     /// <remarks>
-    /// Long enough to survive a dropped or coalesced sample at the reader's rate, short enough to
-    /// stay a tap rather than becoming a long press in whatever is reading it.
+    ///     Long enough to survive a dropped or coalesced sample at the reader's rate, short enough to
+    ///     stay a tap rather than becoming a long press in whatever is reading it.
     /// </remarks>
     internal static readonly TimeSpan HoldDuration = TimeSpan.FromMilliseconds(120);
 
@@ -37,7 +37,7 @@ internal sealed class ClawOemButtonLatch
     private DateTimeOffset _guideUntil;
     private DateTimeOffset _quickAccessUntil;
 
-    /// <summary>Latches one button down for <see cref="HoldDuration"/>.</summary>
+    /// <summary>Latches one button down for <see cref="HoldDuration" />.</summary>
     /// <param name="button">The canonical button the press maps to.</param>
     /// <param name="now">Current time.</param>
     internal void Press(CanonicalButtons button, DateTimeOffset now)
@@ -141,22 +141,31 @@ internal static class ClawControllerCodec
         return report;
     }
 
-    private static bool IsSet(byte value, int bit) => (value & (1 << bit)) != 0;
-
-    private static float Axis(byte value) => Math.Clamp((value - 128) / 127f, -1, 1);
-
-    private static CanonicalButtons DecodeHat(int hat) => hat switch
+    private static bool IsSet(byte value, int bit)
     {
-        0 => CanonicalButtons.DPadUp,
-        1 => CanonicalButtons.DPadUp | CanonicalButtons.DPadRight,
-        2 => CanonicalButtons.DPadRight,
-        3 => CanonicalButtons.DPadRight | CanonicalButtons.DPadDown,
-        4 => CanonicalButtons.DPadDown,
-        5 => CanonicalButtons.DPadDown | CanonicalButtons.DPadLeft,
-        6 => CanonicalButtons.DPadLeft,
-        7 => CanonicalButtons.DPadLeft | CanonicalButtons.DPadUp,
-        _ => CanonicalButtons.None
-    };
+        return (value & (1 << bit)) != 0;
+    }
+
+    private static float Axis(byte value)
+    {
+        return Math.Clamp((value - 128) / 127f, -1, 1);
+    }
+
+    private static CanonicalButtons DecodeHat(int hat)
+    {
+        return hat switch
+        {
+            0 => CanonicalButtons.DPadUp,
+            1 => CanonicalButtons.DPadUp | CanonicalButtons.DPadRight,
+            2 => CanonicalButtons.DPadRight,
+            3 => CanonicalButtons.DPadRight | CanonicalButtons.DPadDown,
+            4 => CanonicalButtons.DPadDown,
+            5 => CanonicalButtons.DPadDown | CanonicalButtons.DPadLeft,
+            6 => CanonicalButtons.DPadLeft,
+            7 => CanonicalButtons.DPadLeft | CanonicalButtons.DPadUp,
+            _ => CanonicalButtons.None
+        };
+    }
 }
 
 internal readonly record struct ChordDecision(
@@ -166,16 +175,16 @@ internal readonly record struct ChordDecision(
 
 internal sealed class FirmwareChordStateMachine
 {
-    private bool _leftWindowsDown;
-    private bool _rightWindowsDown;
-    private bool _leftWindowsReleased;
-    private bool _rightWindowsReleased;
-    private bool _controlDown;
     private bool _altDown;
-    private bool _shiftDown;
+    private bool _controlDown;
     private bool _gDown;
     private bool _gSuppressed;
+    private bool _leftWindowsDown;
+    private bool _leftWindowsReleased;
     private bool _pendingGSuppression;
+    private bool _rightWindowsDown;
+    private bool _rightWindowsReleased;
+    private bool _shiftDown;
     private bool _tabDown;
 
     public ChordDecision Observe(uint virtualKey, bool keyDown, bool injected)
@@ -188,9 +197,9 @@ internal sealed class FirmwareChordStateMachine
         switch (virtualKey)
         {
             case NativeKeyboard.VK_LWIN:
-                return ObserveWindows(left: true, keyDown);
+                return ObserveWindows(true, keyDown);
             case NativeKeyboard.VK_RWIN:
-                return ObserveWindows(left: false, keyDown);
+                return ObserveWindows(false, keyDown);
             case NativeKeyboard.VK_CONTROL:
             case NativeKeyboard.VK_LCONTROL:
             case NativeKeyboard.VK_RCONTROL:
@@ -315,7 +324,7 @@ internal sealed class FirmwareChordStateMachine
 
         _gDown = true;
         _pendingGSuppression = (_leftWindowsDown && !_leftWindowsReleased)
-            || (_rightWindowsDown && !_rightWindowsReleased);
+                               || (_rightWindowsDown && !_rightWindowsReleased);
         _gSuppressed = !_pendingGSuppression;
         return new ChordDecision(
             true,
@@ -343,25 +352,25 @@ internal sealed class FirmwareChordStateMachine
         }
 
         return new ChordDecision(
-            Suppress: true,
-            ReleaseLeftWindows: _leftWindowsDown && !_leftWindowsReleased,
-            ReleaseRightWindows: _rightWindowsDown && !_rightWindowsReleased);
+            true,
+            _leftWindowsDown && !_leftWindowsReleased,
+            _rightWindowsDown && !_rightWindowsReleased);
     }
 }
 
 internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
 {
     private const uint Marker = 0x5753474D;
-    private readonly Lock _gate = new();
-    private readonly FirmwareChordStateMachine _state = new();
     private readonly NativeKeyboard.Input[] _batch = new NativeKeyboard.Input[4];
     private readonly NativeKeyboard.Input[] _cleanup = new NativeKeyboard.Input[1];
+    private readonly Lock _gate = new();
     private readonly NativeKeyboard.HookProcedure _hookProcedure;
+    private readonly FirmwareChordStateMachine _state = new();
+    private Action<Exception>? _fault;
+    private nint _hook;
+    private int _stopping;
     private Thread? _thread;
     private uint _threadId;
-    private nint _hook;
-    private Action<Exception>? _fault;
-    private int _stopping;
 
     public FirmwareChordSuppressor()
     {
@@ -450,7 +459,10 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
         }
     }
 
-    public async ValueTask DisposeAsync() => await StopAsync(CancellationToken.None).ConfigureAwait(false);
+    public async ValueTask DisposeAsync()
+    {
+        await StopAsync(CancellationToken.None).ConfigureAwait(false);
+    }
 
     private void RunHook(TaskCompletionSource<bool> started)
     {
@@ -476,7 +488,7 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
         {
             var messageResult = 0;
             while (Volatile.Read(ref _stopping) == 0
-                && (messageResult = NativeKeyboard.GetMessage(
+                   && (messageResult = NativeKeyboard.GetMessage(
                        out var message,
                        0,
                        0,
@@ -524,7 +536,7 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
         var injected = (keyboard.Flags & NativeKeyboard.LLKHF_INJECTED) != 0
                        || keyboard.ExtraInfo == Marker;
         if (!injected && keyUp
-            && keyboard.VirtualKey is NativeKeyboard.VK_G or NativeKeyboard.VK_TAB)
+                      && keyboard.VirtualKey is NativeKeyboard.VK_G or NativeKeyboard.VK_TAB)
         {
             _state.SynchronizeModifiers(
                 NativeKeyboard.IsKeyDown(NativeKeyboard.VK_CONTROL),
@@ -544,26 +556,26 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
         }
 
         var count = 0;
-        _batch[count++] = NativeKeyboard.KeyInput(NativeKeyboard.VK_DUMMY, keyUp: false, Marker);
-        _batch[count++] = NativeKeyboard.KeyInput(NativeKeyboard.VK_DUMMY, keyUp: true, Marker);
+        _batch[count++] = NativeKeyboard.KeyInput(NativeKeyboard.VK_DUMMY, false, Marker);
+        _batch[count++] = NativeKeyboard.KeyInput(NativeKeyboard.VK_DUMMY, true, Marker);
         var leftIndex = -1;
         var rightIndex = -1;
         if (decision.ReleaseLeftWindows)
         {
             leftIndex = count;
-            _batch[count++] = NativeKeyboard.KeyInput(NativeKeyboard.VK_LWIN, keyUp: true, Marker);
+            _batch[count++] = NativeKeyboard.KeyInput(NativeKeyboard.VK_LWIN, true, Marker);
         }
 
         if (decision.ReleaseRightWindows)
         {
             rightIndex = count;
-            _batch[count++] = NativeKeyboard.KeyInput(NativeKeyboard.VK_RWIN, keyUp: true, Marker);
+            _batch[count++] = NativeKeyboard.KeyInput(NativeKeyboard.VK_RWIN, true, Marker);
         }
 
         var sent = NativeKeyboard.SendInput(checked((uint)count), _batch, Marshal.SizeOf<NativeKeyboard.Input>());
         if (sent == 1)
         {
-            _cleanup[0] = NativeKeyboard.KeyInput(NativeKeyboard.VK_DUMMY, keyUp: true, Marker);
+            _cleanup[0] = NativeKeyboard.KeyInput(NativeKeyboard.VK_DUMMY, true, Marker);
             _ = NativeKeyboard.SendInput(1, _cleanup, Marshal.SizeOf<NativeKeyboard.Input>());
         }
 
@@ -603,6 +615,8 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
 
 internal static partial class NativeKeyboard
 {
+    public delegate nint HookProcedure(int code, nuint message, nint data);
+
     public const int WH_KEYBOARD_LL = 13;
     public const uint WM_QUIT = 0x0012;
     public const nuint WM_KEYDOWN = 0x0100;
@@ -628,74 +642,28 @@ internal static partial class NativeKeyboard
     public const uint VK_G = 0x47;
     public const uint VK_DUMMY = 0xFF;
 
-    public delegate nint HookProcedure(int code, nuint message, nint data);
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct KeyboardHookData
+    public static bool IsKeyDown(uint virtualKey)
     {
-        public uint VirtualKey;
-        public uint ScanCode;
-        public uint Flags;
-        public uint Time;
-        public nuint ExtraInfo;
+        return (GetAsyncKeyState(checked((int)virtualKey)) & 0x8000) != 0;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct KeyboardInput
+    public static Input KeyInput(uint virtualKey, bool keyUp, nuint extraInfo)
     {
-        public ushort VirtualKey;
-        public ushort ScanCode;
-        public uint Flags;
-        public uint Time;
-        public nuint ExtraInfo;
-    }
-
-    // INPUT reserves the full mouse-sized union even for keyboard events: 32 bytes on x64.
-    // A keyboard-only union makes cbSize 32 instead of 40, so SendInput rejects every release.
-    [StructLayout(LayoutKind.Explicit, Size = 32)]
-    public struct InputUnion
-    {
-        [FieldOffset(0)]
-        public KeyboardInput Keyboard;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct Input
-    {
-        public uint Type;
-        public InputUnion Data;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct Message
-    {
-        public nint Window;
-        public uint Value;
-        public nuint WParam;
-        public nint LParam;
-        public uint Time;
-        public int PointX;
-        public int PointY;
-        public uint Private;
-    }
-
-    public static bool IsKeyDown(uint virtualKey) =>
-        (GetAsyncKeyState(checked((int)virtualKey)) & 0x8000) != 0;
-
-    public static Input KeyInput(uint virtualKey, bool keyUp, nuint extraInfo) => new()
-    {
-        Type = INPUT_KEYBOARD,
-        Data = new InputUnion
+        return new Input
         {
-            Keyboard = new KeyboardInput
+            Type = INPUT_KEYBOARD,
+            Data = new InputUnion
             {
-                VirtualKey = checked((ushort)virtualKey),
-                Flags = (keyUp ? KEYEVENTF_KEYUP : 0)
-                    | (virtualKey is VK_LWIN or VK_RWIN ? KEYEVENTF_EXTENDEDKEY : 0),
-                ExtraInfo = extraInfo
+                Keyboard = new KeyboardInput
+                {
+                    VirtualKey = checked((ushort)virtualKey),
+                    Flags = (keyUp ? KEYEVENTF_KEYUP : 0)
+                            | (virtualKey is VK_LWIN or VK_RWIN ? KEYEVENTF_EXTENDEDKEY : 0),
+                    ExtraInfo = extraInfo
+                }
             }
-        }
-    };
+        };
+    }
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern nint SetWindowsHookEx(
@@ -734,4 +702,52 @@ internal static partial class NativeKeyboard
 
     [LibraryImport("kernel32.dll")]
     public static partial uint GetCurrentThreadId();
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct KeyboardHookData
+    {
+        public uint VirtualKey;
+        public uint ScanCode;
+        public uint Flags;
+        public uint Time;
+        public nuint ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct KeyboardInput
+    {
+        public ushort VirtualKey;
+        public ushort ScanCode;
+        public uint Flags;
+        public uint Time;
+        public nuint ExtraInfo;
+    }
+
+    // INPUT reserves the full mouse-sized union even for keyboard events: 32 bytes on x64.
+    // A keyboard-only union makes cbSize 32 instead of 40, so SendInput rejects every release.
+    [StructLayout(LayoutKind.Explicit, Size = 32)]
+    public struct InputUnion
+    {
+        [FieldOffset(0)] public KeyboardInput Keyboard;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Input
+    {
+        public uint Type;
+        public InputUnion Data;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Message
+    {
+        public nint Window;
+        public uint Value;
+        public nuint WParam;
+        public nint LParam;
+        public uint Time;
+        public int PointX;
+        public int PointY;
+        public uint Private;
+    }
 }

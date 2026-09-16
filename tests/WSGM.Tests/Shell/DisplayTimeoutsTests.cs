@@ -4,8 +4,8 @@ using WSGM.Shell;
 namespace WSGM.Tests.Shell;
 
 /// <summary>
-/// The session's display-off timeout owner, over a fake power scheme: what Steam's report raises,
-/// what a choice from Steam's Screensaver settings or the overlay may write, and what the rows show.
+///     The session's display-off timeout owner, over a fake power scheme: what Steam's report raises,
+///     what a choice from Steam's Screensaver settings or the overlay may write, and what the rows show.
 /// </summary>
 public sealed class DisplayTimeoutsTests
 {
@@ -17,7 +17,7 @@ public sealed class DisplayTimeoutsTests
         var changes = 0;
         timeouts.Changed += () => changes++;
 
-        var result = await timeouts.ReportAsync(new SteamScreensaverReport(300, null, Battery: false), CancellationToken.None);
+        var result = await timeouts.ReportAsync(new SteamScreensaverReport(300, null, false), CancellationToken.None);
 
         Assert.True(result.Succeeded);
         Assert.Equal(300, scheme[PowerTimeoutKind.DisplayAc]);
@@ -31,7 +31,7 @@ public sealed class DisplayTimeoutsTests
     {
         FakeScheme scheme = new() { [PowerTimeoutKind.DisplayAc] = 0, [PowerTimeoutKind.DisplayDc] = 0 };
 
-        await scheme.Owner().ReportAsync(new SteamScreensaverReport(3600, 3600, Battery: true), CancellationToken.None);
+        await scheme.Owner().ReportAsync(new SteamScreensaverReport(3600, 3600, true), CancellationToken.None);
 
         Assert.Empty(scheme.Writes);
     }
@@ -39,9 +39,11 @@ public sealed class DisplayTimeoutsTests
     [Fact]
     public async Task ARefusedRaiseIsNotRetriedWithinTheReport()
     {
-        FakeScheme scheme = new() { [PowerTimeoutKind.DisplayAc] = 60, [PowerTimeoutKind.DisplayDc] = 60, Refuse = true };
+        FakeScheme scheme = new()
+            { [PowerTimeoutKind.DisplayAc] = 60, [PowerTimeoutKind.DisplayDc] = 60, Refuse = true };
 
-        var result = await scheme.Owner().ReportAsync(new SteamScreensaverReport(300, null, false), CancellationToken.None);
+        var result = await scheme.Owner()
+            .ReportAsync(new SteamScreensaverReport(300, null, false), CancellationToken.None);
 
         // The report itself is heard; each breach got exactly one attempt.
         Assert.True(result.Succeeded);
@@ -54,7 +56,7 @@ public sealed class DisplayTimeoutsTests
     {
         FakeScheme scheme = new() { [PowerTimeoutKind.DisplayAc] = 600, [PowerTimeoutKind.DisplayDc] = 600 };
         var timeouts = scheme.Owner();
-        await timeouts.ReportAsync(new SteamScreensaverReport(300, 900, Battery: true), CancellationToken.None);
+        await timeouts.ReportAsync(new SteamScreensaverReport(300, 900, true), CancellationToken.None);
         scheme.Writes.Clear();
 
         var refused = await timeouts.SetTimeoutAsync("battery", 600, CancellationToken.None);
@@ -186,17 +188,21 @@ public sealed class DisplayTimeoutsTests
             set => _values[kind] = value;
         }
 
-        internal DisplayTimeouts Owner() => new(
-            kind => _values.TryGetValue(kind, out var seconds) ? seconds : null,
-            (kind, seconds) =>
-            {
-                Writes.Add((kind, seconds));
-                if (Refuse)
+        internal DisplayTimeouts Owner()
+        {
+            return new DisplayTimeouts(
+                kind => _values.TryGetValue(kind, out var seconds) ? seconds : null,
+                (kind, seconds) =>
                 {
-                    return false;
-                }
-                _values[kind] = seconds;
-                return true;
-            });
+                    Writes.Add((kind, seconds));
+                    if (Refuse)
+                    {
+                        return false;
+                    }
+
+                    _values[kind] = seconds;
+                    return true;
+                });
+        }
     }
 }

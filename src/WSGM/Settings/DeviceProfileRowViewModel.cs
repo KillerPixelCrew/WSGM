@@ -9,19 +9,19 @@ namespace WSGM.Settings;
 
 /// <summary>One authored device profile being edited.</summary>
 /// <remarks>
-/// Holds the curve in the SDK's own point type because that is what the editor control speaks;
-/// conversion to the stored shape happens once, at save. Keeping two mutable representations in
-/// step during a drag is exactly the kind of bookkeeping that goes wrong silently.
+///     Holds the curve in the SDK's own point type because that is what the editor control speaks;
+///     conversion to the stored shape happens once, at save. Keeping two mutable representations in
+///     step during a drag is exactly the kind of bookkeeping that goes wrong silently.
 /// </remarks>
 public sealed class DeviceProfileRowViewModel : ObservableObject
 {
-    private string _name;
-    private IReadOnlyList<CurvePoint> _curve;
     private int? _color;
+    private IReadOnlyList<CurvePoint> _curve;
+    private string _name;
 
     /// <summary>Creates a row from a stored profile.</summary>
     /// <param name="profile">The stored profile.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="profile"/> is null.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="profile" /> is null.</exception>
     public DeviceProfileRowViewModel(DeviceAuthoredProfile profile)
     {
         ArgumentNullException.ThrowIfNull(profile);
@@ -76,9 +76,9 @@ public sealed class DeviceProfileRowViewModel : ObservableObject
 
     /// <summary>Gets or sets the packed 24-bit colour of a lighting profile.</summary>
     /// <remarks>
-    /// Null for a profile that is not a lighting one. A profile carries a curve or a colour, never
-    /// both: the capability it authors decides which, and storing the unused half would let a
-    /// capability change silently resurrect a value the user set for something else.
+    ///     Null for a profile that is not a lighting one. A profile carries a curve or a colour, never
+    ///     both: the capability it authors decides which, and storing the unused half would let a
+    ///     capability change silently resurrect a value the user set for something else.
     /// </remarks>
     public int? Color
     {
@@ -123,8 +123,8 @@ public sealed class DeviceProfileRowViewModel : ObservableObject
 
     /// <summary>Whether this profile authors a colour.</summary>
     /// <remarks>
-    /// Decided by what the profile actually carries, not by what it lacks. "Has no curve" would
-    /// class a half-built profile as a colour one and put a picker in front of a fan curve.
+    ///     Decided by what the profile actually carries, not by what it lacks. "Has no curve" would
+    ///     class a half-built profile as a colour one and put a picker in front of a fan curve.
     /// </remarks>
     public bool IsColorProfile => _color is not null;
 
@@ -134,23 +134,25 @@ public sealed class DeviceProfileRowViewModel : ObservableObject
     /// <summary>Converts back to the stored shape.</summary>
     /// <returns>The profile to persist.</returns>
     /// <remarks>
-    /// A rename keeps <see cref="ProfileId"/>, which is the entire reason the two are separate: an
-    /// application override points at the id, and renaming a profile must not orphan it.
+    ///     A rename keeps <see cref="ProfileId" />, which is the entire reason the two are separate: an
+    ///     application override points at the id, and renaming a profile must not orphan it.
     /// </remarks>
-    public DeviceAuthoredProfile ToStored() => new()
+    public DeviceAuthoredProfile ToStored()
     {
-        ProfileId = ProfileId,
-        Name = string.IsNullOrWhiteSpace(_name) ? ProfileId : _name,
-        CapabilityId = CapabilityId,
-        Curve =
-        [
-            .. _curve.Select(point => new AuthoredCurvePoint
-            {
-                Input = point.Input,
-                Output = point.Output
-            })
-        ],
-        Color = _color
-    };
-
+        return new DeviceAuthoredProfile
+        {
+            ProfileId = ProfileId,
+            Name = string.IsNullOrWhiteSpace(_name) ? ProfileId : _name,
+            CapabilityId = CapabilityId,
+            Curve =
+            [
+                .. _curve.Select(point => new AuthoredCurvePoint
+                {
+                    Input = point.Input,
+                    Output = point.Output
+                })
+            ],
+            Color = _color
+        };
+    }
 }

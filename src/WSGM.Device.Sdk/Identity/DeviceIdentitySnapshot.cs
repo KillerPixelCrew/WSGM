@@ -3,19 +3,19 @@ using System.Collections.Generic;
 namespace WSGM.Device.Sdk.Identity;
 
 /// <summary>
-/// The normalized machine facts a <c>DeviceDefinition</c>'s identity observations are matched
-/// against.
+///     The normalized machine facts a <c>DeviceDefinition</c>'s identity observations are matched
+///     against.
 /// </summary>
 /// <remarks>
-/// This is the observed half of identity: the manifest declares predicates, this records what the
-/// machine actually reports. Producing it is platform work owned by Device Lab and WSGM's runtime;
-/// the contract only fixes which facts exist and how they compare, so both sides agree on what
-/// "matched" means.
-/// <para>
-/// Every value arrives already normalized through <see cref="IdentityText"/>. Comparison is ordinal
-/// and case-insensitive on the normalized form, so a vendor that changes casing or padding between
-/// firmware revisions does not silently stop matching.
-/// </para>
+///     This is the observed half of identity: the manifest declares predicates, this records what the
+///     machine actually reports. Producing it is platform work owned by Device Lab and WSGM's runtime;
+///     the contract only fixes which facts exist and how they compare, so both sides agree on what
+///     "matched" means.
+///     <para>
+///         Every value arrives already normalized through <see cref="IdentityText" />. Comparison is ordinal
+///         and case-insensitive on the normalized form, so a vendor that changes casing or padding between
+///         firmware revisions does not silently stop matching.
+///     </para>
 /// </remarks>
 public sealed record DeviceIdentitySnapshot
 {
@@ -41,7 +41,7 @@ public sealed record DeviceIdentitySnapshot
     public string? BiosVersion { get; init; }
 
     /// <summary>
-    /// Embedded-controller firmware version, sourced from the vendor provider rather than SMBIOS.
+    ///     Embedded-controller firmware version, sourced from the vendor provider rather than SMBIOS.
     /// </summary>
     public string? EcFirmwareVersion { get; init; }
 
@@ -55,17 +55,17 @@ public sealed record DeviceIdentitySnapshot
     public IReadOnlyList<UsbEndpointObservation> UsbEndpoints { get; init; } = [];
 
     /// <summary>
-    /// Signatures of WMI providers, classes, or methods found present.
+    ///     Signatures of WMI providers, classes, or methods found present.
     /// </summary>
     /// <remarks>
-    /// Presence only. A method being enumerable never authorizes invoking it — the inventory records
-    /// signatures precisely so a definition can gate on availability without anything calling it.
+    ///     Presence only. A method being enumerable never authorizes invoking it — the inventory records
+    ///     signatures precisely so a definition can gate on availability without anything calling it.
     /// </remarks>
     public IReadOnlyList<string> WmiProviderSignatures { get; init; } = [];
 }
 
 /// <summary>
-/// One observed USB endpoint.
+///     One observed USB endpoint.
 /// </summary>
 public sealed record UsbEndpointObservation
 {
@@ -88,15 +88,15 @@ public sealed record UsbEndpointObservation
     public IReadOnlyList<int> ReportLengths { get; init; } = [];
 
     /// <summary>
-    /// Physical USB location path, used to follow this endpoint across re-enumeration.
+    ///     Physical USB location path, used to follow this endpoint across re-enumeration.
     /// </summary>
     /// <remarks>
-    /// Deliberately diagnostic-only and unusable as a package-manifest predicate. A location path
-    /// describes which port a device is plugged into on *this* machine and
-    /// differs between units of the same model, so gating on it would match one developer's unit and
-    /// nothing else. It is the continuation key for hotplug and controller mode changes — the only
-    /// identifier verified stable across a full mode-switch cycle, since container ID is the null
-    /// GUID on the reference hardware and the USB serial exists in only one of the two modes.
+    ///     Deliberately diagnostic-only and unusable as a package-manifest predicate. A location path
+    ///     describes which port a device is plugged into on *this* machine and
+    ///     differs between units of the same model, so gating on it would match one developer's unit and
+    ///     nothing else. It is the continuation key for hotplug and controller mode changes — the only
+    ///     identifier verified stable across a full mode-switch cycle, since container ID is the null
+    ///     GUID on the reference hardware and the USB serial exists in only one of the two modes.
     /// </remarks>
     public string? LocationPath { get; init; }
 }

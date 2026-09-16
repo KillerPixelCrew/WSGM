@@ -17,7 +17,11 @@ public sealed class GameWindowReturnTests
             Assert.Equal(42u, pid);
             foreground = 20; // Steam selected the console; both windows may share the game PID.
             return steam.Task;
-        }, _ => 42, _ => false, hwnd => { foreground = hwnd; return true; }, log.Add);
+        }, _ => 42, _ => false, hwnd =>
+        {
+            foreground = hwnd;
+            return true;
+        }, log.Add);
 
         var work = subject.ReturnAsync(30, 42, CancellationToken.None);
         Assert.Equal(20, foreground);
@@ -34,8 +38,13 @@ public sealed class GameWindowReturnTests
     {
         nint focused = 0;
         var subject = new GameWindowReturn((_, _) => throws
-            ? Task.FromException<bool>(new InvalidOperationException("unavailable")) : Task.FromResult(false),
-            _ => 42, _ => false, hwnd => { focused = hwnd; return true; }, _ => { });
+                ? Task.FromException<bool>(new InvalidOperationException("unavailable"))
+                : Task.FromResult(false),
+            _ => 42, _ => false, hwnd =>
+            {
+                focused = hwnd;
+                return true;
+            }, _ => { });
         await subject.ReturnAsync(30, 42, CancellationToken.None);
         Assert.Equal(30, focused);
     }
@@ -45,8 +54,16 @@ public sealed class GameWindowReturnTests
     {
         var raised = false;
         nint focused = 0;
-        var subject = new GameWindowReturn((_, _) => { raised = true; return Task.FromResult(true); },
-            _ => 42, _ => true, hwnd => { focused = hwnd; return true; }, _ => { });
+        var subject = new GameWindowReturn((_, _) =>
+            {
+                raised = true;
+                return Task.FromResult(true);
+            },
+            _ => 42, _ => true, hwnd =>
+            {
+                focused = hwnd;
+                return true;
+            }, _ => { });
         await subject.ReturnAsync(20, 42, CancellationToken.None);
         Assert.False(raised);
         Assert.Equal(20, focused);
@@ -90,7 +107,11 @@ public sealed class GameWindowReturnTests
         var attempts = 0;
         List<string> log = [];
         var subject = new GameWindowReturn((_, _) => Task.FromResult(true), _ => 42, _ => false,
-            _ => { attempts++; return false; }, log.Add);
+            _ =>
+            {
+                attempts++;
+                return false;
+            }, log.Add);
         await subject.ReturnAsync(30, 42, CancellationToken.None);
         Assert.Equal(1, attempts);
         Assert.Contains(log, line => line.Contains("foreground verified=False", StringComparison.Ordinal));
@@ -107,7 +128,9 @@ public sealed class GameWindowReturnTests
         Assert.Equal(99u, model.Entries[0].ProcessId);
         return;
 
-        static AppSwitcherEntry Create(WindowFinder.AppWindow window) =>
-            new(window.Hwnd, window.Title, false, null) { ProcessId = window.ProcessId };
+        static AppSwitcherEntry Create(WindowFinder.AppWindow window)
+        {
+            return new AppSwitcherEntry(window.Hwnd, window.Title, false, null) { ProcessId = window.ProcessId };
+        }
     }
 }

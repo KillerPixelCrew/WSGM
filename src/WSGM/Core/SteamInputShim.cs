@@ -12,13 +12,17 @@ public enum SteamInputShimVector
     /// <summary>Not deployed under any name.</summary>
     None,
 
-    /// <summary>Deployed as <c>XInput1_4.dll</c>. The primary vector: Steam's SDL
-    /// backend loads XInput by bare name, and it is the name ValvePlug has shipped
-    /// against a live client for years.</summary>
+    /// <summary>
+    ///     Deployed as <c>XInput1_4.dll</c>. The primary vector: Steam's SDL
+    ///     backend loads XInput by bare name, and it is the name ValvePlug has shipped
+    ///     against a live client for years.
+    /// </summary>
     XInput14,
 
-    /// <summary>Deployed as <c>dinput8.dll</c>. The fallback, used when something
-    /// else already owns the primary name.</summary>
+    /// <summary>
+    ///     Deployed as <c>dinput8.dll</c>. The fallback, used when something
+    ///     else already owns the primary name.
+    /// </summary>
     DInput8
 }
 
@@ -34,8 +38,10 @@ public enum SteamInputShimState
     /// <summary>A WSGM-owned shim is in place and matches this build.</summary>
     Deployed,
 
-    /// <summary>A WSGM-owned shim is in place but stale, and Steam has it mapped so
-    /// it could not be replaced. The next cold start replaces it.</summary>
+    /// <summary>
+    ///     A WSGM-owned shim is in place but stale, and Steam has it mapped so
+    ///     it could not be replaced. The next cold start replaces it.
+    /// </summary>
     UpdatePending,
 
     /// <summary>Every candidate name in Steam's directory belongs to another program.</summary>
@@ -54,21 +60,22 @@ public readonly record struct SteamInputShimStatus(
     SteamInputShimVector Vector,
     string? Detail);
 
-/// <summary>Owns the Steam Input shim that lives in Steam's own install directory.
+/// <summary>
+///     Owns the Steam Input shim that lives in Steam's own install directory.
 /// </summary>
 /// <remarks>
-/// The payload is deployed as a search-order proxy DLL so Steam loads it itself and
-/// WSGM never injects. The load-bearing deployment rules — byte-proven ownership,
-/// no move-onto-existing while mapped, cold-start-only replacement — are documented
-/// in Core's <c>AGENTS.md</c> under "Steam Input shim deployment".
+///     The payload is deployed as a search-order proxy DLL so Steam loads it itself and
+///     WSGM never injects. The load-bearing deployment rules — byte-proven ownership,
+///     no move-onto-existing while mapped, cold-start-only replacement — are documented
+///     in Core's <c>AGENTS.md</c> under "Steam Input shim deployment".
 /// </remarks>
 public static class SteamInputShim
 {
     /// <summary>Export name the payload carries, used as proof of ownership.</summary>
     /// <remarks>
-    /// Scanned for as raw bytes rather than parsed out of the PE export table: the
-    /// answer is the same, it avoids a full PE parser for one ownership marker, and no
-    /// foreign controller DLL contains this string.
+    ///     Scanned for as raw bytes rather than parsed out of the PE export table: the
+    ///     answer is the same, it avoids a full PE parser for one ownership marker, and no
+    ///     foreign controller DLL contains this string.
     /// </remarks>
     private const string OwnershipSignature = "WsgmSteamInputGateProxy";
 
@@ -80,10 +87,10 @@ public static class SteamInputShim
 
     /// <summary>Extension of the sidecar carrying the version stamp.</summary>
     /// <remarks>
-    /// The gate also looks for this sidecar beside its own image. When it is present the
-    /// startup trace goes to <see cref="Log.Directory"/>, where <see cref="StartupTracePath"/>
-    /// expects it; without it the trace goes beside the DLL, as in the library's standalone
-    /// download. Renaming the extension moves WSGM's traces into Steam's folder.
+    ///     The gate also looks for this sidecar beside its own image. When it is present the
+    ///     startup trace goes to <see cref="Log.Directory" />, where <see cref="StartupTracePath" />
+    ///     expects it; without it the trace goes beside the DLL, as in the library's standalone
+    ///     download. Renaming the extension moves WSGM's traces into Steam's folder.
     /// </remarks>
     private const string MarkerExtension = ".wsgm-shim";
 
@@ -97,30 +104,21 @@ public static class SteamInputShim
         SteamInputShimVector.DInput8
     ];
 
-    /// <summary>Serializes reconciles: the config watcher and a Settings save can
-    /// both reach this at once, and every operation here is short.</summary>
+    /// <summary>
+    ///     Serializes reconciles: the config watcher and a Settings save can
+    ///     both reach this at once, and every operation here is short.
+    /// </summary>
     private static readonly Lock Sync = new();
 
     private static volatile bool _enabled = true;
+
     private static SteamInputShimStatus _lastStatus =
         new(SteamInputShimState.SteamNotInstalled, SteamInputShimVector.None, null);
-    private static SteamInputShimVector? _loadedVector;
 
-    /// <summary>Mirrors the persisted Steam Input Management setting so this static
-    /// owner can be consulted from code that has no configuration of its own.</summary>
-    /// <param name="enabled">Whether the shim should be deployed.</param>
-    public static void SetEnabled(bool enabled) => _enabled = enabled;
+    private static SteamInputShimVector? _loadedVector;
 
     /// <summary>Gets whether Steam Input Management is on.</summary>
     public static bool Enabled => _enabled;
-
-    /// <summary>Returns the durable startup trace path written by the resident shim
-    /// in one Steam process. A per-process name preserves a failed boot trace when
-    /// the user subsequently starts Steam by hand.</summary>
-    /// <param name="processId">The Steam process identifier.</param>
-    /// <returns>The full per-user trace path.</returns>
-    internal static string StartupTracePath(int processId)
-        => Path.Combine(Log.Directory, $"steam-input-gate-{processId}.log");
 
     /// <summary>Gets the most recent deployment snapshot.</summary>
     public static SteamInputShimStatus LastStatus
@@ -134,8 +132,10 @@ public static class SteamInputShim
         }
     }
 
-    /// <summary>Gets the vector a running Steam was observed to have loaded, or
-    /// <see langword="null"/> when that has never been seen.</summary>
+    /// <summary>
+    ///     Gets the vector a running Steam was observed to have loaded, or
+    ///     <see langword="null" /> when that has never been seen.
+    /// </summary>
     public static SteamInputShimVector? LoadedVector
     {
         get
@@ -147,8 +147,32 @@ public static class SteamInputShim
         }
     }
 
-    /// <summary>Records that a resident shim answered, so the UI can distinguish
-    /// "deployed" from "deployed and actually loaded".</summary>
+    /// <summary>
+    ///     Mirrors the persisted Steam Input Management setting so this static
+    ///     owner can be consulted from code that has no configuration of its own.
+    /// </summary>
+    /// <param name="enabled">Whether the shim should be deployed.</param>
+    public static void SetEnabled(bool enabled)
+    {
+        _enabled = enabled;
+    }
+
+    /// <summary>
+    ///     Returns the durable startup trace path written by the resident shim
+    ///     in one Steam process. A per-process name preserves a failed boot trace when
+    ///     the user subsequently starts Steam by hand.
+    /// </summary>
+    /// <param name="processId">The Steam process identifier.</param>
+    /// <returns>The full per-user trace path.</returns>
+    internal static string StartupTracePath(int processId)
+    {
+        return Path.Combine(Log.Directory, $"steam-input-gate-{processId}.log");
+    }
+
+    /// <summary>
+    ///     Records that a resident shim answered, so the UI can distinguish
+    ///     "deployed" from "deployed and actually loaded".
+    /// </summary>
     /// <param name="vector">The vector that answered.</param>
     public static void RecordLoad(SteamInputShimVector vector)
     {
@@ -158,8 +182,10 @@ public static class SteamInputShim
             {
                 return;
             }
+
             _loadedVector = vector;
         }
+
         Log.Info($"Steam Input shim loaded in Steam via {FileNameFor(vector)}.");
     }
 
@@ -202,21 +228,28 @@ public static class SteamInputShim
 
     /// <summary>The deployed file name for a vector.</summary>
     /// <param name="vector">The vector to name.</param>
-    /// <returns>The file name, or an empty string for <see cref="SteamInputShimVector.None"/>.</returns>
-    internal static string FileNameFor(SteamInputShimVector vector) => vector switch
+    /// <returns>The file name, or an empty string for <see cref="SteamInputShimVector.None" />.</returns>
+    internal static string FileNameFor(SteamInputShimVector vector)
     {
-        SteamInputShimVector.XInput14 => "XInput1_4.dll",
-        SteamInputShimVector.DInput8 => "dinput8.dll",
-        _ => ""
-    };
+        return vector switch
+        {
+            SteamInputShimVector.XInput14 => "XInput1_4.dll",
+            SteamInputShimVector.DInput8 => "dinput8.dll",
+            _ => ""
+        };
+    }
 
     /// <summary>Path of the payload staged beside the running executable.</summary>
-    private static string SourcePath() =>
-        Path.Combine(AppContext.BaseDirectory, PayloadFileName);
+    private static string SourcePath()
+    {
+        return Path.Combine(AppContext.BaseDirectory, PayloadFileName);
+    }
 
-    /// <summary>Reconciles a specific directory. The whole algorithm lives here so it
-    /// can be exercised against a temporary directory instead of a real Steam.</summary>
-    /// <param name="steamDirectory">Steam's install directory, or <see langword="null"/>.</param>
+    /// <summary>
+    ///     Reconciles a specific directory. The whole algorithm lives here so it
+    ///     can be exercised against a temporary directory instead of a real Steam.
+    /// </summary>
+    /// <param name="steamDirectory">Steam's install directory, or <see langword="null" />.</param>
     /// <param name="sourcePath">Path of the payload to deploy.</param>
     /// <param name="enabled">Whether the shim should be deployed.</param>
     /// <param name="reason">Why the reconcile ran; appears in the log.</param>
@@ -232,6 +265,7 @@ public static class SteamInputShim
                 return new SteamInputShimStatus(
                     SteamInputShimState.SteamNotInstalled, SteamInputShimVector.None, null);
             }
+
             if (!IsReparsePoint(steamDirectory))
             {
                 return enabled
@@ -259,7 +293,7 @@ public static class SteamInputShim
     }
 
     /// <summary>Classifies a directory without writing to it.</summary>
-    /// <param name="steamDirectory">Steam's install directory, or <see langword="null"/>.</param>
+    /// <param name="steamDirectory">Steam's install directory, or <see langword="null" />.</param>
     /// <param name="sourcePath">Path of the payload that would be deployed.</param>
     /// <param name="enabled">Whether the shim should be deployed.</param>
     /// <returns>The current deployment snapshot. Never throws.</returns>
@@ -273,6 +307,7 @@ public static class SteamInputShim
                 return new SteamInputShimStatus(
                     SteamInputShimState.SteamNotInstalled, SteamInputShimVector.None, null);
             }
+
             foreach (var vector in Vectors)
             {
                 var deployed = Path.Combine(steamDirectory, FileNameFor(vector));
@@ -280,6 +315,7 @@ public static class SteamInputShim
                 {
                     continue;
                 }
+
                 var state = enabled
                     ? IsStale(sourcePath, deployed, MarkerPath(steamDirectory, vector))
                         ? SteamInputShimState.UpdatePending
@@ -287,6 +323,7 @@ public static class SteamInputShim
                     : SteamInputShimState.Deployed;
                 return new SteamInputShimStatus(state, vector, null);
             }
+
             foreach (var vector in Vectors)
             {
                 if (IsOurs(ParkedPath(steamDirectory, vector)))
@@ -295,6 +332,7 @@ public static class SteamInputShim
                         SteamInputShimState.Disabled, vector, "parked");
                 }
             }
+
             return new SteamInputShimStatus(
                 enabled ? SteamInputShimState.Blocked : SteamInputShimState.Disabled,
                 SteamInputShimVector.None,
@@ -308,7 +346,7 @@ public static class SteamInputShim
     }
 
     /// <summary>Deletes every shim file in a directory that can be proven WSGM's.</summary>
-    /// <param name="steamDirectory">Steam's install directory, or <see langword="null"/>.</param>
+    /// <param name="steamDirectory">Steam's install directory, or <see langword="null" />.</param>
     /// <param name="reason">Why removal ran; appears in the log.</param>
     internal static void RemoveIn(string? steamDirectory, string reason)
     {
@@ -316,6 +354,7 @@ public static class SteamInputShim
         {
             return;
         }
+
         foreach (var vector in Vectors)
         {
             foreach (var path in new[]
@@ -328,6 +367,7 @@ public static class SteamInputShim
                 {
                     continue;
                 }
+
                 try
                 {
                     File.Delete(path);
@@ -344,12 +384,15 @@ public static class SteamInputShim
                     Log.Warn($"Steam Input shim could not be deleted ({ex.Message}).");
                 }
             }
+
             FileCleanup.TryDelete(MarkerPath(steamDirectory, vector));
         }
     }
 
-    /// <summary>Places the shim on the first candidate name that is free or already
-    /// ours, and tidies up any other name we still own.</summary>
+    /// <summary>
+    ///     Places the shim on the first candidate name that is free or already
+    ///     ours, and tidies up any other name we still own.
+    /// </summary>
     private static SteamInputShimStatus Deploy(
         string steamDirectory, string sourcePath, string reason)
     {
@@ -401,7 +444,7 @@ public static class SteamInputShim
 
             try
             {
-                File.Copy(sourcePath, deployed, overwrite: true);
+                File.Copy(sourcePath, deployed, true);
                 WriteMarker(marker, sourcePath, deployed, vector);
                 Log.Info(
                     $"Steam Input shim updated as {FileNameFor(vector)} in {steamDirectory} ({reason}).");
@@ -440,22 +483,28 @@ public static class SteamInputShim
                 {
                     parkedVector = vector;
                 }
+
                 continue;
             }
+
             if (!TryPark(deployed, ParkedPath(steamDirectory, vector)))
             {
                 continue;
             }
+
             parkedVector = vector;
             Log.Info(
                 $"Steam Input shim parked as {Path.GetFileName(ParkedPath(steamDirectory, vector))} (Steam Input Management turned off, {reason}).");
         }
+
         return new SteamInputShimStatus(
             SteamInputShimState.Disabled, parkedVector, null);
     }
 
-    /// <summary>Renames a deployed file aside, clearing a previous parked copy of our
-    /// own first because a move can never replace an existing destination.</summary>
+    /// <summary>
+    ///     Renames a deployed file aside, clearing a previous parked copy of our
+    ///     own first because a move can never replace an existing destination.
+    /// </summary>
     private static bool TryPark(string deployed, string parked)
     {
         try
@@ -464,11 +513,13 @@ public static class SteamInputShim
             {
                 FileCleanup.TryDelete(parked);
             }
+
             if (File.Exists(parked))
             {
                 // Something we do not own sits on the parked name. Leave both alone.
                 return false;
             }
+
             File.Move(deployed, parked);
             return true;
         }
@@ -488,26 +539,29 @@ public static class SteamInputShim
             {
                 continue;
             }
+
             var deployed = Path.Combine(steamDirectory, FileNameFor(vector));
             if (IsOurs(deployed))
             {
                 FileCleanup.TryDelete(deployed);
             }
+
             var parked = ParkedPath(steamDirectory, vector);
             if (IsOurs(parked))
             {
                 FileCleanup.TryDelete(parked);
             }
+
             FileCleanup.TryDelete(MarkerPath(steamDirectory, vector));
         }
     }
 
-    /// <summary>Whether the file at <paramref name="path"/> is a WSGM payload.</summary>
+    /// <summary>Whether the file at <paramref name="path" /> is a WSGM payload.</summary>
     /// <remarks>
-    /// Ownership is proven from the file's own bytes, never from the sidecar marker.
-    /// A marker can be orphaned - the user installs ValvePlug over our copy, or Steam's
-    /// updater replaces it - and trusting it would let WSGM overwrite a file it does
-    /// not own, which is the one outcome this class must never produce.
+    ///     Ownership is proven from the file's own bytes, never from the sidecar marker.
+    ///     A marker can be orphaned - the user installs ValvePlug over our copy, or Steam's
+    ///     updater replaces it - and trusting it would let WSGM overwrite a file it does
+    ///     not own, which is the one outcome this class must never produce.
     /// </remarks>
     private static bool IsOurs(string path)
     {
@@ -517,6 +571,7 @@ public static class SteamInputShim
             {
                 return false;
             }
+
             var signature = Encoding.ASCII.GetBytes(OwnershipSignature);
             var content = File.ReadAllBytes(path);
             return content.AsSpan().IndexOf(signature) >= 0;
@@ -531,9 +586,9 @@ public static class SteamInputShim
 
     /// <summary>Whether the deployed copy no longer matches the staged payload.</summary>
     /// <remarks>
-    /// Answered from two <see cref="FileInfo"/> reads and one short text read rather
-    /// than a hash, because this runs on every Steam cold start. The recorded identity
-    /// of the deployed file is what catches a copy that was replaced underneath us.
+    ///     Answered from two <see cref="FileInfo" /> reads and one short text read rather
+    ///     than a hash, because this runs on every Steam cold start. The recorded identity
+    ///     of the deployed file is what catches a copy that was replaced underneath us.
     /// </remarks>
     private static bool IsStale(string sourcePath, string deployedPath, string markerPath)
     {
@@ -541,69 +596,18 @@ public static class SteamInputShim
         {
             return true;
         }
+
         var source = new FileInfo(sourcePath);
         var deployed = new FileInfo(deployedPath);
         if (!source.Exists || !deployed.Exists)
         {
             return true;
         }
+
         return marker.SourceLength != source.Length
-            || marker.SourceTicks != source.LastWriteTimeUtc.Ticks
-            || marker.DeployedLength != deployed.Length
-            || marker.DeployedTicks != deployed.LastWriteTimeUtc.Ticks;
-    }
-
-    /// <summary>The version stamp recorded beside a deployed shim.</summary>
-    /// <param name="SourceLength">Byte length of the staged payload when it was copied.</param>
-    /// <param name="SourceTicks">Last-write ticks of the staged payload when it was copied.</param>
-    /// <param name="DeployedLength">Byte length of the copy WSGM wrote.</param>
-    /// <param name="DeployedTicks">Last-write ticks of the copy WSGM wrote.</param>
-    /// <param name="Vector">Which name the copy was written under.</param>
-    internal readonly record struct Marker(
-        long SourceLength,
-        long SourceTicks,
-        long DeployedLength,
-        long DeployedTicks,
-        SteamInputShimVector Vector)
-    {
-        /// <summary>Renders the stamp as the single line stored in the sidecar.</summary>
-        /// <returns>The serialized stamp.</returns>
-        public string Format() => string.Join(
-            ' ',
-            $"WSGM-SIM/{MarkerFormatVersion}",
-            SourceLength.ToString(CultureInfo.InvariantCulture),
-            SourceTicks.ToString(CultureInfo.InvariantCulture),
-            DeployedLength.ToString(CultureInfo.InvariantCulture),
-            DeployedTicks.ToString(CultureInfo.InvariantCulture),
-            Vector.ToString());
-
-        /// <summary>Parses a stamp written by <see cref="Format"/>.</summary>
-        /// <param name="line">The serialized stamp.</param>
-        /// <param name="marker">The parsed stamp when parsing succeeded.</param>
-        /// <returns><see langword="true"/> when the line is a stamp this build accepts.</returns>
-        public static bool TryParse(string? line, out Marker marker)
-        {
-            marker = default;
-            if (line is null)
-            {
-                return false;
-            }
-            var parts = line.Trim().Split(' ');
-            if (parts.Length != 6 || parts[0] != $"WSGM-SIM/{MarkerFormatVersion}")
-            {
-                return false;
-            }
-            if (!long.TryParse(parts[1], CultureInfo.InvariantCulture, out var sourceLength)
-                || !long.TryParse(parts[2], CultureInfo.InvariantCulture, out var sourceTicks)
-                || !long.TryParse(parts[3], CultureInfo.InvariantCulture, out var deployedLength)
-                || !long.TryParse(parts[4], CultureInfo.InvariantCulture, out var deployedTicks)
-                || !Enum.TryParse<SteamInputShimVector>(parts[5], out var vector))
-            {
-                return false;
-            }
-            marker = new Marker(sourceLength, sourceTicks, deployedLength, deployedTicks, vector);
-            return true;
-        }
+               || marker.SourceTicks != source.LastWriteTimeUtc.Ticks
+               || marker.DeployedLength != deployed.Length
+               || marker.DeployedTicks != deployed.LastWriteTimeUtc.Ticks;
     }
 
     private static bool TryReadMarker(string markerPath, out Marker marker)
@@ -612,7 +616,7 @@ public static class SteamInputShim
         try
         {
             return File.Exists(markerPath)
-                && Marker.TryParse(File.ReadAllText(markerPath), out marker);
+                   && Marker.TryParse(File.ReadAllText(markerPath), out marker);
         }
         catch
         {
@@ -642,19 +646,25 @@ public static class SteamInputShim
         }
     }
 
-    private static string ParkedPath(string steamDirectory, SteamInputShimVector vector) =>
-        Path.Combine(
+    private static string ParkedPath(string steamDirectory, SteamInputShimVector vector)
+    {
+        return Path.Combine(
             steamDirectory,
             Path.GetFileNameWithoutExtension(FileNameFor(vector)) + ParkedExtension);
+    }
 
-    private static string MarkerPath(string steamDirectory, SteamInputShimVector vector) =>
-        Path.Combine(
+    private static string MarkerPath(string steamDirectory, SteamInputShimVector vector)
+    {
+        return Path.Combine(
             steamDirectory,
             Path.GetFileNameWithoutExtension(FileNameFor(vector)) + MarkerExtension);
+    }
 
-    /// <summary>True when the path is a reparse point, so an elevated write never
-    /// follows a junction planted in a user-writable location. An unreadable
-    /// attribute set counts as one - the safe answer is to refuse.</summary>
+    /// <summary>
+    ///     True when the path is a reparse point, so an elevated write never
+    ///     follows a junction planted in a user-writable location. An unreadable
+    ///     attribute set counts as one - the safe answer is to refuse.
+    /// </summary>
     private static bool IsReparsePoint(string path)
     {
         try
@@ -663,6 +673,65 @@ public static class SteamInputShim
         }
         catch
         {
+            return true;
+        }
+    }
+
+    /// <summary>The version stamp recorded beside a deployed shim.</summary>
+    /// <param name="SourceLength">Byte length of the staged payload when it was copied.</param>
+    /// <param name="SourceTicks">Last-write ticks of the staged payload when it was copied.</param>
+    /// <param name="DeployedLength">Byte length of the copy WSGM wrote.</param>
+    /// <param name="DeployedTicks">Last-write ticks of the copy WSGM wrote.</param>
+    /// <param name="Vector">Which name the copy was written under.</param>
+    internal readonly record struct Marker(
+        long SourceLength,
+        long SourceTicks,
+        long DeployedLength,
+        long DeployedTicks,
+        SteamInputShimVector Vector)
+    {
+        /// <summary>Renders the stamp as the single line stored in the sidecar.</summary>
+        /// <returns>The serialized stamp.</returns>
+        public string Format()
+        {
+            return string.Join(
+                ' ',
+                $"WSGM-SIM/{MarkerFormatVersion}",
+                SourceLength.ToString(CultureInfo.InvariantCulture),
+                SourceTicks.ToString(CultureInfo.InvariantCulture),
+                DeployedLength.ToString(CultureInfo.InvariantCulture),
+                DeployedTicks.ToString(CultureInfo.InvariantCulture),
+                Vector.ToString());
+        }
+
+        /// <summary>Parses a stamp written by <see cref="Format" />.</summary>
+        /// <param name="line">The serialized stamp.</param>
+        /// <param name="marker">The parsed stamp when parsing succeeded.</param>
+        /// <returns><see langword="true" /> when the line is a stamp this build accepts.</returns>
+        public static bool TryParse(string? line, out Marker marker)
+        {
+            marker = default;
+            if (line is null)
+            {
+                return false;
+            }
+
+            var parts = line.Trim().Split(' ');
+            if (parts.Length != 6 || parts[0] != $"WSGM-SIM/{MarkerFormatVersion}")
+            {
+                return false;
+            }
+
+            if (!long.TryParse(parts[1], CultureInfo.InvariantCulture, out var sourceLength)
+                || !long.TryParse(parts[2], CultureInfo.InvariantCulture, out var sourceTicks)
+                || !long.TryParse(parts[3], CultureInfo.InvariantCulture, out var deployedLength)
+                || !long.TryParse(parts[4], CultureInfo.InvariantCulture, out var deployedTicks)
+                || !Enum.TryParse<SteamInputShimVector>(parts[5], out var vector))
+            {
+                return false;
+            }
+
+            marker = new Marker(sourceLength, sourceTicks, deployedLength, deployedTicks, vector);
             return true;
         }
     }

@@ -4,136 +4,151 @@
              xmlns:c="using:WSGM.Controls"
              x:Class="WSGM.Settings.Pages.SteamPage"
              x:DataType="s:SettingsViewModel">
-    <!-- Element order is the controller tab order: Big Picture info → Steam
+  <!-- Element order is the controller tab order: Big Picture info → Steam
          status → auto-relaunch → Steam Input management → UAC → lock-on-wake.
          The CEF integration toggles live on their own Integration tab: with them
          here the right column no longer fits the 1024x640 layout floor. -->
-    <Border Padding="16,10,16,10">
-        <Grid ColumnDefinitions="*,24,*">
-            <StackPanel Grid.Column="0">
-                <Border Classes="section-header">
-                    <TextBlock Text="STEAM" />
-                </Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-                        <!-- Width only: the glyph is wide and short, and a square box
+  <Border Padding="16,10,16,10">
+    <Grid ColumnDefinitions="*,24,*">
+      <StackPanel Grid.Column="0">
+        <Border Classes="section-header">
+          <TextBlock Text="STEAM" />
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+            <!-- Width only: the glyph is wide and short, and a square box
                              would park it against the box's top edge (Avalonia aligns a
                              stretched geometry top-left). -->
-                        <Path Data="{x:Static c:Icons.SteamLike}"
-                              Stroke="{StaticResource HcTextPrimaryBrush}" StrokeThickness="1.8"
-                              Width="20" Stretch="Uniform" VerticalAlignment="Center" />
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Steam Big Picture" Classes="setting-title" />
-                            <TextBlock Text="WSGM starts Steam Big Picture at logon and returns to it when you leave the desktop. Steam is found automatically." Classes="caption" />
-                        </StackPanel>
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row">
-                    <TextBlock Text="{Binding SteamStatusText}" Classes="caption" VerticalAlignment="Center" />
-                </Border>
-
-                <Border Classes="section-header">
-                    <TextBlock Text="SESSION" />
-                </Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Restart Steam when it exits" Classes="setting-title" />
-                            <TextBlock Text="Brings Big Picture back in game mode, or the windowed client in desktop mode. Closing Steam from the overlay is left alone." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamAutoRelaunch}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-
-                <Border Classes="setting-row">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Start Steam unelevated" Classes="setting-title" />
-                            <TextBlock
-                                Text="Runs the whole Steam client at normal integrity so games it starts are not elevated. Off starts Steam at WSGM's own integrity."
-                                TextWrapping="Wrap"
-                                Classes="caption" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamLaunchUnelevated}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-
-                <Border Classes="section-header">
-                    <TextBlock Text="ARTWORK SOURCES" />
-                </Border>
-                <Border Classes="setting-row alt">
-                    <StackPanel Spacing="6">
-                        <TextBlock Text="Change Artwork API key" Classes="setting-title" />
-                        <TextBlock Text="Paste your free SteamGridDB key to enable swapping game art from the overlay (Tools → Change Artwork)."
-                                   Classes="caption" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                            <TextBox x:Name="SteamGridDbKeyBox" Text="{Binding SteamGridDbApiKey}"
-                                     PlaceholderText="SteamGridDB API key" />
-                            <Button Grid.Column="1" Content="Type with controller"
-                                    Click="OnOpenApiKeyKeyboard" />
-                        </Grid>
-                        <TextBlock Text="Get one free at steamgriddb.com/profile/preferences/api"
-                                   Classes="caption" TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
-                <Border Classes="setting-row">
-                    <StackPanel Spacing="6">
-                        <CheckBox Content="Also search Screenscraper.fr"
-                                  IsChecked="{Binding ScreenscraperEnabled}" />
-                        <TextBlock Text="A second artwork source, useful where SteamGridDB has little for a title, and strongest on retro and emulated games. Nothing to set up. Screenscraper allows a limited number of searches per day, counted against your connection unless you sign in; a free screenscraper.fr account below raises that limit and searches faster."
-                                   Classes="caption" TextWrapping="Wrap" />
-                        <TextBox Text="{Binding ScreenscraperUser}" PlaceholderText="Account name (optional)" />
-                        <TextBox Text="{Binding ScreenscraperUserPassword}" PasswordChar="•"
-                                 PlaceholderText="Account password (optional)" />
-                    </StackPanel>
-                </Border>
+            <Path Data="{x:Static c:Icons.SteamLike}"
+                  Stroke="{StaticResource HcTextPrimaryBrush}" StrokeThickness="1.8"
+                  Width="20" Stretch="Uniform" VerticalAlignment="Center" />
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Steam Big Picture" Classes="setting-title" />
+              <TextBlock
+                Text="WSGM starts Steam Big Picture at logon and returns to it when you leave the desktop. Steam is found automatically."
+                Classes="caption" />
             </StackPanel>
+          </Grid>
+        </Border>
+        <Border Classes="setting-row">
+          <TextBlock Text="{Binding SteamStatusText}" Classes="caption" VerticalAlignment="Center" />
+        </Border>
 
-            <StackPanel Grid.Column="2">
-                <Border Classes="section-header">
-                    <TextBlock Text="STEAM INPUT" />
-                </Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Steam Input management" Classes="setting-title" />
-                            <TextBlock Text="Puts a small WSGM file next to Steam so WSGM can take the controller for its own panels without writing into the running Steam. Off leaves Steam's folder alone." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamInputManagementEnabled}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row">
-                    <TextBlock Text="{Binding SteamInputShimStatusText}" Classes="caption" TextWrapping="Wrap" VerticalAlignment="Center" />
-                </Border>
-
-                <Border Classes="section-header">
-                    <TextBlock Text="WINDOWS POLICIES" />
-                </Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Never show UAC prompts on this PC" Classes="setting-title" />
-                            <TextBlock Text="Applies to every administrator account. Enable only on a personal device you trust." Classes="caption" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" x:Name="UacCheckBox" IsChecked="{Binding UacPromptsDisabled, Mode=OneWay}" Click="OnToggleUac" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row">
-                    <TextBlock Text="{Binding UacStatusText}" Classes="caption" VerticalAlignment="Center" />
-                </Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="No lock screen after standby" Classes="setting-title" />
-                            <TextBlock Text="Keep a personal handheld ready after it wakes. Anyone with the device can use the current session." Classes="caption" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" x:Name="LockOnWakeCheckBox" IsChecked="{Binding LockOnWakeDisabled, Mode=OneWay}" Click="OnToggleLockOnWake" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row">
-                    <TextBlock Text="{Binding LockOnWakeStatusText}" Classes="caption" VerticalAlignment="Center" />
-                </Border>
+        <Border Classes="section-header">
+          <TextBlock Text="SESSION" />
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Restart Steam when it exits" Classes="setting-title" />
+              <TextBlock
+                Text="Brings Big Picture back in game mode, or the windowed client in desktop mode. Closing Steam from the overlay is left alone."
+                Classes="caption" TextWrapping="Wrap" />
             </StackPanel>
-        </Grid>
-    </Border>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamAutoRelaunch}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Start Steam unelevated" Classes="setting-title" />
+              <TextBlock
+                Text="Runs the whole Steam client at normal integrity so games it starts are not elevated. Off starts Steam at WSGM's own integrity."
+                TextWrapping="Wrap"
+                Classes="caption" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamLaunchUnelevated}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+
+        <Border Classes="section-header">
+          <TextBlock Text="ARTWORK SOURCES" />
+        </Border>
+        <Border Classes="setting-row alt">
+          <StackPanel Spacing="6">
+            <TextBlock Text="Change Artwork API key" Classes="setting-title" />
+            <TextBlock
+              Text="Paste your free SteamGridDB key to enable swapping game art from the overlay (Tools → Change Artwork)."
+              Classes="caption" TextWrapping="Wrap" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+              <TextBox x:Name="SteamGridDbKeyBox" Text="{Binding SteamGridDbApiKey}"
+                       PlaceholderText="SteamGridDB API key" />
+              <Button Grid.Column="1" Content="Type with controller"
+                      Click="OnOpenApiKeyKeyboard" />
+            </Grid>
+            <TextBlock Text="Get one free at steamgriddb.com/profile/preferences/api"
+                       Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <Border Classes="setting-row">
+          <StackPanel Spacing="6">
+            <CheckBox Content="Also search Screenscraper.fr"
+                      IsChecked="{Binding ScreenscraperEnabled}" />
+            <TextBlock
+              Text="A second artwork source, useful where SteamGridDB has little for a title, and strongest on retro and emulated games. Nothing to set up. Screenscraper allows a limited number of searches per day, counted against your connection unless you sign in; a free screenscraper.fr account below raises that limit and searches faster."
+              Classes="caption" TextWrapping="Wrap" />
+            <TextBox Text="{Binding ScreenscraperUser}" PlaceholderText="Account name (optional)" />
+            <TextBox Text="{Binding ScreenscraperUserPassword}" PasswordChar="•"
+                     PlaceholderText="Account password (optional)" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+
+      <StackPanel Grid.Column="2">
+        <Border Classes="section-header">
+          <TextBlock Text="STEAM INPUT" />
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Steam Input management" Classes="setting-title" />
+              <TextBlock
+                Text="Puts a small WSGM file next to Steam so WSGM can take the controller for its own panels without writing into the running Steam. Off leaves Steam's folder alone."
+                Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamInputManagementEnabled}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row">
+          <TextBlock Text="{Binding SteamInputShimStatusText}" Classes="caption" TextWrapping="Wrap"
+                     VerticalAlignment="Center" />
+        </Border>
+
+        <Border Classes="section-header">
+          <TextBlock Text="WINDOWS POLICIES" />
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Never show UAC prompts on this PC" Classes="setting-title" />
+              <TextBlock Text="Applies to every administrator account. Enable only on a personal device you trust."
+                         Classes="caption" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" x:Name="UacCheckBox" IsChecked="{Binding UacPromptsDisabled, Mode=OneWay}"
+                          Click="OnToggleUac" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row">
+          <TextBlock Text="{Binding UacStatusText}" Classes="caption" VerticalAlignment="Center" />
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="No lock screen after standby" Classes="setting-title" />
+              <TextBlock
+                Text="Keep a personal handheld ready after it wakes. Anyone with the device can use the current session."
+                Classes="caption" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" x:Name="LockOnWakeCheckBox"
+                          IsChecked="{Binding LockOnWakeDisabled, Mode=OneWay}" Click="OnToggleLockOnWake"
+                          VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row">
+          <TextBlock Text="{Binding LockOnWakeStatusText}" Classes="caption" VerticalAlignment="Center" />
+        </Border>
+      </StackPanel>
+    </Grid>
+  </Border>
 </UserControl>

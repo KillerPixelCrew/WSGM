@@ -5,9 +5,9 @@ namespace WSGM.Device.Sdk.Glyphs;
 
 /// <summary>WSGM-owned fixed package layout for profile manifests and hash-addressed artwork.</summary>
 /// <remarks>
-/// Callers must constrain the returned relative path below the already selected immutable package
-/// directory. Display names, labels, source revisions, and notice paths never enter artwork
-/// mapping.
+///     Callers must constrain the returned relative path below the already selected immutable package
+///     directory. Display names, labels, source revisions, and notice paths never enter artwork
+///     mapping.
 /// </remarks>
 public static class GlyphPackageLayout
 {

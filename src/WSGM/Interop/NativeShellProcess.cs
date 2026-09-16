@@ -5,8 +5,10 @@ using System.Threading.Tasks;
 
 namespace WSGM.Interop;
 
-/// <summary>Owns the Win32 process inspection and parent-process launch primitives used to
-/// preserve normal Explorer shell process semantics across game-mode transitions.</summary>
+/// <summary>
+///     Owns the Win32 process inspection and parent-process launch primitives used to
+///     preserve normal Explorer shell process semantics across game-mode transitions.
+/// </summary>
 internal static partial class NativeShellProcess
 {
     private const uint ProcessCreateProcess = 0x0080;
@@ -55,10 +57,12 @@ internal static partial class NativeShellProcess
         }
     }
 
-    /// <summary>Reads a process's full image path, opening it with the limited query right.
-    /// Null when the process cannot be opened or queried — ordinary for an elevated or
-    /// protected process. The one shared image-path primitive for every caller that only
-    /// needs the path, not the full inspection.</summary>
+    /// <summary>
+    ///     Reads a process's full image path, opening it with the limited query right.
+    ///     Null when the process cannot be opened or queried — ordinary for an elevated or
+    ///     protected process. The one shared image-path primitive for every caller that only
+    ///     needs the path, not the full inspection.
+    /// </summary>
     internal static string? TryGetImagePath(uint processId)
     {
         var process = NativeMethods.OpenProcess(ProcessQueryLimitedInformation, false, processId);
@@ -66,6 +70,7 @@ internal static partial class NativeShellProcess
         {
             return null;
         }
+
         try
         {
             return QueryImagePath(process, out _);
@@ -76,8 +81,10 @@ internal static partial class NativeShellProcess
         }
     }
 
-    /// <summary>Opens the process and token rights required to use a verified shell as a
-    /// designated process-creation parent.</summary>
+    /// <summary>
+    ///     Opens the process and token rights required to use a verified shell as a
+    ///     designated process-creation parent.
+    /// </summary>
     /// <param name="processId">Verified taskbar-owner process identifier.</param>
     /// <param name="parent">Owned launch-parent handle on success.</param>
     /// <param name="error">Win32 error on failure.</param>
@@ -110,8 +117,10 @@ internal static partial class NativeShellProcess
         return true;
     }
 
-    /// <summary>Starts a fixed executable with the designated process as its creation parent and
-    /// with the designated parent's user environment.</summary>
+    /// <summary>
+    ///     Starts a fixed executable with the designated process as its creation parent and
+    ///     with the designated parent's user environment.
+    /// </summary>
     /// <param name="parent">The retained canonical shell parent.</param>
     /// <param name="applicationPath">Absolute executable path.</param>
     /// <param name="commandLine">Mutable Windows command line including argv[0].</param>
@@ -162,6 +171,7 @@ internal static partial class NativeShellProcess
                 error = Marshal.GetLastPInvokeError();
                 return false;
             }
+
             attributeListInitialized = true;
 
             var parentHandle = parent.ProcessHandle;
@@ -221,10 +231,12 @@ internal static partial class NativeShellProcess
             {
                 DeleteProcThreadAttributeList(attributeList);
             }
+
             if (attributeList != 0)
             {
                 NativeMemory.Free((void*)attributeList);
             }
+
             if (environment != 0)
             {
                 Win32Common.DestroyEnvironmentBlock(environment);
@@ -314,45 +326,6 @@ internal static partial class NativeShellProcess
         }
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct StartupInfo
-    {
-        internal uint Size;
-        internal nint Reserved;
-        internal nint Desktop;
-        internal nint Title;
-        internal uint X;
-        internal uint Y;
-        internal uint XSize;
-        internal uint YSize;
-        internal uint XCountChars;
-        internal uint YCountChars;
-        internal uint FillAttribute;
-        internal uint Flags;
-        internal ushort ShowWindow;
-        internal ushort Reserved2;
-        internal nint Reserved2Pointer;
-        internal nint StandardInput;
-        internal nint StandardOutput;
-        internal nint StandardError;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct StartupInfoEx
-    {
-        internal StartupInfo StartupInfo;
-        internal nint AttributeList;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct ProcessInformation
-    {
-        internal nint Process;
-        internal nint Thread;
-        internal uint ProcessId;
-        internal uint ThreadId;
-    }
-
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool ProcessIdToSessionId(uint processId, out uint sessionId);
@@ -420,11 +393,15 @@ internal static partial class NativeShellProcess
     }
 
     /// <summary>Gets whether an owned process handle has signaled.</summary>
-    internal static bool HasExited(nint processHandle) =>
-        Win32Common.WaitForSingleObject(processHandle, 0) == WaitObject0;
+    internal static bool HasExited(nint processHandle)
+    {
+        return Win32Common.WaitForSingleObject(processHandle, 0) == WaitObject0;
+    }
 
-    /// <summary>Queries whether a terminal-services session is currently active. Recovery callers
-    /// use this after owner loss so logoff never causes a replacement desktop to be launched.</summary>
+    /// <summary>
+    ///     Queries whether a terminal-services session is currently active. Recovery callers
+    ///     use this after owner loss so logoff never causes a replacement desktop to be launched.
+    /// </summary>
     internal static bool IsSessionActive(int sessionId, out int error)
     {
         if (!Win32Common.WTSQuerySessionInformationW(
@@ -445,6 +422,7 @@ internal static partial class NativeShellProcess
                 error = 13; // ERROR_INVALID_DATA
                 return false;
             }
+
             error = 0;
             return Marshal.ReadInt32(buffer) == 0; // WTSActive
         }
@@ -452,6 +430,45 @@ internal static partial class NativeShellProcess
         {
             Win32Common.WTSFreeMemory(buffer);
         }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct StartupInfo
+    {
+        internal uint Size;
+        internal nint Reserved;
+        internal nint Desktop;
+        internal nint Title;
+        internal uint X;
+        internal uint Y;
+        internal uint XSize;
+        internal uint YSize;
+        internal uint XCountChars;
+        internal uint YCountChars;
+        internal uint FillAttribute;
+        internal uint Flags;
+        internal ushort ShowWindow;
+        internal ushort Reserved2;
+        internal nint Reserved2Pointer;
+        internal nint StandardInput;
+        internal nint StandardOutput;
+        internal nint StandardError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct StartupInfoEx
+    {
+        internal StartupInfo StartupInfo;
+        internal nint AttributeList;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ProcessInformation
+    {
+        internal nint Process;
+        internal nint Thread;
+        internal uint ProcessId;
+        internal uint ThreadId;
     }
 }
 
@@ -465,14 +482,16 @@ internal readonly record struct NativeShellProcessInfo(
     NativeShellProcessErrors Errors)
 {
     /// <summary>Creates an unavailable inspection result.</summary>
-    internal static NativeShellProcessInfo Unavailable(uint processId, int error) =>
-        new(
+    internal static NativeShellProcessInfo Unavailable(uint processId, int error)
+    {
+        return new NativeShellProcessInfo(
             processId,
             null,
             null,
             NativeIntegrityLevel.Unknown,
             NativeJobMembership.Unknown,
             new NativeShellProcessErrors(error, 0, 0, 0, 0));
+    }
 }
 
 /// <summary>Exact Win32 failures produced by each independent process-inspection query.</summary>
@@ -488,14 +507,19 @@ internal enum NativeIntegrityLevel
 {
     /// <summary>The token could not be inspected.</summary>
     Unknown,
+
     /// <summary>Untrusted integrity.</summary>
     Untrusted,
+
     /// <summary>Low integrity.</summary>
     Low,
+
     /// <summary>Medium or medium-plus integrity.</summary>
     Medium,
+
     /// <summary>High integrity.</summary>
     High,
+
     /// <summary>System or protected integrity.</summary>
     System
 }
@@ -505,8 +529,10 @@ internal enum NativeJobMembership
 {
     /// <summary>Windows did not answer the query.</summary>
     Unknown,
+
     /// <summary>The process is not associated with a job.</summary>
     NotInJob,
+
     /// <summary>The process is associated with a job.</summary>
     InJob
 }
@@ -551,8 +577,10 @@ internal sealed class NativeShellLaunchParent : IDisposable
     }
 }
 
-/// <summary>Owns the exact process handle returned by CreateProcessW so a failed anchor startup
-/// can stop only the child it created and cannot act on a recycled process identifier.</summary>
+/// <summary>
+///     Owns the exact process handle returned by CreateProcessW so a failed anchor startup
+///     can stop only the child it created and cannot act on a recycled process identifier.
+/// </summary>
 internal sealed class NativeShellChildProcess : IDisposable
 {
     private nint _processHandle;
@@ -570,6 +598,16 @@ internal sealed class NativeShellChildProcess : IDisposable
     /// <summary>Gets whether the exact created process has exited.</summary>
     internal bool HasExited => _processHandle == 0 || NativeShellProcess.HasExited(_processHandle);
 
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        var process = Interlocked.Exchange(ref _processHandle, 0);
+        if (process != 0)
+        {
+            Win32Common.CloseHandle(process);
+        }
+    }
+
     /// <summary>Waits boundedly for the exact created process to exit.</summary>
     internal Task<bool> WaitForExitAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
@@ -579,21 +617,13 @@ internal sealed class NativeShellChildProcess : IDisposable
             : NativeShellProcess.WaitForExitAsync(handle, timeout, cancellationToken);
     }
 
-    /// <summary>Terminates only the exact owned child. Used solely when anchor setup or its
-    /// authenticated stop handshake failed before the child could be released normally.</summary>
+    /// <summary>
+    ///     Terminates only the exact owned child. Used solely when anchor setup or its
+    ///     authenticated stop handshake failed before the child could be released normally.
+    /// </summary>
     internal bool TryTerminate()
     {
         var handle = _processHandle;
         return handle == 0 || HasExited || NativeShellProcess.TerminateProcess(handle, 1);
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        var process = Interlocked.Exchange(ref _processHandle, 0);
-        if (process != 0)
-        {
-            Win32Common.CloseHandle(process);
-        }
     }
 }

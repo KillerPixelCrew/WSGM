@@ -19,24 +19,14 @@ using WSGM.Themes;
 
 namespace WSGM.Settings;
 
-/// <summary>The interactive settings window for shell and game-mode configuration:
-/// a bumper <see cref="TabStrip"/> over its always-alive pages (toggled by
-/// visibility so their state survives switching) and a bottom status strip.</summary>
+/// <summary>
+///     The interactive settings window for shell and game-mode configuration:
+///     a bumper <see cref="TabStrip" /> over its always-alive pages (toggled by
+///     visibility so their state survives switching) and a bottom status strip.
+/// </summary>
 public partial class SettingsWindow : Window
 {
-    private readonly SettingsViewModel _viewModel;
-    private readonly SettingsWindowServices _services;
-    private readonly GamepadService _gamepad;
-    private readonly Control[] _pages;
-    private GamepadNavigation? _navigation;
-    private OverlayController? _testOverlay;
-    private BootSplashWindow? _splashPreview;
-    private Window? _keyboardDialog;
-    private bool _closed;
-    private IDisposable? _handoffFallback;
-    private IReadOnlyList<SteamAutostartSource> _quickSetupSteamAutostart = [];
-    private bool _quickSetupScanComplete;
-    internal Task SteamAutostartScan { get; private set; } = Task.CompletedTask;
+    private static int _nextLeaseOwnerId;
 
     // When Settings is the focused surface it must hold the Steam
     // Input lease, exactly like the overlay: without it Steam's desktop profile
@@ -55,33 +45,68 @@ public partial class SettingsWindow : Window
     // Big Picture. The reconciler keeps at most one inject/release in flight and
     // re-runs on completion, so rapid focus flips coalesce instead of thrashing.
     private readonly bool _gameModeSurface;
-    private static int _nextLeaseOwnerId;
+    private readonly GamepadService _gamepad;
+
+    private readonly bool _leaseEnabled;
+
     // Owner-scoped, like OverlayController's: the lease is shared static state, so a
     // surface that merely observes IsApplied cannot tell "I hold it" from "someone
     // else does" — and its release then drops the block out from under whichever
     // surface is still on screen; see docs\steam-input.md.
     private readonly string _leaseOwner =
         $"settings-window#{Interlocked.Increment(ref _nextLeaseOwnerId)}";
-    private readonly Lock _leaseSync = new();
+
     private readonly SettingsLeaseReconciler _leaseReconciler = new();
-    private readonly bool _leaseEnabled;
+    private readonly Lock _leaseSync = new();
+    private readonly Control[] _pages;
+    private readonly SettingsWindowServices _services;
+    private readonly SettingsViewModel _viewModel;
+    private int _chordGeneration;
+    private GamepadChordRecorder? _chordRecorder;
+    private bool _closed;
+    private IDisposable? _handoffFallback;
+
+    // Bumped by every arm AND every clear, so the continuation after the arming
+    // delay can tell whether its own request is still the one the user wants.
+    private int _hotkeyGeneration;
+
+    // --- Shortcut recorders (keyboard hotkey + controller chord) ---
+    // The 200 ms arming delay keeps the press that STARTED recording out of the
+    // recording, and the re-check after that delay prevents installing a
+    // low-level keyboard hook with nothing left to dispose it — or one the user
+    // already cancelled.
+    private KeyRecorder? _keyRecorder;
+    private Window? _keyboardDialog;
     private bool _leaseHandoffPending;
+    private GamepadNavigation? _navigation;
+    private bool _quickSetupScanComplete;
+    private IReadOnlyList<SteamAutostartSource> _quickSetupSteamAutostart = [];
+    private BootSplashWindow? _splashPreview;
 
     // In game mode WSGM hosts the only taskbar, and it excludes own-process windows
     // (the overlay/taskbar/tray chrome). This window opts in so it stays reachable
     // after it drops behind Big Picture.
     private nint _switchableHwnd;
+    private OverlayController? _testOverlay;
 
-    /// <summary>Creates the settings window, builds the tab strip and connects
-    /// controller navigation and the shortcut recorders.</summary>
-    /// <param name="gameModeSurface">True when opened as the on-screen surface in
-    /// game mode (from the overlay), which makes the window hold a Steam Input
-    /// lease during the overlay handoff. Every Settings window leases while focused.</param>
+    /// <summary>
+    ///     Creates the settings window, builds the tab strip and connects
+    ///     controller navigation and the shortcut recorders.
+    /// </summary>
+    /// <param name="gameModeSurface">
+    ///     True when opened as the on-screen surface in
+    ///     game mode (from the overlay), which makes the window hold a Steam Input
+    ///     lease during the overlay handoff. Every Settings window leases while focused.
+    /// </param>
     public SettingsWindow(bool gameModeSurface = false)
-        : this(new SettingsViewModel(), gameModeSurface) { }
+        : this(new SettingsViewModel(), gameModeSurface)
+    {
+    }
 
     private SettingsWindow(SettingsViewModel viewModel, bool gameModeSurface)
-        : this(viewModel, SettingsWindowServices.Create(viewModel), gameModeSurface) { }
+        : this(viewModel, SettingsWindowServices.Create(viewModel), gameModeSurface)
+    {
+    }
 
     internal SettingsWindow(SettingsViewModel viewModel, SettingsWindowServices services, bool gameModeSurface = false)
     {
@@ -157,11 +182,13 @@ public partial class SettingsWindow : Window
                 _handoffFallback = DispatcherTimer.RunOnce(
                     CompleteSteamInputLeaseHandoff, TimeSpan.FromSeconds(1));
             }
+
             if (_gameModeSurface)
             {
                 _switchableHwnd = TryGetPlatformHandle()?.Handle ?? 0;
                 WindowFinder.IncludeOwnWindow(_switchableHwnd);
             }
+
             // Brackets the window's lifetime for splash-theme imports: an imported
             // theme's images live in a temp staging directory this process pins open
             // until the matching EndImportSession below, because an unsaved import must
@@ -208,6 +235,7 @@ public partial class SettingsWindow : Window
                 AccentPalette.Apply(
                     app, AccentPalette.Parse(_services.ReadSavedAccent()));
             }
+
             // Recorder disposal keeps its historical slot and order (key recorder
             // first, chord second) so the hooks are gone on every close path.
             _keyRecorder?.Dispose();
@@ -224,9 +252,13 @@ public partial class SettingsWindow : Window
         };
     }
 
-    /// <summary>One selection path for touch, mouse, keyboard and the LB/RB
-    /// shoulder buttons: the TabStrip owns the index, this toggles the
-    /// always-alive pages' visibility.</summary>
+    internal Task SteamAutostartScan { get; private set; } = Task.CompletedTask;
+
+    /// <summary>
+    ///     One selection path for touch, mouse, keyboard and the LB/RB
+    ///     shoulder buttons: the TabStrip owns the index, this toggles the
+    ///     always-alive pages' visibility.
+    /// </summary>
     private void OnTabSelectionChanged(object? sender, TabStripSelectionChangedEventArgs e)
     {
         for (var index = 0; index < _pages.Length; index++)
@@ -241,30 +273,36 @@ public partial class SettingsWindow : Window
     }
 
     private static void FocusFirstControl(Control page)
-        => FocusSearch.FirstNavigable(page)?.Focus(NavigationMethod.Directional);
+    {
+        FocusSearch.FirstNavigable(page)?.Focus(NavigationMethod.Directional);
+    }
 
-    /// <summary>Shows the quick access panel for a local test (called by the
-    /// Quick access page). Uses the real controller so behavior matches shell
-    /// mode exactly; rebuilt for every test so unsaved glyph/input changes take
-    /// effect immediately.</summary>
+    /// <summary>
+    ///     Shows the quick access panel for a local test (called by the
+    ///     Quick access page). Uses the real controller so behavior matches shell
+    ///     mode exactly; rebuilt for every test so unsaved glyph/input changes take
+    ///     effect immediately.
+    /// </summary>
     internal void ShowTestOverlay()
     {
         _testOverlay?.Dispose();
         var config = _viewModel.SnapshotForPreview();
-        _testOverlay = new OverlayController(config, monitor: null, new SessionModes(config, monitor: null),
+        _testOverlay = new OverlayController(config, null, new SessionModes(config, null),
             previewOnly: true);
         _testOverlay.ShowOverlay();
     }
 
-    /// <summary>Raises Quick Setup over the window on a first run, or after a build
-    /// adds a setting that needs an explicit decision.</summary>
+    /// <summary>
+    ///     Raises Quick Setup over the window on a first run, or after a build
+    ///     adds a setting that needs an explicit decision.
+    /// </summary>
     /// <remarks>
-    /// The panel owns input while it is up: the pages behind it are disabled so
-    /// gamepad focus cannot wander into them and answer nothing. Both integrations
-    /// arrive pre-selected because both are what the product expects, but neither is
-    /// applied until Continue - a skipped panel leaves Steam's directory untouched.
-    /// Continue is refused while Steam autostart entries were found and the takeover
-    /// has not been allowed: WSGM cannot own how Steam starts and leave them running.
+    ///     The panel owns input while it is up: the pages behind it are disabled so
+    ///     gamepad focus cannot wander into them and answer nothing. Both integrations
+    ///     arrive pre-selected because both are what the product expects, but neither is
+    ///     applied until Continue - a skipped panel leaves Steam's directory untouched.
+    ///     Continue is refused while Steam autostart entries were found and the takeover
+    ///     has not been allowed: WSGM cannot own how Steam starts and leave them running.
     /// </remarks>
     private void MaybeShowQuickSetup()
     {
@@ -272,6 +310,7 @@ public partial class SettingsWindow : Window
         {
             return;
         }
+
         QuickSetupSteamInput.IsChecked = viewModel.SteamInputManagementEnabled;
         QuickSetupCef.IsChecked = viewModel.CefEnabled;
         QuickSetupStartAtSignIn.IsChecked = viewModel.StartAtSignIn;
@@ -294,41 +333,59 @@ public partial class SettingsWindow : Window
         try
         {
             var sources = await _viewModel.ScanSteamAutostartAsync();
-            if (_closed || !QuickSetupOverlay.IsVisible) { return; }
+            if (_closed || !QuickSetupOverlay.IsVisible)
+            {
+                return;
+            }
+
             _quickSetupSteamAutostart = [.. sources.Where(source => source.Enabled)];
             _quickSetupScanComplete = true;
             QuickSetupScanStatus.IsVisible = false;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            if (_closed || !QuickSetupOverlay.IsVisible) { return; }
+            if (_closed || !QuickSetupOverlay.IsVisible)
+            {
+                return;
+            }
+
             QuickSetupScanStatus.Text = "Could not check how Windows starts Steam. Try again or choose Skip.";
             QuickSetupScanRetry.IsVisible = true;
         }
+
         QuickSetupAutostartRow.IsVisible = _quickSetupSteamAutostart.Count != 0;
         QuickSetupAutostartList.Text = string.Join("\n",
             _quickSetupSteamAutostart.Select(source => "• " + source.Describe()));
         UpdateQuickSetupContinue();
     }
 
-    private void OnQuickSetupScanRetry(object? sender, RoutedEventArgs e) =>
+    private void OnQuickSetupScanRetry(object? sender, RoutedEventArgs e)
+    {
         SteamAutostartScan = ShowFoundSteamAutostartAsync();
+    }
 
-    private void UpdateQuickSetupContinue() => QuickSetupContinueButton.IsEnabled =
-        _quickSetupScanComplete && (_quickSetupSteamAutostart.Count == 0 || QuickSetupAutostart.IsChecked == true);
+    private void UpdateQuickSetupContinue()
+    {
+        QuickSetupContinueButton.IsEnabled =
+            _quickSetupScanComplete && (_quickSetupSteamAutostart.Count == 0 || QuickSetupAutostart.IsChecked == true);
+    }
 
-    private void OnQuickSetupContinue(object? sender, RoutedEventArgs e) =>
+    private void OnQuickSetupContinue(object? sender, RoutedEventArgs e)
+    {
         CompleteQuickSetup(
             QuickSetupSteamInput.IsChecked == true, QuickSetupCef.IsChecked == true,
             QuickSetupStartAtSignIn.IsChecked == true, QuickSetupStartMode.SelectedIndex,
             QuickSetupAutostart.IsChecked == true);
+    }
 
-    private void OnQuickSetupSkip(object? sender, RoutedEventArgs e) =>
+    private void OnQuickSetupSkip(object? sender, RoutedEventArgs e)
+    {
         // Skipping is a decision, not a deferral: nothing gets written into Steam's
         // directory or its debug port, no startup entry is touched, and WSGM does not
         // arrange to start itself.
-        CompleteQuickSetup(steamInput: false, cef: false, startAtSignIn: false,
-            startModeIndex: (int)SessionStartMode.Game, takeSteamAutostart: false);
+        CompleteQuickSetup(false, false, false,
+            (int)SessionStartMode.Game, false);
+    }
 
     private void CompleteQuickSetup(
         bool steamInput, bool cef, bool startAtSignIn, int startModeIndex, bool takeSteamAutostart)
@@ -339,6 +396,7 @@ public partial class SettingsWindow : Window
         {
             return;
         }
+
         viewModel.SteamInputManagementEnabled = steamInput;
         viewModel.CefEnabled = cef;
         viewModel.StartAtSignIn = startAtSignIn;
@@ -360,40 +418,59 @@ public partial class SettingsWindow : Window
         }
     }
 
-    /// <summary>Keeps the page controls inert while either Quick Setup owns input or a
-    /// save is persisting its immutable snapshot. This prevents a post-capture edit
-    /// from being followed by a misleading "Saved" acknowledgement.</summary>
-    private void UpdateSettingsEnabled() =>
+    /// <summary>
+    ///     Keeps the page controls inert while either Quick Setup owns input or a
+    ///     save is persisting its immutable snapshot. This prevents a post-capture edit
+    ///     from being followed by a misleading "Saved" acknowledgement.
+    /// </summary>
+    private void UpdateSettingsEnabled()
+    {
         SettingsRoot.IsEnabled = !_viewModel.IsSaving && !QuickSetupOverlay.IsVisible;
+    }
 
-    /// <summary>Whether the unsaved glyph selection is the Nintendo family, whose
-    /// A/B labels are swapped relative to Xbox — shared by every
-    /// <see cref="GamepadNavigation"/> this window creates.</summary>
-    private bool IsNintendoLayout() => _viewModel.GlyphStyleIndex == 2;
+    /// <summary>
+    ///     Whether the unsaved glyph selection is the Nintendo family, whose
+    ///     A/B labels are swapped relative to Xbox — shared by every
+    ///     <see cref="GamepadNavigation" /> this window creates.
+    /// </summary>
+    private bool IsNintendoLayout()
+    {
+        return _viewModel.GlyphStyleIndex == 2;
+    }
 
-    /// <summary>Creates the controller navigation attached to this window
-    /// (initial Opened wiring and restoration after a splash preview closes).</summary>
-    private GamepadNavigation CreateWindowNavigation() => new(_gamepad, this, back: BackOrClose,
-        isNintendoLayout: IsNintendoLayout,
-        tabPrevious: Tabs.SelectPrevious,
-        tabNext: Tabs.SelectNext);
+    /// <summary>
+    ///     Creates the controller navigation attached to this window
+    ///     (initial Opened wiring and restoration after a splash preview closes).
+    /// </summary>
+    private GamepadNavigation CreateWindowNavigation()
+    {
+        return new GamepadNavigation(_gamepad, this, BackOrClose,
+            IsNintendoLayout,
+            tabPrevious: Tabs.SelectPrevious,
+            tabNext: Tabs.SelectNext);
+    }
 
-    /// <summary>The controller Back action. A color-picker flyout the Appearance
-    /// page has open takes B first: its content lives in a popup root that
-    /// gamepad navigation cannot enter, so without this B would close the whole
-    /// window and discard every unsaved edit on every page.</summary>
+    /// <summary>
+    ///     The controller Back action. A color-picker flyout the Appearance
+    ///     page has open takes B first: its content lives in a popup root that
+    ///     gamepad navigation cannot enter, so without this B would close the whole
+    ///     window and discard every unsaved edit on every page.
+    /// </summary>
     private void BackOrClose()
     {
         if (PageAppearance.TryCloseColorFlyout())
         {
             return;
         }
+
         Close();
     }
 
-    /// <summary>Routes a keyboard Escape through the same Back action the controller's
-    /// B button uses, so an open colour flyout is closed first rather than the whole
-    /// window with every unsaved edit on it.</summary>
+    /// <summary>
+    ///     Routes a keyboard Escape through the same Back action the controller's
+    ///     B button uses, so an open colour flyout is closed first rather than the whole
+    ///     window with every unsaved edit on it.
+    /// </summary>
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key == Key.Escape)
@@ -402,15 +479,17 @@ public partial class SettingsWindow : Window
         }
     }
 
-    /// <summary>Opens the on-screen keyboard for a text box in its own dialog and
-    /// moves controller navigation onto it (called by the Steam page for the
-    /// SteamGridDB key). The window owns this because it owns the gamepad service
-    /// and the navigation swap: the keyboard's keys are only reachable by pad once
-    /// a <see cref="GamepadNavigation"/> is attached to THAT window, and this
-    /// window's own navigation has to be parked meanwhile — Avalonia's modal
-    /// dialog disables the owner at the Win32 level only, so its controls stay
-    /// effectively enabled and a pad press would otherwise still act on the page
-    /// behind the dialog (a machine-policy toggle sits there).</summary>
+    /// <summary>
+    ///     Opens the on-screen keyboard for a text box in its own dialog and
+    ///     moves controller navigation onto it (called by the Steam page for the
+    ///     SteamGridDB key). The window owns this because it owns the gamepad service
+    ///     and the navigation swap: the keyboard's keys are only reachable by pad once
+    ///     a <see cref="GamepadNavigation" /> is attached to THAT window, and this
+    ///     window's own navigation has to be parked meanwhile — Avalonia's modal
+    ///     dialog disables the owner at the Win32 level only, so its controls stay
+    ///     effectively enabled and a pad press would otherwise still act on the page
+    ///     behind the dialog (a machine-policy toggle sits there).
+    /// </summary>
     /// <param name="target">The text box the keystrokes are typed into.</param>
     /// <param name="title">The dialog window title.</param>
     internal void ShowOnScreenKeyboard(TextBox target, string title)
@@ -430,8 +509,10 @@ public partial class SettingsWindow : Window
             });
     }
 
-    /// <summary>Opens the controller keyboard for a value that has no fixed TextBox,
-    /// such as a row created from a plugin manifest.</summary>
+    /// <summary>
+    ///     Opens the controller keyboard for a value that has no fixed TextBox,
+    ///     such as a row created from a plugin manifest.
+    /// </summary>
     /// <param name="initialValue">Initial text shown to the user.</param>
     /// <param name="maximumLength">Hard input bound.</param>
     /// <param name="title">Dialog title.</param>
@@ -492,6 +573,7 @@ public partial class SettingsWindow : Window
                     validation.IsVisible = true;
                     return;
                 }
+
                 window.Close();
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -505,8 +587,8 @@ public partial class SettingsWindow : Window
         window.Opened += (_, _) =>
         {
             _navigation?.IsEnabled = false;
-            keyboardNavigation = new GamepadNavigation(_gamepad, window, back: window.Close,
-                isNintendoLayout: IsNintendoLayout);
+            keyboardNavigation = new GamepadNavigation(_gamepad, window, window.Close,
+                IsNintendoLayout);
         };
         window.Closed += (_, _) =>
         {
@@ -517,6 +599,7 @@ public partial class SettingsWindow : Window
             {
                 _keyboardDialog = null;
             }
+
             // Same re-evaluation the splash preview does on close, in case focus
             // did not return to this window.
             UpdateLeaseDesired();
@@ -530,41 +613,51 @@ public partial class SettingsWindow : Window
         _ = window.ShowDialog(this);
     }
 
-    /// <summary>Whether the lease should be held right now: with
-    /// the user opt-in, while this window is open, not minimized, and either active
-    /// or driving one of its child surfaces (the splash preview, the on-screen
-    /// keyboard dialog) by pad. Reads UI state — UI thread only.</summary>
+    /// <summary>
+    ///     Whether the lease should be held right now: with
+    ///     the user opt-in, while this window is open, not minimized, and either active
+    ///     or driving one of its child surfaces (the splash preview, the on-screen
+    ///     keyboard dialog) by pad. Reads UI state — UI thread only.
+    /// </summary>
     private bool ShouldHoldLease()
-        => SettingsLeaseReconciler.ShouldHold(
+    {
+        return SettingsLeaseReconciler.ShouldHold(
             _leaseEnabled,
             _closed,
             WindowState == WindowState.Minimized,
             IsActive,
             _splashPreview is not null || _keyboardDialog is not null,
             _leaseHandoffPending);
+    }
 
-    /// <summary>Ends the short focus exemption used while the overlay's deferred
-    /// close still overlaps this window. The overlay calls this after relinquishing
-    /// its owner name; the Opened fallback also calls it if that close was cancelled.</summary>
+    /// <summary>
+    ///     Ends the short focus exemption used while the overlay's deferred
+    ///     close still overlaps this window. The overlay calls this after relinquishing
+    ///     its owner name; the Opened fallback also calls it if that close was cancelled.
+    /// </summary>
     internal void CompleteSteamInputLeaseHandoff()
     {
         if (!_gameModeSurface)
         {
             return;
         }
+
         _leaseHandoffPending = false;
         UpdateLeaseDesired();
     }
 
-    /// <summary>Takes over the lease the sidebar handed off. It is already held, so
-    /// this is a no-op that avoids releasing/re-injecting (the churn); the reconcile
-    /// only acts if the handoff lease was somehow absent. UI thread.</summary>
+    /// <summary>
+    ///     Takes over the lease the sidebar handed off. It is already held, so
+    ///     this is a no-op that avoids releasing/re-injecting (the churn); the reconcile
+    ///     only acts if the handoff lease was somehow absent. UI thread.
+    /// </summary>
     private void InheritSteamInputLease()
     {
         if (!_gameModeSurface || !_leaseEnabled)
         {
             return;
         }
+
         // Register before the overlay's deferred close relinquishes its owner name.
         // ClaimFor is deliberately claim-only: a cold injection belongs on the
         // reconciler's worker, never the UI thread. With a live handoff, this name
@@ -579,11 +672,14 @@ public partial class SettingsWindow : Window
             // takes the native-operation lock and can stall this UI behind a pipe timeout.
             action = _leaseReconciler.InheritClaim();
         }
+
         RunLeaseAction(action);
     }
 
-    /// <summary>Recomputes whether the lease is wanted and kicks the reconciler.
-    /// Called on every focus, window-state and child-surface change (UI thread).</summary>
+    /// <summary>
+    ///     Recomputes whether the lease is wanted and kicks the reconciler.
+    ///     Called on every focus, window-state and child-surface change (UI thread).
+    /// </summary>
     private void UpdateLeaseDesired()
     {
         SettingsLeaseAction action;
@@ -591,12 +687,15 @@ public partial class SettingsWindow : Window
         {
             action = _leaseReconciler.SetDesired(ShouldHoldLease());
         }
+
         RunLeaseAction(action);
     }
 
-    /// <summary>Runs the next state-machine action. The reconciler marks the action
-    /// busy before returning it, so scheduling outside the state lock cannot admit
-    /// a second acquire or release.</summary>
+    /// <summary>
+    ///     Runs the next state-machine action. The reconciler marks the action
+    ///     busy before returning it, so scheduling outside the state lock cannot admit
+    ///     a second acquire or release.
+    /// </summary>
     private void RunLeaseAction(SettingsLeaseAction action)
     {
         _ = action switch
@@ -621,6 +720,7 @@ public partial class SettingsWindow : Window
             // a later deactivate/close always removes it.
             action = _leaseReconciler.CompleteAcquireFor();
         }
+
         RunLeaseAction(action);
     }
 
@@ -634,20 +734,23 @@ public partial class SettingsWindow : Window
         {
             action = _leaseReconciler.CompleteRelease();
         }
+
         // Focus may have returned during release — re-acquire if so.
         RunLeaseAction(action);
     }
 
-    /// <summary>Shows the boot-splash preview (called by the Appearance page) and
-    /// swaps controller navigation onto the preview window so B closes the preview
-    /// instead of Settings; navigation returns here when the preview closes. The
-    /// preview never outlives this window (see the Closed handler).</summary>
+    /// <summary>
+    ///     Shows the boot-splash preview (called by the Appearance page) and
+    ///     swaps controller navigation onto the preview window so B closes the preview
+    ///     instead of Settings; navigation returns here when the preview closes. The
+    ///     preview never outlives this window (see the Closed handler).
+    /// </summary>
     internal void ShowSplashPreview(SplashConfig splash)
     {
         // Closing a previous preview restores window navigation via its Closed
         // handler before the swap below moves it to the new preview.
         _splashPreview?.Close();
-        var preview = new BootSplashWindow(splash, preview: true);
+        var preview = new BootSplashWindow(splash, true);
         _splashPreview = preview;
         // The preview has no boot flow to hand off to — the desktop button just
         // dismisses it (otherwise the preview's most prominent, focused control
@@ -659,6 +762,7 @@ public partial class SettingsWindow : Window
             {
                 return;
             }
+
             _splashPreview = null;
             _navigation?.Dispose();
             _navigation = _closed ? null : CreateWindowNavigation();
@@ -670,31 +774,25 @@ public partial class SettingsWindow : Window
         // fully controller-navigable (the page's catch reports the error).
         preview.Show();
         _navigation?.Dispose();
-        _navigation = new GamepadNavigation(_gamepad, preview, back: preview.Close,
-            isNintendoLayout: IsNintendoLayout,
-            preferredFocus: () => preview.DefaultFocusTarget);
+        _navigation = new GamepadNavigation(_gamepad, preview, preview.Close,
+            IsNintendoLayout,
+            () => preview.DefaultFocusTarget);
     }
 
-    // --- Shortcut recorders (keyboard hotkey + controller chord) ---
-    // The 200 ms arming delay keeps the press that STARTED recording out of the
-    // recording, and the re-check after that delay prevents installing a
-    // low-level keyboard hook with nothing left to dispose it — or one the user
-    // already cancelled.
-    private KeyRecorder? _keyRecorder;
-    private GamepadChordRecorder? _chordRecorder;
-
-    // Bumped by every arm AND every clear, so the continuation after the arming
-    // delay can tell whether its own request is still the one the user wants.
-    private int _hotkeyGeneration;
-    private int _chordGeneration;
-
     /// <summary>Starts hotkey recording (called by the Quick access page).</summary>
-    internal void RecordHotkey() => Observe(ArmHotkeyRecorder(), "Hotkey recording");
+    internal void RecordHotkey()
+    {
+        Observe(ArmHotkeyRecorder(), "Hotkey recording");
+    }
 
-    /// <summary>Arms keyboard-shortcut recording (200 ms delayed, cancel- and
-    /// closed-window safe).</summary>
-    /// <returns>A task that completes once the recorder is armed, or once this
-    /// request has been superseded.</returns>
+    /// <summary>
+    ///     Arms keyboard-shortcut recording (200 ms delayed, cancel- and
+    ///     closed-window safe).
+    /// </summary>
+    /// <returns>
+    ///     A task that completes once the recorder is armed, or once this
+    ///     request has been superseded.
+    /// </returns>
     private async Task ArmHotkeyRecorder()
     {
         // Small delay so the key/controller press that started recording (Enter, A)
@@ -725,8 +823,10 @@ public partial class SettingsWindow : Window
         _keyRecorder.Start();
     }
 
-    /// <summary>Clears the recorded hotkey and stops any active recording
-    /// (called by the Quick access page).</summary>
+    /// <summary>
+    ///     Clears the recorded hotkey and stops any active recording
+    ///     (called by the Quick access page).
+    /// </summary>
     internal void ClearHotkey()
     {
         _hotkeyGeneration++;
@@ -736,12 +836,19 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>Starts controller-chord recording (called by the Quick access page).</summary>
-    internal void RecordChord() => Observe(ArmChordRecorder(), "Chord recording");
+    internal void RecordChord()
+    {
+        Observe(ArmChordRecorder(), "Chord recording");
+    }
 
-    /// <summary>Arms controller-chord recording (200 ms delayed, cancel- and
-    /// closed-window safe).</summary>
-    /// <returns>A task that completes once the recorder is armed, or once this
-    /// request has been superseded.</returns>
+    /// <summary>
+    ///     Arms controller-chord recording (200 ms delayed, cancel- and
+    ///     closed-window safe).
+    /// </summary>
+    /// <returns>
+    ///     A task that completes once the recorder is armed, or once this
+    ///     request has been superseded.
+    /// </returns>
     private async Task ArmChordRecorder()
     {
         _viewModel.SetChordRecording(true);
@@ -767,19 +874,25 @@ public partial class SettingsWindow : Window
         _chordRecorder.Start();
     }
 
-    /// <summary>Observes an armed recorder: the recorders are manager operations,
-    /// not framework event handlers, so a throw after their arming delay is logged
-    /// here instead of reaching the dispatcher unobserved (which in the shell
-    /// process is a crash rather than a reported failure).</summary>
-    private static void Observe(Task task, string operation) =>
+    /// <summary>
+    ///     Observes an armed recorder: the recorders are manager operations,
+    ///     not framework event handlers, so a throw after their arming delay is logged
+    ///     here instead of reaching the dispatcher unobserved (which in the shell
+    ///     process is a crash rather than a reported failure).
+    /// </summary>
+    private static void Observe(Task task, string operation)
+    {
         task.ContinueWith(
             t => Log.Error($"{operation} failed", t.Exception!),
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted,
             TaskScheduler.Default);
+    }
 
-    /// <summary>Clears the recorded chord and stops any active recording
-    /// (called by the Quick access page).</summary>
+    /// <summary>
+    ///     Clears the recorded chord and stops any active recording
+    ///     (called by the Quick access page).
+    /// </summary>
     internal void ClearChord()
     {
         _chordGeneration++;

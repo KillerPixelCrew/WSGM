@@ -3,18 +3,22 @@ using System.IO;
 
 namespace WSGM.Core;
 
-/// <summary>Projects the current config into boot.json for the logon service
-/// (WSGM-side only — the shared contract lives in Core\BootManifest). Called on
-/// --setup, on settings saves that touch the inputs, and at every shell/boot
-/// start so a stale Elevate/ExePath heals itself on the next session.</summary>
+/// <summary>
+///     Projects the current config into boot.json for the logon service
+///     (WSGM-side only — the shared contract lives in Core\BootManifest). Called on
+///     --setup, on settings saves that touch the inputs, and at every shell/boot
+///     start so a stale Elevate/ExePath heals itself on the next session.
+/// </summary>
 public static class BootManifestWriter
 {
     /// <summary>Absolute path of the per-user boot manifest.</summary>
     private static string ManifestPath => Path.Combine(Log.Directory, BootManifestStore.FileName);
 
-    /// <summary>Writes boot.json from <paramref name="config"/>. Best effort: a
-    /// failed write only logs — the service then skips the next logon, which is
-    /// recoverable, unlike a crashed setup/boot path.</summary>
+    /// <summary>
+    ///     Writes boot.json from <paramref name="config" />. Best effort: a
+    ///     failed write only logs — the service then skips the next logon, which is
+    ///     recoverable, unlike a crashed setup/boot path.
+    /// </summary>
     public static void WriteCurrent(AppConfig config)
     {
         try
@@ -29,7 +33,7 @@ public static class BootManifestWriter
             };
             BootManifestStore.Save(ManifestPath, manifest);
             Log.Info($"Boot manifest written: game={manifest.GameModeBoot} desktop={manifest.DesktopResident} "
-                + $"elevate={manifest.Elevate} exe={manifest.ExePath}");
+                     + $"elevate={manifest.Elevate} exe={manifest.ExePath}");
         }
         catch (Exception ex)
         {
@@ -37,9 +41,11 @@ public static class BootManifestWriter
         }
     }
 
-    /// <summary>Rewrites boot.json with the sign-in start disabled. Used by the crash-loop breaker
-    /// and the restore-shell escape hatch so the next sign-in is a plain Windows desktop even when
-    /// config.json cannot be saved.</summary>
+    /// <summary>
+    ///     Rewrites boot.json with the sign-in start disabled. Used by the crash-loop breaker
+    ///     and the restore-shell escape hatch so the next sign-in is a plain Windows desktop even when
+    ///     config.json cannot be saved.
+    /// </summary>
     /// <param name="config">The configuration to disarm and project.</param>
     public static void WriteSignInDisabled(AppConfig config)
     {

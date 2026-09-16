@@ -9,10 +9,12 @@ public sealed class LaunchWrapperTests
     // message to fail open when de-elevation is impossible (UAC switched off).
     [Fact]
     public void TheDisabledUacFailureMessageCarriesTheMarkerTheParentMatches()
-        => Assert.Contains(
+    {
+        Assert.Contains(
             WSGM.Launch.Program.NoMediumTokenMarker,
             WSGM.Launch.Program.DisabledUacFailureMessage,
             StringComparison.Ordinal);
+    }
 
     [Fact]
     public async Task LaunchPayloadRoundTripsArgumentsEnvironmentAndWorkingDirectory()
@@ -60,6 +62,7 @@ public sealed class LaunchWrapperTests
                         "An unrelated child environment entry changed.");
                 }
             }
+
             Assert.Contains(KeyValuePair.Create("SteamAppId", "1234"), received.EnvironmentVariables);
             Assert.Equal(["game.exe", "雪"], received.Arguments);
             Assert.Equal("0x28de/0x1205", Environment.GetEnvironmentVariable(exclusionName));
@@ -168,23 +171,29 @@ public sealed class LaunchWrapperTests
     // token could have produced a medium child, so the report is a lie there.
     [Fact]
     public void ShouldFailOpen_MarkerReportedWhileThisProcessHasASplitToken_RefusesToLaunch()
-        => Assert.False(WSGM.Launch.Program.ShouldFailOpen(
-            WSGM.Launch.Program.DisabledUacFailureMessage, hasLinkedLimitedToken: true));
+    {
+        Assert.False(WSGM.Launch.Program.ShouldFailOpen(
+            WSGM.Launch.Program.DisabledUacFailureMessage, true));
+    }
 
     // UAC off, and equally a built-in Administrator or a standard user: no linked
     // limited token exists, so de-elevation really is impossible and the game must
     // still start (the device case the fail-open was added for).
     [Fact]
     public void ShouldFailOpen_MarkerReportedWithoutALinkedLimitedToken_LaunchesTheGame()
-        => Assert.True(WSGM.Launch.Program.ShouldFailOpen(
-            WSGM.Launch.Program.DisabledUacFailureMessage, hasLinkedLimitedToken: false));
+    {
+        Assert.True(WSGM.Launch.Program.ShouldFailOpen(
+            WSGM.Launch.Program.DisabledUacFailureMessage, false));
+    }
 
     // An unqueryable token is not evidence of an attack; keep failing open so a
     // token query that fails can never make every wrapped game unlaunchable.
     [Fact]
     public void ShouldFailOpen_MarkerReportedWithAnUnqueryableToken_LaunchesTheGame()
-        => Assert.True(WSGM.Launch.Program.ShouldFailOpen(
-            WSGM.Launch.Program.DisabledUacFailureMessage, hasLinkedLimitedToken: null));
+    {
+        Assert.True(WSGM.Launch.Program.ShouldFailOpen(
+            WSGM.Launch.Program.DisabledUacFailureMessage, null));
+    }
 
     [Theory]
     [InlineData(true)]
@@ -192,8 +201,10 @@ public sealed class LaunchWrapperTests
     [InlineData(null)]
     public void ShouldFailOpen_OrdinaryFailureWithAnyTokenState_RefusesToLaunch(
         bool? hasLinkedLimitedToken)
-        => Assert.False(WSGM.Launch.Program.ShouldFailOpen(
+    {
+        Assert.False(WSGM.Launch.Program.ShouldFailOpen(
             "Process.Start returned no process.", hasLinkedLimitedToken));
+    }
 
     // A peer that embeds the marker in arbitrary text still gets nowhere while the
     // parent's own token says de-elevation was available.
@@ -204,6 +215,6 @@ public sealed class LaunchWrapperTests
         string error)
     {
         Assert.Contains(WSGM.Launch.Program.NoMediumTokenMarker, error, StringComparison.Ordinal);
-        Assert.False(WSGM.Launch.Program.ShouldFailOpen(error, hasLinkedLimitedToken: true));
+        Assert.False(WSGM.Launch.Program.ShouldFailOpen(error, true));
     }
 }

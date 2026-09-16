@@ -6,7 +6,10 @@ internal sealed class GlyphTestPackageSource(
     string profileId,
     IReadOnlyDictionary<string, byte[]> files) : IGlyphPackageSource
 {
-    public IReadOnlyList<string> EnumerateProfileIds() => [profileId];
+    public IReadOnlyList<string> EnumerateProfileIds()
+    {
+        return [profileId];
+    }
 
     public bool TryRead(string relativePath, int maximumBytes, out byte[] bytes)
     {

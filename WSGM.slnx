@@ -1,30 +1,30 @@
 <Solution>
   <Folder Name="/external/">
-    <Project Path="external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiToolkit.csproj" />
-    <Project Path="external/windows-device-control/src/WindowsDeviceControl/WindowsDeviceControl.csproj" />
+    <Project Path="external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiToolkit.csproj"/>
+    <Project Path="external/windows-device-control/src/WindowsDeviceControl/WindowsDeviceControl.csproj"/>
   </Folder>
   <Folder Name="/src/">
-    <Project Path="src/WSGM/WSGM.csproj" />
-    <Project Path="src/WSGM.Device.Asus.RogAllyX/WSGM.Device.Asus.RogAllyX.csproj" />
-    <Project Path="src/WSGM.Device.HandheldCompanion/WSGM.Device.HandheldCompanion.csproj" />
-    <Project Path="src/WSGM.Device.Msi.Claw8A2Vm/WSGM.Device.Msi.Claw8A2Vm.csproj" />
-    <Project Path="src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj" />
-    <Project Path="src/WSGM.Plugin.Sdk/WSGM.Plugin.Sdk.csproj" />
-    <Project Path="src/WSGM.Plugin.Ir/WSGM.Plugin.Ir.csproj" />
-    <Project Path="src/WSGM.DeviceLab/WSGM.DeviceLab.csproj" />
-    <Project Path="src/WSGM.Launch/WSGM.Launch.csproj" />
-    <Project Path="src/WSGM.LogonService/WSGM.LogonService.csproj" />
+    <Project Path="src/WSGM/WSGM.csproj"/>
+    <Project Path="src/WSGM.Device.Asus.RogAllyX/WSGM.Device.Asus.RogAllyX.csproj"/>
+    <Project Path="src/WSGM.Device.HandheldCompanion/WSGM.Device.HandheldCompanion.csproj"/>
+    <Project Path="src/WSGM.Device.Msi.Claw8A2Vm/WSGM.Device.Msi.Claw8A2Vm.csproj"/>
+    <Project Path="src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj"/>
+    <Project Path="src/WSGM.Plugin.Sdk/WSGM.Plugin.Sdk.csproj"/>
+    <Project Path="src/WSGM.Plugin.Ir/WSGM.Plugin.Ir.csproj"/>
+    <Project Path="src/WSGM.DeviceLab/WSGM.DeviceLab.csproj"/>
+    <Project Path="src/WSGM.Launch/WSGM.Launch.csproj"/>
+    <Project Path="src/WSGM.LogonService/WSGM.LogonService.csproj"/>
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/WSGM.Tests/WSGM.Tests.csproj" />
-    <Project Path="tests/WSGM.Device.HandheldCompanion.Tests/WSGM.Device.HandheldCompanion.Tests.csproj" />
-    <Project Path="tests/WSGM.Device.Msi.Claw8A2Vm.Tests/WSGM.Device.Msi.Claw8A2Vm.Tests.csproj" />
-    <Project Path="tests/WSGM.Device.Sdk.Tests/WSGM.Device.Sdk.Tests.csproj" />
-    <Project Path="tests/WSGM.Plugin.Sdk.Tests/WSGM.Plugin.Sdk.Tests.csproj" />
-    <Project Path="tests/WSGM.Plugin.Ir.Tests/WSGM.Plugin.Ir.Tests.csproj" />
-    <Project Path="tests/WSGM.DeviceLab.Tests/WSGM.DeviceLab.Tests.csproj" />
-    <Project Path="tests/WSGM.UiTests/WSGM.UiTests.csproj" />
-    <Project Path="external/steam-ui-toolkit/tests/SteamUiToolkit.Tests/SteamUiToolkit.Tests.csproj" />
-    <Project Path="external/windows-device-control/tests/WindowsDeviceControl.Tests/WindowsDeviceControl.Tests.csproj" />
+    <Project Path="tests/WSGM.Tests/WSGM.Tests.csproj"/>
+    <Project Path="tests/WSGM.Device.HandheldCompanion.Tests/WSGM.Device.HandheldCompanion.Tests.csproj"/>
+    <Project Path="tests/WSGM.Device.Msi.Claw8A2Vm.Tests/WSGM.Device.Msi.Claw8A2Vm.Tests.csproj"/>
+    <Project Path="tests/WSGM.Device.Sdk.Tests/WSGM.Device.Sdk.Tests.csproj"/>
+    <Project Path="tests/WSGM.Plugin.Sdk.Tests/WSGM.Plugin.Sdk.Tests.csproj"/>
+    <Project Path="tests/WSGM.Plugin.Ir.Tests/WSGM.Plugin.Ir.Tests.csproj"/>
+    <Project Path="tests/WSGM.DeviceLab.Tests/WSGM.DeviceLab.Tests.csproj"/>
+    <Project Path="tests/WSGM.UiTests/WSGM.UiTests.csproj"/>
+    <Project Path="external/steam-ui-toolkit/tests/SteamUiToolkit.Tests/SteamUiToolkit.Tests.csproj"/>
+    <Project Path="external/windows-device-control/tests/WindowsDeviceControl.Tests/WindowsDeviceControl.Tests.csproj"/>
   </Folder>
 </Solution>

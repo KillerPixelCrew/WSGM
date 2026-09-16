@@ -9,33 +9,33 @@ using System.Threading;
 namespace WSGM.DeviceLab.Inventory;
 
 /// <summary>
-/// Reads the machine's identity, endpoints, and provider surface.
+///     Reads the machine's identity, endpoints, and provider surface.
 /// </summary>
 /// <remarks>
-/// Enumeration only. Nothing here opens a device for writing, invokes a vendor method, or transmits
-/// on any bus — a method name is recorded because a catalog predicate may gate on its presence, and
-/// recording a name is not calling it.
-/// <para>
-/// Every read is individually guarded. A machine that denies one WMI class must still produce a
-/// complete inventory of everything else: this runs on unknown hardware by definition, and an
-/// inventory that aborts on the first refusal tells a developer nothing about the other twenty
-/// things that worked.
-/// </para>
+///     Enumeration only. Nothing here opens a device for writing, invokes a vendor method, or transmits
+///     on any bus — a method name is recorded because a catalog predicate may gate on its presence, and
+///     recording a name is not calling it.
+///     <para>
+///         Every read is individually guarded. A machine that denies one WMI class must still produce a
+///         complete inventory of everything else: this runs on unknown hardware by definition, and an
+///         inventory that aborts on the first refusal tells a developer nothing about the other twenty
+///         things that worked.
+///     </para>
 /// </remarks>
 internal static partial class WindowsInventoryCollector
 {
-    private static readonly TimeSpan WmiOperationTimeout = TimeSpan.FromSeconds(5);
-    private static readonly CancellableSynchronousWorker InventoryWorker = new();
-
     /// <summary>Schema version emitted by this collector.</summary>
     public const int CurrentSchemaVersion = 1;
 
+    private static readonly TimeSpan WmiOperationTimeout = TimeSpan.FromSeconds(5);
+    private static readonly CancellableSynchronousWorker InventoryWorker = new();
+
     /// <summary>
-    /// Collects a full read-only inventory of the current machine.
+    ///     Collects a full read-only inventory of the current machine.
     /// </summary>
     /// <param name="capturedAt">Timestamp to stamp on the inventory.</param>
     /// <param name="wmiClassesToProbe">
-    /// Namespace and class pairs whose presence should be recorded. Presence only; never invoked.
+    ///     Namespace and class pairs whose presence should be recorded. Presence only; never invoked.
     /// </param>
     /// <param name="cancellationToken">Cancels between bounded inventory sections.</param>
     /// <returns>The inventory, with unreadable sections left null or marked.</returns>
@@ -89,15 +89,18 @@ internal static partial class WindowsInventoryCollector
             Providers = CollectSection(
                 () => CollectRelevantProviders(basic.Processes),
                 cancellationToken),
-            TopologyGenerations = [.. basic.UsbInterfaces.Select(endpoint =>
-                new TopologyGenerationInventory
-                {
-                    Generation = 1,
-                    Change = TopologyChangeKind.Baseline,
-                    InstanceId = endpoint.InstanceId,
-                    AssociationId = endpoint.DeviceLevelLocationPath,
-                    Present = endpoint.Present
-                })]
+            TopologyGenerations =
+            [
+                .. basic.UsbInterfaces.Select(endpoint =>
+                    new TopologyGenerationInventory
+                    {
+                        Generation = 1,
+                        Change = TopologyChangeKind.Baseline,
+                        InstanceId = endpoint.InstanceId,
+                        AssociationId = endpoint.DeviceLevelLocationPath,
+                        Present = endpoint.Present
+                    })
+            ]
         };
         cancellationToken.ThrowIfCancellationRequested();
         var collected = enriched with
@@ -182,7 +185,7 @@ internal static partial class WindowsInventoryCollector
             using var searcher = CreateSearcher(
                 "root\\CIMV2",
                 "SELECT DeviceID, PNPClass, Status, HardwareID FROM Win32_PnPEntity "
-                    + "WHERE DeviceID LIKE 'USB%' OR DeviceID LIKE 'HID%'");
+                + "WHERE DeviceID LIKE 'USB%' OR DeviceID LIKE 'HID%'");
 
             foreach (var entity in searcher.Get())
             {

@@ -224,11 +224,14 @@ internal static class AllyXProtocol
         return false;
     }
 
-    private static byte SpeedCode(AllyRgbSpeed speed) => speed switch
+    private static byte SpeedCode(AllyRgbSpeed speed)
     {
-        AllyRgbSpeed.Slow => 0xE1,
-        AllyRgbSpeed.Medium => 0xEB,
-        AllyRgbSpeed.Fast => 0xF5,
-        _ => throw new ArgumentOutOfRangeException(nameof(speed), speed, null)
-    };
+        return speed switch
+        {
+            AllyRgbSpeed.Slow => 0xE1,
+            AllyRgbSpeed.Medium => 0xEB,
+            AllyRgbSpeed.Fast => 0xF5,
+            _ => throw new ArgumentOutOfRangeException(nameof(speed), speed, null)
+        };
+    }
 }

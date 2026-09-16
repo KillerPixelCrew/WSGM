@@ -6,14 +6,14 @@ using WSGM.Core;
 
 namespace WSGM.Overlay;
 
-/// <summary>One overlay's hybrid core-placement workflow. Entry points and notifications belong to
-/// the UI thread; native calls run on a worker. Closing prevents late publication.</summary>
+/// <summary>
+///     One overlay's hybrid core-placement workflow. Entry points and notifications belong to
+///     the UI thread; native calls run on a worker. Closing prevents late publication.
+/// </summary>
 internal sealed class HybridCoreSelection(HybridCores cores, bool readOnly = false) : IDisposable
 {
     private readonly CancellationTokenSource _lifetime = new();
     private bool _disposed;
-
-    internal event Action? Changed;
 
     internal HybridCoreStatus Status { get; private set; } = new(false, 0, 0, [], null, null);
 
@@ -25,10 +25,29 @@ internal sealed class HybridCoreSelection(HybridCores cores, bool readOnly = fal
 
     internal IReadOnlyList<HybridCoreOption> Options => Status.Options;
 
-    internal Task RefreshAsync() => RunAsync(null);
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+    }
+
+    internal event Action? Changed;
+
+    internal Task RefreshAsync()
+    {
+        return RunAsync(null);
+    }
 
     internal Task ApplyAsync(HybridCoreMode mode)
-        => CanSelect ? RunAsync(mode) : Task.CompletedTask;
+    {
+        return CanSelect ? RunAsync(mode) : Task.CompletedTask;
+    }
 
     private async Task RunAsync(HybridCoreMode? requested)
     {
@@ -52,6 +71,7 @@ internal sealed class HybridCoreSelection(HybridCores cores, bool readOnly = fal
                 {
                     cores.Apply(mode, token);
                 }
+
                 return cores.Read();
             }, token);
             if (_disposed)
@@ -107,20 +127,9 @@ internal sealed class HybridCoreSelection(HybridCores cores, bool readOnly = fal
             // modes is active would be a claim about a value it did not set.
             return $"{cores} The current preference was not set by WSGM.";
         }
+
         return status.OnAc == status.OnBattery
             ? $"{cores} Applies to both battery and plugged in."
             : $"{cores} Plugged in and battery currently differ; applying sets both.";
-    }
-
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _lifetime.Cancel();
-        _lifetime.Dispose();
     }
 }

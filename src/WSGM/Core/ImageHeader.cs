@@ -4,52 +4,59 @@ using System.IO;
 
 namespace WSGM.Core;
 
-/// <summary>Reads the DECLARED pixel dimensions out of an image file's header
-/// without decoding a single pixel, for exactly the formats WSGM accepts as
-/// splash images (PNG, JPEG, BMP).
-///
-/// Why this exists: <c>.wsgmsplash</c> theme files are shared, therefore
-/// untrusted, and the archive's byte caps bound only the ENCODED size. A few
-/// kilobytes of PNG can declare 60000x60000 pixels, so a plain
-/// <c>new Bitmap(path)</c> — thumbnail preview or boot splash — allocates a
-/// multi-gigabyte pixel buffer before anything can reject it. Callers read the
-/// header first, refuse absurd dimensions (<see cref="IsWithinLimits"/>), and
-/// then decode SCALED.
-///
-/// Honest about its guarantees: these numbers are what the file CLAIMS, not
-/// what it contains. A truncated or lying header simply fails the subsequent
-/// decode, which every call site already catches — the point here is only to
-/// avoid committing an unbounded allocation on a file's say-so. Nothing is
-/// validated beyond plausibility (positive, in range).
-///
-/// Small and dependency-free: plain <see cref="FileStream"/> byte reads,
-/// no reflection, no imaging stack, and it never throws (any I/O or format
-/// surprise reports "unknown").</summary>
+/// <summary>
+///     Reads the DECLARED pixel dimensions out of an image file's header
+///     without decoding a single pixel, for exactly the formats WSGM accepts as
+///     splash images (PNG, JPEG, BMP).
+///     Why this exists: <c>.wsgmsplash</c> theme files are shared, therefore
+///     untrusted, and the archive's byte caps bound only the ENCODED size. A few
+///     kilobytes of PNG can declare 60000x60000 pixels, so a plain
+///     <c>new Bitmap(path)</c> — thumbnail preview or boot splash — allocates a
+///     multi-gigabyte pixel buffer before anything can reject it. Callers read the
+///     header first, refuse absurd dimensions (<see cref="IsWithinLimits" />), and
+///     then decode SCALED.
+///     Honest about its guarantees: these numbers are what the file CLAIMS, not
+///     what it contains. A truncated or lying header simply fails the subsequent
+///     decode, which every call site already catches — the point here is only to
+///     avoid committing an unbounded allocation on a file's say-so. Nothing is
+///     validated beyond plausibility (positive, in range).
+///     Small and dependency-free: plain <see cref="FileStream" /> byte reads,
+///     no reflection, no imaging stack, and it never throws (any I/O or format
+///     surprise reports "unknown").
+/// </summary>
 public static class ImageHeader
 {
-    /// <summary>Largest accepted edge length, in pixels. Above this a file is
-    /// treated as hostile rather than as a real image: no display WSGM drives is
-    /// anywhere near 20000 px, and both GPU texture limits and Skia would reject
-    /// it anyway (just after allocating the buffer).</summary>
+    /// <summary>
+    ///     Largest accepted edge length, in pixels. Above this a file is
+    ///     treated as hostile rather than as a real image: no display WSGM drives is
+    ///     anywhere near 20000 px, and both GPU texture limits and Skia would reject
+    ///     it anyway (just after allocating the buffer).
+    /// </summary>
     public const int MaxDimension = 20_000;
 
-    /// <summary>Largest accepted total pixel count (80 megapixels). This bounds
-    /// the pathological aspect ratios <see cref="MaxDimension"/> alone lets
-    /// through (e.g. 20000x20000 = 400 MP). It is a sanity bound, not a memory
-    /// budget — 80 MP is still ~320 MB at 4 bytes per pixel, so call sites that
-    /// can decode scaled should do so rather than lean on this limit.</summary>
+    /// <summary>
+    ///     Largest accepted total pixel count (80 megapixels). This bounds
+    ///     the pathological aspect ratios <see cref="MaxDimension" /> alone lets
+    ///     through (e.g. 20000x20000 = 400 MP). It is a sanity bound, not a memory
+    ///     budget — 80 MP is still ~320 MB at 4 bytes per pixel, so call sites that
+    ///     can decode scaled should do so rather than lean on this limit.
+    /// </summary>
     public const long MaxPixels = 80_000_000;
 
-    /// <summary>True when the given dimensions are positive and within
-    /// <see cref="MaxDimension"/> and <see cref="MaxPixels"/>.</summary>
+    /// <summary>
+    ///     True when the given dimensions are positive and within
+    ///     <see cref="MaxDimension" /> and <see cref="MaxPixels" />.
+    /// </summary>
     /// <param name="width">Declared width in pixels.</param>
     /// <param name="height">Declared height in pixels.</param>
-    public static bool IsWithinLimits(int width, int height) =>
-        width > 0
-        && height > 0
-        && width <= MaxDimension
-        && height <= MaxDimension
-        && (long)width * height <= MaxPixels;
+    public static bool IsWithinLimits(int width, int height)
+    {
+        return width > 0
+               && height > 0
+               && width <= MaxDimension
+               && height <= MaxDimension
+               && (long)width * height <= MaxPixels;
+    }
 
     /// <summary>Reads the declared size of a supported image within the limits, logging why not.</summary>
     /// <param name="path">The image file.</param>
@@ -79,33 +86,39 @@ public static class ImageHeader
 
         Log.Warn(
             $"{logPrefix}: image declares {width}x{height} px (limit {MaxDimension} px per side, "
-                + $"{MaxPixels / 1_000_000} MP total), {refusal}");
+            + $"{MaxPixels / 1_000_000} MP total), {refusal}");
         return false;
     }
 
-    /// <summary>Reads the declared pixel dimensions from the file's header only.
-    ///
-    /// Formats and their quirks:
-    /// <list type="bullet">
-    /// <item>PNG — the 8-byte signature must be followed by the IHDR chunk
-    /// (IHDR is mandatory and always first); width/height are big-endian
-    /// uint32 and are rejected when they exceed <see cref="int.MaxValue"/>.</item>
-    /// <item>JPEG — there is no fixed header, so the marker chain is walked from
-    /// SOI to the first SOFn frame header (0xFFC0-0xFFCF except DHT 0xC4,
-    /// JPG 0xC8 and DAC 0xCC, which are not frame headers); height comes BEFORE
-    /// width in a SOFn. Fill bytes (runs of 0xFF) are skipped, standalone
-    /// markers (TEM 0x01, RSTn 0xD0-0xD7, SOI 0xD8) carry no length field, and
-    /// the walk stops at SOS (0xDA) where entropy-coded data begins or at
-    /// EOI (0xD9) where the image ends.</item>
-    /// <item>BMP — 'BM', then the DIB header size at offset 14 selects the
-    /// layout: BITMAPINFOHEADER and later (>= 40) use signed 32-bit width/height
-    /// where a NEGATIVE height means a top-down bitmap, so the absolute value is
-    /// reported; the legacy 12-byte BITMAPCOREHEADER uses unsigned 16-bit
-    /// fields.</item>
-    /// </list>
-    ///
-    /// Anything else — another format, a truncated header, an unreadable or
-    /// missing file, implausible values — reports false with zeroed outputs.</summary>
+    /// <summary>
+    ///     Reads the declared pixel dimensions from the file's header only.
+    ///     Formats and their quirks:
+    ///     <list type="bullet">
+    ///         <item>
+    ///             PNG — the 8-byte signature must be followed by the IHDR chunk
+    ///             (IHDR is mandatory and always first); width/height are big-endian
+    ///             uint32 and are rejected when they exceed <see cref="int.MaxValue" />.
+    ///         </item>
+    ///         <item>
+    ///             JPEG — there is no fixed header, so the marker chain is walked from
+    ///             SOI to the first SOFn frame header (0xFFC0-0xFFCF except DHT 0xC4,
+    ///             JPG 0xC8 and DAC 0xCC, which are not frame headers); height comes BEFORE
+    ///             width in a SOFn. Fill bytes (runs of 0xFF) are skipped, standalone
+    ///             markers (TEM 0x01, RSTn 0xD0-0xD7, SOI 0xD8) carry no length field, and
+    ///             the walk stops at SOS (0xDA) where entropy-coded data begins or at
+    ///             EOI (0xD9) where the image ends.
+    ///         </item>
+    ///         <item>
+    ///             BMP — 'BM', then the DIB header size at offset 14 selects the
+    ///             layout: BITMAPINFOHEADER and later (>= 40) use signed 32-bit width/height
+    ///             where a NEGATIVE height means a top-down bitmap, so the absolute value is
+    ///             reported; the legacy 12-byte BITMAPCOREHEADER uses unsigned 16-bit
+    ///             fields.
+    ///         </item>
+    ///     </list>
+    ///     Anything else — another format, a truncated header, an unreadable or
+    ///     missing file, implausible values — reports false with zeroed outputs.
+    /// </summary>
     /// <param name="path">Full path to the image file.</param>
     /// <param name="width">Declared width in pixels; 0 when unknown.</param>
     /// <param name="height">Declared height in pixels; 0 when unknown.</param>
@@ -117,7 +130,7 @@ public static class ImageHeader
         try
         {
             using var stream = new FileStream(
-                path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, bufferSize: 512, FileOptions.SequentialScan);
+                path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 512, FileOptions.SequentialScan);
             Span<byte> signature = stackalloc byte[8];
             if (!TryFill(stream, signature))
             {
@@ -128,6 +141,7 @@ public static class ImageHeader
             {
                 return TryReadPng(stream, out width, out height);
             }
+
             if (signature[0] == 0xFF && signature[1] == 0xD8)
             {
                 // The 8 signature bytes already consumed 6 bytes of the first
@@ -135,10 +149,12 @@ public static class ImageHeader
                 stream.Position = 2;
                 return TryReadJpeg(stream, out width, out height);
             }
+
             if (signature[0] == (byte)'B' && signature[1] == (byte)'M')
             {
                 return TryReadBmp(stream, out width, out height);
             }
+
             return false;
         }
         catch (Exception)
@@ -151,15 +167,17 @@ public static class ImageHeader
         }
     }
 
-    private static bool IsPng(ReadOnlySpan<byte> signature) =>
-        signature[0] == 0x89
-        && signature[1] == 0x50
-        && signature[2] == 0x4E
-        && signature[3] == 0x47
-        && signature[4] == 0x0D
-        && signature[5] == 0x0A
-        && signature[6] == 0x1A
-        && signature[7] == 0x0A;
+    private static bool IsPng(ReadOnlySpan<byte> signature)
+    {
+        return signature[0] == 0x89
+               && signature[1] == 0x50
+               && signature[2] == 0x4E
+               && signature[3] == 0x47
+               && signature[4] == 0x0D
+               && signature[5] == 0x0A
+               && signature[6] == 0x1A
+               && signature[7] == 0x0A;
+    }
 
     /// <summary>Reads IHDR, positioned directly after the PNG signature.</summary>
     private static bool TryReadPng(Stream stream, out int width, out int height)
@@ -171,23 +189,28 @@ public static class ImageHeader
         {
             return false;
         }
+
         if (ihdr[4] != (byte)'I' || ihdr[5] != (byte)'H' || ihdr[6] != (byte)'D' || ihdr[7] != (byte)'R')
         {
             return false;
         }
+
         var w = BinaryPrimitives.ReadUInt32BigEndian(ihdr[8..12]);
         var h = BinaryPrimitives.ReadUInt32BigEndian(ihdr[12..16]);
         if (w == 0 || h == 0 || w > int.MaxValue || h > int.MaxValue)
         {
             return false;
         }
+
         width = (int)w;
         height = (int)h;
         return true;
     }
 
-    /// <summary>Walks JPEG markers from just after SOI to the first frame
-    /// header.</summary>
+    /// <summary>
+    ///     Walks JPEG markers from just after SOI to the first frame
+    ///     header.
+    /// </summary>
     private static bool TryReadJpeg(Stream stream, out int width, out int height)
     {
         width = 0;
@@ -201,6 +224,7 @@ public static class ImageHeader
             {
                 return false;
             }
+
             if (b != 0xFF)
             {
                 // Not a marker boundary — the chain is broken; treat as unknown
@@ -225,17 +249,19 @@ public static class ImageHeader
                     // End of image: the file ended without a frame header. Continuing
                     // here would scan a crafted file byte by byte to EOF.
                     return false;
-                case 0x01 or (>= 0xD0 and <= 0xD8):
+                case 0x01 or >= 0xD0 and <= 0xD8:
                     // Standalone markers: no length field follows.
                     continue;
                 case 0xDA:
                     // Start of scan: no frame header was found before the image data.
                     return false;
             }
+
             if (!TryFill(stream, pair))
             {
                 return false;
             }
+
             var length = BinaryPrimitives.ReadUInt16BigEndian(pair);
             if (length < 2)
             {
@@ -249,12 +275,14 @@ public static class ImageHeader
                 {
                     return false;
                 }
+
                 var h = BinaryPrimitives.ReadUInt16BigEndian(frame[1..3]);
                 var w = BinaryPrimitives.ReadUInt16BigEndian(frame[3..5]);
                 if (w == 0 || h == 0)
                 {
                     return false;
                 }
+
                 width = w;
                 height = h;
                 return true;
@@ -264,8 +292,10 @@ public static class ImageHeader
         }
     }
 
-    /// <summary>Reads the DIB header, positioned after the first 8 file-header
-    /// bytes.</summary>
+    /// <summary>
+    ///     Reads the DIB header, positioned after the first 8 file-header
+    ///     bytes.
+    /// </summary>
     private static bool TryReadBmp(Stream stream, out int width, out int height)
     {
         width = 0;
@@ -276,6 +306,7 @@ public static class ImageHeader
         {
             return false;
         }
+
         var headerSize = BinaryPrimitives.ReadUInt32LittleEndian(dib[..4]);
         int w, h;
         switch (headerSize)
@@ -288,6 +319,7 @@ public static class ImageHeader
                 {
                     return false; // no positive counterpart to report
                 }
+
                 h = Math.Abs(h);
                 break;
             case 12:
@@ -298,17 +330,23 @@ public static class ImageHeader
             default:
                 return false;
         }
+
         if (w <= 0 || h <= 0)
         {
             return false;
         }
+
         width = w;
         height = h;
         return true;
     }
 
-    /// <summary>Fills the whole buffer or reports false (a short read means a
-    /// truncated header).</summary>
-    private static bool TryFill(Stream stream, Span<byte> buffer) =>
-        stream.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false) == buffer.Length;
+    /// <summary>
+    ///     Fills the whole buffer or reports false (a short read means a
+    ///     truncated header).
+    /// </summary>
+    private static bool TryFill(Stream stream, Span<byte> buffer)
+    {
+        return stream.ReadAtLeast(buffer, buffer.Length, false) == buffer.Length;
+    }
 }

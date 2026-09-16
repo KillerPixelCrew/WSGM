@@ -36,10 +36,15 @@ internal sealed class FakeHybridCoreApi : IHybridCoreApi
 
     internal int Refreshes { get; private set; }
 
-    public Guid ReadActiveScheme() => Scheme;
+    public Guid ReadActiveScheme()
+    {
+        return Scheme;
+    }
 
     public HybridCoreSupport Query(Guid scheme)
-        => new(Classes, Configurable, HeterogeneousPolicies, Policies, Policies);
+    {
+        return new HybridCoreSupport(Classes, Configurable, HeterogeneousPolicies, Policies, Policies);
+    }
 
     public HybridCoreState Read(Guid scheme, bool onBattery)
     {
@@ -50,7 +55,10 @@ internal sealed class FakeHybridCoreApi : IHybridCoreApi
     public void Write(Guid scheme, bool onBattery, HybridCoreState state)
     {
         Calls.Add("write");
-        if (!IgnoreWrites) { States[onBattery] = state; }
+        if (!IgnoreWrites)
+        {
+            States[onBattery] = state;
+        }
     }
 
     public void RefreshActiveScheme()

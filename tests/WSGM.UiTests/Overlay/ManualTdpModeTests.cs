@@ -12,7 +12,11 @@ public sealed class ManualTdpModeTests
     {
         using UiFixture fixture = new();
         var writes = 0;
-        ManualTdpModeView view = new(() => (true, true), _ => { writes++; return Task.CompletedTask; });
+        ManualTdpModeView view = new(() => (true, true), _ =>
+        {
+            writes++;
+            return Task.CompletedTask;
+        });
         Window window = new() { Content = view, Width = 500, Height = 200 };
         try
         {
@@ -22,6 +26,9 @@ public sealed class ManualTdpModeTests
             Assert.True(choice.IsEnabled);
             Assert.Equal(0, writes);
         }
-        finally { window.Close(); }
+        finally
+        {
+            window.Close();
+        }
     }
 }

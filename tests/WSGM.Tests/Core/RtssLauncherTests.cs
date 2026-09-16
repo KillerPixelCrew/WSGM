@@ -4,15 +4,15 @@ using WSGM.Tests.Fakes;
 namespace WSGM.Tests.Core;
 
 /// <summary>
-/// When WSGM may start RTSS for itself, and when it must not.
+///     When WSGM may start RTSS for itself, and when it must not.
 /// </summary>
 /// <remarks>
-/// WSGM needs RTSS for the frame limit, the performance overlay and AutoTDP's frametimes, and on a
-/// service boot WSGM runs before RTSS's own tray entry does — so a machine with RTSS installed and
-/// working still came up with performance controls unavailable purely because of start order.
-/// <para>
-/// Every test here injects the start callback, so no test ever launches a process.
-/// </para>
+///     WSGM needs RTSS for the frame limit, the performance overlay and AutoTDP's frametimes, and on a
+///     service boot WSGM runs before RTSS's own tray entry does — so a machine with RTSS installed and
+///     working still came up with performance controls unavailable purely because of start order.
+///     <para>
+///         Every test here injects the start callback, so no test ever launches a process.
+///     </para>
 /// </remarks>
 public sealed class RtssLauncherTests
 {
@@ -21,7 +21,7 @@ public sealed class RtssLauncherTests
     {
         // Discovery has already accepted the installation and found no process. That is the only
         // unavailable state a launch actually fixes.
-        Assert.True(RtssLauncher.ShouldStart(Probe(RtssAvailability.NotRunning), enabled: true));
+        Assert.True(RtssLauncher.ShouldStart(Probe(RtssAvailability.NotRunning), true));
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public sealed class RtssLauncherTests
         ];
         foreach (var availability in others)
         {
-            Assert.False(RtssLauncher.ShouldStart(Probe(availability), enabled: true));
+            Assert.False(RtssLauncher.ShouldStart(Probe(availability), true));
         }
     }
 
@@ -49,7 +49,7 @@ public sealed class RtssLauncherTests
     public void PerformanceControlSwitchedOffStartsNothing()
     {
         // A user who turned the feature off has not asked WSGM to launch a background program.
-        Assert.False(RtssLauncher.ShouldStart(Probe(RtssAvailability.NotRunning), enabled: false));
+        Assert.False(RtssLauncher.ShouldStart(Probe(RtssAvailability.NotRunning), false));
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public sealed class RtssLauncherTests
         // root. Without one there is nothing WSGM is willing to launch.
         var probe = Probe(RtssAvailability.NotRunning) with { ExecutablePath = null };
 
-        Assert.False(RtssLauncher.ShouldStart(probe, enabled: true));
+        Assert.False(RtssLauncher.ShouldStart(probe, true));
     }
 
     [Fact]
@@ -74,7 +74,7 @@ public sealed class RtssLauncherTests
 
         Assert.True(await launcher.TryStartAsync(
             Probe(RtssAvailability.NotRunning),
-            enabled: true,
+            true,
             Cancelled()));
 
         Assert.Equal([@"C:\Program Files (x86)\RivaTuner Statistics Server\RTSS.exe"], started);
@@ -97,10 +97,10 @@ public sealed class RtssLauncherTests
             clock);
 
         var probe = Probe(RtssAvailability.NotRunning);
-        Assert.True(await launcher.TryStartAsync(probe, enabled: true, Cancelled()));
-        Assert.False(await launcher.TryStartAsync(probe, enabled: true, Cancelled()));
+        Assert.True(await launcher.TryStartAsync(probe, true, Cancelled()));
+        Assert.False(await launcher.TryStartAsync(probe, true, Cancelled()));
         clock.Now += RtssLauncher.RestartCooldown - TimeSpan.FromSeconds(1);
-        Assert.False(await launcher.TryStartAsync(probe, enabled: true, Cancelled()));
+        Assert.False(await launcher.TryStartAsync(probe, true, Cancelled()));
 
         Assert.Equal(1, starts);
         Assert.True(launcher.Attempted);
@@ -123,9 +123,9 @@ public sealed class RtssLauncherTests
             clock);
 
         var probe = Probe(RtssAvailability.NotRunning);
-        Assert.True(await launcher.TryStartAsync(probe, enabled: true, Cancelled()));
+        Assert.True(await launcher.TryStartAsync(probe, true, Cancelled()));
         clock.Now += RtssLauncher.RestartCooldown;
-        Assert.True(await launcher.TryStartAsync(probe, enabled: true, Cancelled()));
+        Assert.True(await launcher.TryStartAsync(probe, true, Cancelled()));
 
         Assert.Equal(2, starts);
     }
@@ -139,7 +139,7 @@ public sealed class RtssLauncherTests
 
         Assert.False(await launcher.TryStartAsync(
             Probe(RtssAvailability.NotRunning),
-            enabled: true,
+            true,
             Cancelled()));
     }
 
@@ -150,18 +150,24 @@ public sealed class RtssLauncherTests
 
         Assert.False(await launcher.TryStartAsync(
             Probe(RtssAvailability.NotRunning),
-            enabled: true,
+            true,
             Cancelled()));
     }
 
     /// <summary>Already-cancelled, so the settle delay returns at once instead of waiting.</summary>
-    private static CancellationToken Cancelled() => new(canceled: true);
+    private static CancellationToken Cancelled()
+    {
+        return new CancellationToken(true);
+    }
 
-    private static RtssProbe Probe(RtssAvailability availability) => new(
-        availability,
-        "7.3.7",
-        @"C:\Program Files (x86)\RivaTuner Statistics Server\RTSS.exe",
-        0,
-        null,
-        "test");
+    private static RtssProbe Probe(RtssAvailability availability)
+    {
+        return new RtssProbe(
+            availability,
+            "7.3.7",
+            @"C:\Program Files (x86)\RivaTuner Statistics Server\RTSS.exe",
+            0,
+            null,
+            "test");
+    }
 }

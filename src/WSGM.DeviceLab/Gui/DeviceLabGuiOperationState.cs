@@ -16,31 +16,43 @@ internal sealed record DeviceLabGuiOperationState
     public static DeviceLabGuiOperationState Initial { get; } = new() { StatusText = "Ready." };
 
     /// <summary>Starts work without replacing the last successful result.</summary>
-    public DeviceLabGuiOperationState Started() => this with
+    public DeviceLabGuiOperationState Started()
     {
-        StatusText = "Working…",
-        IsRunning = true
-    };
+        return this with
+        {
+            StatusText = "Working…",
+            IsRunning = true
+        };
+    }
 
     /// <summary>Publishes a successful immutable result.</summary>
-    public static DeviceLabGuiOperationState Succeeded(string result) => new()
+    public static DeviceLabGuiOperationState Succeeded(string result)
     {
-        LastSuccessfulResult = result,
-        StatusText = "Completed successfully.",
-        IsRunning = false
-    };
+        return new DeviceLabGuiOperationState
+        {
+            LastSuccessfulResult = result,
+            StatusText = "Completed successfully.",
+            IsRunning = false
+        };
+    }
 
     /// <summary>Reports cancellation without replacing the last successful result.</summary>
-    public DeviceLabGuiOperationState Cancelled() => this with
+    public DeviceLabGuiOperationState Cancelled()
     {
-        StatusText = "Operation cancelled.",
-        IsRunning = false
-    };
+        return this with
+        {
+            StatusText = "Operation cancelled.",
+            IsRunning = false
+        };
+    }
 
     /// <summary>Reports failure without replacing the last successful result.</summary>
-    public DeviceLabGuiOperationState Failed(string message) => this with
+    public DeviceLabGuiOperationState Failed(string message)
     {
-        StatusText = $"Operation failed: {message}",
-        IsRunning = false
-    };
+        return this with
+        {
+            StatusText = $"Operation failed: {message}",
+            IsRunning = false
+        };
+    }
 }

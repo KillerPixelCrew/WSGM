@@ -12,16 +12,18 @@ using WSGM.Device.Sdk.Capabilities;
 namespace WSGM.Overlay;
 
 /// <summary>
-/// The non-slider device capability controls — toggle, dropdown, text editor — that a capability's
-/// value kind asks for, so a boolean is a switch and a choice is a dropdown instead of a
-/// value-cycling button. Each is a themed tile whose single interactive control is the focus
-/// target; <c>GamepadNavigation</c> already routes A/Left/Right to a focused ToggleSwitch,
-/// ComboBox and edit row, so pad, touch and keyboard drive them with no extra plumbing.
+///     The non-slider device capability controls — toggle, dropdown, text editor — that a capability's
+///     value kind asks for, so a boolean is a switch and a choice is a dropdown instead of a
+///     value-cycling button. Each is a themed tile whose single interactive control is the focus
+///     target; <c>GamepadNavigation</c> already routes A/Left/Right to a focused ToggleSwitch,
+///     ComboBox and edit row, so pad, touch and keyboard drive them with no extra plumbing.
 /// </summary>
 internal static class DeviceControlRows
 {
-    /// <summary>Builds the shared tile skeleton: heading, optional caption, and a right-aligned
-    /// interactive control on the header line.</summary>
+    /// <summary>
+    ///     Builds the shared tile skeleton: heading, optional caption, and a right-aligned
+    ///     interactive control on the header line.
+    /// </summary>
     private static Border Tile(string key, string title, string description, Control control)
     {
         control.Tag = key;
@@ -152,11 +154,11 @@ internal static class DeviceControlRows
         editor.Click += (_, _) =>
         {
             if (!KeyboardService.Request(title, draft, maximumLength ?? 4096, value =>
-            {
-                draft = value;
-                editor.Description = value;
-                onCommit(value);
-            }))
+                {
+                    draft = value;
+                    editor.Description = value;
+                    onCommit(value);
+                }))
             {
                 editor.Description = "Keyboard unavailable. Reopen the overlay to retry.";
             }
@@ -164,10 +166,12 @@ internal static class DeviceControlRows
         return new Border { Tag = key, Child = editor };
     }
 
-    private static string LabelFor(CapabilityChoice choice) =>
-        choice.Display.Key == DisplayKey.Custom && !string.IsNullOrWhiteSpace(choice.Display.CustomLabel)
+    private static string LabelFor(CapabilityChoice choice)
+    {
+        return choice.Display.Key == DisplayKey.Custom && !string.IsNullOrWhiteSpace(choice.Display.CustomLabel)
             ? choice.Display.CustomLabel!
             : choice.Value;
+    }
 
     private sealed record ChoiceItem(string Value, string Label);
 }

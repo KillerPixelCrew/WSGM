@@ -59,7 +59,7 @@ internal sealed record DeviceLabPathBoundaries
     public IReadOnlyList<string> BroadHomeDirectories { get; init; } = [];
 
     /// <summary>Builds boundaries for the current user and optional source checkout.</summary>
-    /// <param name="repositoryRoot">Detected repository root, or <see langword="null"/>.</param>
+    /// <param name="repositoryRoot">Detected repository root, or <see langword="null" />.</param>
     /// <returns>Normalized boundaries used only for rejection.</returns>
     public static DeviceLabPathBoundaries ForCurrentUser(string? repositoryRoot)
     {
@@ -92,9 +92,12 @@ internal sealed record DeviceLabPathBoundaries
         {
             LiveDataDirectory = liveDataDirectory,
             RepositoryRoot = repositoryRoot,
-            BroadHomeDirectories = [.. broadHomeDirectories
-                .Where(path => !string.IsNullOrWhiteSpace(path))
-                .Distinct(StringComparer.OrdinalIgnoreCase)]
+            BroadHomeDirectories =
+            [
+                .. broadHomeDirectories
+                    .Where(path => !string.IsNullOrWhiteSpace(path))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+            ]
         };
     }
 }
@@ -141,7 +144,7 @@ internal static class DeviceLabOutputPathPolicy
             fullPath = Path.GetFullPath(path);
         }
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException
-            or PathTooLongException)
+                                              or PathTooLongException)
         {
             return Reject(DeviceLabOutputPathRisk.Malformed, "The output path is malformed.");
         }
@@ -175,7 +178,7 @@ internal static class DeviceLabOutputPathPolicy
                     fullPath);
             case DeviceLabOutputTargetKind.Directory
                 when boundaries.RepositoryRoot is { Length: > 0 } repositoryRoot
-                    && PathsEqual(normalized, NormalizeDirectory(repositoryRoot)):
+                     && PathsEqual(normalized, NormalizeDirectory(repositoryRoot)):
                 return Reject(
                     DeviceLabOutputPathRisk.RepositoryRoot,
                     "Choose a dedicated output directory instead of the repository root.",
@@ -249,27 +252,34 @@ internal static class DeviceLabOutputPathPolicy
         var normalizedCandidate = NormalizeDirectory(candidate);
         var normalizedDirectory = NormalizeDirectory(directory);
         return PathsEqual(normalizedCandidate, normalizedDirectory)
-            || normalizedCandidate.StartsWith(
-                normalizedDirectory + Path.DirectorySeparatorChar,
-                StringComparison.OrdinalIgnoreCase);
+               || normalizedCandidate.StartsWith(
+                   normalizedDirectory + Path.DirectorySeparatorChar,
+                   StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool PathsEqual(string left, string right) =>
-        string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+    private static bool PathsEqual(string left, string right)
+    {
+        return string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+    }
 
-    private static string NormalizeDirectory(string path) =>
-        Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    private static string NormalizeDirectory(string path)
+    {
+        return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
 
     private static DeviceLabOutputPathDecision Reject(
         DeviceLabOutputPathRisk risk,
         string reason,
-        string? fullPath = null) => new()
+        string? fullPath = null)
+    {
+        return new DeviceLabOutputPathDecision
         {
             IsAllowed = false,
             FullPath = fullPath,
             Risk = risk,
             Reason = reason
         };
+    }
 }
 
 /// <summary>Finds the Device Lab source root without assuming the process started there.</summary>
@@ -280,7 +290,7 @@ internal static class DeviceLabRepositoryLocator
 
     /// <summary>Walks upward for a solution marker.</summary>
     /// <param name="startPath">File or directory path to start from.</param>
-    /// <returns>The repository root, or <see langword="null"/> outside a checkout.</returns>
+    /// <returns>The repository root, or <see langword="null" /> outside a checkout.</returns>
     public static string? Find(string startPath)
     {
         if (string.IsNullOrWhiteSpace(startPath))
@@ -294,7 +304,7 @@ internal static class DeviceLabRepositoryLocator
             fullPath = Path.GetFullPath(startPath);
         }
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException
-            or PathTooLongException)
+                                              or PathTooLongException)
         {
             return null;
         }

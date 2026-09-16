@@ -8,9 +8,12 @@ namespace WSGM.Device.Msi.Claw8A2Vm.Tests;
 [Collection("plugin-trace")]
 public sealed class MotionFreshnessReportingTests : IDisposable
 {
-    public void Dispose() => PluginTrace.Install(null);
-
     private static readonly DateTimeOffset Start = new(2026, 9, 3, 18, 0, 0, TimeSpan.Zero);
+
+    public void Dispose()
+    {
+        PluginTrace.Install(null);
+    }
 
     [Fact]
     public async Task CrossingTheFreshnessCapIsNotReported()
@@ -56,7 +59,7 @@ public sealed class MotionFreshnessReportingTests : IDisposable
 
         // A reported pause owes a resume.
         motion.Current(Start + TimeSpan.FromSeconds(1) + MotionService.StaleReportDelay
-            + TimeSpan.FromMilliseconds(1));
+                       + TimeSpan.FromMilliseconds(1));
         await publish(Sample(Start + TimeSpan.FromSeconds(3)));
 
         Assert.Equal(2, host.Changes.Count);
@@ -81,13 +84,16 @@ public sealed class MotionFreshnessReportingTests : IDisposable
         Assert.Equal(5, host.Changes.Count);
     }
 
-    private static MotionSample Sample(DateTimeOffset stamp) => new()
+    private static MotionSample Sample(DateTimeOffset stamp)
     {
-        HasGyro = true,
-        HasAccelerometer = true,
-        AccelZ = 1f,
-        SensorTimestamp = stamp
-    };
+        return new MotionSample
+        {
+            HasGyro = true,
+            HasAccelerometer = true,
+            AccelZ = 1f,
+            SensorTimestamp = stamp
+        };
+    }
 
     private static async Task<(MotionService Motion, TestPluginHostAdapter Host)> StartAsync()
     {

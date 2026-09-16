@@ -12,63 +12,98 @@ using RadioPower = WindowsDeviceControl.WindowsRadio.Power;
 
 namespace WSGM.Shell;
 
-/// <summary>Wi-Fi and Bluetooth state and control for the game-mode UI.
-///
-/// Windows' own radio flyouts are unreachable in game mode — there is no
-/// Explorer shell to host them, and `ms-settings:` cannot activate without one —
-/// so this is the only way a user on a handheld can join a network or pair a
-/// controller without leaving game mode.
-///
-/// Windows calls block (WinRT round trips, WLAN handles), so nothing here
-/// runs on the UI thread: a background refresh publishes results back through
-/// the dispatcher. Rows are reconciled in place, because rebuilding the
-/// collections would drop the control under the gamepad cursor.</summary>
+/// <summary>
+///     Wi-Fi and Bluetooth state and control for the game-mode UI.
+///     Windows' own radio flyouts are unreachable in game mode — there is no
+///     Explorer shell to host them, and `ms-settings:` cannot activate without one —
+///     so this is the only way a user on a handheld can join a network or pair a
+///     controller without leaving game mode.
+///     Windows calls block (WinRT round trips, WLAN handles), so nothing here
+///     runs on the UI thread: a background refresh publishes results back through
+///     the dispatcher. Rows are reconciled in place, because rebuilding the
+///     collections would drop the control under the gamepad cursor.
+/// </summary>
 public sealed class RadioManager : ObservableObject, IDisposable
 {
-    private readonly Action<string, Action<WindowsRadio.PairingRequest>, Action<WindowsRadio.PairingResult?, Exception?>> _pairBluetooth;
+    /// <summary>
+    ///     Serializes the Windows feed operations onto background threads.
+    ///     They BLOCK — a watcher can enumerate devices for seconds — and they
+    ///     must not interleave: a stop racing a start would leave the watcher in
+    ///     whichever state finished last. UI-thread callers only, so the field
+    ///     needs no lock.
+    ///     STATIC on purpose: the watchers are process-wide singletons, but
+    ///     managers are not — closing and reopening the taskbar builds a new one
+    ///     while the old is still tearing down. With a queue each, the old
+    ///     manager's stop could land after the new manager's start and silently
+    ///     leave the reopened panel with no discovery at all.
+    /// </summary>
+    private static Task _feedWork = Task.CompletedTask;
+
+    /// <summary>
+    ///     Containers with Bluetooth audio endpoints, mapped to whether
+    ///     those endpoints are live. The devices whose rows get a
+    ///     Connect/Disconnect action, and which way round it reads. Refreshed with
+    ///     each panel-open snapshot.
+    /// </summary>
+    private readonly Dictionary<string, bool> _audioContainers =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private readonly BluetoothAudioConnection _bluetoothAudio;
+
+    /// <summary>The endpoint census and canonical logical Bluetooth identities.</summary>
+    private readonly BluetoothDeviceCatalog _bluetoothCatalog = new();
+
+    private readonly SemaphoreSlim _bluetoothPowerGate = new(1, 1);
+
+    private readonly
+        Action<string, Action<WindowsRadio.PairingRequest>, Action<WindowsRadio.PairingResult?, Exception?>>
+        _pairBluetooth;
+
+    // One gate per radio: a Wi-Fi toggle must not wait behind a Bluetooth one.
+    private readonly SemaphoreSlim _wifiPowerGate = new(1, 1);
+    private bool _accessLogged;
+    private long _bluetoothWatchGeneration;
+
+    /// <summary>Non-zero while a connection attempt is in flight.</summary>
+    private int _connecting;
+
+    private volatile bool _disposed;
+
+    private bool _feedsStarted;
+    private bool _pairingCancelled;
+    private string? _pairingEndpointId;
+    private BluetoothDeviceEntry? _pairingEntry;
+
+    private bool _pairingInProgress;
+    private uint _pairingToken;
+    private bool _panelScanning;
+    private int _refreshing;
+    private bool _scanning;
+
+    /// <summary>
+    ///     Whether <see cref="StatusText" /> currently holds a scan
+    ///     failure, and may therefore be cleared once scanning recovers.
+    /// </summary>
+    private bool _statusIsScanFailure;
+
+    private bool _steamScanning;
+
+    private DispatcherTimer? _timer;
 
     /// <summary>Creates the session radio manager over the Windows backends.</summary>
     public RadioManager() : this(WindowsRadio.PairBluetooth,
         new BluetoothAudioConnection(CoreAudio.SetBluetoothAudioConnection, CoreAudio.ListBluetoothAudioContainers))
-    { }
+    {
+    }
 
     internal RadioManager(
-        Action<string, Action<WindowsRadio.PairingRequest>, Action<WindowsRadio.PairingResult?, Exception?>> pairBluetooth,
+        Action<string, Action<WindowsRadio.PairingRequest>, Action<WindowsRadio.PairingResult?, Exception?>>
+            pairBluetooth,
         BluetoothAudioConnection bluetoothAudio)
     {
         _pairBluetooth = pairBluetooth;
         _bluetoothAudio = bluetoothAudio;
     }
-    /// <summary>Raised when Windows asks a pairing question and the UI must
-    /// answer with <see cref="RespondToPairing"/>. Always on the UI thread.</summary>
-    public event Action<PairingPrompt>? PairingRequested;
-
-    /// <summary>Raised when a pairing attempt finishes, with a message to show.
-    /// Always on the UI thread.</summary>
-    public event Action<string>? PairingFinished;
-
-    private DispatcherTimer? _timer;
-    private int _refreshing;
-    private bool _scanning;
-    private bool _panelScanning;
-    private bool _steamScanning;
-    private bool _accessLogged;
-    private volatile bool _disposed;
-
-    /// <summary>Describes a pairing question for the UI to render.</summary>
-    /// <param name="Token">Identifies the request when answering.</param>
-    /// <param name="Kind">Which ceremony to present.
-    /// <see cref="WindowsRadio.PairingKind.Unknown"/> is deliberately presented as confirm-only
-    /// rather than declined: an accept is what Windows most often wants, and the log line records
-    /// the raw kind so a device that really needs another ceremony is still diagnosable.</param>
-    /// <param name="Pin">The PIN to show, for display-pin and confirm-pin-match.</param>
-    /// <param name="DeviceName">The device being paired.</param>
-    public readonly record struct PairingPrompt(
-        uint Token,
-        WindowsRadio.PairingKind Kind,
-        string Pin,
-        string DeviceName);
 
     /// <summary>Gets the Wi-Fi networks in range, strongest first.</summary>
     public ObservableCollection<WifiNetworkEntry> Networks { get; } = [];
@@ -122,30 +157,21 @@ public sealed class RadioManager : ObservableObject, IDisposable
     /// <summary>Gets whether the Bluetooth radio is on.</summary>
     public bool BluetoothOn => BluetoothPower == RadioPower.On;
 
-    /// <summary>Gets what to tell the user when the Wi-Fi list is empty because
-    /// the radio is not usable. "Off" is only one of the reasons, and the least
-    /// alarming: a blocked or missing adapter cannot be switched on at all, and
-    /// saying "off" leaves the user pressing a dead switch.</summary>
+    /// <summary>
+    ///     Gets what to tell the user when the Wi-Fi list is empty because
+    ///     the radio is not usable. "Off" is only one of the reasons, and the least
+    ///     alarming: a blocked or missing adapter cannot be switched on at all, and
+    ///     saying "off" leaves the user pressing a dead switch.
+    /// </summary>
     public string WifiUnavailableText => DescribeUnavailable(WifiPower, "Wi-Fi");
 
     /// <summary>Gets the same explanation for Bluetooth.</summary>
     public string BluetoothUnavailableText => DescribeUnavailable(BluetoothPower, "Bluetooth");
 
-    /// <summary>The reason a radio is not usable, named rather than flattened
-    /// into "off".</summary>
-    /// <param name="power">The radio's power state.</param>
-    /// <param name="label">The radio's display name.</param>
-    internal static string DescribeUnavailable(RadioPower power, string label) => power switch
-    {
-        RadioPower.Off => $"{label} is off.",
-        RadioPower.Disabled => $"{label} is blocked by Windows or a hardware switch.",
-        RadioPower.Absent => $"This device has no {label} adapter.",
-        RadioPower.Unknown => $"{label} state is unavailable.",
-        _ => ""
-    };
-
-    /// <summary>Gets what the taskbar's Wi-Fi tile should show. Off and merely
-    /// disconnected are different problems and must not look the same.</summary>
+    /// <summary>
+    ///     Gets what the taskbar's Wi-Fi tile should show. Off and merely
+    ///     disconnected are different problems and must not look the same.
+    /// </summary>
     public RadioIconState WifiIconState => WifiPower switch
     {
         RadioPower.On when WifiConnected => RadioIconState.Connected,
@@ -153,9 +179,11 @@ public sealed class RadioManager : ObservableObject, IDisposable
         _ => RadioIconState.Off
     };
 
-    /// <summary>Gets what the taskbar's Bluetooth tile should show. Accent only
-    /// when a device is actually connected — a lone powered radio is
-    /// "disconnected", the same distinction the Wi-Fi tile draws.</summary>
+    /// <summary>
+    ///     Gets what the taskbar's Bluetooth tile should show. Accent only
+    ///     when a device is actually connected — a lone powered radio is
+    ///     "disconnected", the same distinction the Wi-Fi tile draws.
+    /// </summary>
     public RadioIconState BluetoothIconState => BluetoothPower switch
     {
         RadioPower.On when BluetoothConnectedCount > 0 => RadioIconState.Connected,
@@ -163,9 +191,11 @@ public sealed class RadioManager : ObservableObject, IDisposable
         _ => RadioIconState.Off
     };
 
-    /// <summary>Gets how many Bluetooth devices have a live connection. Read
-    /// from PnP state every status tick, so the tile is correct whether or not
-    /// the panel has ever been opened.</summary>
+    /// <summary>
+    ///     Gets how many Bluetooth devices have a live connection. Read
+    ///     from PnP state every status tick, so the tile is correct whether or not
+    ///     the panel has ever been opened.
+    /// </summary>
     public int BluetoothConnectedCount
     {
         get;
@@ -182,8 +212,10 @@ public sealed class RadioManager : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Gets whether Wi-Fi is joined to a network — the only state that
-    /// tints the taskbar's Wi-Fi tile with the accent color.</summary>
+    /// <summary>
+    ///     Gets whether Wi-Fi is joined to a network — the only state that
+    ///     tints the taskbar's Wi-Fi tile with the accent color.
+    /// </summary>
     public bool WifiConnected
     {
         get;
@@ -200,8 +232,10 @@ public sealed class RadioManager : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Gets the joined network's signal quality, 0-100. Drives the bars
-    /// on the taskbar tile.</summary>
+    /// <summary>
+    ///     Gets the joined network's signal quality, 0-100. Drives the bars
+    ///     on the taskbar tile.
+    /// </summary>
     public int WifiSignal
     {
         get;
@@ -238,12 +272,10 @@ public sealed class RadioManager : ObservableObject, IDisposable
         private set => SetFieldIfChanged(ref field, value, nameof(BluetoothStateText));
     } = "State unavailable";
 
-    /// <summary>Whether <see cref="StatusText"/> currently holds a scan
-    /// failure, and may therefore be cleared once scanning recovers.</summary>
-    private bool _statusIsScanFailure;
-
-    /// <summary>Gets the last thing that happened, for the panel's status line.
-    /// Empty when there is nothing to report.</summary>
+    /// <summary>
+    ///     Gets the last thing that happened, for the panel's status line.
+    ///     Empty when there is nothing to report.
+    /// </summary>
     public string StatusText
     {
         get;
@@ -267,8 +299,85 @@ public sealed class RadioManager : ObservableObject, IDisposable
     /// <summary>Gets whether a status line should be shown.</summary>
     public bool HasStatus => StatusText.Length > 0;
 
-    /// <summary>Performs a first refresh and starts the update timer.
-    /// UI-thread callers only. Idempotent.</summary>
+    /// <summary>
+    ///     Gets whether a Bluetooth sweep is still running, so the panel can
+    ///     show that more devices may still appear.
+    /// </summary>
+    public bool BluetoothScanning
+    {
+        get;
+        private set => SetFieldIfChanged(ref field, value, nameof(BluetoothScanning));
+    }
+
+    /// <summary>
+    ///     Stops the update timer. Idempotent; bound values keep their last
+    ///     state.
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        StopScanning();
+        if (_pairingInProgress)
+        {
+            if (_pairingToken != 0)
+            {
+                RespondToPairing(_pairingToken, false, null);
+            }
+
+            FinishPairing();
+        }
+
+        PairingRequested = null;
+        PairingFinished = null;
+        if (_timer is null)
+        {
+            return;
+        }
+
+        _timer.Stop();
+        _timer.Tick -= OnTick;
+        _timer = null;
+    }
+
+    /// <summary>
+    ///     Raised when Windows asks a pairing question and the UI must
+    ///     answer with <see cref="RespondToPairing" />. Always on the UI thread.
+    /// </summary>
+    public event Action<PairingPrompt>? PairingRequested;
+
+    /// <summary>
+    ///     Raised when a pairing attempt finishes, with a message to show.
+    ///     Always on the UI thread.
+    /// </summary>
+    public event Action<string>? PairingFinished;
+
+    /// <summary>
+    ///     The reason a radio is not usable, named rather than flattened
+    ///     into "off".
+    /// </summary>
+    /// <param name="power">The radio's power state.</param>
+    /// <param name="label">The radio's display name.</param>
+    internal static string DescribeUnavailable(RadioPower power, string label)
+    {
+        return power switch
+        {
+            RadioPower.Off => $"{label} is off.",
+            RadioPower.Disabled => $"{label} is blocked by Windows or a hardware switch.",
+            RadioPower.Absent => $"This device has no {label} adapter.",
+            RadioPower.Unknown => $"{label} state is unavailable.",
+            _ => ""
+        };
+    }
+
+    /// <summary>
+    ///     Performs a first refresh and starts the update timer.
+    ///     UI-thread callers only. Idempotent.
+    /// </summary>
     public void Start()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -276,6 +385,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
         {
             return;
         }
+
         QueueRefresh();
         // Parameterless ctor + explicit Start: the 3-arg ctor auto-starts.
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -283,38 +393,11 @@ public sealed class RadioManager : ObservableObject, IDisposable
         _timer.Start();
     }
 
-    /// <summary>Stops the update timer. Idempotent; bound values keep their last
-    /// state.</summary>
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-        _disposed = true;
-        StopScanning();
-        if (_pairingInProgress)
-        {
-            if (_pairingToken != 0)
-            {
-                RespondToPairing(_pairingToken, accept: false, null);
-            }
-            FinishPairing();
-        }
-        PairingRequested = null;
-        PairingFinished = null;
-        if (_timer is null)
-        {
-            return;
-        }
-        _timer.Stop();
-        _timer.Tick -= OnTick;
-        _timer = null;
-    }
-
-    /// <summary>Begins actively scanning for networks and devices. Called when
-    /// the radio panel opens: an idle taskbar must not pay for scans nobody is
-    /// looking at, which on a handheld is battery.</summary>
+    /// <summary>
+    ///     Begins actively scanning for networks and devices. Called when
+    ///     the radio panel opens: an idle taskbar must not pay for scans nobody is
+    ///     looking at, which on a handheld is battery.
+    /// </summary>
     public void StartScanning()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -324,7 +407,11 @@ public sealed class RadioManager : ObservableObject, IDisposable
 
     internal void SetSteamDiscovery(bool enabled)
     {
-        if (_disposed) { return; }
+        if (_disposed)
+        {
+            return;
+        }
+
         _steamScanning = enabled;
         UpdateScanning();
     }
@@ -339,10 +426,12 @@ public sealed class RadioManager : ObservableObject, IDisposable
             BluetoothScanning = false;
             return;
         }
+
         if (_scanning)
         {
             return;
         }
+
         _scanning = true;
         Log.Info("Radio panel: scanning started.");
         // Publish the cached scan list immediately — it is already there and
@@ -360,11 +449,12 @@ public sealed class RadioManager : ObservableObject, IDisposable
         UpdateScanning();
     }
 
-    /// <summary>Asks for a fresh sweep of both radios.
-    ///
-    /// Bound to the panel's refresh button: without it the only way to look for
-    /// a network or a device that appeared after opening was to close and reopen
-    /// the panel.</summary>
+    /// <summary>
+    ///     Asks for a fresh sweep of both radios.
+    ///     Bound to the panel's refresh button: without it the only way to look for
+    ///     a network or a device that appeared after opening was to close and reopen
+    ///     the panel.
+    /// </summary>
     public void Rescan()
     {
         Log.Info("Radio panel: rescan requested.");
@@ -380,6 +470,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
             // mode. Existing rows survive because they are matched by id.
             StopAndRestartBluetoothWatch();
         }
+
         _ = Task.Run(() =>
         {
             try
@@ -402,6 +493,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
         {
             return;
         }
+
         var generation = Interlocked.Increment(ref _bluetoothWatchGeneration);
         QueueFeedWork(() =>
         {
@@ -417,20 +509,6 @@ public sealed class RadioManager : ObservableObject, IDisposable
             }
         });
     }
-
-    /// <summary>Serializes the Windows feed operations onto background threads.
-    ///
-    /// They BLOCK — a watcher can enumerate devices for seconds — and they
-    /// must not interleave: a stop racing a start would leave the watcher in
-    /// whichever state finished last. UI-thread callers only, so the field
-    /// needs no lock.
-    ///
-    /// STATIC on purpose: the watchers are process-wide singletons, but
-    /// managers are not — closing and reopening the taskbar builds a new one
-    /// while the old is still tearing down. With a queue each, the old
-    /// manager's stop could land after the new manager's start and silently
-    /// leave the reopened panel with no discovery at all.</summary>
-    private static Task _feedWork = Task.CompletedTask;
 
     private static void QueueFeedWork(Action work)
     {
@@ -451,14 +529,6 @@ public sealed class RadioManager : ObservableObject, IDisposable
             TaskScheduler.Default);
     }
 
-    /// <summary>Gets whether a Bluetooth sweep is still running, so the panel can
-    /// show that more devices may still appear.</summary>
-    public bool BluetoothScanning
-    {
-        get;
-        private set => SetFieldIfChanged(ref field, value, nameof(BluetoothScanning));
-    }
-
     private void OnTick(object? sender, EventArgs e)
     {
         // A safety net only: the live feeds carry every real change, so this is
@@ -466,14 +536,17 @@ public sealed class RadioManager : ObservableObject, IDisposable
         QueueRefresh();
     }
 
-    /// <summary>Refreshes state off the UI thread, at most one at a time. A slow
-    /// Windows call must not queue up behind itself every tick.</summary>
+    /// <summary>
+    ///     Refreshes state off the UI thread, at most one at a time. A slow
+    ///     Windows call must not queue up behind itself every tick.
+    /// </summary>
     private void QueueRefresh()
     {
         if (Interlocked.CompareExchange(ref _refreshing, 1, 0) != 0)
         {
             return;
         }
+
         _ = Task.Run(() =>
         {
             try
@@ -491,18 +564,6 @@ public sealed class RadioManager : ObservableObject, IDisposable
             }
         });
     }
-
-    private sealed record Snapshot(
-        RadioPower WifiPower,
-        RadioPower BluetoothPower,
-        int BluetoothConnected,
-        WindowsRadio.WifiConnectionState WifiState,
-        int WifiSignal,
-        string WifiSsid,
-        bool IncludedNetworks,
-        IReadOnlyList<WindowsRadio.WifiNetwork> Networks,
-        IReadOnlyList<CoreAudio.BluetoothAudioContainer>? AudioContainers,
-        string? Failure);
 
     private static Snapshot ReadSnapshot(bool includeNetworks)
     {
@@ -596,42 +657,31 @@ public sealed class RadioManager : ObservableObject, IDisposable
         }
     }
 
-    private bool _feedsStarted;
-
-    /// <summary>The endpoint census and canonical logical Bluetooth identities.</summary>
-    private readonly BluetoothDeviceCatalog _bluetoothCatalog = new();
-    private long _bluetoothWatchGeneration;
-
-    /// <summary>Containers with Bluetooth audio endpoints, mapped to whether
-    /// those endpoints are live. The devices whose rows get a
-    /// Connect/Disconnect action, and which way round it reads. Refreshed with
-    /// each panel-open snapshot.</summary>
-    private readonly Dictionary<string, bool> _audioContainers =
-        new(StringComparer.OrdinalIgnoreCase);
-
     /// <summary>Applies the audio-endpoint facts to one row.</summary>
     private void ApplyAudioState(BluetoothDeviceEntry row)
     {
         var known = row.ContainerId.Length > 0
-            && _audioContainers.TryGetValue(row.ContainerId, out _);
+                    && _audioContainers.TryGetValue(row.ContainerId, out _);
         row.AudioConnectable = known;
         row.AudioActive = known && _audioContainers[row.ContainerId];
     }
 
-    /// <summary>Starts the live Bluetooth and Wi-Fi feeds.
-    ///
-    /// Both are push, not poll, because that is the difference between a picker
-    /// that feels dead and one that behaves like the Windows applet. The
-    /// blocking Bluetooth enumeration takes ~30 s before showing anything; the
-    /// watcher reports the first device in about 10 ms. Wi-Fi likewise: the
-    /// driver refreshes its scan list when it feels like it, so an interval
-    /// either wastes work or shows a network seconds late.</summary>
+    /// <summary>
+    ///     Starts the live Bluetooth and Wi-Fi feeds.
+    ///     Both are push, not poll, because that is the difference between a picker
+    ///     that feels dead and one that behaves like the Windows applet. The
+    ///     blocking Bluetooth enumeration takes ~30 s before showing anything; the
+    ///     watcher reports the first device in about 10 ms. Wi-Fi likewise: the
+    ///     driver refreshes its scan list when it feels like it, so an interval
+    ///     either wastes work or shows a network seconds late.
+    /// </summary>
     private void StartFeeds()
     {
         if (_feedsStarted)
         {
             return;
         }
+
         _feedsStarted = true;
         _bluetoothCatalog.BeginSweep();
         Interlocked.Increment(ref _bluetoothWatchGeneration);
@@ -653,7 +703,10 @@ public sealed class RadioManager : ObservableObject, IDisposable
         }
     }
 
-    private void StartWifiFeed() => WindowsRadio.StartWifiWatch(OnWifiEvent);
+    private void StartWifiFeed()
+    {
+        WindowsRadio.StartWifiWatch(OnWifiEvent);
+    }
 
     private void StopFeeds()
     {
@@ -661,6 +714,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
         {
             return;
         }
+
         _feedsStarted = false;
         Interlocked.Increment(ref _bluetoothWatchGeneration);
         QueueFeedWork(() =>
@@ -675,7 +729,11 @@ public sealed class RadioManager : ObservableObject, IDisposable
         var device = change.Device;
         Dispatcher.UIThread.Post(() =>
         {
-            if (_disposed || generation != Volatile.Read(ref _bluetoothWatchGeneration)) { return; }
+            if (_disposed || generation != Volatile.Read(ref _bluetoothWatchGeneration))
+            {
+                return;
+            }
+
             ApplyDeviceChange(
                 change.Kind,
                 device.Id,
@@ -716,14 +774,17 @@ public sealed class RadioManager : ObservableObject, IDisposable
         foreach (var device in logical)
         {
             var row = BluetoothDevices.FirstOrDefault(candidate => candidate.Id == device.Id)
-                ?? BluetoothDevices.Where(candidate => !retained.Contains(candidate)
-                    && candidate.EndpointIds.Any(endpoint => device.EndpointIds.Contains(endpoint, StringComparer.OrdinalIgnoreCase)))
-                    .OrderByDescending(candidate => candidate.Busy).FirstOrDefault();
+                      ?? BluetoothDevices.Where(candidate => !retained.Contains(candidate)
+                                                             && candidate.EndpointIds.Any(endpoint =>
+                                                                 device.EndpointIds.Contains(endpoint,
+                                                                     StringComparer.OrdinalIgnoreCase)))
+                          .OrderByDescending(candidate => candidate.Busy).FirstOrDefault();
             if (row is null)
             {
                 row = new BluetoothDeviceEntry(device.Id);
                 BluetoothDevices.Add(row);
             }
+
             retained.Add(row);
             row.EndpointId = device.EndpointId;
             row.PairingEndpointId = device.PairingEndpointId;
@@ -737,17 +798,23 @@ public sealed class RadioManager : ObservableObject, IDisposable
             Log.Change($"bluetooth-identity-{device.Id}",
                 $"Bluetooth logical={device.Id}, container={device.Container}, endpoints={string.Join(",", device.EndpointIds)}, selected={device.EndpointId}.");
         }
+
         for (var index = BluetoothDevices.Count - 1; index >= 0; index--)
         {
             var row = BluetoothDevices[index];
             var merged = row.ContainerId.Length > 0 && logical.Any(device => device.Container == row.ContainerId);
-            if (!retained.Contains(row) && (!row.Busy || merged)) { BluetoothDevices.RemoveAt(index); }
+            if (!retained.Contains(row) && (!row.Busy || merged))
+            {
+                BluetoothDevices.RemoveAt(index);
+            }
         }
+
         if (change == WindowsRadio.BluetoothChangeKind.EnumerationCompleted)
         {
             BluetoothScanning = false;
             Log.Info($"Bluetooth discovery complete ({BluetoothDevices.Count} logical device(s)).");
         }
+
         BluetoothStateText = DescribeBluetooth(BluetoothPower, BluetoothDevices.Count);
     }
 
@@ -814,25 +881,32 @@ public sealed class RadioManager : ObservableObject, IDisposable
             // "connected" while the audio endpoints sit unplugged.
             _audioContainers[container.Container] = container.Active;
         }
+
         foreach (var row in BluetoothDevices)
         {
             ApplyAudioState(row);
         }
     }
 
-    /// <summary>Turns a scan failure into something actionable. The consent gate
-    /// is the case worth naming: it is not a permissions problem the user can
-    /// solve by elevating, and no amount of retrying will clear it.</summary>
-    internal static string DescribeScanFailure(string message) =>
-        message.Contains("Win32 5", StringComparison.Ordinal)
+    /// <summary>
+    ///     Turns a scan failure into something actionable. The consent gate
+    ///     is the case worth naming: it is not a permissions problem the user can
+    ///     solve by elevating, and no amount of retrying will clear it.
+    /// </summary>
+    internal static string DescribeScanFailure(string message)
+    {
+        return message.Contains("Win32 5", StringComparison.Ordinal)
             ? "Windows is blocking the Wi-Fi scan until location access is allowed "
               + "(Settings > Privacy & security > Location)."
             : $"Wi-Fi scan failed: {message}";
+    }
 
     /// <summary>The state line for the Wi-Fi tile's flyout.</summary>
     internal static string DescribeWifi(
         RadioPower power,
-        WindowsRadio.WifiConnectionState state) => power switch
+        WindowsRadio.WifiConnectionState state)
+    {
+        return power switch
         {
             RadioPower.Off => "Off",
             RadioPower.Disabled => "Blocked by Windows",
@@ -846,20 +920,26 @@ public sealed class RadioManager : ObservableObject, IDisposable
                 _ => "On"
             }
         };
+    }
 
     /// <summary>The state line for the Bluetooth tile's flyout.</summary>
-    internal static string DescribeBluetooth(RadioPower power, int deviceCount) => power switch
+    internal static string DescribeBluetooth(RadioPower power, int deviceCount)
     {
-        RadioPower.Off => "Off",
-        RadioPower.Disabled => "Blocked by Windows",
-        RadioPower.Absent => "No Bluetooth adapter",
-        RadioPower.Unknown => "State unavailable",
-        _ => deviceCount > 0 ? $"On, {deviceCount} device(s)" : "On"
-    };
+        return power switch
+        {
+            RadioPower.Off => "Off",
+            RadioPower.Disabled => "Blocked by Windows",
+            RadioPower.Absent => "No Bluetooth adapter",
+            RadioPower.Unknown => "State unavailable",
+            _ => deviceCount > 0 ? $"On, {deviceCount} device(s)" : "On"
+        };
+    }
 
-    /// <summary>Merges a fresh network list into the bound collection without
-    /// replacing surviving rows — a wholesale rebuild would move focus out from
-    /// under the gamepad cursor mid-scan.</summary>
+    /// <summary>
+    ///     Merges a fresh network list into the bound collection without
+    ///     replacing surviving rows — a wholesale rebuild would move focus out from
+    ///     under the gamepad cursor mid-scan.
+    /// </summary>
     private void ReconcileNetworks(IReadOnlyList<WindowsRadio.WifiNetwork> fresh)
     {
         var connected = "";
@@ -880,6 +960,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
                     Networks.Move(at, i);
                 }
             }
+
             row.Signal = source.Signal;
             row.Security = source.Security;
             row.Saved = source.Saved;
@@ -895,10 +976,12 @@ public sealed class RadioManager : ObservableObject, IDisposable
                 connected = row.Ssid;
             }
         }
+
         for (var i = Networks.Count - 1; i >= fresh.Count; i--)
         {
             Networks.RemoveAt(i);
         }
+
         // Only when the scan positively named a joined network. The interface
         // status read in Apply is authoritative and already correct; no row
         // being marked connected (a hidden network, or a scan refresh
@@ -909,8 +992,10 @@ public sealed class RadioManager : ObservableObject, IDisposable
         }
     }
 
-    private WifiNetworkEntry? FindNetwork(string ssid) =>
-        Networks.FirstOrDefault(entry => string.Equals(entry.Ssid, ssid, StringComparison.Ordinal));
+    private WifiNetworkEntry? FindNetwork(string ssid)
+    {
+        return Networks.FirstOrDefault(entry => string.Equals(entry.Ssid, ssid, StringComparison.Ordinal));
+    }
 
     // ---- commands ----
 
@@ -940,18 +1025,15 @@ public sealed class RadioManager : ObservableObject, IDisposable
         {
             gate.Release();
         }
+
         QueueRefresh();
     }
 
-    // One gate per radio: a Wi-Fi toggle must not wait behind a Bluetooth one.
-    private readonly SemaphoreSlim _wifiPowerGate = new(1, 1);
-    private readonly SemaphoreSlim _bluetoothPowerGate = new(1, 1);
-
-    /// <summary>Turns a failed radio command into recoverable feature state.
-    ///
-    /// Every enumeration path already degrades to "controls stay neutral", but a command's callers are async
-    /// void UI handlers: an escaping exception reaches the process-wide
-    /// unhandled hook and tears the game-mode session down over a button press.
+    /// <summary>
+    ///     Turns a failed radio command into recoverable feature state.
+    ///     Every enumeration path already degrades to "controls stay neutral", but a command's callers are async
+    ///     void UI handlers: an escaping exception reaches the process-wide
+    ///     unhandled hook and tears the game-mode session down over a button press.
     /// </summary>
     /// <param name="operation">What the user asked for, phrased for a status line.</param>
     /// <param name="ex">The failure the Windows call raised.</param>
@@ -971,8 +1053,9 @@ public sealed class RadioManager : ObservableObject, IDisposable
                 _accessLogged = true;
                 Log.Warn($"Radio control denied (access code {access}).");
             }
+
             StatusText = "Windows is not allowing apps to control the radios "
-                + "(Settings > Privacy & security > Radios).";
+                         + "(Settings > Privacy & security > Radios).";
         }
         else
         {
@@ -984,8 +1067,10 @@ public sealed class RadioManager : ObservableObject, IDisposable
     /// <summary>Joins a network, installing a profile with the password first.</summary>
     /// <param name="ssid">The network to join.</param>
     /// <param name="password">The password, or null for an open or saved network.</param>
-    /// <returns>True when the network was actually joined; false leaves a
-    /// reason in <see cref="StatusText"/>.</returns>
+    /// <returns>
+    ///     True when the network was actually joined; false leaves a
+    ///     reason in <see cref="StatusText" />.
+    /// </returns>
     public async Task<bool> ConnectAsync(string ssid, string? password)
     {
         // One attempt at a time. The backend waits out the real verdict, so
@@ -999,6 +1084,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
             StatusText = "Still working on the last connection attempt...";
             return false;
         }
+
         try
         {
             StatusText = $"Connecting to {ssid}...";
@@ -1032,18 +1118,18 @@ public sealed class RadioManager : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Non-zero while a connection attempt is in flight.</summary>
-    private int _connecting;
-
-    /// <summary>The message for a failed join.
-    ///
-    /// Only a rejected key re-prompts for a password. Blaming the user's typing
-    /// for an association timeout is worse than saying the network could not be
-    /// reached, because they will retype a password that was already correct.</summary>
+    /// <summary>
+    ///     The message for a failed join.
+    ///     Only a rejected key re-prompts for a password. Blaming the user's typing
+    ///     for an association timeout is worse than saying the network could not be
+    ///     reached, because they will retype a password that was already correct.
+    /// </summary>
     internal static string DescribeConnectFailure(
         WindowsRadio.WifiFailureKind verdict,
         uint reasonCode,
-        string fallback) => verdict switch
+        string fallback)
+    {
+        return verdict switch
         {
             WindowsRadio.WifiFailureKind.KeyRejected =>
                 "That password was not accepted. Check it and try again.",
@@ -1054,8 +1140,11 @@ public sealed class RadioManager : ObservableObject, IDisposable
                 "Could not reach that network. It may be out of range.",
             _ => reasonCode != 0
                 ? WindowsRadio.ReasonText(reasonCode)
-                : fallback.Length > 0 ? fallback : "Could not connect."
+                : fallback.Length > 0
+                    ? fallback
+                    : "Could not connect."
         };
+    }
 
     /// <summary>Leaves the current network.</summary>
     public async Task DisconnectAsync()
@@ -1070,6 +1159,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
         {
             ReportCommandFailure("disconnect from this network", ex);
         }
+
         QueueRefresh();
     }
 
@@ -1087,30 +1177,37 @@ public sealed class RadioManager : ObservableObject, IDisposable
         {
             ReportCommandFailure($"forget {ssid}", ex);
         }
+
         QueueRefresh();
     }
 
-    /// <summary>Connects or disconnects a paired Bluetooth audio device — the
-    /// soft action, distinct from removing the pairing. Only meaningful for
-    /// rows with <see cref="BluetoothDeviceEntry.AudioConnectable"/>: other
-    /// device classes reconnect on their own initiative and Windows offers no
-    /// general reconnect operation for them.</summary>
+    /// <summary>
+    ///     Connects or disconnects a paired Bluetooth audio device — the
+    ///     soft action, distinct from removing the pairing. Only meaningful for
+    ///     rows with <see cref="BluetoothDeviceEntry.AudioConnectable" />: other
+    ///     device classes reconnect on their own initiative and Windows offers no
+    ///     general reconnect operation for them.
+    /// </summary>
     /// <param name="entry">The device to connect or disconnect.</param>
     /// <param name="connect">True to connect, false to disconnect.</param>
     /// <param name="cancellationToken">Cancels waiting for confirmation.</param>
     /// <returns>Whether later endpoint readback confirmed the requested state.</returns>
-    public async Task<bool> SetAudioConnectionAsync(BluetoothDeviceEntry entry, bool connect, CancellationToken cancellationToken = default)
+    public async Task<bool> SetAudioConnectionAsync(BluetoothDeviceEntry entry, bool connect,
+        CancellationToken cancellationToken = default)
     {
         if (entry.Busy)
         {
             StatusText = "A Bluetooth operation is already in progress for this device.";
             return false;
         }
+
         if (!entry.Paired || !entry.AudioConnectable || entry.ContainerId.Length == 0)
         {
-            StatusText = "This device reconnects when powered on or used. Windows does not expose a manual connection action for it.";
+            StatusText =
+                "This device reconnects when powered on or used. Windows does not expose a manual connection action for it.";
             return false;
         }
+
         entry.Busy = true;
         StatusText = $"{(connect ? "Connecting" : "Disconnecting")} {entry.Name}...";
         var container = entry.ContainerId;
@@ -1118,14 +1215,20 @@ public sealed class RadioManager : ObservableObject, IDisposable
         {
             var confirmed = await _bluetoothAudio.ApplyAsync(container, connect, cancellationToken);
             Log.Info($"Bluetooth audio {(connect ? "connect" : "disconnect")}: {entry.Name}.");
-            if (confirmed) { entry.AudioActive = connect; }
-            StatusText = confirmed ? "" : $"{entry.Name} did not confirm the requested connection state. Check that it is powered on and in range.";
+            if (confirmed)
+            {
+                entry.AudioActive = connect;
+            }
+
+            StatusText = confirmed
+                ? ""
+                : $"{entry.Name} did not confirm the requested connection state. Check that it is powered on and in range.";
             return confirmed;
         }
         catch (Exception ex)
         {
             Log.Warn($"Bluetooth audio {(connect ? "connect" : "disconnect")} failed for "
-                + $"{entry.Name}: {ex.Message}");
+                     + $"{entry.Name}: {ex.Message}");
             StatusText = connect
                 ? $"Could not connect {entry.Name}. Make sure it is switched on and in range."
                 : $"Could not disconnect {entry.Name}.";
@@ -1145,7 +1248,12 @@ public sealed class RadioManager : ObservableObject, IDisposable
     /// <returns>Whether Windows confirmed removal.</returns>
     public async Task<bool> UnpairAsync(BluetoothDeviceEntry entry)
     {
-        if (entry.Busy) { StatusText = "A Bluetooth operation is already in progress for this device."; return false; }
+        if (entry.Busy)
+        {
+            StatusText = "A Bluetooth operation is already in progress for this device.";
+            return false;
+        }
+
         entry.Busy = true;
         var id = entry.EndpointId;
         bool removed;
@@ -1164,6 +1272,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
             // for as long as the panel stays open.
             entry.Busy = false;
         }
+
         // Reflect the known outcome immediately. The background discovery would
         // confirm it eventually, but it performs a real inquiry and can take
         // half a minute — far too long for a button the user just pressed.
@@ -1172,32 +1281,39 @@ public sealed class RadioManager : ObservableObject, IDisposable
             _bluetoothCatalog.ConfirmPairing(id, false);
             entry.Paired = false;
         }
+
         Log.Info($"Bluetooth unpair: {entry.Name} -> {removed}.");
         StatusText = removed ? "" : $"Could not remove {entry.Name}.";
         return removed;
     }
 
-    private bool _pairingInProgress;
-    private BluetoothDeviceEntry? _pairingEntry;
-    private string? _pairingEndpointId;
-    private bool _pairingCancelled;
-    private uint _pairingToken;
-
-    /// <summary>Starts pairing a device. Questions arrive on
-    /// <see cref="PairingRequested"/> and must be answered with
-    /// <see cref="RespondToPairing"/>.</summary>
+    /// <summary>
+    ///     Starts pairing a device. Questions arrive on
+    ///     <see cref="PairingRequested" /> and must be answered with
+    ///     <see cref="RespondToPairing" />.
+    /// </summary>
     /// <param name="entry">The device to pair.</param>
     /// <returns>Whether pairing was started or the device was already paired.</returns>
     public bool BeginPairing(BluetoothDeviceEntry entry)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (entry.Paired) { return true; }
+        if (entry.Paired)
+        {
+            return true;
+        }
+
         if (_pairingInProgress || entry.Busy)
         {
             StatusText = "Another pairing is already in progress.";
             return false;
         }
-        if (!entry.CanPair) { StatusText = "Put the device into pairing mode and scan again."; return false; }
+
+        if (!entry.CanPair)
+        {
+            StatusText = "Put the device into pairing mode and scan again.";
+            return false;
+        }
+
         _pairingInProgress = true;
         entry.Busy = true;
         _pairingEntry = entry;
@@ -1226,21 +1342,29 @@ public sealed class RadioManager : ObservableObject, IDisposable
 
     internal bool CancelPairing(BluetoothDeviceEntry entry)
     {
-        if (!_pairingInProgress || _pairingEntry?.Id != entry.Id) { return false; }
+        if (!_pairingInProgress || _pairingEntry?.Id != entry.Id)
+        {
+            return false;
+        }
+
         _pairingCancelled = true;
         StatusText = $"Cancelling pairing with {entry.Name}...";
-        if (_pairingToken != 0) { RespondToPairing(_pairingToken, false, null); }
+        if (_pairingToken != 0)
+        {
+            RespondToPairing(_pairingToken, false, null);
+        }
+
         return true;
     }
 
-    /// <summary>Answers a pairing question raised on <see cref="PairingRequested"/>.</summary>
+    /// <summary>Answers a pairing question raised on <see cref="PairingRequested" />.</summary>
     /// <param name="token">The token from the prompt.</param>
     /// <param name="accept">Whether the user accepted.</param>
     /// <param name="pin">The PIN typed by the user, for the provide-pin ceremony.</param>
     public static void RespondToPairing(uint token, bool accept, string? pin)
     {
         Log.Info($"Bluetooth pairing: answering token {token} with "
-            + $"{(accept ? "accept" : "decline")}{(pin is { Length: > 0 } ? " and a PIN" : "")}.");
+                 + $"{(accept ? "accept" : "decline")}{(pin is { Length: > 0 } ? " and a PIN" : "")}.");
         // A pairing deferral completed on Avalonia's STA thread can wedge the
         // Device Association service; always answer from the MTA thread pool.
         _ = Task.Run(() =>
@@ -1266,6 +1390,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
             _pairingEntry.Busy = false;
             _pairingEntry = null;
         }
+
         _pairingToken = 0;
         _pairingEndpointId = null;
         _pairingCancelled = false;
@@ -1278,22 +1403,29 @@ public sealed class RadioManager : ObservableObject, IDisposable
         _pairingToken = request.Token;
         if (_disposed)
         {
-            RespondToPairing(request.Token, accept: false, null);
+            RespondToPairing(request.Token, false, null);
             return;
         }
+
         Log.Info($"Bluetooth pairing: question received (token {request.Token}, "
-            + $"kind {request.Kind}, pin '{request.Pin}') for {request.DeviceName}.");
+                 + $"kind {request.Kind}, pin '{request.Pin}') for {request.DeviceName}.");
         Dispatcher.UIThread.Post(() =>
         {
             if (_disposed)
             {
-                RespondToPairing(request.Token, accept: false, null);
+                RespondToPairing(request.Token, false, null);
                 return;
             }
-            if (_pairingCancelled) { RespondToPairing(request.Token, false, null); return; }
+
+            if (_pairingCancelled)
+            {
+                RespondToPairing(request.Token, false, null);
+                return;
+            }
+
             var handled = PairingRequested is not null;
             Log.Info($"Bluetooth pairing: prompting the user (token {request.Token}, "
-                + $"handler attached: {handled}).");
+                     + $"handler attached: {handled}).");
             PairingRequested?.Invoke(new PairingPrompt(
                 request.Token, request.Kind, request.Pin, request.DeviceName));
             if (handled)
@@ -1302,7 +1434,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
             }
 
             Log.Warn($"Bluetooth pairing: no UI attached, declining token {request.Token}.");
-            RespondToPairing(request.Token, accept: false, null);
+            RespondToPairing(request.Token, false, null);
         });
     }
 
@@ -1312,15 +1444,17 @@ public sealed class RadioManager : ObservableObject, IDisposable
         {
             return;
         }
+
         var outcome = result?.Outcome;
         var text = failure?.Message
-            ?? (result is { } completed ? $"Windows status {completed.RawStatus}" : string.Empty);
+                   ?? (result is { } completed ? $"Windows status {completed.RawStatus}" : string.Empty);
         Dispatcher.UIThread.Post(() =>
         {
             if (_disposed)
             {
                 return;
             }
+
             var entry = _pairingEntry;
             var name = entry?.Name ?? "device";
             // Same reasoning as unpair: apply the outcome we already know rather
@@ -1329,15 +1463,20 @@ public sealed class RadioManager : ObservableObject, IDisposable
                 or WindowsRadio.PairingOutcome.AlreadyPaired;
             if (entry is not null && paired)
             {
-                if (_pairingEndpointId is { } endpointId) { _bluetoothCatalog.ConfirmPairing(endpointId, true); }
+                if (_pairingEndpointId is { } endpointId)
+                {
+                    _bluetoothCatalog.ConfirmPairing(endpointId, true);
+                }
+
                 entry.Paired = true;
             }
+
             FinishPairing();
             var summary = DescribePairOutcome(outcome, name, text);
             // The raw status rides along: the grouped outcome deliberately
             // lumps rare statuses, and remote diagnosis needs the exact one.
             Log.Info($"Bluetooth pairing: finished for {name} (outcome {outcome}"
-                + $"{(text.Length > 0 ? $", {text}" : "")}). {summary}");
+                     + $"{(text.Length > 0 ? $", {text}" : "")}). {summary}");
             StatusText = paired ? "" : summary;
             PairingFinished?.Invoke(summary);
         });
@@ -1345,19 +1484,28 @@ public sealed class RadioManager : ObservableObject, IDisposable
 
     /// <summary>Shows a non-transient panel decision that did not reach Windows.</summary>
     /// <param name="message">Short actionable text for the panel status line.</param>
-    internal void ReportStatus(string message) => StatusText = message;
+    internal void ReportStatus(string message)
+    {
+        StatusText = message;
+    }
 
     /// <summary>The message for a finished pairing attempt.</summary>
-    /// <param name="outcome">How it ended, or <see langword="null"/> when the attempt threw
-    /// before Windows produced a result.</param>
+    /// <param name="outcome">
+    ///     How it ended, or <see langword="null" /> when the attempt threw
+    ///     before Windows produced a result.
+    /// </param>
     /// <param name="device">The device's display name.</param>
-    /// <param name="message">The exception message or raw Windows status, used only when there
-    /// is nothing better to say.</param>
+    /// <param name="message">
+    ///     The exception message or raw Windows status, used only when there
+    ///     is nothing better to say.
+    /// </param>
     /// <returns>A line to show the user.</returns>
     internal static string DescribePairOutcome(
         WindowsRadio.PairingOutcome? outcome,
         string device,
-        string message) => outcome switch
+        string message)
+    {
+        return outcome switch
         {
             WindowsRadio.PairingOutcome.Paired => $"{device} is paired.",
             WindowsRadio.PairingOutcome.AlreadyPaired => $"{device} was already paired.",
@@ -1375,7 +1523,33 @@ public sealed class RadioManager : ObservableObject, IDisposable
             null => message.Length > 0 ? message : $"Pairing with {device} failed.",
             _ => $"Pairing with {device} did not complete."
         };
+    }
 
+    /// <summary>Describes a pairing question for the UI to render.</summary>
+    /// <param name="Token">Identifies the request when answering.</param>
+    /// <param name="Kind">
+    ///     Which ceremony to present.
+    ///     <see cref="WindowsRadio.PairingKind.Unknown" /> is deliberately presented as confirm-only
+    ///     rather than declined: an accept is what Windows most often wants, and the log line records
+    ///     the raw kind so a device that really needs another ceremony is still diagnosable.
+    /// </param>
+    /// <param name="Pin">The PIN to show, for display-pin and confirm-pin-match.</param>
+    /// <param name="DeviceName">The device being paired.</param>
+    public readonly record struct PairingPrompt(
+        uint Token,
+        WindowsRadio.PairingKind Kind,
+        string Pin,
+        string DeviceName);
 
-
+    private sealed record Snapshot(
+        RadioPower WifiPower,
+        RadioPower BluetoothPower,
+        int BluetoothConnected,
+        WindowsRadio.WifiConnectionState WifiState,
+        int WifiSignal,
+        string WifiSsid,
+        bool IncludedNetworks,
+        IReadOnlyList<WindowsRadio.WifiNetwork> Networks,
+        IReadOnlyList<CoreAudio.BluetoothAudioContainer>? AudioContainers,
+        string? Failure);
 }

@@ -38,9 +38,8 @@ internal sealed record RtssProcessIdentity(
 /// <summary>Injectable read-only environment for deterministic RTSS discovery.</summary>
 internal interface IRtssDiscoveryEnvironment
 {
-    IReadOnlyList<RtssInstallRecord> ReadInstallRecords();
-
     IReadOnlyList<string> ProtectedInstallRoots { get; }
+    IReadOnlyList<RtssInstallRecord> ReadInstallRecords();
 
     RtssFileIdentity ReadFileIdentity(string path);
 
@@ -51,6 +50,7 @@ internal interface IRtssDiscoveryEnvironment
 internal sealed class RtssDiscovery
 {
     private static readonly Version MinimumVersion = new(7, 3);
+
     private static readonly string[] RequiredApiExports =
     [
         "LoadProfile",
@@ -122,6 +122,7 @@ internal sealed class RtssDiscovery
                 registrationVersion.ToString(),
                 executable);
         }
+
         if (!ValidExecutable(executableIdentity, registrationVersion)
             || !ValidApi(apiIdentity))
         {
@@ -150,6 +151,7 @@ internal sealed class RtssDiscovery
                 registrationVersion.ToString(),
                 executable);
         }
+
         if (processes.Length == 0)
         {
             return Failure(
@@ -193,7 +195,7 @@ internal sealed class RtssDiscovery
         version = null;
         var expectedVersionedName = $"RivaTuner Statistics Server {record.DisplayVersion}";
         if ((!string.Equals(record.DisplayName, "RivaTuner Statistics Server", StringComparison.Ordinal)
-                && !string.Equals(record.DisplayName, expectedVersionedName, StringComparison.Ordinal))
+             && !string.Equals(record.DisplayName, expectedVersionedName, StringComparison.Ordinal))
             || !string.Equals(record.Publisher?.Trim(), "Unwinder", StringComparison.Ordinal)
             || !Version.TryParse(record.DisplayVersion, out version)
             || version < MinimumVersion)
@@ -239,14 +241,16 @@ internal sealed class RtssDiscovery
         }
 
         return Version.TryParse(NormalizeVersion(identity.FileVersion), out var fileVersion)
-            && fileVersion >= MinimumVersion
-            && fileVersion.Major == registrationVersion.Major;
+               && fileVersion >= MinimumVersion
+               && fileVersion.Major == registrationVersion.Major;
     }
 
-    private static bool ValidApi(RtssFileIdentity identity) =>
-        identity is { Exists: true, Length: > 0, SignatureValid: true }
-        && identity.Is64Bit == Environment.Is64BitProcess
-        && RequiredApiExports.All(identity.Exports.Contains);
+    private static bool ValidApi(RtssFileIdentity identity)
+    {
+        return identity is { Exists: true, Length: > 0, SignatureValid: true }
+               && identity.Is64Bit == Environment.Is64BitProcess
+               && RequiredApiExports.All(identity.Exports.Contains);
+    }
 
     private static string? ExtractExecutable(string? command)
     {
@@ -287,7 +291,7 @@ internal sealed class RtssDiscovery
 
         var canonicalRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         return path.Equals(canonicalRoot, StringComparison.OrdinalIgnoreCase)
-            || path.StartsWith(canonicalRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+               || path.StartsWith(canonicalRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool SamePath(string left, string right)
@@ -309,22 +313,27 @@ internal sealed class RtssDiscovery
         RtssAvailability availability,
         string diagnostic,
         string? version = null,
-        string? executable = null) => new(
+        string? executable = null)
+    {
+        return new RtssProbe(
             availability,
             version,
             executable,
             0,
             null,
             diagnostic);
+    }
 }
 
 /// <summary>Windows registry, file, PE-export, and process observation for RTSS discovery.</summary>
 internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironment
 {
     private const string UninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RTSS";
-    private readonly Lock _identityGate = new();
+
     private readonly Dictionary<string, CachedFileIdentity> _identities =
         new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Lock _identityGate = new();
 
     public IReadOnlyList<string> ProtectedInstallRoots { get; } =
     [
@@ -340,7 +349,7 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
             try
             {
                 using var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
-                using var key = machine.OpenSubKey(UninstallKey, writable: false);
+                using var key = machine.OpenSubKey(UninstallKey, false);
                 if (key is null)
                 {
                     continue;
@@ -611,7 +620,10 @@ internal static class PeExportReader
         return false;
     }
 
-    private static HashSet<string> Empty() => new HashSet<string>(StringComparer.Ordinal);
+    private static HashSet<string> Empty()
+    {
+        return new HashSet<string>(StringComparer.Ordinal);
+    }
 
     private readonly record struct PeSection(
         uint VirtualAddress,

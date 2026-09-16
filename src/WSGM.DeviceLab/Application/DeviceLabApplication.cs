@@ -29,7 +29,6 @@ internal sealed record DeviceLabCandidateResult
 
     /// <summary>Reviewed read-only probes available only after an exact known-device match.</summary>
     public IReadOnlyList<ReadProbeMetadata> ReadOnlyProbes { get; init; } = [];
-
 }
 
 /// <summary>Correlation findings and the limits that constrain their meaning.</summary>
@@ -40,7 +39,6 @@ internal sealed record DeviceLabCorrelationResult
 
     /// <summary>Platform limitations retained alongside the findings.</summary>
     public IReadOnlyList<string> Limitations { get; init; } = [];
-
 }
 
 /// <summary>Safety preflight and disposable-worker result for one compiled read probe.</summary>
@@ -54,14 +52,13 @@ internal sealed record DeviceLabReadProbeExecutionResult
 
     /// <summary>Typed disposable-worker result, or null when preflight refused execution.</summary>
     public ReadProbeRunResult? Run { get; init; }
-
 }
 
 /// <summary>
-/// Shared Device Lab application facade used by the GUI and CLI command surfaces.
+///     Shared Device Lab application facade used by the GUI and CLI command surfaces.
 /// </summary>
 /// <remarks>Creates a facade rooted in the current checkout and running Device Lab executable.</remarks>
-/// <param name="repositoryRoot">Repository root, or <see langword="null"/> outside a checkout.</param>
+/// <param name="repositoryRoot">Repository root, or <see langword="null" /> outside a checkout.</param>
 /// <param name="deviceLabPath">Path to the current Device Lab executable.</param>
 internal sealed class DeviceLabApplication(string? repositoryRoot, string deviceLabPath)
 {
@@ -94,11 +91,14 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         string outputDirectory,
         bool shareable,
         DateTimeOffset capturedAt,
-        CancellationToken cancellationToken = default) => DeviceLabInventoryWorkflow.Run(
+        CancellationToken cancellationToken = default)
+    {
+        return DeviceLabInventoryWorkflow.Run(
             new DeviceLabInventoryRequest { OutputDirectory = outputDirectory, Shareable = shareable },
             capturedAt,
             repositoryRoot,
             cancellationToken);
+    }
 
     /// <summary>Compares the known MS-1T52 fingerprint and lists its reviewed probes without opening hardware.</summary>
     /// <param name="inventoryPath">Canonical inventory JSON.</param>
@@ -139,8 +139,10 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     /// <returns>Closed observation steps and their approval hash.</returns>
     public static ObserveOnlyRecipeReview ReviewCaptureRecipe(
         string recipePath,
-        CancellationToken cancellationToken = default) =>
-        ObserveOnlyCaptureWorkflow.Review(recipePath, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        return ObserveOnlyCaptureWorkflow.Review(recipePath, cancellationToken);
+    }
 
     /// <summary>Runs one positively matched compiled read probe in a disposable self-worker.</summary>
     /// <param name="inventoryPath">Inventory used for exact candidate gates.</param>
@@ -158,11 +160,12 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         var inventory = ReadInventory(inventoryPath, cancellationToken);
         var candidateResult = Candidates(
             inventory,
-            targetDeviceId: null,
-            cancellationToken: cancellationToken);
+            null,
+            cancellationToken);
         var probe = candidateResult.ReadOnlyProbes.SingleOrDefault(item =>
                         string.Equals(item.Id, probeId, StringComparison.Ordinal))
-                    ?? throw new InvalidDataException("The named probe is not a positively matched reviewed read probe.");
+                    ?? throw new InvalidDataException(
+                        "The named probe is not a positively matched reviewed read probe.");
         var doctor = Doctor(
             outputDirectory,
             DateTimeOffset.UtcNow,
@@ -218,11 +221,14 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     public Task<ObserveOnlyCaptureResult> PrepareCaptureAsync(
         ObserveOnlyCaptureRequest request,
         DateTimeOffset capturedAt,
-        CancellationToken cancellationToken) => ObserveOnlyCaptureWorkflow.PrepareAsync(
+        CancellationToken cancellationToken)
+    {
+        return ObserveOnlyCaptureWorkflow.PrepareAsync(
             request,
             capturedAt,
             repositoryRoot,
             cancellationToken);
+    }
 
     /// <summary>Exports a prepared sanitized capture after separate privacy approval.</summary>
     /// <param name="plan">Prepared capture export.</param>
@@ -232,11 +238,14 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     public CaptureExportResult ExportCapture(
         CaptureExportPlan plan,
         bool exportPreviewConfirmed,
-        CancellationToken cancellationToken = default) => ObserveOnlyCaptureWorkflow.Export(
+        CancellationToken cancellationToken = default)
+    {
+        return ObserveOnlyCaptureWorkflow.Export(
             plan,
             exportPreviewConfirmed,
             repositoryRoot,
             cancellationToken);
+    }
 
     /// <summary>Verifies and summarizes one sanitized capture.</summary>
     /// <param name="capturePath">Shareable capture path.</param>
@@ -283,9 +292,12 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         ArgumentNullException.ThrowIfNull(sourceIds);
         var read = ReadCapture(capturePath, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-        IReadOnlyList<CaptureStreamEvent> events = [.. read.Bundle!.Streams
-            .SelectMany(stream => stream.Events)
-            .OrderBy(captureEvent => captureEvent.GlobalSequence)];
+        IReadOnlyList<CaptureStreamEvent> events =
+        [
+            .. read.Bundle!.Streams
+                .SelectMany(stream => stream.Events)
+                .OrderBy(captureEvent => captureEvent.GlobalSequence)
+        ];
         return new DeviceLabCorrelationResult
         {
             Findings = PassiveCorrelationAnalyzer.Analyze(
@@ -340,18 +352,24 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         string capturePath,
         string outputDirectory,
         string? usbInstanceId = null,
-        CancellationToken cancellationToken = default) => ScaffoldFromCaptureWorkflow.Run(
+        CancellationToken cancellationToken = default)
+    {
+        return ScaffoldFromCaptureWorkflow.Run(
             capturePath,
             outputDirectory,
             Boundaries(),
             usbInstanceId,
             cancellationToken);
+    }
 
     /// <summary>Runs the built-in hardware-free synthetic plugin fixture.</summary>
     /// <param name="cancellationToken">Cancels the fixture.</param>
     /// <returns>Named public-API checks.</returns>
     public static Task<SyntheticPluginFixtureReport> TestSyntheticPluginAsync(
-        CancellationToken cancellationToken) => SyntheticPluginFixture.RunAsync(cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        return SyntheticPluginFixture.RunAsync(cancellationToken);
+    }
 
     /// <summary>Loads one local plugin and runs only its exact detector.</summary>
     /// <param name="packageDirectory">Validated local package directory.</param>
@@ -361,16 +379,19 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     public static Task<PluginTestReport> TestPluginAsync(
         string packageDirectory,
         string inventoryPath,
-        CancellationToken cancellationToken) => PluginTestWorkflow.TestDetectionAsync(
+        CancellationToken cancellationToken)
+    {
+        return PluginTestWorkflow.TestDetectionAsync(
             packageDirectory,
             ToPluginIdentity(ReadInventory(inventoryPath, cancellationToken)),
             cancellationToken);
+    }
 
     /// <summary>Runs one explicitly confirmed plugin activation and mandatory cleanup.</summary>
     /// <param name="packageDirectory">Validated local package directory.</param>
     /// <param name="inventoryPath">
-    /// Operator-reviewed inventory JSON. The action recollects live identity and never uses this
-    /// imported document as its activation identity.
+    ///     Operator-reviewed inventory JSON. The action recollects live identity and never uses this
+    ///     imported document as its activation identity.
     /// </param>
     /// <param name="stateDirectory">New explicit package state directory.</param>
     /// <param name="action">One explicit semantic action selected by the local operator.</param>
@@ -408,8 +429,10 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     /// <returns>Offline validation report.</returns>
     public static PluginPackageValidationReport ValidateOffline(
         string packageDirectory,
-        CancellationToken cancellationToken = default) =>
-        PluginPackageWorkflow.ValidateOffline(packageDirectory, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        return PluginPackageWorkflow.ValidateOffline(packageDirectory, cancellationToken);
+    }
 
     /// <summary>Validates and deterministically packs a plugin.</summary>
     /// <param name="packageDirectory">Package source directory.</param>
@@ -419,8 +442,10 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     public PluginPackageValidationReport Pack(
         string packageDirectory,
         string outputPath,
-        CancellationToken cancellationToken = default) =>
-        PluginPackageWorkflow.Pack(packageDirectory, outputPath, Boundaries(), cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        return PluginPackageWorkflow.Pack(packageDirectory, outputPath, Boundaries(), cancellationToken);
+    }
 
     /// <summary>Directly imports every package glyph profile through the SDK loader.</summary>
     /// <param name="packageDirectory">Package source containing profiles, artwork, and notices.</param>
@@ -428,10 +453,15 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     /// <returns>Accepted profiles and deterministic import failures.</returns>
     public static GlyphPackageImportReport ImportGlyphs(
         string packageDirectory,
-        CancellationToken cancellationToken = default) =>
-        GlyphPackageImportWorkflow.Import(packageDirectory, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        return GlyphPackageImportWorkflow.Import(packageDirectory, cancellationToken);
+    }
 
-    private DeviceLabPathBoundaries Boundaries() => DeviceLabPathBoundaries.ForCurrentUser(repositoryRoot);
+    private DeviceLabPathBoundaries Boundaries()
+    {
+        return DeviceLabPathBoundaries.ForCurrentUser(repositoryRoot);
+    }
 
     private static MachineInventory ReadInventory(string path, CancellationToken cancellationToken)
     {
@@ -487,8 +517,10 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
             {
                 throw new EndOfStreamException(invalidMessage);
             }
+
             offset += read;
         }
+
         return bytes;
     }
 
@@ -504,8 +536,10 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
             {
                 break;
             }
+
             hash.AppendData(buffer, 0, read);
         }
+
         return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
     }
 
@@ -517,46 +551,63 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         }
     }
 
-    private static string DeviceId(MachineInventory inventory) =>
-        string.Equals(inventory.Firmware.BaseboardProduct, "MS-1T52", StringComparison.OrdinalIgnoreCase)
+    private static string DeviceId(MachineInventory inventory)
+    {
+        return string.Equals(inventory.Firmware.BaseboardProduct, "MS-1T52", StringComparison.OrdinalIgnoreCase)
             ? "ms-1t52"
             : $"observed-{(inventory.Firmware.BaseboardProduct ?? "unknown").ToLowerInvariant()}";
+    }
 
-    internal static DeviceIdentitySnapshot ToPluginIdentity(MachineInventory inventory) => new()
+    internal static DeviceIdentitySnapshot ToPluginIdentity(MachineInventory inventory)
     {
-        SystemManufacturer = IdentityText.Normalize(inventory.Firmware.SystemManufacturer),
-        SystemProduct = IdentityText.Normalize(inventory.Firmware.SystemProduct),
-        SystemSku = IdentityText.Normalize(inventory.Firmware.SystemSku),
-        SystemFamily = IdentityText.Normalize(inventory.Firmware.SystemFamily),
-        BaseboardProduct = IdentityText.Normalize(inventory.Firmware.BaseboardProduct),
-        BaseboardVersion = IdentityText.Normalize(inventory.Firmware.BaseboardVersion),
-        BiosVersion = IdentityText.Normalize(inventory.Firmware.BiosVersion),
-        EcFirmwareVersion = IdentityText.Normalize(inventory.Firmware.EmbeddedControllerVersion),
-        CpuIdentity = IdentityText.Normalize(inventory.Processor?.NormalizedIdentity),
-        UsbEndpoints = [.. inventory.UsbInterfaces
-            .Where(endpoint => endpoint is { Present: true, VendorId: not null, ProductId: not null })
-            .Select(endpoint => new UsbEndpointObservation
-            {
-                VendorId = endpoint.VendorId!,
-                ProductId = endpoint.ProductId!,
-                InterfaceNumber = endpoint.InterfaceNumber,
-                DeviceRelease = endpoint.DeviceRelease,
-                LocationPath = endpoint.LocationPath
-            })],
-        WmiProviderSignatures = [.. inventory.WmiClasses
-            .Where(provider => provider.Access is WmiAccess.Available or WmiAccess.AccessDenied)
-            .Select(provider => $"{provider.Namespace}:{provider.ClassName}")
-            .Order(StringComparer.Ordinal)]
-    };
+        return new DeviceIdentitySnapshot
+        {
+            SystemManufacturer = IdentityText.Normalize(inventory.Firmware.SystemManufacturer),
+            SystemProduct = IdentityText.Normalize(inventory.Firmware.SystemProduct),
+            SystemSku = IdentityText.Normalize(inventory.Firmware.SystemSku),
+            SystemFamily = IdentityText.Normalize(inventory.Firmware.SystemFamily),
+            BaseboardProduct = IdentityText.Normalize(inventory.Firmware.BaseboardProduct),
+            BaseboardVersion = IdentityText.Normalize(inventory.Firmware.BaseboardVersion),
+            BiosVersion = IdentityText.Normalize(inventory.Firmware.BiosVersion),
+            EcFirmwareVersion = IdentityText.Normalize(inventory.Firmware.EmbeddedControllerVersion),
+            CpuIdentity = IdentityText.Normalize(inventory.Processor?.NormalizedIdentity),
+            UsbEndpoints =
+            [
+                .. inventory.UsbInterfaces
+                    .Where(endpoint => endpoint is { Present: true, VendorId: not null, ProductId: not null })
+                    .Select(endpoint => new UsbEndpointObservation
+                    {
+                        VendorId = endpoint.VendorId!,
+                        ProductId = endpoint.ProductId!,
+                        InterfaceNumber = endpoint.InterfaceNumber,
+                        DeviceRelease = endpoint.DeviceRelease,
+                        LocationPath = endpoint.LocationPath
+                    })
+            ],
+            WmiProviderSignatures =
+            [
+                .. inventory.WmiClasses
+                    .Where(provider => provider.Access is WmiAccess.Available or WmiAccess.AccessDenied)
+                    .Select(provider => $"{provider.Namespace}:{provider.ClassName}")
+                    .Order(StringComparer.Ordinal)
+            ]
+        };
+    }
 
-    private static string SafeFileName(string value) => string.Concat(value.Select(character =>
-        char.IsAsciiLetterOrDigit(character) || character is '-' or '_' ? character : '-'));
-
-    private static bool ProbeFamilyMatches(string familyId, string targetDeviceId) => familyId switch
+    private static string SafeFileName(string value)
     {
-        "msi.claw-a2vm.ms-1t52" => string.Equals(targetDeviceId, "ms-1t52", StringComparison.Ordinal),
-        _ => false
-    };
+        return string.Concat(value.Select(character =>
+            char.IsAsciiLetterOrDigit(character) || character is '-' or '_' ? character : '-'));
+    }
+
+    private static bool ProbeFamilyMatches(string familyId, string targetDeviceId)
+    {
+        return familyId switch
+        {
+            "msi.claw-a2vm.ms-1t52" => string.Equals(targetDeviceId, "ms-1t52", StringComparison.Ordinal),
+            _ => false
+        };
+    }
 
     private static bool ProbeEndpointMatches(string endpointId, MachineInventory inventory)
     {

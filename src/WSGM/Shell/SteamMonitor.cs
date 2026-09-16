@@ -5,32 +5,18 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>Watches Steam by process-name polling (the Big Picture window lives in
-/// steamwebhelper.exe, so name polling is authoritative). Raises SteamExited on the
-/// UI thread when it transitions alive → dead.</summary>
+/// <summary>
+///     Watches Steam by process-name polling (the Big Picture window lives in
+///     steamwebhelper.exe, so name polling is authoritative). Raises SteamExited on the
+///     UI thread when it transitions alive → dead.
+/// </summary>
 public sealed class SteamMonitor : IDisposable
 {
     private readonly DispatcherTimer _timer;
-    private bool _wasAlive;
-
-    /// <summary>Raised when Steam transitions from alive to absent while monitoring is active.</summary>
-    public event Action? SteamExited;
-
-    /// <summary>Raised when Steam transitions from absent back to alive (a fresh client
-    /// start while WSGM keeps running — e.g. after an update restarts Steam). Not raised
-    /// for a Steam that was already alive when monitoring began.</summary>
-    public event Action? SteamStarted;
-
-    private bool _seenDead;
     private bool _pollInFlight;
 
-    /// <summary>Gets whether Steam was alive during the most recent poll.</summary>
-    public bool IsAlive { get; private set; }
-
-    /// <summary>While true (desktop mode, or after the user deliberately closed
-    /// Steam) an alive→dead transition is swallowed instead of raising SteamExited,
-    /// so nothing auto-relaunches or pops the overlay.</summary>
-    public bool Paused { get; set; }
+    private bool _seenDead;
+    private bool _wasAlive;
 
     /// <summary>Creates and starts a UI-thread Steam lifecycle monitor.</summary>
     public SteamMonitor()
@@ -42,12 +28,39 @@ public sealed class SteamMonitor : IDisposable
         _timer.Start();
     }
 
+    /// <summary>Gets whether Steam was alive during the most recent poll.</summary>
+    public bool IsAlive { get; private set; }
+
+    /// <summary>
+    ///     While true (desktop mode, or after the user deliberately closed
+    ///     Steam) an alive→dead transition is swallowed instead of raising SteamExited,
+    ///     so nothing auto-relaunches or pops the overlay.
+    /// </summary>
+    public bool Paused { get; set; }
+
+    /// <summary>Stops the lifecycle monitor.</summary>
+    public void Dispose()
+    {
+        _timer.Stop();
+    }
+
+    /// <summary>Raised when Steam transitions from alive to absent while monitoring is active.</summary>
+    public event Action? SteamExited;
+
+    /// <summary>
+    ///     Raised when Steam transitions from absent back to alive (a fresh client
+    ///     start while WSGM keeps running — e.g. after an update restarts Steam). Not raised
+    ///     for a Steam that was already alive when monitoring began.
+    /// </summary>
+    public event Action? SteamStarted;
+
     private void Poll()
     {
         if (_pollInFlight)
         {
             return;
         }
+
         _pollInFlight = true;
         // Steam.IsRunning takes a full process snapshot per watched name — off the
         // UI thread, with only the resulting boolean marshalled back, so the 16 ms
@@ -66,6 +79,7 @@ public sealed class SteamMonitor : IDisposable
                 Dispatcher.UIThread.Post(() => _pollInFlight = false);
                 return;
             }
+
             Dispatcher.UIThread.Post(() => Apply(alive));
         });
     }
@@ -105,11 +119,9 @@ public sealed class SteamMonitor : IDisposable
             {
                 return;
             }
+
             Log.Info("Steam started.");
             SteamStarted?.Invoke();
         }
     }
-
-    /// <summary>Stops the lifecycle monitor.</summary>
-    public void Dispose() => _timer.Stop();
 }

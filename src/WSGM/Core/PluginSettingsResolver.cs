@@ -24,8 +24,8 @@ public enum PluginSettingOrigin
 /// <param name="Value">The value the plugin will actually be given.</param>
 /// <param name="Origin">Whether it was defaulted, restored, or replaced after rejection.</param>
 /// <param name="Reason">
-/// Why a stored value was rejected, naming the value and the declared bound. Null unless
-/// <paramref name="Origin"/> is <see cref="PluginSettingOrigin.Rejected"/>.
+///     Why a stored value was rejected, naming the value and the declared bound. Null unless
+///     <paramref name="Origin" /> is <see cref="PluginSettingOrigin.Rejected" />.
 /// </param>
 public readonly record struct EffectivePluginSetting(
     string SettingId,
@@ -37,8 +37,8 @@ public readonly record struct EffectivePluginSetting(
 /// <summary>The result of reconciling stored values against a plugin's current declaration.</summary>
 /// <param name="Values">One entry per declared setting, in declaration order.</param>
 /// <param name="Orphans">
-/// Stored settings the manifest no longer declares, named so they can be logged and dropped rather
-/// than silently carried forever.
+///     Stored settings the manifest no longer declares, named so they can be logged and dropped rather
+///     than silently carried forever.
 /// </param>
 public readonly record struct PluginSettingsResolution(
     IReadOnlyList<EffectivePluginSetting> Values,
@@ -46,22 +46,22 @@ public readonly record struct PluginSettingsResolution(
 );
 
 /// <summary>
-/// Reconciles stored plugin setting values with the manifest the plugin declares now.
+///     Reconciles stored plugin setting values with the manifest the plugin declares now.
 /// </summary>
 /// <remarks>
-/// A plugin update can narrow a range, drop a choice, shorten a text bound, or remove a setting
-/// outright, and the values on disk were written against whatever it declared before. Restoring one
-/// blindly would hand the plugin a value it no longer considers legal.
-/// <para>
-/// This is a pure decision so it can be tested without a device: it reports what it rejected and
-/// why, and the caller logs it. A rejection that is not logged with the stored value and the
-/// declared bound beside it cannot be diagnosed from a user's log.
-/// </para>
+///     A plugin update can narrow a range, drop a choice, shorten a text bound, or remove a setting
+///     outright, and the values on disk were written against whatever it declared before. Restoring one
+///     blindly would hand the plugin a value it no longer considers legal.
+///     <para>
+///         This is a pure decision so it can be tested without a device: it reports what it rejected and
+///         why, and the caller logs it. A rejection that is not logged with the stored value and the
+///         declared bound beside it cannot be diagnosed from a user's log.
+///     </para>
 /// </remarks>
 public static class PluginSettingsResolver
 {
     /// <summary>
-    /// Produces the effective value of every declared setting.
+    ///     Produces the effective value of every declared setting.
     /// </summary>
     /// <param name="manifest">What the plugin declares now.</param>
     /// <param name="stored">The values previously written for this plugin, possibly empty.</param>
@@ -120,18 +120,19 @@ public static class PluginSettingsResolver
     }
 
     /// <summary>
-    /// Reads a stored entry into the value shape the declaration expects.
+    ///     Reads a stored entry into the value shape the declaration expects.
     /// </summary>
     /// <param name="entry">The stored entry.</param>
     /// <param name="kind">The kind the setting currently declares.</param>
     /// <returns>The value, which the caller still validates.</returns>
     /// <remarks>
-    /// Deliberately reads only the field matching the declared kind. A setting whose kind changed
-    /// between plugin versions therefore produces an empty value and is rejected with a reason,
-    /// rather than silently reinterpreting an integer as a colour.
+    ///     Deliberately reads only the field matching the declared kind. A setting whose kind changed
+    ///     between plugin versions therefore produces an empty value and is rejected with a reason,
+    ///     rather than silently reinterpreting an integer as a colour.
     /// </remarks>
-    private static CapabilityValue ToCapabilityValue(PluginSettingValue entry, CapabilityValueKind kind) =>
-        kind switch
+    private static CapabilityValue ToCapabilityValue(PluginSettingValue entry, CapabilityValueKind kind)
+    {
+        return kind switch
         {
             CapabilityValueKind.Boolean => new CapabilityValue
             {
@@ -152,4 +153,5 @@ public static class PluginSettingsResolver
             CapabilityValueKind.Text => new CapabilityValue { Kind = kind, TextValue = entry.Text },
             _ => new CapabilityValue { Kind = kind }
         };
+    }
 }

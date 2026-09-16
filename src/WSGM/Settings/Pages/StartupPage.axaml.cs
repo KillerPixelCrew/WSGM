@@ -7,18 +7,25 @@ using WSGM.Core;
 
 namespace WSGM.Settings.Pages;
 
-/// <summary>The Startup settings page: the ordered startup-app editor (the only
-/// internally scrolling Settings surface), launch delays and the boot-splash
-/// toggle. Inherits the window's <see cref="SettingsViewModel"/> DataContext;
-/// the async file pickers stay in this code-behind (StorageProvider needs the
-/// visual tree's TopLevel).</summary>
+/// <summary>
+///     The Startup settings page: the ordered startup-app editor (the only
+///     internally scrolling Settings surface), launch delays and the boot-splash
+///     toggle. Inherits the window's <see cref="SettingsViewModel" /> DataContext;
+///     the async file pickers stay in this code-behind (StorageProvider needs the
+///     visual tree's TopLevel).
+/// </summary>
 public partial class StartupPage : UserControl
 {
     /// <summary>Loads the compiled page XAML.</summary>
-    public StartupPage() => InitializeComponent();
+    public StartupPage()
+    {
+        InitializeComponent();
+    }
 
-    private void OnAddApp(object? sender, RoutedEventArgs e) =>
+    private void OnAddApp(object? sender, RoutedEventArgs e)
+    {
         ObservePickerAction(AddAppAsync, "Startup application picker");
+    }
 
     private async Task AddAppAsync()
     {
@@ -26,11 +33,13 @@ public partial class StartupPage : UserControl
         {
             return;
         }
+
         // A detected suggestion adds itself; "Choose a program…" opens the picker.
         if (viewModel.AddSelectedStartupApp())
         {
             return;
         }
+
         var path = await PickExeAsync();
         if (path is not null)
         {
@@ -87,6 +96,7 @@ public partial class StartupPage : UserControl
         {
             return null;
         }
+
         var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "Select application",
@@ -96,8 +106,10 @@ public partial class StartupPage : UserControl
         return files.Count > 0 ? files[0].TryGetLocalPath() : null;
     }
 
-    private void ObservePickerAction(Func<Task> action, string operation) =>
+    private void ObservePickerAction(Func<Task> action, string operation)
+    {
         _ = ObservePickerActionAsync(action, operation);
+    }
 
     private async Task ObservePickerActionAsync(Func<Task> action, string operation)
     {

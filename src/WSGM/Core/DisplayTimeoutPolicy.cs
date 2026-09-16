@@ -5,13 +5,13 @@ namespace WSGM.Core;
 
 /// <summary>Keeps the display from turning off before Steam's screensaver is allowed to start.</summary>
 /// <remarks>
-/// Steam's Big Picture screensaver runs on its own idle timeout, and the display-off timeout has to
-/// be the later of the two or the screensaver never shows. Steam pairs its timeouts with power
-/// sources the way its SteamOS Power page lays them out: the plugged-in screensaver timeout bounds
-/// the plugged-in display timeout and the battery one bounds the battery display timeout. On a
-/// machine Steam believes has no battery it shows only the plugged-in timeout and that one applies
-/// whatever the power source, so it bounds both. A screensaver timeout of zero is disabled and bounds
-/// nothing; a display timeout of zero is never and satisfies any bound.
+///     Steam's Big Picture screensaver runs on its own idle timeout, and the display-off timeout has to
+///     be the later of the two or the screensaver never shows. Steam pairs its timeouts with power
+///     sources the way its SteamOS Power page lays them out: the plugged-in screensaver timeout bounds
+///     the plugged-in display timeout and the battery one bounds the battery display timeout. On a
+///     machine Steam believes has no battery it shows only the plugged-in timeout and that one applies
+///     whatever the power source, so it bounds both. A screensaver timeout of zero is disabled and bounds
+///     nothing; a display timeout of zero is never and satisfies any bound.
 /// </remarks>
 internal static class DisplayTimeoutPolicy
 {
@@ -44,16 +44,20 @@ internal static class DisplayTimeoutPolicy
     /// <param name="seconds">The display timeout; zero means never.</param>
     /// <param name="minimum">The bound, or null for none.</param>
     /// <returns>True when the order holds.</returns>
-    internal static bool Allows(int seconds, int? minimum) =>
-        minimum is null || seconds == 0 || seconds >= minimum.Value;
+    internal static bool Allows(int seconds, int? minimum)
+    {
+        return minimum is null || seconds == 0 || seconds >= minimum.Value;
+    }
 
     /// <summary>The value a display timeout below its bound is raised to.</summary>
     /// <param name="minimum">The bound in seconds.</param>
     /// <returns>The shortest preset at or above the bound, or the bound itself beyond the presets.</returns>
-    internal static int Raised(int minimum) =>
-        PowerTimeouts.PresetsSeconds.Where(preset => preset >= minimum).DefaultIfEmpty(minimum).Min();
+    internal static int Raised(int minimum)
+    {
+        return PowerTimeouts.PresetsSeconds.Where(preset => preset >= minimum).DefaultIfEmpty(minimum).Min();
+    }
 
-    /// <summary>The next preset after <paramref name="current"/> that the bound allows.</summary>
+    /// <summary>The next preset after <paramref name="current" /> that the bound allows.</summary>
     /// <param name="current">The current display timeout.</param>
     /// <param name="minimum">The bound, or null for none.</param>
     /// <returns>The preset to cycle to.</returns>

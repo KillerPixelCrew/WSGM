@@ -13,28 +13,59 @@ internal sealed class FakePower : IPowerSchemeApi
     internal int Writes { get; private set; }
     internal bool Reject { get; set; }
     internal Action? BeforeWrite { get; set; }
-    public Guid? Enumerate(uint index) => index switch { 0 => First, 1 => Second, _ => null };
-    public string ReadName(Guid id) => id == First ? "Balanced" : "Power saver";
-    public Guid ReadActive() => _active;
+
+    public Guid? Enumerate(uint index)
+    {
+        return index switch { 0 => First, 1 => Second, _ => null };
+    }
+
+    public string ReadName(Guid id)
+    {
+        return id == First ? "Balanced" : "Power saver";
+    }
+
+    public Guid ReadActive()
+    {
+        return _active;
+    }
+
     public void SetActive(Guid id)
     {
         BeforeWrite?.Invoke();
         Writes++;
-        if (Reject) { throw new Win32Exception(5); }
+        if (Reject)
+        {
+            throw new Win32Exception(5);
+        }
+
         _active = id;
     }
 }
 
 internal sealed class ReadOnlyPowerModeApi : IPowerModeApi
 {
-    public Guid Read() => Guid.Empty;
-    public void Set(Guid mode) => throw new InvalidOperationException("Unexpected Windows power-mode write");
+    public Guid Read()
+    {
+        return Guid.Empty;
+    }
+
+    public void Set(Guid mode)
+    {
+        throw new InvalidOperationException("Unexpected Windows power-mode write");
+    }
 }
 
 internal sealed class UnusedPowerModeApi : IPowerModeApi
 {
-    public Guid Read() => throw new InvalidOperationException("Unexpected Windows power-mode read");
-    public void Set(Guid mode) => throw new InvalidOperationException("Unexpected Windows power-mode write");
+    public Guid Read()
+    {
+        throw new InvalidOperationException("Unexpected Windows power-mode read");
+    }
+
+    public void Set(Guid mode)
+    {
+        throw new InvalidOperationException("Unexpected Windows power-mode write");
+    }
 }
 
 internal sealed class MutableProvider : ICommonPluginOverlaySource
@@ -45,13 +76,34 @@ internal sealed class MutableProvider : ICommonPluginOverlaySource
     public bool Enabled { get; set; } = true;
     public bool Available { get; set; } = true;
     public int Invocations { get; private set; }
-    public PluginOverlayInstance[] Snapshot() => !Present ? [] :
-    [new PluginOverlayInstance(Identity, "Test", Generation, new PluginOverlayControls([new PluginAction("run", "Run", [])],
-        [new PluginUiContribution("run", "Run", "power", PluginUiKind.Action, ActionId: "run")],
-        [new PluginWidget("power", "Power", ["run"], VisibleStateKey: "available", EnabledStateKey: "enabled")]), "Ready", true, null)];
-    public PluginStatePublication[] State(PluginInstanceIdentity identity) =>
-        [new(Identity, Generation, 1, "enabled", new PluginValue(Boolean: Enabled), PluginStateOrigin.HardwareReadback),
-            new(Identity, Generation, 1, "available", new PluginValue(Boolean: Available), PluginStateOrigin.HardwareReadback)];
+
+    public PluginOverlayInstance[] Snapshot()
+    {
+        return !Present
+            ? []
+            :
+            [
+                new PluginOverlayInstance(Identity, "Test", Generation, new PluginOverlayControls(
+                    [new PluginAction("run", "Run", [])],
+                    [new PluginUiContribution("run", "Run", "power", PluginUiKind.Action, ActionId: "run")],
+                    [
+                        new PluginWidget("power", "Power", ["run"], VisibleStateKey: "available",
+                            EnabledStateKey: "enabled")
+                    ]), "Ready", true, null)
+            ];
+    }
+
+    public PluginStatePublication[] State(PluginInstanceIdentity identity)
+    {
+        return
+        [
+            new PluginStatePublication(Identity, Generation, 1, "enabled", new PluginValue(Enabled),
+                PluginStateOrigin.HardwareReadback),
+            new PluginStatePublication(Identity, Generation, 1, "available", new PluginValue(Available),
+                PluginStateOrigin.HardwareReadback)
+        ];
+    }
+
     public Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,
         string action, IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken)
     {
@@ -62,23 +114,50 @@ internal sealed class MutableProvider : ICommonPluginOverlaySource
 
 internal sealed class MissingProvider : ICommonPluginOverlaySource
 {
-    public PluginOverlayInstance[] Snapshot() => [];
-    public PluginStatePublication[] State(PluginInstanceIdentity identity) => [];
+    public PluginOverlayInstance[] Snapshot()
+    {
+        return [];
+    }
+
+    public PluginStatePublication[] State(PluginInstanceIdentity identity)
+    {
+        return [];
+    }
+
     public Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,
-        string action, IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken) =>
+        string action, IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken)
+    {
         throw new InvalidOperationException("A missing widget cannot dispatch.");
+    }
 }
 
 internal sealed class ChoiceSource : ICommonPluginOverlaySource
 {
     private static readonly PluginInstanceIdentity Identity = new("test", "device");
     public string? Requested { get; private set; }
-    public PluginOverlayInstance[] Snapshot() =>
-    [new(Identity, "Test", 1, new PluginOverlayControls(
-        [new PluginAction("fan", "Change fan", [new PluginSetting("value", "Fan", PluginSettingKind.Text, new PluginValue(Text: "quiet"), Choices: ["quiet", "turbo"])])],
-        [new PluginUiContribution("edit", "Change fan", "device", PluginUiKind.Action, ActionId: "fan")],
-        [new PluginWidget("fan", "Fan", ["edit"])]), "Ready", true, null)];
-    public PluginStatePublication[] State(PluginInstanceIdentity identity) => [];
+
+    public PluginOverlayInstance[] Snapshot()
+    {
+        return
+        [
+            new PluginOverlayInstance(Identity, "Test", 1, new PluginOverlayControls(
+                [
+                    new PluginAction("fan", "Change fan",
+                    [
+                        new PluginSetting("value", "Fan", PluginSettingKind.Text, new PluginValue(Text: "quiet"),
+                            Choices: ["quiet", "turbo"])
+                    ])
+                ],
+                [new PluginUiContribution("edit", "Change fan", "device", PluginUiKind.Action, ActionId: "fan")],
+                [new PluginWidget("fan", "Fan", ["edit"])]), "Ready", true, null)
+        ];
+    }
+
+    public PluginStatePublication[] State(PluginInstanceIdentity identity)
+    {
+        return [];
+    }
+
     public Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation, string action,
         IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken)
     {

@@ -25,28 +25,28 @@ internal sealed class MainWindow : Window
     private const int MaximumRememberedPathCharacters = 4096;
     private const int MaximumRecentPathCount = 32;
 
-    private readonly DeviceLabApplication _application;
-    private readonly ComboBox _mode;
-    private readonly TabControl _tabs;
-    private readonly TextBox _result;
-    private readonly TextBlock _operationStatus;
-    private readonly Button _cancel;
-    private readonly IReadOnlyList<TabItem> _ownerTabs;
-    private readonly IReadOnlyList<TabItem> _developerTabs;
-    private CancellationTokenSource? _operation;
-    private TaskCompletionSource<bool>? _operationFinished;
-    private bool _closeAfterOperation;
-    private DeviceLabGuiOperationState _displayState = DeviceLabGuiOperationState.Initial;
-    private CaptureExportPlan? _captureExportPlan;
-    private string? _reviewedRecipeHash;
-    private readonly Dictionary<string, string> _recentPaths = LoadRecentPaths();
-
     private static readonly JsonSerializerOptions DisplayJson = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true,
         Converters = { new JsonStringEnumConverter() }
     };
+
+    private readonly DeviceLabApplication _application;
+    private readonly Button _cancel;
+    private readonly IReadOnlyList<TabItem> _developerTabs;
+    private readonly ComboBox _mode;
+    private readonly TextBlock _operationStatus;
+    private readonly IReadOnlyList<TabItem> _ownerTabs;
+    private readonly Dictionary<string, string> _recentPaths = LoadRecentPaths();
+    private readonly TextBox _result;
+    private readonly TabControl _tabs;
+    private CaptureExportPlan? _captureExportPlan;
+    private bool _closeAfterOperation;
+    private DeviceLabGuiOperationState _displayState = DeviceLabGuiOperationState.Initial;
+    private CancellationTokenSource? _operation;
+    private TaskCompletionSource<bool>? _operationFinished;
+    private string? _reviewedRecipeHash;
 
     public MainWindow()
     {
@@ -265,41 +265,41 @@ internal sealed class MainWindow : Window
             var reviewedHash = _reviewedRecipeHash ?? string.Empty;
             var scopeConfirmed = scope.IsChecked is true;
             await RunAsync(async token =>
-            {
-                var prepared = await Task.Run(() => _application.PrepareCaptureAsync(
-                    new ObserveOnlyCaptureRequest
-                    {
-                        RecipePath = recipePath,
-                        OutputDirectory = outputPath,
-                        ReviewedRecipeSha256 = reviewedHash,
-                        IsLocalInteractive = Environment.UserInteractive,
-                        ObservationScopeConfirmed = scopeConfirmed
-                    },
-                    DateTimeOffset.UtcNow,
-                    token), token).ConfigureAwait(false);
-                object display = prepared.ExportPlan is null
-                    ? prepared
-                    : new
-                    {
-                        prepared.Status,
-                        prepared.ExportPlan.PrivateWorkingDirectory,
-                        prepared.ExportPlan.ShareableOutputPath,
-                        prepared.ExportPlan.Prompts,
-                        privacyPreview = CapturePrivacyPreview.Create(prepared.ExportPlan.Bundle),
-                        prepared.ExportPlan.Limitations,
-                        shareableWritten = false
-                    };
-                return new PreparedCaptureOperation(prepared.ExportPlan, display);
-            },
-            accepted =>
-            {
-                var prepared = (PreparedCaptureOperation)accepted!;
-                _captureExportPlan = prepared.ExportPlan;
-                var ready = _captureExportPlan is not null;
-                export.IsEnabled = ready;
-                exportReview.IsEnabled = ready;
-            },
-            display => ((PreparedCaptureOperation)display!).Display);
+                {
+                    var prepared = await Task.Run(() => _application.PrepareCaptureAsync(
+                        new ObserveOnlyCaptureRequest
+                        {
+                            RecipePath = recipePath,
+                            OutputDirectory = outputPath,
+                            ReviewedRecipeSha256 = reviewedHash,
+                            IsLocalInteractive = Environment.UserInteractive,
+                            ObservationScopeConfirmed = scopeConfirmed
+                        },
+                        DateTimeOffset.UtcNow,
+                        token), token).ConfigureAwait(false);
+                    object display = prepared.ExportPlan is null
+                        ? prepared
+                        : new
+                        {
+                            prepared.Status,
+                            prepared.ExportPlan.PrivateWorkingDirectory,
+                            prepared.ExportPlan.ShareableOutputPath,
+                            prepared.ExportPlan.Prompts,
+                            privacyPreview = CapturePrivacyPreview.Create(prepared.ExportPlan.Bundle),
+                            prepared.ExportPlan.Limitations,
+                            shareableWritten = false
+                        };
+                    return new PreparedCaptureOperation(prepared.ExportPlan, display);
+                },
+                accepted =>
+                {
+                    var prepared = (PreparedCaptureOperation)accepted!;
+                    _captureExportPlan = prepared.ExportPlan;
+                    var ready = _captureExportPlan is not null;
+                    export.IsEnabled = ready;
+                    exportReview.IsEnabled = ready;
+                },
+                display => ((PreparedCaptureOperation)display!).Display);
         };
         export.Click += async (_, _) =>
         {
@@ -341,7 +341,8 @@ internal sealed class MainWindow : Window
         {
             var leftPath = left.Text!;
             var rightPath = right.Text!;
-            await RunAsync(token => Task.Run<object?>(() => DeviceLabApplication.Diff(leftPath, rightPath, token), token));
+            await RunAsync(token =>
+                Task.Run<object?>(() => DeviceLabApplication.Diff(leftPath, rightPath, token), token));
         };
         Button correlate = new() { Content = "Correlate action" };
         correlate.Click += async (_, _) =>
@@ -434,7 +435,8 @@ internal sealed class MainWindow : Window
         validate.Click += async (_, _) =>
         {
             var packagePath = packageDirectory.Text!;
-            await RunAsync(token => Task.Run<object?>(() => DeviceLabApplication.ValidateOffline(packagePath, token), token));
+            await RunAsync(token =>
+                Task.Run<object?>(() => DeviceLabApplication.ValidateOffline(packagePath, token), token));
         };
         Button pack = new() { Content = "Validate and pack" };
         pack.Click += async (_, _) =>
@@ -447,12 +449,14 @@ internal sealed class MainWindow : Window
         generateGlyphs.Click += async (_, _) =>
         {
             var packagePath = packageDirectory.Text!;
-            await RunAsync(token => Task.Run<object?>(() => DeviceLabApplication.ImportGlyphs(packagePath, token), token));
+            await RunAsync(token =>
+                Task.Run<object?>(() => DeviceLabApplication.ImportGlyphs(packagePath, token), token));
         };
         Button testSample = new() { Content = "Test synthetic sample" };
         testSample.Click += async (_, _) =>
         {
-            await RunAsync(async token => await DeviceLabApplication.TestSyntheticPluginAsync(token).ConfigureAwait(false));
+            await RunAsync(async token =>
+                await DeviceLabApplication.TestSyntheticPluginAsync(token).ConfigureAwait(false));
         };
         Button testPlugin = new() { Content = "Test plugin detection" };
         testPlugin.Click += async (_, _) =>
@@ -515,7 +519,7 @@ internal sealed class MainWindow : Window
                 inventoryPath,
                 statePath,
                 action,
-                confirmed: true,
+                true,
                 token).ConfigureAwait(false));
         };
         return Tab(
@@ -562,7 +566,8 @@ internal sealed class MainWindow : Window
                 {
                     new TextBlock
                     {
-                        Text = $"Selected action: {DescribeHardwareAction(action)}. This loads the selected plugin on the exact target and may access or change hardware. Device Integration must be stopped. Type RUN HARDWARE for this run only.",
+                        Text =
+                            $"Selected action: {DescribeHardwareAction(action)}. This loads the selected plugin on the exact target and may access or change hardware. Device Integration must be stopped. Type RUN HARDWARE for this run only.",
                         TextWrapping = TextWrapping.Wrap
                     },
                     confirmation,
@@ -578,21 +583,24 @@ internal sealed class MainWindow : Window
         return await dialog.ShowDialog<bool>(this);
     }
 
-    private static string DescribeHardwareAction(AttendedPluginActionRequest action) => action.Kind switch
+    private static string DescribeHardwareAction(AttendedPluginActionRequest action)
     {
-        AttendedPluginActionKind.CapabilityValue => action.InstanceId is null
-            ? $"set {action.CapabilityId} to {action.ValueText}, verify it, and restore its original value"
-            : $"set {action.CapabilityId}/{action.InstanceId} to {action.ValueText}, verify it, and restore its original value",
-        AttendedPluginActionKind.HapticPulse =>
-            action.InstanceId is null
-                ? "send one fixed 250 ms haptic pulse, stop output, and restore controller topology"
-                : $"send one fixed 250 ms haptic pulse to {action.InstanceId}, stop output, and restore controller topology",
-        AttendedPluginActionKind.ControllerManagement =>
-            action.InstanceId is null
-                ? "acquire controller management once and restore its verified topology"
-                : $"acquire controller instance {action.InstanceId} once and restore its verified topology",
-        _ => action.Kind.ToString()
-    };
+        return action.Kind switch
+        {
+            AttendedPluginActionKind.CapabilityValue => action.InstanceId is null
+                ? $"set {action.CapabilityId} to {action.ValueText}, verify it, and restore its original value"
+                : $"set {action.CapabilityId}/{action.InstanceId} to {action.ValueText}, verify it, and restore its original value",
+            AttendedPluginActionKind.HapticPulse =>
+                action.InstanceId is null
+                    ? "send one fixed 250 ms haptic pulse, stop output, and restore controller topology"
+                    : $"send one fixed 250 ms haptic pulse to {action.InstanceId}, stop output, and restore controller topology",
+            AttendedPluginActionKind.ControllerManagement =>
+                action.InstanceId is null
+                    ? "acquire controller management once and restore its verified topology"
+                    : $"acquire controller instance {action.InstanceId} once and restore its verified topology",
+            _ => action.Kind.ToString()
+        };
+    }
 
     private async Task RunAsync(
         Func<CancellationToken, Task<object?>> operation,
@@ -640,10 +648,12 @@ internal sealed class MainWindow : Window
             {
                 _operation = null;
             }
+
             if (ReferenceEquals(_operationFinished, finished))
             {
                 _operationFinished = null;
             }
+
             finished.TrySetResult(true);
             _cancel.IsEnabled = false;
             _tabs.IsEnabled = true;
@@ -670,7 +680,7 @@ internal sealed class MainWindow : Window
     private async void HandleClosing(object? sender, WindowClosingEventArgs eventArgs)
     {
         if (_closeAfterOperation || _operation is not { } operation
-            || _operationFinished is not { } finished)
+                                 || _operationFinished is not { } finished)
         {
             return;
         }
@@ -757,12 +767,15 @@ internal sealed class MainWindow : Window
         return panel;
     }
 
-    private static TextBlock Heading(string text) => new()
+    private static TextBlock Heading(string text)
     {
-        Text = text,
-        FontSize = 15,
-        FontWeight = FontWeight.SemiBold
-    };
+        return new TextBlock
+        {
+            Text = text,
+            FontSize = 15,
+            FontWeight = FontWeight.SemiBold
+        };
+    }
 
     private PathTextBox PathInput(
         string recentKey,
@@ -779,13 +792,14 @@ internal sealed class MainWindow : Window
                 value = NextAvailableDirectory(remembered, suggestedName!);
             }
             catch (Exception exception) when (exception is IOException
-                or UnauthorizedAccessException
-                or ArgumentException
-                or NotSupportedException)
+                                                  or UnauthorizedAccessException
+                                                  or ArgumentException
+                                                  or NotSupportedException)
             {
                 value = initial;
             }
         }
+
         var input = new PathTextBox
         {
             RecentKey = recentKey,
@@ -833,6 +847,7 @@ internal sealed class MainWindow : Window
                     {
                         selected = NextAvailableDirectory(selected, input.SuggestedName!);
                     }
+
                     break;
                 case PathSelectionKind.SaveFile:
                     var saved = await StorageProvider.SaveFilePickerAsync(
@@ -864,9 +879,9 @@ internal sealed class MainWindow : Window
             }
         }
         catch (Exception exception) when (exception is IOException
-            or UnauthorizedAccessException
-            or ArgumentException
-            or NotSupportedException)
+                                              or UnauthorizedAccessException
+                                              or ArgumentException
+                                              or NotSupportedException)
         {
             ApplyDisplayState(_displayState.Failed(OperationFailureMessage(exception)));
         }
@@ -888,9 +903,9 @@ internal sealed class MainWindow : Window
                 : input.Text;
         }
         catch (Exception exception) when (exception is IOException
-            or UnauthorizedAccessException
-            or ArgumentException
-            or NotSupportedException)
+                                              or UnauthorizedAccessException
+                                              or ArgumentException
+                                              or NotSupportedException)
         {
             return;
         }
@@ -932,15 +947,15 @@ internal sealed class MainWindow : Window
                 ? new Dictionary<string, string>(StringComparer.Ordinal)
                 : loaded
                     .Where(pair => !string.IsNullOrWhiteSpace(pair.Key)
-                        && pair.Key.Length <= 128
-                        && !string.IsNullOrWhiteSpace(pair.Value)
-                        && pair.Value.Length <= MaximumRememberedPathCharacters)
+                                   && pair.Key.Length <= 128
+                                   && !string.IsNullOrWhiteSpace(pair.Value)
+                                   && pair.Value.Length <= MaximumRememberedPathCharacters)
                     .Take(MaximumRecentPathCount)
                     .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
         }
         catch (Exception exception) when (exception is IOException
-            or UnauthorizedAccessException
-            or JsonException)
+                                              or UnauthorizedAccessException
+                                              or JsonException)
         {
             return new Dictionary<string, string>(StringComparer.Ordinal);
         }
@@ -957,9 +972,9 @@ internal sealed class MainWindow : Window
             temporary = Path.Combine(directory, $"recent-paths.{Guid.NewGuid():N}.tmp");
             var bounded = paths
                 .Where(pair => !string.IsNullOrWhiteSpace(pair.Key)
-                    && pair.Key.Length <= 128
-                    && !string.IsNullOrWhiteSpace(pair.Value)
-                    && pair.Value.Length <= MaximumRememberedPathCharacters)
+                               && pair.Key.Length <= 128
+                               && !string.IsNullOrWhiteSpace(pair.Value)
+                               && pair.Value.Length <= MaximumRememberedPathCharacters)
                 .Take(MaximumRecentPathCount)
                 .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
             var json = JsonSerializer.SerializeToUtf8Bytes(bounded);
@@ -971,13 +986,13 @@ internal sealed class MainWindow : Window
             }
 
             File.WriteAllBytes(temporary, json);
-            File.Move(temporary, path, overwrite: true);
+            File.Move(temporary, path, true);
             temporary = null;
         }
         catch (Exception exception) when (exception is IOException
-            or UnauthorizedAccessException
-            or ArgumentException
-            or NotSupportedException)
+                                              or UnauthorizedAccessException
+                                              or ArgumentException
+                                              or NotSupportedException)
         {
             // Path history is a convenience only; workflow results remain authoritative.
         }
@@ -990,7 +1005,7 @@ internal sealed class MainWindow : Window
                     File.Delete(temporary);
                 }
                 catch (Exception exception) when (exception is IOException
-                    or UnauthorizedAccessException)
+                                                      or UnauthorizedAccessException)
                 {
                     // Best-effort cleanup of a uniquely named local preferences temp file.
                 }
@@ -998,15 +1013,21 @@ internal sealed class MainWindow : Window
         }
     }
 
-    private static string RecentPathsFile() => Path.Combine(
-        // wsgm-allow-live-data-path: Device Lab's own root beside WSGM's data, never inside it.
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "WSGM Device Lab",
-        "recent-paths.json");
+    private static string RecentPathsFile()
+    {
+        return Path.Combine(
+            // wsgm-allow-live-data-path: Device Lab's own root beside WSGM's data, never inside it.
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "WSGM Device Lab",
+            "recent-paths.json");
+    }
 
-    private static string DefaultOutputDirectory() => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-        "WSGM Device Lab");
+    private static string DefaultOutputDirectory()
+    {
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            "WSGM Device Lab");
+    }
 
     private sealed record PreparedCaptureOperation(
         CaptureExportPlan? ExportPlan,

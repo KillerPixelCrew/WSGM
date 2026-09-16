@@ -11,9 +11,11 @@ public sealed class ImageHeaderTests : IDisposable
     {
         try
         {
-            Directory.Delete(_root, recursive: true);
+            Directory.Delete(_root, true);
         }
-        catch (IOException) { }
+        catch (IOException)
+        {
+        }
     }
 
     private string Write(string name, byte[] bytes)
@@ -23,8 +25,10 @@ public sealed class ImageHeaderTests : IDisposable
         return path;
     }
 
-    /// <summary>PNG signature + a minimal IHDR chunk (length, type, big-endian
-    /// width/height); the rest of the chunk is irrelevant to the header read.</summary>
+    /// <summary>
+    ///     PNG signature + a minimal IHDR chunk (length, type, big-endian
+    ///     width/height); the rest of the chunk is irrelevant to the header read.
+    /// </summary>
     private static byte[] Png(uint width, uint height)
     {
         var bytes = new byte[8 + 4 + 4 + 8 + 5];
@@ -40,8 +44,10 @@ public sealed class ImageHeaderTests : IDisposable
         return bytes;
     }
 
-    /// <summary>SOI, an APP0 segment to be skipped, then a SOFn frame header
-    /// (height before width).</summary>
+    /// <summary>
+    ///     SOI, an APP0 segment to be skipped, then a SOFn frame header
+    ///     (height before width).
+    /// </summary>
     private static byte[] Jpeg(ushort width, ushort height, byte sofMarker = 0xC0, bool withApp0 = true)
     {
         var bytes = new List<byte> { 0xFF, 0xD8 };
@@ -49,6 +55,7 @@ public sealed class ImageHeaderTests : IDisposable
         {
             bytes.AddRange([0xFF, 0xE0, 0x00, 0x06, 1, 2, 3, 4]);
         }
+
         bytes.AddRange([0xFF, sofMarker, 0x00, 0x11, 0x08]);
         bytes.AddRange([(byte)(height >> 8), (byte)(height & 0xFF)]);
         bytes.AddRange([(byte)(width >> 8), (byte)(width & 0xFF)]);
@@ -56,8 +63,10 @@ public sealed class ImageHeaderTests : IDisposable
         return [.. bytes];
     }
 
-    /// <summary>'BM' file header + a BITMAPINFOHEADER carrying signed width/height
-    /// (negative height = top-down bitmap).</summary>
+    /// <summary>
+    ///     'BM' file header + a BITMAPINFOHEADER carrying signed width/height
+    ///     (negative height = top-down bitmap).
+    /// </summary>
     private static byte[] BmpInfoHeader(int width, int height)
     {
         var bytes = new byte[54];
@@ -228,6 +237,8 @@ public sealed class ImageHeaderTests : IDisposable
     [InlineData(20000, 4001, false)] // within the per-side limit, over 80 MP
     [InlineData(0, 100, false)]
     [InlineData(100, -1, false)]
-    public void IsWithinLimitsGuardsBothPerSideAndTotalPixelCounts(int width, int height, bool expected) =>
+    public void IsWithinLimitsGuardsBothPerSideAndTotalPixelCounts(int width, int height, bool expected)
+    {
         Assert.Equal(expected, ImageHeader.IsWithinLimits(width, height));
+    }
 }

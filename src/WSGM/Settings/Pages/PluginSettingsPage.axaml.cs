@@ -10,10 +10,10 @@ namespace WSGM.Settings.Pages;
 
 /// <summary>Independent plugin activation and settings declared by the installed Device plugin.</summary>
 /// <remarks>
-/// Device content comes from the one projection in
-/// <c>PluginSettingsCoordinator.Project</c>, shared with the overlay so both surfaces order and
-/// place a plugin's settings identically, and it changes with whichever plugin is installed — which
-/// is why the sections and rows are bound rather than written here.
+///     Device content comes from the one projection in
+///     <c>PluginSettingsCoordinator.Project</c>, shared with the overlay so both surfaces order and
+///     place a plugin's settings identically, and it changes with whichever plugin is installed — which
+///     is why the sections and rows are bound rather than written here.
 /// </remarks>
 public partial class PluginSettingsPage : UserControl
 {
@@ -56,7 +56,7 @@ public partial class PluginSettingsPage : UserControl
     {
         if (DataContext is SettingsViewModel viewModel)
         {
-            viewModel.AddDeviceProfile(DeviceAuthoredProfileCapabilities.Lighting, color: true);
+            viewModel.AddDeviceProfile(DeviceAuthoredProfileCapabilities.Lighting, true);
         }
     }
 
@@ -124,14 +124,17 @@ public partial class PluginSettingsPage : UserControl
         SettingsWindow window,
         string initial,
         string title,
-        Action<string> apply) =>
+        Action<string> apply)
+    {
         window.ShowOnScreenKeyboard(initial, 9, title, value =>
         {
             if (!Color.TryParse(value, out _))
             {
                 return "Enter a color such as #FF9D3D.";
             }
+
             apply(value);
             return null;
         });
+    }
 }

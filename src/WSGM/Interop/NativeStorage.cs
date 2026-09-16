@@ -10,20 +10,20 @@ using static WSGM.Interop.Kernel32;
 
 namespace WSGM.Interop;
 
-/// <summary>Flat Win32 storage interop shared by the eject, card and format flows:
-/// volume-to-disk mapping (IOCTL_STORAGE_GET_DEVICE_NUMBER), the hotplug
-/// classification that separates a USB device from a built-in card reader
-/// (IOCTL_STORAGE_GET_HOTPLUG_INFO), the PnP device eject
-/// (CM_Request_Device_EjectW) and the media-level dismount sequence
-/// (FSCTL_LOCK_VOLUME → FSCTL_DISMOUNT_VOLUME → IOCTL_STORAGE_EJECT_MEDIA).
-///
-/// Everything here is cfgmgr32/kernel32 — no COM and no WMI. Devnode discovery
-/// goes through the cfgmgr32 interface list rather than SetupAPI's devinfo sets:
-/// same data, no variable-size detail-struct marshalling.
-///
-/// The two fixed-layout records are decoded from documented offsets by pure
-/// span readers, so the layouts are unit-testable from a synthetic buffer without
-/// a live device.</summary>
+/// <summary>
+///     Flat Win32 storage interop shared by the eject, card and format flows:
+///     volume-to-disk mapping (IOCTL_STORAGE_GET_DEVICE_NUMBER), the hotplug
+///     classification that separates a USB device from a built-in card reader
+///     (IOCTL_STORAGE_GET_HOTPLUG_INFO), the PnP device eject
+///     (CM_Request_Device_EjectW) and the media-level dismount sequence
+///     (FSCTL_LOCK_VOLUME → FSCTL_DISMOUNT_VOLUME → IOCTL_STORAGE_EJECT_MEDIA).
+///     Everything here is cfgmgr32/kernel32 — no COM and no WMI. Devnode discovery
+///     goes through the cfgmgr32 interface list rather than SetupAPI's devinfo sets:
+///     same data, no variable-size detail-struct marshalling.
+///     The two fixed-layout records are decoded from documented offsets by pure
+///     span readers, so the layouts are unit-testable from a synthetic buffer without
+///     a live device.
+/// </summary>
 internal static unsafe partial class NativeStorage
 {
     // ---- return codes / constants ----
@@ -34,12 +34,16 @@ internal static unsafe partial class NativeStorage
     /// <summary>CONFIGRET: the eject was vetoed; the veto type and name say why.</summary>
     internal const int CrRemoveVetoed = 0x17;
 
-    /// <summary>CONFIGRET: the buffer sized by the preceding size query no longer
-    /// fits, because the device set changed in between. Re-query and retry.</summary>
+    /// <summary>
+    ///     CONFIGRET: the buffer sized by the preceding size query no longer
+    ///     fits, because the device set changed in between. Re-query and retry.
+    /// </summary>
     private const int CrBufferSmall = 0x1A;
 
-    /// <summary>How often the interface-list size query and list call are retried
-    /// as a pair before the list is reported as empty.</summary>
+    /// <summary>
+    ///     How often the interface-list size query and list call are retried
+    ///     as a pair before the list is reported as empty.
+    /// </summary>
     private const int InterfaceListAttempts = 3;
 
     /// <summary>CM_DEVCAP_REMOVABLE: the devnode itself can be ejected.</summary>
@@ -66,61 +70,69 @@ internal static unsafe partial class NativeStorage
 
     private const uint FileShareReadWrite = FileShareRead | FileShareWrite;
 
-    /// <summary>GUID_DEVINTERFACE_DISK: every present disk exposes one of these
-    /// interfaces; enumerating them is how a volume's device number becomes a
-    /// devnode.</summary>
+    // ---- fixed-layout record readers (unit-tested from synthetic buffers) ----
+
+    /// <summary>Size of a STORAGE_DEVICE_NUMBER record.</summary>
+    internal const int DeviceNumberRecordSize = 12;
+
+    /// <summary>Size of a STORAGE_HOTPLUG_INFO record.</summary>
+    internal const int HotplugRecordSize = 8;
+
+    // ---- disk facts for the Format flow ----
+
+    /// <summary>STORAGE_BUS_TYPE: the disk sits in a native SD host slot.</summary>
+    internal const int BusTypeSd = 12;
+
+    /// <summary>STORAGE_BUS_TYPE: eMMC/MMC bus.</summary>
+    internal const int BusTypeMmc = 13;
+
+    /// <summary>
+    ///     STORAGE_BUS_TYPE: USB-attached (sticks, external drives, and
+    ///     USB-bridged card readers alike).
+    /// </summary>
+    internal const int BusTypeUsb = 7;
+
+    /// <summary>The fixed header size of STORAGE_DEVICE_DESCRIPTOR.</summary>
+    internal const int DeviceDescriptorHeaderSize = 36;
+
+    /// <summary>
+    ///     DRIVE_LAYOUT_INFORMATION_EX geometry: entries start after the
+    ///     48-byte header, one PARTITION_INFORMATION_EX (144 bytes) each.
+    /// </summary>
+    internal const int DriveLayoutHeaderSize = 48;
+
+    /// <summary>The size of one PARTITION_INFORMATION_EX record.</summary>
+    internal const int PartitionRecordSize = 144;
+
+    /// <summary>DEVPKEY_Device_InstanceId.</summary>
+    private static readonly DevPropKey DevicePropertyInstanceId = new()
+    {
+        Fmtid = new Guid("78c34fc8-104a-4aca-9ea4-524d52996e57"),
+        Pid = 256
+    };
+
+    /// <summary>
+    ///     GUID_DEVINTERFACE_DISK: every present disk exposes one of these
+    ///     interfaces; enumerating them is how a volume's device number becomes a
+    ///     devnode.
+    /// </summary>
     private static Guid DiskInterfaceGuid { get; } =
         new("53f56307-b6bf-11d0-94f2-00a0c91efb8b");
 
-    /// <summary>GUID_DEVINTERFACE_VOLUME: every volume the volume manager has
-    /// surfaced exposes one of these — letter or no letter — which is what makes
-    /// the list usable as a "has the new partition's volume arrived yet" probe.</summary>
+    /// <summary>
+    ///     GUID_DEVINTERFACE_VOLUME: every volume the volume manager has
+    ///     surfaced exposes one of these — letter or no letter — which is what makes
+    ///     the list usable as a "has the new partition's volume arrived yet" probe.
+    /// </summary>
     private static Guid VolumeInterfaceGuid { get; } =
         new("53f5630d-b6bf-11d0-94f2-00a0c91efb8b");
 
-    /// <summary>How Windows says an eject was refused (cfg.h PNP_VETO_TYPE,
-    /// zero-based).</summary>
-    internal enum PnpVetoType
-    {
-        /// <summary>No reason was named.</summary>
-        TypeUnknown = 0,
-
-        /// <summary>A legacy device cannot be ejected.</summary>
-        LegacyDevice = 1,
-
-        /// <summary>A close is still pending on the device.</summary>
-        PendingClose = 2,
-
-        /// <summary>An application vetoed; the veto name is a module.</summary>
-        WindowsApp = 3,
-
-        /// <summary>A service vetoed; the veto name is a service name.</summary>
-        WindowsService = 4,
-
-        /// <summary>Open handles remain on the device.</summary>
-        OutstandingOpen = 5,
-
-        /// <summary>The device itself refused.</summary>
-        Device = 6,
-
-        /// <summary>The driver refused.</summary>
-        Driver = 7,
-
-        /// <summary>The request is illegal for this device.</summary>
-        IllegalDeviceRequest = 8,
-
-        /// <summary>Insufficient power to complete the operation.</summary>
-        InsufficientPower = 9,
-
-        /// <summary>The device cannot be disabled.</summary>
-        NonDisableable = 10,
-
-        /// <summary>A legacy driver vetoed.</summary>
-        LegacyDriver = 11,
-
-        /// <summary>The caller lacks the rights to eject.</summary>
-        InsufficientRights = 12
-    }
+    /// <summary>
+    ///     GPT partition-type GUID for Linux filesystem data — the ext4
+    ///     partitions a Steam Deck card carries.
+    /// </summary>
+    internal static Guid LinuxFilesystemGuid { get; } =
+        new("0fc63daf-8483-4772-8e79-3d69d8477de4");
 
     // ---- kernel32 ----
 
@@ -142,21 +154,6 @@ internal static unsafe partial class NativeStorage
     private static partial int CM_Get_Device_Interface_ListW(
         in Guid interfaceClassGuid, string? deviceId, char* buffer, uint bufferLength,
         uint flags);
-
-    /// <summary>DEVPROPKEY, blittable: a property category GUID plus an id.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    private struct DevPropKey
-    {
-        public Guid Fmtid;
-        public uint Pid;
-    }
-
-    /// <summary>DEVPKEY_Device_InstanceId.</summary>
-    private static readonly DevPropKey DevicePropertyInstanceId = new()
-    {
-        Fmtid = new Guid("78c34fc8-104a-4aca-9ea4-524d52996e57"),
-        Pid = 256
-    };
 
     [LibraryImport("cfgmgr32.dll", EntryPoint = "CM_Get_Device_Interface_PropertyW",
         StringMarshalling = StringMarshalling.Utf16)]
@@ -181,62 +178,77 @@ internal static unsafe partial class NativeStorage
     private static partial int CM_Request_Device_EjectW(
         uint devInst, out int vetoType, char* vetoName, uint nameLength, uint flags);
 
-    // ---- fixed-layout record readers (unit-tested from synthetic buffers) ----
-
-    /// <summary>Size of a STORAGE_DEVICE_NUMBER record.</summary>
-    internal const int DeviceNumberRecordSize = 12;
-
-    /// <summary>Size of a STORAGE_HOTPLUG_INFO record.</summary>
-    internal const int HotplugRecordSize = 8;
-
     /// <summary>Decodes a STORAGE_DEVICE_NUMBER buffer.</summary>
-    /// <param name="buffer">At least <see cref="DeviceNumberRecordSize"/> bytes.</param>
+    /// <param name="buffer">At least <see cref="DeviceNumberRecordSize" /> bytes.</param>
     internal static (int DeviceType, int DeviceNumber, int PartitionNumber) ReadDeviceNumber(
-        ReadOnlySpan<byte> buffer) =>
-        (BitConverter.ToInt32(buffer),
+        ReadOnlySpan<byte> buffer)
+    {
+        return (BitConverter.ToInt32(buffer),
             BitConverter.ToInt32(buffer[4..]),
             BitConverter.ToInt32(buffer[8..]));
+    }
 
-    /// <summary>Decodes a STORAGE_HOTPLUG_INFO buffer: whether the media is
-    /// removable from the device, and whether the device itself is hot-pluggable.</summary>
-    /// <param name="buffer">At least <see cref="HotplugRecordSize"/> bytes.</param>
+    /// <summary>
+    ///     Decodes a STORAGE_HOTPLUG_INFO buffer: whether the media is
+    ///     removable from the device, and whether the device itself is hot-pluggable.
+    /// </summary>
+    /// <param name="buffer">At least <see cref="HotplugRecordSize" /> bytes.</param>
     internal static (bool MediaRemovable, bool DeviceHotplug) ReadHotplugInfo(
-        ReadOnlySpan<byte> buffer) => (buffer[4] != 0, buffer[6] != 0);
+        ReadOnlySpan<byte> buffer)
+    {
+        return (buffer[4] != 0, buffer[6] != 0);
+    }
 
     // ---- queries ----
 
-    /// <summary>Opens a volume for attribute queries only — zero access needs no
-    /// privilege and touches no media.</summary>
+    /// <summary>
+    ///     Opens a volume for attribute queries only — zero access needs no
+    ///     privilege and touches no media.
+    /// </summary>
     /// <param name="letter">The drive letter.</param>
-    internal static SafeFileHandle OpenVolumeForQuery(char letter) =>
-        CreateFileW($@"\\.\{letter}:", 0, FileShareReadWrite, 0, OpenExisting, 0, 0);
+    internal static SafeFileHandle OpenVolumeForQuery(char letter)
+    {
+        return CreateFileW($@"\\.\{letter}:", 0, FileShareReadWrite, 0, OpenExisting, 0, 0);
+    }
 
     /// <summary>Opens a volume for the lock/dismount/eject sequence.</summary>
     /// <param name="letter">The drive letter.</param>
-    internal static SafeFileHandle OpenVolumeForEject(char letter) =>
-        CreateFileW($@"\\.\{letter}:", GenericRead | GenericWrite, FileShareReadWrite, 0,
+    internal static SafeFileHandle OpenVolumeForEject(char letter)
+    {
+        return CreateFileW($@"\\.\{letter}:", GenericRead | GenericWrite, FileShareReadWrite, 0,
             OpenExisting, 0, 0);
+    }
 
     /// <summary>Opens the exact enumerated disk interface for a media eject request.</summary>
-    internal static SafeFileHandle OpenDeviceForMediaEject(string path) =>
-        CreateFileW(path, GenericRead | GenericWrite, FileShareReadWrite, 0, OpenExisting, 0, 0);
+    internal static SafeFileHandle OpenDeviceForMediaEject(string path)
+    {
+        return CreateFileW(path, GenericRead | GenericWrite, FileShareReadWrite, 0, OpenExisting, 0, 0);
+    }
 
     /// <summary>Opens a device-interface path for attribute queries only.</summary>
-    /// <param name="path">A path from <see cref="ListDiskInterfaces"/>.</param>
-    internal static SafeFileHandle OpenVolumeForQueryPath(string path) =>
-        CreateFileW(path, 0, FileShareReadWrite, 0, OpenExisting, 0, 0);
+    /// <param name="path">A path from <see cref="ListDiskInterfaces" />.</param>
+    internal static SafeFileHandle OpenVolumeForQueryPath(string path)
+    {
+        return CreateFileW(path, 0, FileShareReadWrite, 0, OpenExisting, 0, 0);
+    }
 
     /// <summary>Opens a physical disk for attribute queries only.</summary>
     /// <param name="number">The disk number.</param>
-    internal static SafeFileHandle OpenDiskForQuery(int number) =>
-        CreateFileW($@"\\.\PhysicalDrive{number}", 0, FileShareReadWrite, 0, OpenExisting, 0, 0);
+    internal static SafeFileHandle OpenDiskForQuery(int number)
+    {
+        return CreateFileW($@"\\.\PhysicalDrive{number}", 0, FileShareReadWrite, 0, OpenExisting, 0, 0);
+    }
 
-    /// <summary>Opens a physical disk for reading — some queries
-    /// (IOCTL_DISK_GET_LENGTH_INFO) demand read access.</summary>
+    /// <summary>
+    ///     Opens a physical disk for reading — some queries
+    ///     (IOCTL_DISK_GET_LENGTH_INFO) demand read access.
+    /// </summary>
     /// <param name="number">The disk number.</param>
-    internal static SafeFileHandle OpenDiskForRead(int number) =>
-        CreateFileW($@"\\.\PhysicalDrive{number}", GenericRead, FileShareReadWrite, 0,
+    internal static SafeFileHandle OpenDiskForRead(int number)
+    {
+        return CreateFileW($@"\\.\PhysicalDrive{number}", GenericRead, FileShareReadWrite, 0,
             OpenExisting, 0, 0);
+    }
 
     /// <summary>Reads which physical disk (and partition) a volume lives on.</summary>
     /// <param name="volume">An open volume handle.</param>
@@ -254,13 +266,16 @@ internal static unsafe partial class NativeStorage
             deviceNumber = -1;
             return false;
         }
+
         (deviceType, deviceNumber, _) =
             ReadDeviceNumber(new ReadOnlySpan<byte>(buffer, DeviceNumberRecordSize));
         return true;
     }
 
-    /// <summary>Reads the disk's hotplug facts — the classification that decides
-    /// between a device-level and a media-level eject.</summary>
+    /// <summary>
+    ///     Reads the disk's hotplug facts — the classification that decides
+    ///     between a device-level and a media-level eject.
+    /// </summary>
     /// <param name="disk">An open physical-disk handle.</param>
     /// <param name="mediaRemovable">Whether the media can leave the device.</param>
     /// <param name="deviceHotplug">Whether the device itself is hot-pluggable.</param>
@@ -276,27 +291,20 @@ internal static unsafe partial class NativeStorage
             deviceHotplug = false;
             return false;
         }
+
         (mediaRemovable, deviceHotplug) =
             ReadHotplugInfo(new ReadOnlySpan<byte>(buffer, HotplugRecordSize));
         return true;
     }
 
-    /// <summary>One mounted local volume, mapped back to its physical disk.</summary>
-    /// <param name="Letter">The upper-case drive letter.</param>
-    /// <param name="Disk">The physical disk number from the device-number query.</param>
-    /// <param name="DeviceType">The FILE_DEVICE_* type of the underlying device.</param>
-    /// <param name="Ready">Whether the media was ready when walked.</param>
-    /// <param name="DriveType">The .NET drive type (Fixed or Removable).</param>
-    /// <param name="SizeBytes">The volume size, 0 when the media is not ready.</param>
-    internal readonly record struct MountedVolume(
-        char Letter, int Disk, int DeviceType, bool Ready, DriveType DriveType, long SizeBytes);
-
-    /// <summary>The one mounted-volume walk behind every letter-to-disk lookup:
-    /// each local Fixed/Removable drive letter whose volume answered the
-    /// device-number query. No readiness or device-type filtering here — callers
-    /// keep their own (a letterless or not-ready card is meaningful to some of
-    /// them). A drive vanishing mid-walk is skipped, matching the per-drive
-    /// tolerance every previous copy of this loop had.</summary>
+    /// <summary>
+    ///     The one mounted-volume walk behind every letter-to-disk lookup:
+    ///     each local Fixed/Removable drive letter whose volume answered the
+    ///     device-number query. No readiness or device-type filtering here — callers
+    ///     keep their own (a letterless or not-ready card is meaningful to some of
+    ///     them). A drive vanishing mid-walk is skipped, matching the per-drive
+    ///     tolerance every previous copy of this loop had.
+    /// </summary>
     internal static List<MountedVolume> MountedVolumes()
     {
         var result = new List<MountedVolume>();
@@ -308,6 +316,7 @@ internal static unsafe partial class NativeStorage
                 {
                     continue;
                 }
+
                 var letter = char.ToUpperInvariant(drive.Name[0]);
                 using var volume = OpenVolumeForQuery(letter);
                 if (volume.IsInvalid
@@ -315,6 +324,7 @@ internal static unsafe partial class NativeStorage
                 {
                     continue;
                 }
+
                 var ready = drive.IsReady;
                 result.Add(new MountedVolume(
                     letter, disk, type, ready, drive.DriveType, ready ? drive.TotalSize : 0));
@@ -327,20 +337,31 @@ internal static unsafe partial class NativeStorage
                 // A volume we may not even query is not one any caller can act on.
             }
         }
+
         return result;
     }
 
-    /// <summary>Lists the device-interface paths of every present disk. The size
-    /// query and the list call are a documented race — a disk arriving or leaving
-    /// between them makes the list call report CR_BUFFER_SMALL — so the pair is
-    /// retried with a freshly queried size before giving up.</summary>
-    internal static string[] ListDiskInterfaces() => ListInterfaces(DiskInterfaceGuid);
+    /// <summary>
+    ///     Lists the device-interface paths of every present disk. The size
+    ///     query and the list call are a documented race — a disk arriving or leaving
+    ///     between them makes the list call report CR_BUFFER_SMALL — so the pair is
+    ///     retried with a freshly queried size before giving up.
+    /// </summary>
+    internal static string[] ListDiskInterfaces()
+    {
+        return ListInterfaces(DiskInterfaceGuid);
+    }
 
-    /// <summary>Lists the device-interface paths of every volume the volume
-    /// manager currently exposes, mounted or not. Each opens with
-    /// <see cref="OpenVolumeForQueryPath"/> for a device-number query, which maps
-    /// it back to its disk.</summary>
-    internal static string[] ListVolumeInterfaces() => ListInterfaces(VolumeInterfaceGuid);
+    /// <summary>
+    ///     Lists the device-interface paths of every volume the volume
+    ///     manager currently exposes, mounted or not. Each opens with
+    ///     <see cref="OpenVolumeForQueryPath" /> for a device-number query, which maps
+    ///     it back to its disk.
+    /// </summary>
+    internal static string[] ListVolumeInterfaces()
+    {
+        return ListInterfaces(VolumeInterfaceGuid);
+    }
 
     private static string[] ListInterfaces(Guid guid)
     {
@@ -352,26 +373,31 @@ internal static unsafe partial class NativeStorage
             {
                 return [];
             }
+
             var candidate = new char[length];
             int code;
             fixed (char* p = candidate)
             {
                 code = CM_Get_Device_Interface_ListW(in guid, null, p, length, 0);
             }
+
             if (code == CrSuccess)
             {
                 buffer = candidate;
                 break;
             }
+
             if (code != CrBufferSmall)
             {
                 return [];
             }
         }
+
         if (buffer is null)
         {
             return [];
         }
+
         // Double-NUL-terminated multi-string.
         var result = new List<string>();
         var start = 0;
@@ -381,12 +407,15 @@ internal static unsafe partial class NativeStorage
             {
                 continue;
             }
+
             if (i > start)
             {
                 result.Add(new string(buffer, start, i - start));
             }
+
             start = i + 1;
         }
+
         return [.. result];
     }
 
@@ -400,7 +429,7 @@ internal static unsafe partial class NativeStorage
     }
 
     /// <summary>Resolves a device-interface path to its devnode.</summary>
-    /// <param name="interfacePath">A path from <see cref="ListDiskInterfaces"/>.</param>
+    /// <param name="interfacePath">A path from <see cref="ListDiskInterfaces" />.</param>
     /// <param name="devInst">The devnode handle.</param>
     internal static bool TryGetDevNode(string interfacePath, out uint devInst)
     {
@@ -412,14 +441,17 @@ internal static unsafe partial class NativeStorage
         {
             return false;
         }
+
         // size is the byte count cfgmgr32 wrote back (buffer holds 512 chars).
         var instanceId = ReadBoundedString(buffer, (int)(Math.Min(size, 1024u) / 2));
         return instanceId.Length > 0
-            && CM_Locate_DevNodeW(out devInst, instanceId, 0) == CrSuccess;
+               && CM_Locate_DevNodeW(out devInst, instanceId, 0) == CrSuccess;
     }
 
-    /// <summary>Reads the devnode's device instance path — the stable identity a
-    /// list row keys on.</summary>
+    /// <summary>
+    ///     Reads the devnode's device instance path — the stable identity a
+    ///     list row keys on.
+    /// </summary>
     /// <param name="devInst">The devnode.</param>
     internal static string GetDeviceInstanceId(uint devInst)
     {
@@ -436,8 +468,10 @@ internal static unsafe partial class NativeStorage
     private static partial int CM_Get_Device_IDW(
         uint devInst, char* buffer, uint bufferLength, uint flags);
 
-    /// <summary>Reads the devnode's display name: the friendly name when set,
-    /// else the device description, else an empty string.</summary>
+    /// <summary>
+    ///     Reads the devnode's display name: the friendly name when set,
+    ///     else the device description, else an empty string.
+    /// </summary>
     /// <param name="devInst">The devnode.</param>
     internal static string GetDeviceDisplayName(uint devInst)
     {
@@ -452,14 +486,16 @@ internal static unsafe partial class NativeStorage
         // REG_SZ data is not guaranteed NUL-terminated; decode at most the
         // returned byte count (buffer holds 1024 bytes = 512 chars).
         return CM_Get_DevNode_Registry_PropertyW(devInst, property, out _, buffer, ref length, 0)
-            != CrSuccess
+               != CrSuccess
             ? ""
             : ReadBoundedString((char*)buffer, (int)(Math.Min(length, 1024u) / 2));
     }
 
-    /// <summary>Decodes a UTF-16 buffer up to its first NUL, never reading past
-    /// <paramref name="capacity"/> chars — cfgmgr32/registry strings are not
-    /// guaranteed NUL-terminated when they exactly fill the buffer.</summary>
+    /// <summary>
+    ///     Decodes a UTF-16 buffer up to its first NUL, never reading past
+    ///     <paramref name="capacity" /> chars — cfgmgr32/registry strings are not
+    ///     guaranteed NUL-terminated when they exactly fill the buffer.
+    /// </summary>
     private static string ReadBoundedString(char* buffer, int capacity)
     {
         var span = new ReadOnlySpan<char>(buffer, capacity);
@@ -474,16 +510,18 @@ internal static unsafe partial class NativeStorage
         var length = 4u;
         uint capabilities = 0;
         return CM_Get_DevNode_Registry_PropertyW(devInst, DrpCapabilities, out _,
-                (byte*)&capabilities, ref length, 0) == CrSuccess
+            (byte*)&capabilities, ref length, 0) == CrSuccess
             ? capabilities
             : 0;
     }
 
-    /// <summary>Walks from a disk devnode to the node the PnP eject should
-    /// target: the first ancestor (or the disk itself) whose capabilities say
-    /// CM_DEVCAP_REMOVABLE. For USB storage that is the USB device above the
-    /// USBSTOR disk — ejecting the disk node itself commonly fails. Falls back
-    /// to the immediate parent when no ancestor claims removability.</summary>
+    /// <summary>
+    ///     Walks from a disk devnode to the node the PnP eject should
+    ///     target: the first ancestor (or the disk itself) whose capabilities say
+    ///     CM_DEVCAP_REMOVABLE. For USB storage that is the USB device above the
+    ///     USBSTOR disk — ejecting the disk node itself commonly fails. Falls back
+    ///     to the immediate parent when no ancestor claims removability.
+    /// </summary>
     /// <param name="diskDevInst">The disk devnode.</param>
     internal static uint FindEjectTarget(uint diskDevInst)
     {
@@ -494,29 +532,20 @@ internal static unsafe partial class NativeStorage
             {
                 return node;
             }
+
             if (CM_Get_Parent(out var parent, node, 0) != CrSuccess)
             {
                 break;
             }
+
             node = parent;
         }
+
         // Nothing claimed removability: the classic fallback is the disk's parent.
         return CM_Get_Parent(out var fallback, diskDevInst, 0) == CrSuccess
             ? fallback
             : diskDevInst;
     }
-
-    // ---- disk facts for the Format flow ----
-
-    /// <summary>STORAGE_BUS_TYPE: the disk sits in a native SD host slot.</summary>
-    internal const int BusTypeSd = 12;
-
-    /// <summary>STORAGE_BUS_TYPE: eMMC/MMC bus.</summary>
-    internal const int BusTypeMmc = 13;
-
-    /// <summary>STORAGE_BUS_TYPE: USB-attached (sticks, external drives, and
-    /// USB-bridged card readers alike).</summary>
-    internal const int BusTypeUsb = 7;
 
     /// <summary>Reads the disk's total size in bytes, or 0 on failure.</summary>
     /// <param name="disk">A disk handle opened with read access.</param>
@@ -524,7 +553,7 @@ internal static unsafe partial class NativeStorage
     {
         long length = 0;
         return DeviceIoControl(disk, IoctlDiskGetLengthInfo, 0, 0, (nint)(&length), 8,
-                out var written, 0) && written >= 8
+            out var written, 0) && written >= 8
             ? length
             : 0;
     }
@@ -534,15 +563,21 @@ internal static unsafe partial class NativeStorage
     {
         var buffer = stackalloc byte[256];
         return DeviceIoControl(disk, IoctlDiskGetDriveGeometryEx, 0, 0, (nint)buffer, 256,
-            out var written, 0) ? ReadGeometryCapacity(new ReadOnlySpan<byte>(buffer, (int)Math.Min(written, 256))) : 0;
+            out var written, 0)
+            ? ReadGeometryCapacity(new ReadOnlySpan<byte>(buffer, (int)Math.Min(written, 256)))
+            : 0;
     }
 
     /// <summary>Decodes DISK_GEOMETRY_EX.DiskSize after its 24-byte DISK_GEOMETRY.</summary>
-    internal static long ReadGeometryCapacity(ReadOnlySpan<byte> buffer) =>
-        buffer.Length >= 32 ? Math.Max(0, BinaryPrimitives.ReadInt64LittleEndian(buffer[24..32])) : 0;
+    internal static long ReadGeometryCapacity(ReadOnlySpan<byte> buffer)
+    {
+        return buffer.Length >= 32 ? Math.Max(0, BinaryPrimitives.ReadInt64LittleEndian(buffer[24..32])) : 0;
+    }
 
-    /// <summary>Reads the disk's bus type and vendor/product identity via
-    /// IOCTL_STORAGE_QUERY_PROPERTY (StorageDeviceProperty).</summary>
+    /// <summary>
+    ///     Reads the disk's bus type and vendor/product identity via
+    ///     IOCTL_STORAGE_QUERY_PROPERTY (StorageDeviceProperty).
+    /// </summary>
     /// <param name="disk">An open disk handle (query access suffices).</param>
     /// <param name="busType">The STORAGE_BUS_TYPE value, -1 on failure.</param>
     /// <param name="product">Vendor + product strings, trimmed, possibly empty.</param>
@@ -560,16 +595,16 @@ internal static unsafe partial class NativeStorage
         {
             return false;
         }
+
         (busType, product) =
             ReadDeviceDescriptor(new ReadOnlySpan<byte>(buffer, (int)written));
         return true;
     }
 
-    /// <summary>The fixed header size of STORAGE_DEVICE_DESCRIPTOR.</summary>
-    internal const int DeviceDescriptorHeaderSize = 36;
-
-    /// <summary>Decodes a STORAGE_DEVICE_DESCRIPTOR buffer: the bus type and the
-    /// combined vendor+product identity string.</summary>
+    /// <summary>
+    ///     Decodes a STORAGE_DEVICE_DESCRIPTOR buffer: the bus type and the
+    ///     combined vendor+product identity string.
+    /// </summary>
     /// <param name="buffer">The descriptor, header plus trailing string data.</param>
     internal static (int BusType, string Product) ReadDeviceDescriptor(
         ReadOnlySpan<byte> buffer)
@@ -578,6 +613,7 @@ internal static unsafe partial class NativeStorage
         {
             return (-1, "");
         }
+
         var busType = BitConverter.ToInt32(buffer[28..]);
         var vendor = ReadAnsiAt(buffer, BitConverter.ToInt32(buffer[12..]));
         var product = ReadAnsiAt(buffer, BitConverter.ToInt32(buffer[16..]));
@@ -585,41 +621,33 @@ internal static unsafe partial class NativeStorage
         return (busType, combined);
     }
 
-    /// <summary>Reads a NUL-terminated ANSI string at a descriptor-relative
-    /// offset; empty for offset 0 or out-of-range offsets.</summary>
+    /// <summary>
+    ///     Reads a NUL-terminated ANSI string at a descriptor-relative
+    ///     offset; empty for offset 0 or out-of-range offsets.
+    /// </summary>
     private static string ReadAnsiAt(ReadOnlySpan<byte> buffer, int offset)
     {
         if (offset <= 0 || offset >= buffer.Length)
         {
             return "";
         }
+
         var slice = buffer[offset..];
         var end = slice.IndexOf((byte)0);
         if (end >= 0)
         {
             slice = slice[..end];
         }
+
         return Encoding.ASCII.GetString(slice).Trim();
     }
 
-    /// <summary>GPT partition-type GUID for Linux filesystem data — the ext4
-    /// partitions a Steam Deck card carries.</summary>
-    internal static Guid LinuxFilesystemGuid { get; } =
-        new("0fc63daf-8483-4772-8e79-3d69d8477de4");
-
-    /// <summary>One partition's identifying type facts.</summary>
-    /// <param name="MbrType">The MBR partition-type byte (0x83 = Linux), 0 for GPT disks.</param>
-    /// <param name="GptType">The GPT partition-type GUID, empty for MBR disks.</param>
-    internal readonly record struct PartitionType(byte MbrType, Guid GptType)
-    {
-        /// <summary>Whether this partition looks like a Linux filesystem.</summary>
-        internal bool IsLinux => MbrType == 0x83 || GptType == LinuxFilesystemGuid;
-    }
-
-    /// <summary>Reads the disk's partition style and per-partition types, for the
-    /// "this looks like a Steam Deck card" hint. Returns false when the layout
-    /// cannot be read (RAW/uninitialized disks commonly fail here — the caller
-    /// treats that as "no recognizable partitions").</summary>
+    /// <summary>
+    ///     Reads the disk's partition style and per-partition types, for the
+    ///     "this looks like a Steam Deck card" hint. Returns false when the layout
+    ///     cannot be read (RAW/uninitialized disks commonly fail here — the caller
+    ///     treats that as "no recognizable partitions").
+    /// </summary>
     /// <param name="disk">An open disk handle.</param>
     /// <param name="partitionStyle">0 MBR, 1 GPT, 2 RAW.</param>
     /// <param name="partitions">The partition types found.</param>
@@ -636,21 +664,17 @@ internal static unsafe partial class NativeStorage
             partitions = [];
             return false;
         }
+
         (partitionStyle, partitions) =
             ReadDriveLayout(new ReadOnlySpan<byte>(buffer, (int)written));
         return true;
     }
 
-    /// <summary>DRIVE_LAYOUT_INFORMATION_EX geometry: entries start after the
-    /// 48-byte header, one PARTITION_INFORMATION_EX (144 bytes) each.</summary>
-    internal const int DriveLayoutHeaderSize = 48;
-
-    /// <summary>The size of one PARTITION_INFORMATION_EX record.</summary>
-    internal const int PartitionRecordSize = 144;
-
-    /// <summary>Decodes a DRIVE_LAYOUT_INFORMATION_EX buffer into the partition
-    /// style and each partition's type. Zeroed MBR entries (empty table slots —
-    /// MBR layouts always report 4-slot multiples) are skipped.</summary>
+    /// <summary>
+    ///     Decodes a DRIVE_LAYOUT_INFORMATION_EX buffer into the partition
+    ///     style and each partition's type. Zeroed MBR entries (empty table slots —
+    ///     MBR layouts always report 4-slot multiples) are skipped.
+    /// </summary>
     /// <param name="buffer">The layout buffer as returned by the IOCTL.</param>
     internal static (int Style, List<PartitionType> Partitions)
         ReadDriveLayout(ReadOnlySpan<byte> buffer)
@@ -660,6 +684,7 @@ internal static unsafe partial class NativeStorage
         {
             return (2, partitions);
         }
+
         var style = BitConverter.ToInt32(buffer);
         var count = BitConverter.ToInt32(buffer[4..]);
         for (var i = 0; i < count; i++)
@@ -669,6 +694,7 @@ internal static unsafe partial class NativeStorage
             {
                 break;
             }
+
             var entry = buffer.Slice(at, PartitionRecordSize);
             // Union at offset 32: GPT PartitionType GUID / MBR PartitionType byte.
             switch (style)
@@ -677,28 +703,32 @@ internal static unsafe partial class NativeStorage
                     partitions.Add(new PartitionType(0, new Guid(entry.Slice(32, 16))));
                     break;
                 case 0:
+                {
+                    var mbrType = entry[32];
+                    if (mbrType != 0)
                     {
-                        var mbrType = entry[32];
-                        if (mbrType != 0)
-                        {
-                            partitions.Add(new PartitionType(mbrType, Guid.Empty));
-                        }
-                        break;
+                        partitions.Add(new PartitionType(mbrType, Guid.Empty));
                     }
+
+                    break;
+                }
             }
         }
+
         return (style, partitions);
     }
 
     // ---- volume-arrival broadcast ----
 
-    /// <summary>Broadcasts a synthetic volume-arrival notification
-    /// (WM_DEVICECHANGE / DBT_DEVICEARRIVAL / DEV_BROADCAST_VOLUME) for a drive
-    /// letter — the same message a real card insertion generates. Used after the
-    /// Format flow writes the Steam library files: the REAL arrival fired when
-    /// the empty volume mounted, before the library existed, so a running Steam
-    /// has already scanned and found nothing; this re-poke makes drive watchers
-    /// (Steam's library detection, Explorer) look again. Best effort.</summary>
+    /// <summary>
+    ///     Broadcasts a synthetic volume-arrival notification
+    ///     (WM_DEVICECHANGE / DBT_DEVICEARRIVAL / DEV_BROADCAST_VOLUME) for a drive
+    ///     letter — the same message a real card insertion generates. Used after the
+    ///     Format flow writes the Steam library files: the REAL arrival fired when
+    ///     the empty volume mounted, before the library existed, so a running Steam
+    ///     has already scanned and found nothing; this re-poke makes drive watchers
+    ///     (Steam's library detection, Explorer) look again. Best effort.
+    /// </summary>
     /// <param name="letter">The drive letter that should be re-scanned.</param>
     internal static void BroadcastVolumeArrival(char letter)
     {
@@ -711,6 +741,7 @@ internal static unsafe partial class NativeStorage
         {
             return;
         }
+
         // DEV_BROADCAST_VOLUME: size, devicetype, reserved, unitmask, flags.
         var broadcast = stackalloc byte[20];
         BitConverter.TryWriteBytes(new Span<byte>(broadcast, 4), 20);
@@ -722,14 +753,18 @@ internal static unsafe partial class NativeStorage
 
     // ---- eject operations ----
 
-    /// <summary>Asks PnP to eject a device — the same operation as Explorer's
-    /// "Safely Remove Hardware". Dismounts and flushes every volume on the
-    /// device.</summary>
-    /// <param name="devInst">The devnode to eject (see <see cref="FindEjectTarget"/>).</param>
+    /// <summary>
+    ///     Asks PnP to eject a device — the same operation as Explorer's
+    ///     "Safely Remove Hardware". Dismounts and flushes every volume on the
+    ///     device.
+    /// </summary>
+    /// <param name="devInst">The devnode to eject (see <see cref="FindEjectTarget" />).</param>
     /// <param name="vetoType">Why the eject was refused, when it was.</param>
     /// <param name="vetoName">The vetoing module/service/path, possibly empty.</param>
-    /// <returns>The CONFIGRET code: <see cref="CrSuccess"/>, <see cref="CrRemoveVetoed"/>,
-    /// or another CR_* failure.</returns>
+    /// <returns>
+    ///     The CONFIGRET code: <see cref="CrSuccess" />, <see cref="CrRemoveVetoed" />,
+    ///     or another CR_* failure.
+    /// </returns>
     internal static int RequestDeviceEject(
         uint devInst, out PnpVetoType vetoType, out string vetoName)
     {
@@ -741,21 +776,29 @@ internal static unsafe partial class NativeStorage
         return result;
     }
 
-    /// <summary>Takes the exclusive volume lock — the open-files check for the
-    /// media-level eject. Fails while any other handle is open on the volume.</summary>
-    /// <param name="volume">A volume opened via <see cref="OpenVolumeForEject"/>.</param>
-    internal static bool LockVolume(SafeFileHandle volume) =>
-        DeviceIoControl(volume, FsctlLockVolume, 0, 0, 0, 0, out _, 0);
+    /// <summary>
+    ///     Takes the exclusive volume lock — the open-files check for the
+    ///     media-level eject. Fails while any other handle is open on the volume.
+    /// </summary>
+    /// <param name="volume">A volume opened via <see cref="OpenVolumeForEject" />.</param>
+    internal static bool LockVolume(SafeFileHandle volume)
+    {
+        return DeviceIoControl(volume, FsctlLockVolume, 0, 0, 0, 0, out _, 0);
+    }
 
     /// <summary>Dismounts the file system, flushing it first.</summary>
     /// <param name="volume">A locked volume handle.</param>
-    internal static bool DismountVolume(SafeFileHandle volume) =>
-        DeviceIoControl(volume, FsctlDismountVolume, 0, 0, 0, 0, out _, 0);
+    internal static bool DismountVolume(SafeFileHandle volume)
+    {
+        return DeviceIoControl(volume, FsctlDismountVolume, 0, 0, 0, 0, out _, 0);
+    }
 
-    /// <summary>Releases any software media lock (PREVENT_MEDIA_REMOVAL = FALSE),
-    /// then asks the device to eject the media. Card readers without a motor may
-    /// fail the final call — the caller treats lock+dismount as the real
-    /// success.</summary>
+    /// <summary>
+    ///     Releases any software media lock (PREVENT_MEDIA_REMOVAL = FALSE),
+    ///     then asks the device to eject the media. Card readers without a motor may
+    ///     fail the final call — the caller treats lock+dismount as the real
+    ///     success.
+    /// </summary>
     /// <param name="volume">A locked, dismounted volume handle.</param>
     internal static bool EjectMedia(SafeFileHandle volume)
     {
@@ -765,7 +808,10 @@ internal static unsafe partial class NativeStorage
     }
 
     /// <summary>The calling thread's last Win32 error, for log lines.</summary>
-    internal static int LastWin32Error() => Marshal.GetLastPInvokeError();
+    internal static int LastWin32Error()
+    {
+        return Marshal.GetLastPInvokeError();
+    }
 
     // ---- DOS-to-NT device path translation ----
 
@@ -773,9 +819,11 @@ internal static unsafe partial class NativeStorage
         StringMarshalling = StringMarshalling.Utf16)]
     private static partial uint QueryDosDeviceW(string deviceName, char* targetPath, uint maxLength);
 
-    /// <summary>Converts a local DOS path to the NT device notation kernel
-    /// drivers (HidHide) consume. Returns the normalized input when Windows
-    /// cannot translate it, logging why.</summary>
+    /// <summary>
+    ///     Converts a local DOS path to the NT device notation kernel
+    ///     drivers (HidHide) consume. Returns the normalized input when Windows
+    ///     cannot translate it, logging why.
+    /// </summary>
     /// <param name="path">The DOS path to translate.</param>
     internal static string FromDosPath(string path)
     {
@@ -832,21 +880,25 @@ internal static unsafe partial class NativeStorage
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool SetVolumeLabelW(string rootPath, string? volumeLabel);
 
-    /// <summary>Resolves a drive letter to its volume GUID path
-    /// (<c>\\?\Volume{...}\</c>) — the name of the VOLUME rather than of the mount
-    /// point that currently exposes it.</summary>
+    /// <summary>
+    ///     Resolves a drive letter to its volume GUID path
+    ///     (<c>\\?\Volume{...}\</c>) — the name of the VOLUME rather than of the mount
+    ///     point that currently exposes it.
+    /// </summary>
     /// <remarks>
-    /// A drive letter is a mount point and can be re-pointed at different media
-    /// without any user action: a reconnecting iSCSI target or USB device
-    /// re-enumerating, or another tool reassigning letters, does it in whatever
-    /// order the mount manager processes the volumes. File work that must stay on
-    /// the medium it validated has to address the volume, not the letter. If the
-    /// volume goes away, opens through this path fail instead of silently landing
-    /// on whatever took the letter over.
+    ///     A drive letter is a mount point and can be re-pointed at different media
+    ///     without any user action: a reconnecting iSCSI target or USB device
+    ///     re-enumerating, or another tool reassigning letters, does it in whatever
+    ///     order the mount manager processes the volumes. File work that must stay on
+    ///     the medium it validated has to address the volume, not the letter. If the
+    ///     volume goes away, opens through this path fail instead of silently landing
+    ///     on whatever took the letter over.
     /// </remarks>
     /// <param name="letter">The drive letter, without a colon.</param>
-    /// <param name="volumeRoot">The volume GUID path WITH its trailing separator,
-    /// or null when the letter names no volume.</param>
+    /// <param name="volumeRoot">
+    ///     The volume GUID path WITH its trailing separator,
+    ///     or null when the letter names no volume.
+    /// </param>
     /// <returns>True when the letter resolved.</returns>
     internal static bool TryGetVolumeGuidPath(char letter, out string? volumeRoot)
     {
@@ -857,22 +909,28 @@ internal static unsafe partial class NativeStorage
         {
             return false;
         }
+
         var value = ReadBoundedString(buffer, 64);
         if (value.Length == 0)
         {
             return false;
         }
+
         volumeRoot = value;
         return true;
     }
 
     /// <summary>Reads a mounted volume's label and filesystem name.</summary>
-    /// <param name="volumeRoot">A root path WITH a trailing separator — a drive root
-    /// or a volume GUID path.</param>
+    /// <param name="volumeRoot">
+    ///     A root path WITH a trailing separator — a drive root
+    ///     or a volume GUID path.
+    /// </param>
     /// <param name="label">The current volume label, empty when it has none.</param>
     /// <param name="fileSystem">The filesystem name, e.g. <c>NTFS</c>.</param>
-    /// <returns>False when the volume could not be queried; the Win32 error is the
-    /// caller's to report.</returns>
+    /// <returns>
+    ///     False when the volume could not be queried; the Win32 error is the
+    ///     caller's to report.
+    /// </returns>
     internal static bool TryGetVolumeInformation(
         string volumeRoot, out string label, out string fileSystem)
     {
@@ -886,18 +944,105 @@ internal static unsafe partial class NativeStorage
         {
             return false;
         }
+
         label = ReadBoundedString(labelBuffer, 261);
         fileSystem = ReadBoundedString(fileSystemBuffer, 261);
         return true;
     }
 
     /// <summary>Sets a mounted volume's label.</summary>
-    /// <param name="volumeRoot">A root path WITH a trailing separator — a drive root
-    /// or a volume GUID path.</param>
-    /// <param name="label">The new label; it must already be within the
-    /// filesystem's length limit and free of characters it rejects.</param>
-    /// <returns>False when Windows refused; the Win32 error is the caller's to
-    /// report.</returns>
+    /// <param name="volumeRoot">
+    ///     A root path WITH a trailing separator — a drive root
+    ///     or a volume GUID path.
+    /// </param>
+    /// <param name="label">
+    ///     The new label; it must already be within the
+    ///     filesystem's length limit and free of characters it rejects.
+    /// </param>
+    /// <returns>
+    ///     False when Windows refused; the Win32 error is the caller's to
+    ///     report.
+    /// </returns>
     internal static bool TrySetVolumeLabel(string volumeRoot, string label)
-        => SetVolumeLabelW(volumeRoot, label);
+    {
+        return SetVolumeLabelW(volumeRoot, label);
+    }
+
+    /// <summary>
+    ///     How Windows says an eject was refused (cfg.h PNP_VETO_TYPE,
+    ///     zero-based).
+    /// </summary>
+    internal enum PnpVetoType
+    {
+        /// <summary>No reason was named.</summary>
+        TypeUnknown = 0,
+
+        /// <summary>A legacy device cannot be ejected.</summary>
+        LegacyDevice = 1,
+
+        /// <summary>A close is still pending on the device.</summary>
+        PendingClose = 2,
+
+        /// <summary>An application vetoed; the veto name is a module.</summary>
+        WindowsApp = 3,
+
+        /// <summary>A service vetoed; the veto name is a service name.</summary>
+        WindowsService = 4,
+
+        /// <summary>Open handles remain on the device.</summary>
+        OutstandingOpen = 5,
+
+        /// <summary>The device itself refused.</summary>
+        Device = 6,
+
+        /// <summary>The driver refused.</summary>
+        Driver = 7,
+
+        /// <summary>The request is illegal for this device.</summary>
+        IllegalDeviceRequest = 8,
+
+        /// <summary>Insufficient power to complete the operation.</summary>
+        InsufficientPower = 9,
+
+        /// <summary>The device cannot be disabled.</summary>
+        NonDisableable = 10,
+
+        /// <summary>A legacy driver vetoed.</summary>
+        LegacyDriver = 11,
+
+        /// <summary>The caller lacks the rights to eject.</summary>
+        InsufficientRights = 12
+    }
+
+    /// <summary>DEVPROPKEY, blittable: a property category GUID plus an id.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DevPropKey
+    {
+        public Guid Fmtid;
+        public uint Pid;
+    }
+
+    /// <summary>One mounted local volume, mapped back to its physical disk.</summary>
+    /// <param name="Letter">The upper-case drive letter.</param>
+    /// <param name="Disk">The physical disk number from the device-number query.</param>
+    /// <param name="DeviceType">The FILE_DEVICE_* type of the underlying device.</param>
+    /// <param name="Ready">Whether the media was ready when walked.</param>
+    /// <param name="DriveType">The .NET drive type (Fixed or Removable).</param>
+    /// <param name="SizeBytes">The volume size, 0 when the media is not ready.</param>
+    internal readonly record struct MountedVolume(
+        char Letter,
+        int Disk,
+        int DeviceType,
+        bool Ready,
+        DriveType DriveType,
+        long SizeBytes);
+
+    /// <summary>One partition's identifying type facts.</summary>
+    /// <param name="MbrType">The MBR partition-type byte (0x83 = Linux), 0 for GPT disks.</param>
+    /// <param name="GptType">The GPT partition-type GUID, empty for MBR disks.</param>
+    internal readonly record struct PartitionType(byte MbrType, Guid GptType)
+    {
+        /// <summary>Whether this partition looks like a Linux filesystem.</summary>
+        internal bool IsLinux => MbrType == 0x83 || GptType == LinuxFilesystemGuid;
+    }
 }

@@ -11,9 +11,11 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-/// <summary>An artwork slot. The numeric values are Steam's own <c>eAssetType</c>
-/// (capsule/portrait = 0, hero = 1, logo = 2, wide capsule = 3, icon = 4) so they pass
-/// straight into <see cref="SteamArtwork"/>'s <c>SetCustomArtworkForApp</c> call.</summary>
+/// <summary>
+///     An artwork slot. The numeric values are Steam's own <c>eAssetType</c>
+///     (capsule/portrait = 0, hero = 1, logo = 2, wide capsule = 3, icon = 4) so they pass
+///     straight into <see cref="SteamArtwork" />'s <c>SetCustomArtworkForApp</c> call.
+/// </summary>
 public enum ArtworkAsset
 {
     /// <summary>Portrait capsule (600×900).</summary>
@@ -45,7 +47,9 @@ public sealed record SgdbAsset(int Id, string Url, string Thumb, int Width, int 
 public sealed class SteamGridDbException : Exception
 {
     /// <summary>Creates a request failure with a user-facing message.</summary>
-    public SteamGridDbException(string message) : base(message) { }
+    public SteamGridDbException(string message) : base(message)
+    {
+    }
 }
 
 /// <summary>A game match from a SteamGridDB title search.</summary>
@@ -53,11 +57,13 @@ public sealed class SteamGridDbException : Exception
 /// <param name="Name">Game name.</param>
 public sealed record SgdbGame(int Id, string Name);
 
-/// <summary>Read-only client for the SteamGridDB v2 REST API: title search and per-slot
-/// asset listing, plus raw image download. Uses only <see cref="HttpClient"/> and <see cref="JsonDocument"/>.
-/// Auth is a bearer key the user sets in Settings (<see cref="ResolveKey"/>); there is no
-/// bundled key (SteamGridDB rejects the decky public key). Applying the chosen image
-/// is <see cref="SteamArtwork"/>'s job; this class only fetches.</summary>
+/// <summary>
+///     Read-only client for the SteamGridDB v2 REST API: title search and per-slot
+///     asset listing, plus raw image download. Uses only <see cref="HttpClient" /> and <see cref="JsonDocument" />.
+///     Auth is a bearer key the user sets in Settings (<see cref="ResolveKey" />); there is no
+///     bundled key (SteamGridDB rejects the decky public key). Applying the chosen image
+///     is <see cref="SteamArtwork" />'s job; this class only fetches.
+/// </summary>
 public static class SteamGridDb
 {
     private const string ApiBase = "https://www.steamgriddb.com/api/v2";
@@ -78,16 +84,20 @@ public static class SteamGridDb
         MaxResponseContentBufferSize = MaxJsonResponseBytes
     };
 
-    /// <summary>The user's configured API key (trimmed), or empty. There is no bundled
-    /// key — SteamGridDB rejects the decky public key — so the user must set their own
-    /// free key in Settings (see <see cref="KeyPageUrl"/>).</summary>
+    /// <summary>
+    ///     The user's configured API key (trimmed), or empty. There is no bundled
+    ///     key — SteamGridDB rejects the decky public key — so the user must set their own
+    ///     free key in Settings (see <see cref="KeyPageUrl" />).
+    /// </summary>
     /// <param name="config">The loaded configuration.</param>
     public static string ResolveKey(AppConfig config)
-        => (config.SteamGridDbApiKey ?? "").Trim();
+    {
+        return (config.SteamGridDbApiKey ?? "").Trim();
+    }
 
     /// <summary>Searches SteamGridDB for games by title (autocomplete).</summary>
     /// <param name="term">The search term.</param>
-    /// <param name="key">The bearer API key (see <see cref="ResolveKey"/>).</param>
+    /// <param name="key">The bearer API key (see <see cref="ResolveKey" />).</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     public static async Task<IReadOnlyList<SgdbGame>> SearchGamesAsync(
         string term, string key, CancellationToken cancellationToken = default)
@@ -96,46 +106,58 @@ public static class SteamGridDb
         {
             return [];
         }
+
         var url = $"{ApiBase}/search/autocomplete/{Uri.EscapeDataString(term.Trim())}";
         var root = await GetAsync(url, key, cancellationToken).ConfigureAwait(false);
         if (root is null || !root.Value.TryGetProperty("data", out var data)
-            || data.ValueKind != JsonValueKind.Array)
+                         || data.ValueKind != JsonValueKind.Array)
         {
             return [];
         }
+
         var list = new List<SgdbGame>();
         foreach (var game in data.EnumerateArray())
         {
             if (game.TryGetProperty("id", out var id) && id.TryGetInt32(out var gameId))
             {
                 list.Add(new SgdbGame(gameId, game.TryGetProperty("name", out var n)
-                    ? n.GetString() ?? "" : ""));
+                    ? n.GetString() ?? ""
+                    : ""));
             }
         }
+
         return list;
     }
 
-    /// <summary>Lists artwork candidates for a Steam app id in the given slot. Grid vs
-    /// Wide are the same SteamGridDB endpoint filtered by dimensions.</summary>
+    /// <summary>
+    ///     Lists artwork candidates for a Steam app id in the given slot. Grid vs
+    ///     Wide are the same SteamGridDB endpoint filtered by dimensions.
+    /// </summary>
     /// <param name="asset">Which artwork slot.</param>
     /// <param name="steamAppId">The Steam app id.</param>
     /// <param name="key">The bearer API key.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     public static Task<IReadOnlyList<SgdbAsset>> GetAssetsForSteamAppAsync(
         ArtworkAsset asset, long steamAppId, string key, CancellationToken cancellationToken = default)
-        => GetAssetsAsync(asset, "steam", steamAppId.ToString(CultureInfo.InvariantCulture), key,
+    {
+        return GetAssetsAsync(asset, "steam", steamAppId.ToString(CultureInfo.InvariantCulture), key,
             cancellationToken);
+    }
 
-    /// <summary>Lists artwork candidates for a SteamGridDB game id (used when a Steam
-    /// app has no direct SteamGridDB mapping and the user searched by title).</summary>
+    /// <summary>
+    ///     Lists artwork candidates for a SteamGridDB game id (used when a Steam
+    ///     app has no direct SteamGridDB mapping and the user searched by title).
+    /// </summary>
     /// <param name="asset">Which artwork slot.</param>
     /// <param name="sgdbGameId">The SteamGridDB game id.</param>
     /// <param name="key">The bearer API key.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     public static Task<IReadOnlyList<SgdbAsset>> GetAssetsForGameAsync(
         ArtworkAsset asset, int sgdbGameId, string key, CancellationToken cancellationToken = default)
-        => GetAssetsAsync(asset, "game", sgdbGameId.ToString(CultureInfo.InvariantCulture), key,
+    {
+        return GetAssetsAsync(asset, "game", sgdbGameId.ToString(CultureInfo.InvariantCulture), key,
             cancellationToken);
+    }
 
     private static async Task<IReadOnlyList<SgdbAsset>> GetAssetsAsync(
         ArtworkAsset asset, string idKind, string id, string key, CancellationToken cancellationToken)
@@ -157,10 +179,11 @@ public static class SteamGridDb
 
         var root = await GetAsync(url, key, cancellationToken).ConfigureAwait(false);
         if (root is null || !root.Value.TryGetProperty("data", out var data)
-            || data.ValueKind != JsonValueKind.Array)
+                         || data.ValueKind != JsonValueKind.Array)
         {
             return [];
         }
+
         var list = new List<SgdbAsset>();
         foreach (var item in data.EnumerateArray())
         {
@@ -168,6 +191,7 @@ public static class SteamGridDb
             {
                 continue;
             }
+
             var full = urlEl.GetString() ?? "";
             var thumb = item.TryGetProperty("thumb", out var t) ? t.GetString() ?? full : full;
             var w = item.TryGetProperty("width", out var wi) && wi.TryGetInt32(out var wv) ? wv : 0;
@@ -179,14 +203,17 @@ public static class SteamGridDb
                 list.Add(new SgdbAsset(assetId, full, thumb, w, h, extension));
             }
         }
+
         return list;
     }
 
-    /// <summary>Downloads raw image bytes from a URL (SteamGridDB CDN or Steam's own
-    /// store CDN), capped at 16 MB. There is no null failure result: every failure —
-    /// a non-HTTPS URL, an HTTP error, an oversized body, a transport fault — throws
-    /// <see cref="SteamGridDbException"/> carrying a user-facing message, so callers
-    /// must wrap the call. The nullable return type is defensive only.</summary>
+    /// <summary>
+    ///     Downloads raw image bytes from a URL (SteamGridDB CDN or Steam's own
+    ///     store CDN), capped at 16 MB. There is no null failure result: every failure —
+    ///     a non-HTTPS URL, an HTTP error, an oversized body, a transport fault — throws
+    ///     <see cref="SteamGridDbException" /> carrying a user-facing message, so callers
+    ///     must wrap the call. The nullable return type is defensive only.
+    /// </summary>
     /// <param name="url">The image URL.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     public static async Task<byte[]?> DownloadImageAsync(
@@ -198,6 +225,7 @@ public static class SteamGridDb
             {
                 throw new SteamGridDbException("Artwork URL was not a secure HTTPS address.");
             }
+
             using var response = await Http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead,
                 cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
@@ -206,6 +234,7 @@ public static class SteamGridDb
             {
                 throw new SteamGridDbException("Artwork is larger than the 16 MB safety limit.");
             }
+
             await using var input = await response.Content.ReadAsStreamAsync(cancellationToken)
                 .ConfigureAwait(false);
             using var output = new MemoryStream();
@@ -217,12 +246,15 @@ public static class SteamGridDb
                 {
                     break;
                 }
+
                 if (output.Length + read > maxBytes)
                 {
                     throw new SteamGridDbException("Artwork is larger than the 16 MB safety limit.");
                 }
+
                 output.Write(buffer, 0, read);
             }
+
             return output.ToArray();
         }
         catch (SteamGridDbException)
@@ -261,6 +293,7 @@ public static class SteamGridDb
                     _ => $"SteamGridDB returned HTTP {(int)response.StatusCode}."
                 });
             }
+
             var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             using var document = JsonDocument.Parse(json);
             // Clone so the element survives disposal of the document.
@@ -287,6 +320,7 @@ public static class SteamGridDb
         {
             return null;
         }
+
         return Path.GetExtension(uri.AbsolutePath).ToLowerInvariant() switch
         {
             ".jpg" or ".jpeg" => "jpg",

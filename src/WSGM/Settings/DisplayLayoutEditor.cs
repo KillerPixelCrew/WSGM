@@ -13,18 +13,20 @@ namespace WSGM.Settings;
 /// <param name="HdrSupported">Whether the display reported advanced-colour support.</param>
 /// <param name="MaximumDpiPercent">Highest scaling percentage it offered, or zero when unknown.</param>
 internal sealed record DisplayCatalogFacts(
-    IReadOnlyList<DisplayMode> Modes, bool HdrSupported, int MaximumDpiPercent);
+    IReadOnlyList<DisplayMode> Modes,
+    bool HdrSupported,
+    int MaximumDpiPercent);
 
 /// <summary>One display in the layout editor, present or remembered.</summary>
 public sealed class DisplayLayoutEditorRow : ObservableObject
 {
     private bool _active;
-    private bool _isPrimary;
-    private int _x;
-    private int _y;
-    private DisplayMode? _mode;
     private int _dpiPercent = 100;
     private bool _hdrEnabled;
+    private bool _isPrimary;
+    private DisplayMode? _mode;
+    private int _x;
+    private int _y;
 
     internal DisplayLayoutEditorRow(KnownDisplay display, bool present)
     {
@@ -34,9 +36,6 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
         _mode = Modes.Count > 0 ? Modes[0] : null;
         RefreshModeChoices();
     }
-
-    /// <summary>Raised after any edit, so the owner can revalidate the whole layout.</summary>
-    internal event Action? Edited;
 
     internal KnownDisplay Display { get; }
 
@@ -56,12 +55,12 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
 
     /// <summary>Gets whether this display's identity is one Windows can resolve.</summary>
     /// <remarks>
-    /// False for a row migrated from the retired per-monitor profiles, which recorded a GDI name
-    /// and a registry device key rather than a display identity. Such a row has to be pointed at a
-    /// real display before Game Mode will apply the layout.
+    ///     False for a row migrated from the retired per-monitor profiles, which recorded a GDI name
+    ///     and a registry device key rather than a display identity. Such a row has to be pointed at a
+    ///     real display before Game Mode will apply the layout.
     /// </remarks>
     public bool NeedsRebind => Display.Target is not { } target
-        || (target.DevicePath.Length == 0 && target.EdidManufacturerId is null);
+                               || (target.DevicePath.Length == 0 && target.EdidManufacturerId is null);
 
     /// <summary>Gets the prompt shown for a row that still needs a display.</summary>
     public string RebindText => NeedsRebind
@@ -73,16 +72,6 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
 
     /// <summary>Gets remembered driver modes and timings advertised by the monitor EDID.</summary>
     public IReadOnlyList<DisplayMode> Modes { get; private set; }
-
-    internal void Refresh(bool present)
-    {
-        Present = present;
-        Modes = [.. Display.Modes];
-        _mode ??= Modes.Count > 0 ? Modes[0] : null;
-        RaiseAll();
-        foreach (var name in new[] { nameof(Present), nameof(PresenceText), nameof(Modes), nameof(HasModes), nameof(HdrSupported), nameof(HdrHint) })
-        { Raise(name); }
-    }
 
     /// <summary>Gets whether any mode is known, so the picker has something to offer.</summary>
     public bool HasModes => Modes.Count > 0 || Mode is not null;
@@ -98,8 +87,13 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
         get => Mode is { } mode ? new DisplayResolution(mode.Width, mode.Height) : null;
         set
         {
-            if (value is not { } resolution || Resolution == resolution) { return; }
-            var matches = AvailableModes.Where(mode => mode.Width == resolution.Width && mode.Height == resolution.Height).ToArray();
+            if (value is not { } resolution || Resolution == resolution)
+            {
+                return;
+            }
+
+            var matches = AvailableModes
+                .Where(mode => mode.Width == resolution.Width && mode.Height == resolution.Height).ToArray();
             Mode = matches.FirstOrDefault(mode => mode.RefreshHz == Mode?.RefreshHz) ?? matches.FirstOrDefault();
         }
     }
@@ -107,43 +101,29 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
     /// <summary>Gets refresh rates belonging to the selected resolution.</summary>
     public IReadOnlyList<int> RefreshRates { get; private set; } = [];
 
-    private void RefreshModeChoices()
-    {
-        DisplayResolution[] resolutions = [.. AvailableModes
-            .Select(mode => new DisplayResolution(mode.Width, mode.Height)).Distinct()];
-        int[] rates = [.. AvailableModes.Where(mode => mode.Width == Mode?.Width && mode.Height == Mode?.Height)
-            .Select(mode => mode.RefreshHz).Distinct().OrderDescending()];
-        // Replacing ItemsSource during a ComboBox selection resets its selection and can write
-        // the first option back into the draft. Publish only an actual change in choices.
-        if (!Resolutions.SequenceEqual(resolutions))
-        {
-            Resolutions = resolutions;
-            Raise(nameof(Resolutions));
-        }
-        if (RefreshRates.SequenceEqual(rates))
-        {
-            return;
-        }
-        RefreshRates = rates;
-        Raise(nameof(RefreshRates));
-    }
-
     /// <summary>Gets or sets a refresh rate from the selected resolution's supported modes.</summary>
     public int? RefreshHz
     {
         get => Mode?.RefreshHz;
         set
         {
-            if (value is null || value == RefreshHz) { return; }
+            if (value is null || value == RefreshHz)
+            {
+                return;
+            }
+
             Mode = AvailableModes.FirstOrDefault(mode => mode.Width == Mode?.Width && mode.Height == Mode?.Height
                 && mode.RefreshHz == value) ?? Mode;
         }
     }
 
     /// <summary>Gets scaling choices within the remembered display range.</summary>
-    public IReadOnlyList<int> Scales => [.. Enumerable.Range(4, Math.Max(1,
-        Math.Min(500, Display.MaximumDpiPercent > 0 ? Display.MaximumDpiPercent : 500) / 25 - 3))
-        .Select(step => step * 25).Append(DpiPercent).Distinct().Order()];
+    public IReadOnlyList<int> Scales =>
+    [
+        .. Enumerable.Range(4, Math.Max(1,
+                Math.Min(500, Display.MaximumDpiPercent > 0 ? Display.MaximumDpiPercent : 500) / 25 - 3))
+            .Select(step => step * 25).Append(DpiPercent).Distinct().Order()
+    ];
 
     /// <summary>Gets the numbered display label used by the diagram and list.</summary>
     public int Number { get; internal set; }
@@ -167,21 +147,25 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
         set => Set(ref _active, value, nameof(Active));
     }
 
-    /// <summary>Raised when this row is the one the user just made primary, so the editor demotes
-    /// the others rather than guessing which of two primaries was meant.</summary>
-    internal event Action<DisplayLayoutEditorRow>? PrimaryRequested;
-
     /// <summary>Gets or sets whether this display is the primary one.</summary>
     public bool IsPrimary
     {
         get => _isPrimary;
         set
         {
-            if (_isPrimary == value) { return; }
+            if (_isPrimary == value)
+            {
+                return;
+            }
+
             _isPrimary = value;
             Raise(nameof(IsPrimary));
             Raise(nameof(LayoutState));
-            if (value) { PrimaryRequested?.Invoke(this); }
+            if (value)
+            {
+                PrimaryRequested?.Invoke(this);
+            }
+
             Edited?.Invoke();
         }
     }
@@ -222,7 +206,65 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
     }
 
     /// <summary>Gets or sets the HDR choice as Off or On.</summary>
-    public int HdrIndex { get => HdrEnabled ? 1 : 0; set => HdrEnabled = value == 1; }
+    public int HdrIndex
+    {
+        get => HdrEnabled ? 1 : 0;
+        set => HdrEnabled = value == 1;
+    }
+
+    /// <summary>Raised after any edit, so the owner can revalidate the whole layout.</summary>
+    internal event Action? Edited;
+
+    internal void Refresh(bool present)
+    {
+        Present = present;
+        Modes = [.. Display.Modes];
+        _mode ??= Modes.Count > 0 ? Modes[0] : null;
+        RaiseAll();
+        foreach (var name in new[]
+                 {
+                     nameof(Present), nameof(PresenceText), nameof(Modes), nameof(HasModes), nameof(HdrSupported),
+                     nameof(HdrHint)
+                 })
+        {
+            Raise(name);
+        }
+    }
+
+    private void RefreshModeChoices()
+    {
+        DisplayResolution[] resolutions =
+        [
+            .. AvailableModes
+                .Select(mode => new DisplayResolution(mode.Width, mode.Height)).Distinct()
+        ];
+        int[] rates =
+        [
+            .. AvailableModes.Where(mode => mode.Width == Mode?.Width && mode.Height == Mode?.Height)
+                .Select(mode => mode.RefreshHz).Distinct().OrderDescending()
+        ];
+        // Replacing ItemsSource during a ComboBox selection resets its selection and can write
+        // the first option back into the draft. Publish only an actual change in choices.
+        if (!Resolutions.SequenceEqual(resolutions))
+        {
+            Resolutions = resolutions;
+            Raise(nameof(Resolutions));
+        }
+
+        if (RefreshRates.SequenceEqual(rates))
+        {
+            return;
+        }
+
+        RefreshRates = rates;
+        Raise(nameof(RefreshRates));
+    }
+
+    /// <summary>
+    ///     Raised when this row is the one the user just made primary, so the editor demotes
+    ///     the others rather than guessing which of two primaries was meant.
+    /// </summary>
+    internal event Action<DisplayLayoutEditorRow>? PrimaryRequested;
 
     /// <summary>Fills the row from a saved output.</summary>
     internal void Load(DisplayLayoutOutput output)
@@ -232,22 +274,26 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
         _x = output.X;
         _y = output.Y;
         _mode = Modes.FirstOrDefault(mode =>
-            mode.Width == output.Width && mode.Height == output.Height
-            && Math.Abs(mode.RefreshHz - output.Refresh.Hertz) < 1)
-            ?? new DisplayMode(output.Width, output.Height, (int)Math.Round(output.Refresh.Hertz));
+                    mode.Width == output.Width && mode.Height == output.Height
+                                               && Math.Abs(mode.RefreshHz - output.Refresh.Hertz) < 1)
+                ?? new DisplayMode(output.Width, output.Height, (int)Math.Round(output.Refresh.Hertz));
         _dpiPercent = output.DpiPercent ?? 100;
         _hdrEnabled = output.Hdr ?? false;
         RaiseAll();
     }
 
-    /// <summary>Builds the saved output this row describes, or null when it is switched off or has
-    /// nothing usable to say.</summary>
-    internal DisplayLayoutOutput? ToOutput() =>
-        Active && Target is { } target && Mode is { Width: > 0, Height: > 0 } mode
+    /// <summary>
+    ///     Builds the saved output this row describes, or null when it is switched off or has
+    ///     nothing usable to say.
+    /// </summary>
+    internal DisplayLayoutOutput? ToOutput()
+    {
+        return Active && Target is { } target && Mode is { Width: > 0, Height: > 0 } mode
             ? new DisplayLayoutOutput(target, X, Y, mode.Width, mode.Height, DisplayRefresh.FromHertz(mode.RefreshHz),
                 DpiPercent: DpiPercent,
                 Hdr: HdrSupported ? HdrEnabled : null)
             : null;
+    }
 
     /// <summary>Points this row at a real display, keeping the values the user already chose.</summary>
     internal void Rebind(DisplayTargetIdentity target)
@@ -259,7 +305,11 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
 
     private void Set<T>(ref T field, T value, string name)
     {
-        if (EqualityComparer<T>.Default.Equals(field, value)) { return; }
+        if (EqualityComparer<T>.Default.Equals(field, value))
+        {
+            return;
+        }
+
         field = value;
         Raise(name);
         switch (name)
@@ -268,13 +318,17 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
                 Raise(nameof(HdrIndex));
                 break;
             case nameof(Mode):
+            {
+                RefreshModeChoices();
+                foreach (var related in new[] { nameof(Resolution), nameof(RefreshHz), nameof(HasModes) })
                 {
-                    RefreshModeChoices();
-                    foreach (var related in new[] { nameof(Resolution), nameof(RefreshHz), nameof(HasModes) })
-                    { Raise(related); }
-                    break;
+                    Raise(related);
                 }
+
+                break;
+            }
         }
+
         Raise(nameof(LayoutState));
         Edited?.Invoke();
     }
@@ -283,41 +337,42 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
     {
         RefreshModeChoices();
         foreach (var name in new[]
-        {
-            nameof(Active), nameof(IsPrimary), nameof(X), nameof(Y), nameof(Mode),
-            nameof(DpiPercent), nameof(HdrEnabled), nameof(DisplayName), nameof(NeedsRebind),
-            nameof(RebindText),
-            nameof(Resolution), nameof(RefreshHz), nameof(Scales),
-            nameof(LayoutState), nameof(InspectorTitle), nameof(ConnectionText), nameof(HdrIndex), nameof(HasModes)
-        })
+                 {
+                     nameof(Active), nameof(IsPrimary), nameof(X), nameof(Y), nameof(Mode),
+                     nameof(DpiPercent), nameof(HdrEnabled), nameof(DisplayName), nameof(NeedsRebind),
+                     nameof(RebindText),
+                     nameof(Resolution), nameof(RefreshHz), nameof(Scales),
+                     nameof(LayoutState), nameof(InspectorTitle), nameof(ConnectionText), nameof(HdrIndex),
+                     nameof(HasModes)
+                 })
         {
             Raise(name);
         }
     }
 }
 
-/// <summary>Edits one saved layout, one row per remembered display.
-///
-/// Every remembered display gets a row whether or not it is plugged in, because the reference
-/// machine's television is invisible to Windows until an HDMI switch selects this PC and the layout
-/// still has to be authored. A row is a request, not an observation.
-///
-/// The rules are <see cref="DisplayLayouts.Describe"/>, the same ones the apply enforces, so an
-/// editor cannot save something Windows would refuse. Choosing a primary display normalizes the
-/// whole arrangement so that display sits at 0,0, which is where Windows puts it; asking a user to
-/// do that subtraction themselves would be a way to fail the rule for no reason.</summary>
+/// <summary>
+///     Edits one saved layout, one row per remembered display.
+///     Every remembered display gets a row whether or not it is plugged in, because the reference
+///     machine's television is invisible to Windows until an HDMI switch selects this PC and the layout
+///     still has to be authored. A row is a request, not an observation.
+///     The rules are <see cref="DisplayLayouts.Describe" />, the same ones the apply enforces, so an
+///     editor cannot save something Windows would refuse. Choosing a primary display normalizes the
+///     whole arrangement so that display sits at 0,0, which is where Windows puts it; asking a user to
+///     do that subtraction themselves would be a way to fail the rule for no reason.
+/// </summary>
 public sealed class DisplayLayoutEditor : ObservableObject
 {
     private readonly Action _changed;
-    private DisplayLayoutEditorRow? _requestedPrimary;
-    private bool _loading;
     private readonly Stack<RowState[]> _undo = new();
+    private bool _loading;
     private RowState[] _previous = [];
+    private DisplayLayoutEditorRow? _requestedPrimary;
 
-    private sealed record RowState(DisplayLayoutEditorRow Row, bool Active, bool Primary,
-        int X, int Y, DisplayMode? Mode, int Scale, bool Hdr);
-
-    internal DisplayLayoutEditor(Action changed) => _changed = changed;
+    internal DisplayLayoutEditor(Action changed)
+    {
+        _changed = changed;
+    }
 
     /// <summary>Gets one row per remembered display.</summary>
     public ObservableCollection<DisplayLayoutEditorRow> Rows { get; } = [];
@@ -328,7 +383,11 @@ public sealed class DisplayLayoutEditor : ObservableObject
         get;
         set
         {
-            if (field == value) { return; }
+            if (field == value)
+            {
+                return;
+            }
+
             field = value;
             Raise(nameof(Selected));
             Raise(nameof(HasSelection));
@@ -338,14 +397,19 @@ public sealed class DisplayLayoutEditor : ObservableObject
 
     /// <summary>Gets whether the inspector has a display.</summary>
     public bool HasSelection => Selected is not null;
+
     /// <summary>Gets whether the selected saved identity needs confirmation.</summary>
     public bool SelectedNeedsRebind => Selected?.NeedsRebind is true;
+
     /// <summary>Gets whether discovery or saved state supplied any display.</summary>
     public bool HasDisplays => Rows.Count > 0;
+
     /// <summary>Gets whether the layout has an enabled output.</summary>
     public bool HasActiveDisplays => Rows.Any(row => row.Active);
+
     /// <summary>Gets whether this draft has an undo step.</summary>
     public bool CanUndo => _undo.Count > 0;
+
     /// <summary>Gets whether an enabled display is currently disconnected.</summary>
     public bool HasDisconnectedDisplay => Rows.Any(row => row is { Active: true, Present: false });
 
@@ -355,7 +419,11 @@ public sealed class DisplayLayoutEditor : ObservableObject
         get;
         private set
         {
-            if (field == value) { return; }
+            if (field == value)
+            {
+                return;
+            }
+
             field = value;
             Raise(nameof(ValidationText));
             Raise(nameof(HasValidationError));
@@ -381,7 +449,11 @@ public sealed class DisplayLayoutEditor : ObservableObject
         _loading = true;
         try
         {
-            foreach (var existing in Rows) { Detach(existing); }
+            foreach (var existing in Rows)
+            {
+                Detach(existing);
+            }
+
             Rows.Clear();
             foreach (var display in catalog)
             {
@@ -391,12 +463,14 @@ public sealed class DisplayLayoutEditor : ObservableObject
                 {
                     row.Load(output);
                 }
+
                 Attach(row);
             }
+
             // A layout whose displays are not in the catalog at all would otherwise disappear on
             // load and be silently replaced by an empty one on the next save.
-            foreach (var orphan in layout?.Outputs.Where(
-                output => !catalog.Any(display => Same(output, display))) ?? [])
+            foreach (var orphan in layout?.Outputs.Where(output => !catalog.Any(display => Same(output, display))) ??
+                                   [])
             {
                 KnownDisplay adopted = new() { Target = orphan.Target };
                 DisplayLayoutEditorRow row = new(adopted, false);
@@ -404,10 +478,18 @@ public sealed class DisplayLayoutEditor : ObservableObject
                 Attach(row);
             }
         }
-        finally { _loading = false; }
-        for (var i = 0; i < Rows.Count; i++) { Rows[i].Number = i + 1; }
+        finally
+        {
+            _loading = false;
+        }
+
+        for (var i = 0; i < Rows.Count; i++)
+        {
+            Rows[i].Number = i + 1;
+        }
+
         Selected = Rows.FirstOrDefault(row => selected is not null && row.Target?.Matches(selected) == true)
-            ?? Rows.FirstOrDefault(row => row.IsPrimary) ?? Rows.FirstOrDefault();
+                   ?? Rows.FirstOrDefault(row => row.IsPrimary) ?? Rows.FirstOrDefault();
         _undo.Clear();
         Revalidate();
         _previous = CaptureRows();
@@ -428,8 +510,16 @@ public sealed class DisplayLayoutEditor : ObservableObject
     {
         Detach(row);
         Rows.Remove(row);
-        if (Selected == row) { Selected = Rows.FirstOrDefault(); }
-        for (var i = 0; i < Rows.Count; i++) { Rows[i].Number = i + 1; }
+        if (Selected == row)
+        {
+            Selected = Rows.FirstOrDefault();
+        }
+
+        for (var i = 0; i < Rows.Count; i++)
+        {
+            Rows[i].Number = i + 1;
+        }
+
         _undo.Clear();
         Revalidate();
         _previous = CaptureRows();
@@ -448,16 +538,26 @@ public sealed class DisplayLayoutEditor : ObservableObject
     {
         row.Edited -= OnRowEdited;
         row.PrimaryRequested -= OnPrimaryRequested;
-        if (_requestedPrimary == row) { _requestedPrimary = null; }
+        if (_requestedPrimary == row)
+        {
+            _requestedPrimary = null;
+        }
     }
 
-    private void OnPrimaryRequested(DisplayLayoutEditorRow row) => _requestedPrimary = row;
+    private void OnPrimaryRequested(DisplayLayoutEditorRow row)
+    {
+        _requestedPrimary = row;
+    }
 
     /// <summary>Moves the primary display to the origin and everything else with it.</summary>
     private static List<DisplayLayoutOutput> Normalize(List<DisplayLayoutOutput> outputs)
     {
         var primary = outputs.FirstOrDefault(output => output.IsPrimary);
-        if (primary is not null || outputs.Count == 0) { return outputs; }
+        if (primary is not null || outputs.Count == 0)
+        {
+            return outputs;
+        }
+
         // Nobody sits at the origin. Shift the arrangement so the top-left display does, which is
         // the only choice that keeps every relative position the user arranged.
         var offsetX = outputs.Min(output => output.X);
@@ -465,12 +565,18 @@ public sealed class DisplayLayoutEditor : ObservableObject
         return [.. outputs.Select(output => output with { X = output.X - offsetX, Y = output.Y - offsetY })];
     }
 
-    private static bool Same(DisplayLayoutOutput output, KnownDisplay display) =>
-        display.Target is { } target && output.Target.Matches(target);
+    private static bool Same(DisplayLayoutOutput output, KnownDisplay display)
+    {
+        return display.Target is { } target && output.Target.Matches(target);
+    }
 
     private void OnRowEdited()
     {
-        if (_loading) { return; }
+        if (_loading)
+        {
+            return;
+        }
+
         _undo.Push(_previous);
         Revalidate();
         _previous = CaptureRows();
@@ -478,8 +584,14 @@ public sealed class DisplayLayoutEditor : ObservableObject
         _changed();
     }
 
-    private RowState[] CaptureRows() => [.. Rows.Select(row => new RowState(row, row.Active, row.IsPrimary,
-        row.X, row.Y, row.Mode, row.DpiPercent, row.HdrEnabled))];
+    private RowState[] CaptureRows()
+    {
+        return
+        [
+            .. Rows.Select(row => new RowState(row, row.Active, row.IsPrimary,
+                row.X, row.Y, row.Mode, row.DpiPercent, row.HdrEnabled))
+        ];
+    }
 
     /// <summary>Refreshes discovery facts without replacing rows or losing draft edits.</summary>
     internal void RefreshCatalog(IReadOnlyList<KnownDisplay> catalog, IReadOnlyList<DisplayTargetIdentity> present)
@@ -491,12 +603,23 @@ public sealed class DisplayLayoutEditor : ObservableObject
             {
                 var connected = display.Target is { } target && present.Any(other => other.Matches(target));
                 var existing = Rows.FirstOrDefault(row => row.Display == display
-                                                          || (display.Target is { } identity && row.Target?.Matches(identity) == true));
-                if (existing is not null) { existing.Refresh(connected); }
-                else { Attach(new DisplayLayoutEditorRow(display, connected) { Number = Rows.Count + 1 }); }
+                                                          || (display.Target is { } identity &&
+                                                              row.Target?.Matches(identity) == true));
+                if (existing is not null)
+                {
+                    existing.Refresh(connected);
+                }
+                else
+                {
+                    Attach(new DisplayLayoutEditorRow(display, connected) { Number = Rows.Count + 1 });
+                }
             }
         }
-        finally { _loading = false; }
+        finally
+        {
+            _loading = false;
+        }
+
         Selected ??= Rows.FirstOrDefault();
         Revalidate();
         _previous = CaptureRows();
@@ -506,7 +629,11 @@ public sealed class DisplayLayoutEditor : ObservableObject
     /// <summary>Undoes one completed edit to this layout.</summary>
     public void Undo()
     {
-        if (!_undo.TryPop(out var previous)) { return; }
+        if (!_undo.TryPop(out var previous))
+        {
+            return;
+        }
+
         _loading = true;
         try
         {
@@ -521,7 +648,11 @@ public sealed class DisplayLayoutEditor : ObservableObject
                 state.Row.HdrEnabled = state.Hdr;
             }
         }
-        finally { _loading = false; }
+        finally
+        {
+            _loading = false;
+        }
+
         _requestedPrimary = null;
         Revalidate();
         _previous = CaptureRows();
@@ -537,22 +668,45 @@ public sealed class DisplayLayoutEditor : ObservableObject
         {
             foreach (var row in Rows)
             {
-                if (layout.Outputs.FirstOrDefault(candidate => row.Target?.Matches(candidate.Target) == true) is { } output)
-                { row.Load(output); }
-                else { row.Active = false; row.IsPrimary = false; }
+                if (layout.Outputs.FirstOrDefault(candidate => row.Target?.Matches(candidate.Target) == true) is
+                    { } output)
+                {
+                    row.Load(output);
+                }
+                else
+                {
+                    row.Active = false;
+                    row.IsPrimary = false;
+                }
             }
         }
-        finally { _loading = false; }
+        finally
+        {
+            _loading = false;
+        }
+
         OnRowEdited();
     }
 
     /// <summary>Moves a display, preserving the primary origin and recording a single undo step.</summary>
     public void Move(DisplayLayoutEditorRow row, int x, int y)
     {
-        if (!Rows.Contains(row) || (row.X == x && row.Y == y)) { return; }
+        if (!Rows.Contains(row) || (row.X == x && row.Y == y))
+        {
+            return;
+        }
+
         _loading = true;
-        try { row.X = Math.Clamp(x, -32768, 32768); row.Y = Math.Clamp(y, -32768, 32768); }
-        finally { _loading = false; }
+        try
+        {
+            row.X = Math.Clamp(x, -32768, 32768);
+            row.Y = Math.Clamp(y, -32768, 32768);
+        }
+        finally
+        {
+            _loading = false;
+        }
+
         OnRowEdited();
     }
 
@@ -560,7 +714,11 @@ public sealed class DisplayLayoutEditor : ObservableObject
     public void PlaceSelected(int position)
     {
         if (Selected is not { IsPrimary: false, Mode: { } mode } row
-            || Rows.FirstOrDefault(item => item is { Active: true, IsPrimary: true })?.Mode is not { } primary) { return; }
+            || Rows.FirstOrDefault(item => item is { Active: true, IsPrimary: true })?.Mode is not { } primary)
+        {
+            return;
+        }
+
         var (x, y) = position switch
         {
             1 => (primary.Width, 0),
@@ -572,9 +730,11 @@ public sealed class DisplayLayoutEditor : ObservableObject
         Move(row, x, y);
     }
 
-    /// <summary>Applies the one rule the editor enforces itself, then asks the library for the
-    /// rest. Exactly one primary is a choice the user makes by clicking, so it is corrected here
-    /// rather than reported.</summary>
+    /// <summary>
+    ///     Applies the one rule the editor enforces itself, then asks the library for the
+    ///     rest. Exactly one primary is a choice the user makes by clicking, so it is corrected here
+    ///     rather than reported.
+    /// </summary>
     private void Revalidate()
     {
         DisplayLayoutEditorRow[] active = [.. Rows.Where(row => row.Active)];
@@ -586,12 +746,20 @@ public sealed class DisplayLayoutEditor : ObservableObject
                 // The row the user just clicked wins. Taking the first primary in list order would
                 // silently undo the click whenever another display already held the flag.
                 var chosen =
-                    _requestedPrimary is { } requested && active.Contains(requested) ? requested
-                    : active.FirstOrDefault(row => row.IsPrimary) ?? active[0];
-                foreach (var row in Rows) { row.IsPrimary = row == chosen; }
+                    _requestedPrimary is { } requested && active.Contains(requested)
+                        ? requested
+                        : active.FirstOrDefault(row => row.IsPrimary) ?? active[0];
+                foreach (var row in Rows)
+                {
+                    row.IsPrimary = row == chosen;
+                }
             }
-            finally { _loading = false; }
+            finally
+            {
+                _loading = false;
+            }
         }
+
         if (active.FirstOrDefault(row => row.IsPrimary) is { } primary)
         {
             _loading = true;
@@ -604,7 +772,10 @@ public sealed class DisplayLayoutEditor : ObservableObject
                     row.Y -= offsetY;
                 }
             }
-            finally { _loading = false; }
+            finally
+            {
+                _loading = false;
+            }
         }
 
         Raise(nameof(HasUnboundRow));
@@ -617,16 +788,20 @@ public sealed class DisplayLayoutEditor : ObservableObject
             ValidationText = "";
             return;
         }
+
         if (active.Any(row => row.Mode is null))
         {
-            ValidationText = "Choose a resolution for every enabled display. Connect an unknown display and refresh the display list.";
+            ValidationText =
+                "Choose a resolution for every enabled display. Connect an unknown display and refresh the display list.";
             return;
         }
+
         if (HasUnboundRow)
         {
             ValidationText = "One or more displays still need to be identified.";
             return;
         }
+
         var built = Build();
         ValidationText = built is null ? "" : DisplayLayouts.Describe(built) ?? "";
     }
@@ -640,4 +815,14 @@ public sealed class DisplayLayoutEditor : ObservableObject
         return string.Create(CultureInfo.InvariantCulture,
             $"{mode.Width}x{mode.Height} @ {mode.RefreshHz} Hz");
     }
+
+    private sealed record RowState(
+        DisplayLayoutEditorRow Row,
+        bool Active,
+        bool Primary,
+        int X,
+        int Y,
+        DisplayMode? Mode,
+        int Scale,
+        bool Hdr);
 }

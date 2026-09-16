@@ -23,9 +23,14 @@ internal sealed class BluetoothAudioConnection(
             var containers = await Task.Run(read, cancellationToken).ConfigureAwait(false);
             var match = containers.FirstOrDefault(item => string.Equals(
                 item.Container.Trim('{', '}'), container.Trim('{', '}'), StringComparison.OrdinalIgnoreCase));
-            if (!string.IsNullOrEmpty(match.Container) && match.Active == connected) { return true; }
+            if (!string.IsNullOrEmpty(match.Container) && match.Active == connected)
+            {
+                return true;
+            }
+
             await (delay ?? Task.Delay)(TimeSpan.FromMilliseconds(200), cancellationToken).ConfigureAwait(false);
         }
+
         return false;
     }
 }

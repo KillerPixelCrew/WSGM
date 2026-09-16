@@ -46,7 +46,7 @@ internal static class PluginManifestValidator
         }
 
         if (!value.All(character => char.IsAsciiLetterOrDigit(character)
-            || character is '.' or '-' or '_'))
+                                    || character is '.' or '-' or '_'))
         {
             Add(errors, path, ManifestValidationCode.InvalidIdentifier,
                 "Package identifiers may contain only ASCII letters, digits, '.', '-', and '_'.");
@@ -120,7 +120,7 @@ internal static class PluginManifestValidator
 
         if (value.Length > ManifestLimits.MaxDisplayTextLength
             || value.Any(character => !(char.IsAsciiLetterOrDigit(character)
-                || character is '.' or '_' or '+' or '`')))
+                                        || character is '.' or '_' or '+' or '`')))
         {
             Add(errors, "entryType", ManifestValidationCode.InvalidIdentifier,
                 "The entry type must be a bounded namespace-qualified CLR type name.");
@@ -131,5 +131,8 @@ internal static class PluginManifestValidator
         ICollection<ManifestValidationError> errors,
         string path,
         ManifestValidationCode code,
-        string message) => errors.Add(new ManifestValidationError(path, code, message));
+        string message)
+    {
+        errors.Add(new ManifestValidationError(path, code, message));
+    }
 }

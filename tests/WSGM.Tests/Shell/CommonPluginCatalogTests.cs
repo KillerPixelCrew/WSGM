@@ -29,8 +29,12 @@ public sealed class CommonPluginCatalogTests
                  "entryAssembly":"Fixture.dll","entryType":"Fixture.MustNotExecute"}
                 """);
             if (id != "missing-entry")
-            { await File.WriteAllTextAsync(Path.Combine(root, "Fixture.dll"), "Not executable; discovery reads metadata only."); }
+            {
+                await File.WriteAllTextAsync(Path.Combine(root, "Fixture.dll"),
+                    "Not executable; discovery reads metadata only.");
+            }
         }
+
         var catalog = CommonPluginCatalog.Discover(installed);
         Assert.Equal("valid.plugin", Assert.Single(catalog.Packages).Manifest.Id);
         Assert.Equal(2, catalog.Errors.Count);
@@ -50,7 +54,10 @@ public sealed class CommonPluginCatalogTests
     public void MissingAndIncompatibleDependenciesDoNotPreventIndependentPackages()
     {
         var provider = Manifest("provider") with { Version = "2.0" };
-        var incompatible = Manifest("incompatible") with { Dependencies = [new PluginDependency("provider", "1.0", "2.0")] };
+        var incompatible = Manifest("incompatible") with
+        {
+            Dependencies = [new PluginDependency("provider", "1.0", "2.0")]
+        };
         var missing = Manifest("missing") with { Dependencies = [new PluginDependency("absent", "1.0")] };
         var dependent = Manifest("dependent") with { Dependencies = [new PluginDependency("missing", "1.0")] };
         var plan = CommonPluginDependencyPlan.Create([incompatible, missing, dependent, provider]);
@@ -63,11 +70,19 @@ public sealed class CommonPluginCatalogTests
     {
         var first = Manifest("first") with { Dependencies = [new PluginDependency("second", "1.0")] };
         var second = Manifest("second") with { Dependencies = [new PluginDependency("first", "1.0")] };
-        var plan = CommonPluginDependencyPlan.Create([first, second, Manifest("duplicate"), Manifest("duplicate"), Manifest("independent")]);
+        var plan = CommonPluginDependencyPlan.Create([
+            first, second, Manifest("duplicate"), Manifest("duplicate"), Manifest("independent")
+        ]);
         Assert.Equal("independent", Assert.Single(plan.Ordered).Id);
         Assert.Equal(3, plan.Rejected.Count);
     }
 
-    private static PluginManifest Manifest(string id) => new()
-    { Id = id, Name = id, Version = "1.0", Category = "test.plugin", EntryAssembly = "Fixture.dll", EntryType = "Fixture.Plugin" };
+    private static PluginManifest Manifest(string id)
+    {
+        return new PluginManifest
+        {
+            Id = id, Name = id, Version = "1.0", Category = "test.plugin", EntryAssembly = "Fixture.dll",
+            EntryType = "Fixture.Plugin"
+        };
+    }
 }

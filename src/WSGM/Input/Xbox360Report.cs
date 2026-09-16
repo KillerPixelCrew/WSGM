@@ -64,12 +64,18 @@ internal static class Xbox360Report
         BinaryPrimitives.WriteInt16LittleEndian(destination[12..14], Axis(sample.RightStickY));
     }
 
-    private static uint Mask(CanonicalButtons buttons, CanonicalButtons flag, uint bit) =>
-        (buttons & flag) != 0 ? bit : 0;
+    private static uint Mask(CanonicalButtons buttons, CanonicalButtons flag, uint bit)
+    {
+        return (buttons & flag) != 0 ? bit : 0;
+    }
 
-    private static byte Trigger(float value) =>
-        (byte)Math.Clamp(MathF.Round(value * byte.MaxValue), 0, byte.MaxValue);
+    private static byte Trigger(float value)
+    {
+        return (byte)Math.Clamp(MathF.Round(value * byte.MaxValue), 0, byte.MaxValue);
+    }
 
-    private static short Axis(float value) =>
-        (short)Math.Clamp(MathF.Round(value * short.MaxValue), short.MinValue + 1, short.MaxValue);
+    private static short Axis(float value)
+    {
+        return (short)Math.Clamp(MathF.Round(value * short.MaxValue), short.MinValue + 1, short.MaxValue);
+    }
 }

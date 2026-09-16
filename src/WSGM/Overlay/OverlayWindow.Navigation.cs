@@ -13,27 +13,25 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
-    /// <summary>One in-place nested page: what it pushes onto the navigation stack, the host it
-    /// reveals, the destination panel it hides while it is up, and any state it owns.</summary>
-    /// <param name="Page">The navigation page; also the identity of the open sub-view.</param>
-    /// <param name="Host">The control revealed while the page is open.</param>
-    /// <param name="Parent">The destination panel hidden behind it.</param>
-    /// <param name="Destination">The destination that panel belongs to.</param>
-    /// <param name="OnLeave">State the page owns, released before the peer keyboard is told
-    /// to close so nothing re-reads a value the page has already abandoned.</param>
-    private sealed record SubView(
-        OverlayPage Page,
-        Control Host,
-        Control Parent,
-        OverlayDestination Destination,
-        Action? OnLeave = null);
-
-    private SubView[]? _subViews;
+    private readonly PixelPoint? _preferredScreenPoint;
     private readonly List<(OverlaySubView Host, Action Leave)> _subViewCloseHandlers = [];
 
-    /// <summary>The nested pages, built once the XAML fields exist. The open one is identified by
-    /// <see cref="OverlayNavigation.Page"/> rather than tracked in a parallel flag per page, which
-    /// is what let the two disagree.</summary>
+    private readonly double _uiScale;
+
+    /// <summary>
+    ///     The factor RootScale currently applies (1.0 = no transform). The
+    ///     sheet's inner layout happens in pre-transform units, so every budget derived
+    ///     from the window's width has to divide by this first.
+    /// </summary>
+    private double _contentScale = 1.0;
+
+    private SubView[]? _subViews;
+
+    /// <summary>
+    ///     The nested pages, built once the XAML fields exist. The open one is identified by
+    ///     <see cref="OverlayNavigation.Page" /> rather than tracked in a parallel flag per page, which
+    ///     is what let the two disagree.
+    /// </summary>
     private SubView[] SubViews => _subViews ??=
     [
         // The category pages: each destination root is a menu, and its groups of controls are
@@ -85,9 +83,40 @@ public partial class OverlayWindow
     private SubView? ActiveSubView =>
         SubViews.FirstOrDefault(view => view.Page == _navigation.Page);
 
-    /// <summary>Whether any nested page owns the surface. While one does, LB/RB destination
-    /// switching is suppressed and B cancels the page rather than closing the overlay.</summary>
+    /// <summary>
+    ///     Whether any nested page owns the surface. While one does, LB/RB destination
+    ///     switching is suppressed and B cancels the page rather than closing the overlay.
+    /// </summary>
     private bool AnySubView => ActiveSubView is not null;
+
+    /// <summary>
+    ///     The control gamepad navigation should land on when the panel opens
+    ///     or when focus tracking is lost: the active destination's first row — HomeAppButton
+    ///     is invisible on other destinations and focusing it would fall through to
+    ///     the header close button.
+    /// </summary>
+    internal InputElement DefaultFocusTarget
+    {
+        get
+        {
+            // Nested pages retain focus ownership while one is open.
+            if (ActiveSubView is { } nested && FocusSearch.First<Button>(nested.Host, IsFocusableButton) is
+                    { } nestedButton)
+            {
+                return nestedButton;
+            }
+
+            if (FocusSearch.First<Button>(DestinationPanel(), IsFocusableButton) is { } button)
+            {
+                return button;
+            }
+
+            // An empty Quick access root has no row: land on the first tab button so LB/RB
+            // and the D-pad still lead somewhere visible. The close pill is header chrome and
+            // always present, which the Session row it used to fall back to no longer is.
+            return FocusSearch.FirstNavigable(Tabs) ?? CloseButton;
+        }
+    }
 
     private void EnterSubView(OverlayPage page)
     {
@@ -140,6 +169,7 @@ public partial class OverlayWindow
             // The normal root transition also releases nested-page resources and restores focus.
             SelectDestination(OverlayDestination.Device);
         }
+
         if (!showDevice)
         {
             // A coordinator can retract Device while the Glyphs page is still selected. No tab
@@ -170,31 +200,42 @@ public partial class OverlayWindow
         // index (System 2 becomes Device 2). Force one descriptor-based selection.
         Tabs.SelectedIndex = -1;
         Tabs.SelectedIndex = selectedIndex;
-        ShowDestination(_navigation.Destination, restoreFocus: false);
+        ShowDestination(_navigation.Destination, false);
     }
 
     // Labels are uppercased for the sheet's tracked strip; DestinationLabel stays the
     // sentence-case name everything else (the eyebrow uppercases itself) uses.
-    private static TabStripItem CreateDestinationTab(OverlayDestination destination) => destination switch
+    private static TabStripItem CreateDestinationTab(OverlayDestination destination)
     {
-        OverlayDestination.QuickAccess => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Panel, (int)destination),
-        OverlayDestination.Steam => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.SteamLike, (int)destination),
-        OverlayDestination.Device => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Gear, (int)destination),
-        OverlayDestination.System => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Wrench, (int)destination),
-        OverlayDestination.Power => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Power, (int)destination),
-        _ => throw new ArgumentOutOfRangeException(nameof(destination))
-    };
+        return destination switch
+        {
+            OverlayDestination.QuickAccess => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(),
+                Icons.Panel, (int)destination),
+            OverlayDestination.Steam => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(),
+                Icons.SteamLike, (int)destination),
+            OverlayDestination.Device => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Gear,
+                (int)destination),
+            OverlayDestination.System => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(),
+                Icons.Wrench, (int)destination),
+            OverlayDestination.Power => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Power,
+                (int)destination),
+            _ => throw new ArgumentOutOfRangeException(nameof(destination))
+        };
+    }
 
     /// <summary>The user-facing name of a destination — the strip label and the header eyebrow.</summary>
-    internal static string DestinationLabel(OverlayDestination destination) => destination switch
+    internal static string DestinationLabel(OverlayDestination destination)
     {
-        OverlayDestination.QuickAccess => "Quick access",
-        OverlayDestination.Steam => "Steam",
-        OverlayDestination.Device => "Device",
-        OverlayDestination.System => "Tools",
-        OverlayDestination.Power => "Power",
-        _ => throw new ArgumentOutOfRangeException(nameof(destination))
-    };
+        return destination switch
+        {
+            OverlayDestination.QuickAccess => "Quick access",
+            OverlayDestination.Steam => "Steam",
+            OverlayDestination.Device => "Device",
+            OverlayDestination.System => "Tools",
+            OverlayDestination.Power => "Power",
+            _ => throw new ArgumentOutOfRangeException(nameof(destination))
+        };
+    }
 
     private int DestinationIndex(OverlayDestination destination)
     {
@@ -203,6 +244,7 @@ public partial class OverlayWindow
         {
             return 0;
         }
+
         for (var i = 0; i < tabs.Count; i++)
         {
             if (tabs[i].Tag == (int)destination)
@@ -210,46 +252,19 @@ public partial class OverlayWindow
                 return i;
             }
         }
+
         return 0;
     }
 
-    private static bool IsFocusableButton(Button button) =>
-        button is { Focusable: true, IsEffectivelyEnabled: true, IsEffectivelyVisible: true };
-
-    /// <summary>The control gamepad navigation should land on when the panel opens
-    /// or when focus tracking is lost: the active destination's first row — HomeAppButton
-    /// is invisible on other destinations and focusing it would fall through to
-    /// the header close button.</summary>
-    internal InputElement DefaultFocusTarget
+    private static bool IsFocusableButton(Button button)
     {
-        get
-        {
-            // Nested pages retain focus ownership while one is open.
-            if (ActiveSubView is { } nested && FocusSearch.First<Button>(nested.Host, IsFocusableButton) is { } nestedButton)
-            {
-                return nestedButton;
-            }
-            if (FocusSearch.First<Button>(DestinationPanel(), IsFocusableButton) is { } button)
-            {
-                return button;
-            }
-            // An empty Quick access root has no row: land on the first tab button so LB/RB
-            // and the D-pad still lead somewhere visible. The close pill is header chrome and
-            // always present, which the Session row it used to fall back to no longer is.
-            return FocusSearch.FirstNavigable(Tabs) ?? CloseButton;
-        }
+        return button is { Focusable: true, IsEffectivelyEnabled: true, IsEffectivelyVisible: true };
     }
 
-    private readonly double _uiScale;
-    private readonly PixelPoint? _preferredScreenPoint;
-
-    /// <summary>The factor RootScale currently applies (1.0 = no transform). The
-    /// sheet's inner layout happens in pre-transform units, so every budget derived
-    /// from the window's width has to divide by this first.</summary>
-    private double _contentScale = 1.0;
-
-    /// <summary>Selects the previous destination (LB), wrapping from the first to the
-    /// last. Suppressed while a nested page owns the surface.</summary>
+    /// <summary>
+    ///     Selects the previous destination (LB), wrapping from the first to the
+    ///     last. Suppressed while a nested page owns the surface.
+    /// </summary>
     internal void SelectPreviousTab()
     {
         if (!AnySubView)
@@ -269,22 +284,32 @@ public partial class OverlayWindow
 
     /// <summary>The header's up-affordance: the same action B takes, for touch and mouse.</summary>
     /// <remarks>
-    /// In the fixed header rather than in the page, because a way out placed in scrolling content
-    /// is not reachable from where the user actually is — a long Device section pushes it past the
-    /// bottom edge. One button for every nested page, since every one of them is left the same way.
+    ///     In the fixed header rather than in the page, because a way out placed in scrolling content
+    ///     is not reachable from where the user actually is — a long Device section pushes it past the
+    ///     bottom edge. One button for every nested page, since every one of them is left the same way.
     /// </remarks>
-    private void OnHeaderBack(object? sender, RoutedEventArgs e) => TryCancelSubView();
+    private void OnHeaderBack(object? sender, RoutedEventArgs e)
+    {
+        TryCancelSubView();
+    }
 
-    /// <summary>Shows the header's Back button exactly while there is a level above the open page.
-    /// Called after every transition that can change the depth of the nested-page stack.</summary>
-    private void SyncBackAffordance() => BackButton.IsVisible = _navigation.Depth > 1;
+    /// <summary>
+    ///     Shows the header's Back button exactly while there is a level above the open page.
+    ///     Called after every transition that can change the depth of the nested-page stack.
+    /// </summary>
+    private void SyncBackAffordance()
+    {
+        BackButton.IsVisible = _navigation.Depth > 1;
+    }
 
-    /// <summary>Handles Back/B in strict dialog, nested-page, destination-root order.
-    /// Returns false only when Home is already at its root and the controller should
-    /// close the overlay. A format already running keeps running when its page closes.</summary>
+    /// <summary>
+    ///     Handles Back/B in strict dialog, nested-page, destination-root order.
+    ///     Returns false only when Home is already at its root and the controller should
+    ///     close the overlay. A format already running keeps running when its page closes.
+    /// </summary>
     /// <remarks>
-    /// Every way back — B, Escape and the header button — arrives here, so the header affordance is
-    /// resolved once on the way out instead of at each branch's own return.
+    ///     Every way back — B, Escape and the header button — arrives here, so the header affordance is
+    ///     resolved once on the way out instead of at each branch's own return.
     /// </remarks>
     internal bool TryCancelSubView()
     {
@@ -296,7 +321,7 @@ public partial class OverlayWindow
     private bool CancelOpenPage()
     {
         var confirmationOpen = _confirmCloseLauncher || _confirmRestart || _confirmShutdown;
-        switch (_navigation.BackAction(popupOpen: false, dialogOpen: confirmationOpen))
+        switch (_navigation.BackAction(false, confirmationOpen))
         {
             case OverlayBackAction.CloseDialog:
                 ResetConfirms();
@@ -317,16 +342,19 @@ public partial class OverlayWindow
                     LeaveFormatSubViewToOrigin();
                     return true;
                 }
+
                 if (AnySubView)
                 {
                     LeaveActiveSubView();
                     return true;
                 }
+
                 if (DeviceOverlaySectionPages.SectionFor(_navigation.Page) is { } leaving)
                 {
                     LeaveDeviceSection(leaving);
                     return true;
                 }
+
                 if (_navigation.Page is OverlayPage.DevicePluginSection)
                 {
                     LeaveDevicePluginSection();
@@ -351,8 +379,10 @@ public partial class OverlayWindow
         }
     }
 
-    /// <summary>One selection path for touch, mouse and LB/RB: the strip carries stable
-    /// destination IDs, while this window owns page visibility and semantic focus.</summary>
+    /// <summary>
+    ///     One selection path for touch, mouse and LB/RB: the strip carries stable
+    ///     destination IDs, while this window owns page visibility and semantic focus.
+    /// </summary>
     private void OnTabSelectionChanged(object? sender, TabStripSelectionChangedEventArgs e)
     {
         if (e.SelectedItem is null
@@ -370,7 +400,7 @@ public partial class OverlayWindow
         }
 
         _session.Destination = destination;
-        ShowDestination(destination, restoreFocus: true);
+        ShowDestination(destination, true);
     }
 
     private void SelectDestination(OverlayDestination destination)
@@ -391,7 +421,7 @@ public partial class OverlayWindow
         LeaveAllNestedPages();
         _navigation.Select(destination);
         _session.Destination = destination;
-        ShowDestination(destination, restoreFocus: true);
+        ShowDestination(destination, true);
     }
 
     private void ShowDestination(OverlayDestination destination, bool restoreFocus)
@@ -403,7 +433,7 @@ public partial class OverlayWindow
         PanelQuickAccess.IsVisible = destination == OverlayDestination.QuickAccess;
         PanelSteam.IsVisible = destination == OverlayDestination.Steam;
         PanelDevice.IsVisible = destination == OverlayDestination.Device
-            && _navigation.IsVisible(OverlayDestination.Device);
+                                && _navigation.IsVisible(OverlayDestination.Device);
         PanelSystem.IsVisible = destination == OverlayDestination.System;
         PanelPower.IsVisible = destination == OverlayDestination.Power;
 
@@ -438,14 +468,17 @@ public partial class OverlayWindow
         }
     }
 
-    private Control DestinationPanel() => _navigation.Destination switch
+    private Control DestinationPanel()
     {
-        OverlayDestination.Steam => PanelSteam,
-        OverlayDestination.Device => PanelDevice,
-        OverlayDestination.System => PanelSystem,
-        OverlayDestination.Power => PanelPower,
-        _ => PanelQuickAccess
-    };
+        return _navigation.Destination switch
+        {
+            OverlayDestination.Steam => PanelSteam,
+            OverlayDestination.Device => PanelDevice,
+            OverlayDestination.System => PanelSystem,
+            OverlayDestination.Power => PanelPower,
+            _ => PanelQuickAccess
+        };
+    }
 
     private void RememberDestinationState(OverlayDestination destination)
     {
@@ -458,10 +491,12 @@ public partial class OverlayWindow
     }
 
     private string? CurrentSemanticFocusKey()
-        => GetTopLevel(this)?.FocusManager?.GetFocusedElement()
+    {
+        return GetTopLevel(this)?.FocusManager?.GetFocusedElement()
             is Control { Tag: string key }
             ? key
             : null;
+    }
 
     private void RestoreRootFocus(string? semanticKey)
     {
@@ -470,7 +505,7 @@ public partial class OverlayWindow
             _navigation.Destination,
             semanticKey ?? state.SemanticKey,
             state.ScrollOffset);
-        RestoreDestinationState(focus: true);
+        RestoreDestinationState(true);
     }
 
     private void RestoreDestinationState(bool focus)
@@ -523,7 +558,9 @@ public partial class OverlayWindow
     }
 
     private static void FocusFirstControl(Control panel)
-        => FocusSearch.FirstNavigable(panel)?.Focus(NavigationMethod.Directional);
+    {
+        FocusSearch.FirstNavigable(panel)?.Focus(NavigationMethod.Directional);
+    }
 
     // The category menus. Each destination root offers its groups as large tiles and the controls
     // themselves live one level down, so a handheld's few visible rows are a choice rather than the
@@ -537,4 +574,23 @@ public partial class OverlayWindow
             EnterSubView(page);
         }
     }
+
+    /// <summary>
+    ///     One in-place nested page: what it pushes onto the navigation stack, the host it
+    ///     reveals, the destination panel it hides while it is up, and any state it owns.
+    /// </summary>
+    /// <param name="Page">The navigation page; also the identity of the open sub-view.</param>
+    /// <param name="Host">The control revealed while the page is open.</param>
+    /// <param name="Parent">The destination panel hidden behind it.</param>
+    /// <param name="Destination">The destination that panel belongs to.</param>
+    /// <param name="OnLeave">
+    ///     State the page owns, released before the peer keyboard is told
+    ///     to close so nothing re-reads a value the page has already abandoned.
+    /// </param>
+    private sealed record SubView(
+        OverlayPage Page,
+        Control Host,
+        Control Parent,
+        OverlayDestination Destination,
+        Action? OnLeave = null);
 }

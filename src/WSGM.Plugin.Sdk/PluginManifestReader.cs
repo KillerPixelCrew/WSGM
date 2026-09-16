@@ -20,16 +20,29 @@ public static class PluginManifestReader
     public static bool TryRead(ReadOnlySpan<byte> json, out PluginManifest? manifest, out IReadOnlyList<string> errors)
     {
         manifest = null;
-        if (json.Length is 0 or > MaximumBytes) { errors = ["Manifest size is outside the supported bounds."]; return false; }
+        if (json.Length is 0 or > MaximumBytes)
+        {
+            errors = ["Manifest size is outside the supported bounds."];
+            return false;
+        }
+
         try
         {
             var candidate = JsonSerializer.Deserialize(json, PluginJsonContext.Default.PluginManifest);
             errors = Validate(candidate);
-            if (errors.Count != 0) { return false; }
+            if (errors.Count != 0)
+            {
+                return false;
+            }
+
             manifest = candidate;
             return true;
         }
-        catch (JsonException) { errors = ["Manifest JSON is malformed or contains unknown members."]; return false; }
+        catch (JsonException)
+        {
+            errors = ["Manifest JSON is malformed or contains unknown members."];
+            return false;
+        }
     }
 
     /// <summary>Validates metadata without loading code or inspecting the filesystem.</summary>
@@ -37,48 +50,97 @@ public static class PluginManifestReader
     /// <returns>Validation errors, or an empty collection.</returns>
     public static IReadOnlyList<string> Validate(PluginManifest? manifest)
     {
-        if (manifest is null) { return ["Manifest is absent."]; }
+        if (manifest is null)
+        {
+            return ["Manifest is absent."];
+        }
+
         List<string> errors = [];
-        if (!Identifier(manifest.Id)) { errors.Add("Invalid plugin identity."); }
-        if (!Identifier(manifest.Category)) { errors.Add("Invalid category identity."); }
+        if (!Identifier(manifest.Id))
+        {
+            errors.Add("Invalid plugin identity.");
+        }
+
+        if (!Identifier(manifest.Category))
+        {
+            errors.Add("Invalid category identity.");
+        }
+
         if (string.IsNullOrWhiteSpace(manifest.Name) || manifest.Name.Length > 128 || manifest.Name.Any(char.IsControl))
-        { errors.Add("Invalid display name."); }
-        if (!Version.TryParse(manifest.Version, out _)) { errors.Add("Invalid numeric package version."); }
+        {
+            errors.Add("Invalid display name.");
+        }
+
+        if (!Version.TryParse(manifest.Version, out _))
+        {
+            errors.Add("Invalid numeric package version.");
+        }
+
         if (manifest.MinimumApiVersion < 1 || manifest.MaximumApiVersion < manifest.MinimumApiVersion
-            || PluginApi.Version < manifest.MinimumApiVersion || PluginApi.Version > manifest.MaximumApiVersion)
-        { errors.Add("Incompatible common Plugin SDK version range."); }
+                                           || PluginApi.Version < manifest.MinimumApiVersion ||
+                                           PluginApi.Version > manifest.MaximumApiVersion)
+        {
+            errors.Add("Incompatible common Plugin SDK version range.");
+        }
+
         if (string.IsNullOrEmpty(manifest.EntryAssembly) || manifest.EntryAssembly.Length > 128
-            || !manifest.EntryAssembly.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            || manifest.EntryAssembly.Any(character => !(char.IsAsciiLetterOrDigit(character) || character is '.' or '_' or '-'))
-            || manifest.EntryAssembly.StartsWith('.'))
-        { errors.Add("Entry assembly must be a bounded DLL filename at the package root."); }
+                                                         || !manifest.EntryAssembly.EndsWith(".dll",
+                                                             StringComparison.OrdinalIgnoreCase)
+                                                         || manifest.EntryAssembly.Any(character =>
+                                                             !(char.IsAsciiLetterOrDigit(character) ||
+                                                               character is '.' or '_' or '-'))
+                                                         || manifest.EntryAssembly.StartsWith('.'))
+        {
+            errors.Add("Entry assembly must be a bounded DLL filename at the package root.");
+        }
+
         if (string.IsNullOrWhiteSpace(manifest.EntryType) || manifest.EntryType.Length > 256
-            || manifest.EntryType.Any(character => !(char.IsAsciiLetterOrDigit(character) || character is '.' or '_' or '+')))
-        { errors.Add("Invalid entry type."); }
-        if (manifest.Dependencies is null || manifest.Dependencies.Count > 32) { errors.Add("Invalid dependency list."); }
+                                                          || manifest.EntryType.Any(character =>
+                                                              !(char.IsAsciiLetterOrDigit(character) ||
+                                                                character is '.' or '_' or '+')))
+        {
+            errors.Add("Invalid entry type.");
+        }
+
+        if (manifest.Dependencies is null || manifest.Dependencies.Count > 32)
+        {
+            errors.Add("Invalid dependency list.");
+        }
         else
         {
             HashSet<string> ids = new(StringComparer.Ordinal);
             foreach (var dependency in manifest.Dependencies)
             {
-                if (dependency is not null && Identifier(dependency.Id) && dependency.Id != manifest.Id && ids.Add(dependency.Id)
+                if (dependency is not null && Identifier(dependency.Id) && dependency.Id != manifest.Id &&
+                    ids.Add(dependency.Id)
                     && Version.TryParse(dependency.MinimumVersion, out var minimum)
                     && (dependency.MaximumVersionExclusive is not { } upper
                         || (Version.TryParse(upper, out var maximum) && maximum > minimum)))
-                { continue; }
+                {
+                    continue;
+                }
+
                 errors.Add("Invalid, duplicate or self-referencing dependency.");
                 break;
             }
         }
-        if (manifest.Permissions is null || manifest.Permissions.Count > 32 || manifest.Permissions.Any(permission => !Identifier(permission))
+
+        if (manifest.Permissions is null || manifest.Permissions.Count > 32 ||
+            manifest.Permissions.Any(permission => !Identifier(permission))
             || manifest.Permissions.Distinct(StringComparer.Ordinal).Count() != manifest.Permissions.Count)
-        { errors.Add("Invalid permission declarations."); }
+        {
+            errors.Add("Invalid permission declarations.");
+        }
+
         return errors;
     }
 
-    private static bool Identifier(string? value) => value is { Length: > 0 and <= 128 }
-        && char.IsAsciiLetterOrDigit(value[0]) && value.All(character =>
-            character is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '-' or '_');
+    private static bool Identifier(string? value)
+    {
+        return value is { Length: > 0 and <= 128 }
+               && char.IsAsciiLetterOrDigit(value[0]) && value.All(character =>
+                   character is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '-' or '_');
+    }
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

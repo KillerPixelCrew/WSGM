@@ -6,10 +6,10 @@ using WSGM.Device.Sdk.Serialization;
 namespace WSGM.Device.Sdk.Packaging;
 
 /// <summary>
-/// The outcome of reading a <c>plugin.wsgm.json</c> document.
+///     The outcome of reading a <c>plugin.wsgm.json</c> document.
 /// </summary>
-/// <param name="Manifest">The parsed manifest, or <see langword="null"/> when reading failed.</param>
-/// <param name="Errors">Every problem found. Empty exactly when <paramref name="Manifest"/> is valid.</param>
+/// <param name="Manifest">The parsed manifest, or <see langword="null" /> when reading failed.</param>
+/// <param name="Errors">Every problem found. Empty exactly when <paramref name="Manifest" /> is valid.</param>
 public sealed record PluginManifestReadResult(
     PluginManifest? Manifest,
     IReadOnlyList<ManifestValidationError> Errors)
@@ -19,13 +19,13 @@ public sealed record PluginManifestReadResult(
 }
 
 /// <summary>
-/// Parses and validates a package manifest from untrusted bytes.
+///     Parses and validates a package manifest from untrusted bytes.
 /// </summary>
 /// <remarks>
-/// Reading is deliberately two-staged: the parser enforces size, depth, and shape, and only a
-/// document that survives that is handed to <see cref="PluginManifestValidator"/> for meaning. The
-/// size and depth caps are applied before any allocation proportional to the input, so an oversized
-/// or deeply nested document costs a length check rather than a parse.
+///     Reading is deliberately two-staged: the parser enforces size, depth, and shape, and only a
+///     document that survives that is handed to <see cref="PluginManifestValidator" /> for meaning. The
+///     size and depth caps are applied before any allocation proportional to the input, so an oversized
+///     or deeply nested document costs a length check rather than a parse.
 /// </remarks>
 public static class PluginManifestReader
 {
@@ -39,13 +39,13 @@ public static class PluginManifestReader
         });
 
     /// <summary>
-    /// Reads a manifest from a UTF-8 JSON document.
+    ///     Reads a manifest from a UTF-8 JSON document.
     /// </summary>
     /// <param name="utf8Json">The raw document bytes as read from the package.</param>
     /// <returns>
-    /// The parsed manifest and an empty error list, or <see langword="null"/> with the reasons it was
-    /// rejected. This method does not throw for malformed input; a bad manifest is an expected
-    /// condition, not an exceptional one.
+    ///     The parsed manifest and an empty error list, or <see langword="null" /> with the reasons it was
+    ///     rejected. This method does not throw for malformed input; a bad manifest is an expected
+    ///     condition, not an exceptional one.
     /// </returns>
     public static PluginManifestReadResult Read(ReadOnlySpan<byte> utf8Json)
     {
@@ -84,6 +84,8 @@ public static class PluginManifestReader
     private static PluginManifestReadResult Failure(
         string path,
         ManifestValidationCode code,
-        string message) =>
-        new(null, [new ManifestValidationError(path, code, message)]);
+        string message)
+    {
+        return new PluginManifestReadResult(null, [new ManifestValidationError(path, code, message)]);
+    }
 }

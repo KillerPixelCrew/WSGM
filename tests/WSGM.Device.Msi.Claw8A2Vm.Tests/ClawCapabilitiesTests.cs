@@ -20,8 +20,10 @@ public sealed class ClawCapabilitiesTests
             wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress) <= wmi.ReadData(ClawHardwareFacts.PowerBoostAddress));
         ClawA2VmPowerCapability power = new(wmi);
         var command = Command(CapabilityIds.PowerSustained, null,
-            CapabilityValue.Integer(target)) with
-        { ApplyPowerPair = true };
+                CapabilityValue.Integer(target)) with
+            {
+                ApplyPowerPair = true
+            };
         var result = await power.ApplySustainedAsync(command, target, CancellationToken.None);
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
         Assert.Equal(target, result.ReadbackValue?.IntegerValue);
@@ -36,17 +38,22 @@ public sealed class ClawCapabilitiesTests
         wmi.AfterSetter = (_, package) =>
         {
             if (package[0] == ClawHardwareFacts.PowerBoostAddress && package[1] == 12)
-            { wmi.SetData(ClawHardwareFacts.PowerBoostAddress, 13); }
+            {
+                wmi.SetData(ClawHardwareFacts.PowerBoostAddress, 13);
+            }
         };
         ClawA2VmPowerCapability power = new(wmi);
         var command = Command(CapabilityIds.PowerSustained, null,
-            CapabilityValue.Integer(12)) with
-        { ApplyPowerPair = true };
+                CapabilityValue.Integer(12)) with
+            {
+                ApplyPowerPair = true
+            };
         var result = await power.ApplySustainedAsync(command, 12, CancellationToken.None);
         Assert.Equal(CommandOutcome.Indeterminate, result.Outcome);
         Assert.Equal(RollbackResult.RestoredVerified, result.Rollback);
         Assert.Equal(new PowerPair(30, 37, 0xC1), await power.ReadAsync(CancellationToken.None));
-        Assert.Single(wmi.Writes, write => write.Package[0] == ClawHardwareFacts.PowerBoostAddress && write.Package[1] == 12);
+        Assert.Single(wmi.Writes,
+            write => write.Package[0] == ClawHardwareFacts.PowerBoostAddress && write.Package[1] == 12);
     }
 
     [Fact]
@@ -74,7 +81,7 @@ public sealed class ClawCapabilitiesTests
         using CancellationTokenSource cancellation = new();
         var command = Command(
             CapabilityIds.LightingBrightness,
-            instanceId: null,
+            null,
             CapabilityValue.Integer(75));
         mcu.AfterNextWrite = cancellation.Cancel;
 
@@ -100,7 +107,7 @@ public sealed class ClawCapabilitiesTests
         ClawA2VmLightingCapability lighting = new(mcu);
         var command = Command(
             CapabilityIds.LightingBrightness,
-            instanceId: null,
+            null,
             CapabilityValue.Integer(75));
 
         var result = await lighting.ApplyAsync(
@@ -134,7 +141,7 @@ public sealed class ClawCapabilitiesTests
         ClawA2VmLightingCapability lighting = new(mcu);
         var command = Command(
             CapabilityIds.LightingBrightness,
-            instanceId: null,
+            null,
             CapabilityValue.Integer(75));
 
         var result = await lighting.ApplyAsync(
@@ -161,7 +168,7 @@ public sealed class ClawCapabilitiesTests
         ClawA2VmChargeLimitCapability chargeLimit = new(wmi);
         var command = Command(
             CapabilityIds.ChargeLimit,
-            instanceId: null,
+            null,
             CapabilityValue.Integer(percent));
 
         var result = await chargeLimit.ApplyAsync(
@@ -181,7 +188,7 @@ public sealed class ClawCapabilitiesTests
         ClawA2VmFanCapability fan = new(wmi);
         var command = Command(
             CapabilityIds.FanCurve,
-            instanceId: null,
+            null,
             CapabilityValue.Curve(
             [
                 new CurvePoint(0, 0),
@@ -222,7 +229,7 @@ public sealed class ClawCapabilitiesTests
         ClawA2VmFanCapability fan = new(wmi);
         var command = Command(
             CapabilityIds.FanCurve,
-            instanceId: null,
+            null,
             CapabilityValue.Curve(
             [
                 new CurvePoint(0, 0),
@@ -244,12 +251,12 @@ public sealed class ClawCapabilitiesTests
         // data this write preserves per channel, and the two channels do not hold the same values
         // there — copying one channel's spare bytes onto the other is exactly the bug the
         // preserve-unknown-bytes test above exists to prevent.
-        var leftDuty = ChannelWrite(wmi, "Set_Fan", channel: 1);
-        var rightDuty = ChannelWrite(wmi, "Set_Fan", channel: 2);
+        var leftDuty = ChannelWrite(wmi, "Set_Fan", 1);
+        var rightDuty = ChannelWrite(wmi, "Set_Fan", 2);
         Assert.Equal(leftDuty[2..8], rightDuty[2..8]);
 
-        var leftTemperature = ChannelWrite(wmi, "Set_Temperature", channel: 1);
-        var rightTemperature = ChannelWrite(wmi, "Set_Temperature", channel: 2);
+        var leftTemperature = ChannelWrite(wmi, "Set_Temperature", 1);
+        var rightTemperature = ChannelWrite(wmi, "Set_Temperature", 2);
         Assert.Equal(leftTemperature[1], rightTemperature[1]);
         Assert.Equal(leftTemperature[4..9], rightTemperature[4..9]);
     }
@@ -263,12 +270,26 @@ public sealed class ClawCapabilitiesTests
         using CancellationTokenSource cancellation = new();
         wmi.AfterSetter = (method, package) =>
         {
-            if (method != "Set_Data" || package[0] != ClawHardwareFacts.ScenarioAddress) { return; }
+            if (method != "Set_Data" || package[0] != ClawHardwareFacts.ScenarioAddress)
+            {
+                return;
+            }
+
             wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, 8);
             wmi.SetData(ClawHardwareFacts.PowerBoostAddress, 9);
-            if (package[1] != 0xC4) { return; }
-            if (cancel) { cancellation.Cancel(); }
-            else { wmi.SetData(ClawHardwareFacts.ScenarioAddress, 0xC2); }
+            if (package[1] != 0xC4)
+            {
+                return;
+            }
+
+            if (cancel)
+            {
+                cancellation.Cancel();
+            }
+            else
+            {
+                wmi.SetData(ClawHardwareFacts.ScenarioAddress, 0xC2);
+            }
         };
         ClawA2VmPowerCapability capability = new(wmi);
         var result = await capability.ApplyScenarioAsync(Command(CapabilityIds.Scenario, null,
@@ -276,7 +297,8 @@ public sealed class ClawCapabilitiesTests
         Assert.Equal(CommandOutcome.Indeterminate, result.Outcome);
         Assert.Equal(RollbackResult.RestoredVerified, result.Rollback);
         Assert.Equal(new PowerPair(30, 37, 0xC1), await capability.ReadAsync(CancellationToken.None));
-        Assert.Single(wmi.Writes, write => write.Package[0] == ClawHardwareFacts.ScenarioAddress && write.Package[1] == 0xC4);
+        Assert.Single(wmi.Writes,
+            write => write.Package[0] == ClawHardwareFacts.ScenarioAddress && write.Package[1] == 0xC4);
     }
 
     [Fact]
@@ -327,8 +349,8 @@ public sealed class ClawCapabilitiesTests
         wmi.SetResponse("Get_Data", address, new byte[length]);
         ClawA2VmPowerCapability power = new(wmi);
 
-        var failure = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => power.ReadAsync(CancellationToken.None).AsTask());
+        var failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(() => power.ReadAsync(CancellationToken.None).AsTask());
 
         Assert.Contains("truncated", failure.Message);
         Assert.Empty(wmi.Writes);
@@ -342,7 +364,8 @@ public sealed class ClawCapabilitiesTests
         FakeWmiTransport wmi = new();
         wmi.SetResponse("Get_Data", address, new byte[1]);
         ClawA2VmFanCapability fan = new(wmi);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fan.ReadSnapshotAsync(CancellationToken.None).AsTask());
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fan.ReadSnapshotAsync(CancellationToken.None).AsTask());
         Assert.Empty(wmi.Writes);
     }
 
@@ -354,7 +377,8 @@ public sealed class ClawCapabilitiesTests
         FakeWmiTransport wmi = new();
         wmi.SetResponse(method, 0, new byte[length]);
         ClawA2VmFanCapability fan = new(wmi);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fan.ReadTelemetryAsync(CancellationToken.None).AsTask());
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fan.ReadTelemetryAsync(CancellationToken.None).AsTask());
         Assert.Empty(wmi.Writes);
     }
 
@@ -381,8 +405,10 @@ public sealed class ClawCapabilitiesTests
         Assert.Empty(wmi.Writes);
     }
 
-    private static byte[] ChannelWrite(FakeWmiTransport wmi, string method, byte channel) =>
-        Assert.Single(
+    private static byte[] ChannelWrite(FakeWmiTransport wmi, string method, byte channel)
+    {
+        return Assert.Single(
             wmi.Writes,
             write => write.Method == method && write.Package[0] == channel).Package;
+    }
 }

@@ -5,12 +5,12 @@ using WSGM.Device.Sdk.Capabilities;
 namespace WSGM.Device.Sdk.Input;
 
 /// <summary>
-/// A logical OEM control published by the plugin.
+///     A logical OEM control published by the plugin.
 /// </summary>
 /// <remarks>
-/// A separate channel from the gamepad, deliberately. Face buttons, sticks, triggers, and the D-pad
-/// are not expressible here, so a plugin can publish the physical vendor controls without supplying
-/// host assignment policy or turning the canonical gamepad channel into a remapper.
+///     A separate channel from the gamepad, deliberately. Face buttons, sticks, triggers, and the D-pad
+///     are not expressible here, so a plugin can publish the physical vendor controls without supplying
+///     host assignment policy or turning the canonical gamepad channel into a remapper.
 /// </remarks>
 public sealed record OemControlDescriptor
 {
@@ -27,21 +27,21 @@ public sealed record OemControlDescriptor
     public bool SupportsLongPress { get; init; }
 
     /// <summary>
-    /// Whether this control disappears when WSGM controller management is turned off.
+    ///     Whether this control disappears when WSGM controller management is turned off.
     /// </summary>
     /// <remarks>
-    /// Declared by the plugin rather than inferred: only it knows whether a control rides on the
-    /// physical-controller resource. On the reference handheld the rear paddles do — they are visible
-    /// only in the acquisition mode the plugin selects — while the front buttons arrive over a
-    /// separate vendor event channel and survive.
+    ///     Declared by the plugin rather than inferred: only it knows whether a control rides on the
+    ///     physical-controller resource. On the reference handheld the rear paddles do — they are visible
+    ///     only in the acquisition mode the plugin selects — while the front buttons arrive over a
+    ///     separate vendor event channel and survive.
     /// </remarks>
     public bool RequiresControllerAcquisition { get; init; }
 }
 
 /// <summary>Where an OEM control sits on the device.</summary>
 /// <remarks>
-/// Placement is physical metadata. The host owns every action vocabulary and decides whether a
-/// mapping is compatible with that placement; plugins never publish host application policy.
+///     Placement is physical metadata. The host owns every action vocabulary and decides whether a
+///     mapping is compatible with that placement; plugins never publish host application policy.
 /// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<OemControlPlacement>))]
 public enum OemControlPlacement
@@ -81,13 +81,13 @@ public enum OemControlEdge
 /// <param name="SourceGeneration">Device generation the event came from.</param>
 /// <param name="Timestamp">When it was observed, in UTC.</param>
 /// <param name="DeduplicationId">
-/// Identifier that is equal across every source reporting the same physical press.
+///     Identifier that is equal across every source reporting the same physical press.
 /// </param>
 /// <param name="Edge">Whether this event represents the press or release edge.</param>
 /// <remarks>
-/// The deduplication ID exists because one press can legitimately arrive twice: a vendor event
-/// channel and a raw-input path may both see it. Without a shared identifier WSGM would toggle the
-/// QAM open and closed on a single press.
+///     The deduplication ID exists because one press can legitimately arrive twice: a vendor event
+///     channel and a raw-input path may both see it. Without a shared identifier WSGM would toggle the
+///     QAM open and closed on a single press.
 /// </remarks>
 public sealed record OemControlEvent(
     string ControlId,

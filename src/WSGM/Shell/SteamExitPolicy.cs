@@ -5,20 +5,24 @@ public enum SteamExitReaction
 {
     /// <summary>Leave Steam closed and show nothing.</summary>
     Ignore,
+
     /// <summary>Show the overlay so the user can start Steam again.</summary>
     ShowOverlay,
+
     /// <summary>Start Steam back into Big Picture.</summary>
     RelaunchBigPicture,
+
     /// <summary>Start the windowed Steam client again beside the desktop.</summary>
     RelaunchDesktop
 }
 
-/// <summary>Decides what a Steam exit means, without touching Steam or the UI.
-///
-/// Game mode needs Steam on screen, so an exit either brings it back or shows the overlay, which is
-/// the only surface left once Big Picture is gone. A desktop session has Explorer, so an exit is
-/// never a reason to interrupt the user: it either quietly starts the client again or does
-/// nothing.</summary>
+/// <summary>
+///     Decides what a Steam exit means, without touching Steam or the UI.
+///     Game mode needs Steam on screen, so an exit either brings it back or shows the overlay, which is
+///     the only surface left once Big Picture is gone. A desktop session has Explorer, so an exit is
+///     never a reason to interrupt the user: it either quietly starts the client again or does
+///     nothing.
+/// </summary>
 public static class SteamExitPolicy
 {
     /// <summary>Chooses the reaction to one observed Steam exit.</summary>
@@ -34,10 +38,12 @@ public static class SteamExitPolicy
         {
             return SteamExitReaction.Ignore;
         }
+
         if (!autoRelaunch)
         {
             return inGameMode ? SteamExitReaction.ShowOverlay : SteamExitReaction.Ignore;
         }
+
         return inGameMode ? SteamExitReaction.RelaunchBigPicture : SteamExitReaction.RelaunchDesktop;
     }
 }

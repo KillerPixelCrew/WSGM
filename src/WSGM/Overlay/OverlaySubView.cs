@@ -11,14 +11,18 @@ using WSGM.Core;
 
 namespace WSGM.Overlay;
 
-/// <summary>Base for the self-drawing, gamepad-driven overlay sub-views (tab builder,
-/// card manager, artwork changer, launch wrappers, wake locks): the render-thunk
-/// navigation stack, the shared row/label builders, and text entry. Each navigation
-/// level rebuilds <see cref="ContentControl.Content"/>, and every interactive element is
-/// a <see cref="Button"/> so D-pad navigation and A/B work with no extra focus plumbing.
-/// <para><see cref="_navigationGeneration"/> is also the invalidation token for
-/// asynchronous work: leaving a level bumps it, so a load that completes afterwards
-/// discards its result instead of drawing over the level the user moved to.</para></summary>
+/// <summary>
+///     Base for the self-drawing, gamepad-driven overlay sub-views (tab builder,
+///     card manager, artwork changer, launch wrappers, wake locks): the render-thunk
+///     navigation stack, the shared row/label builders, and text entry. Each navigation
+///     level rebuilds <see cref="ContentControl.Content" />, and every interactive element is
+///     a <see cref="Button" /> so D-pad navigation and A/B work with no extra focus plumbing.
+///     <para>
+///         <see cref="_navigationGeneration" /> is also the invalidation token for
+///         asynchronous work: leaving a level bumps it, so a load that completes afterwards
+///         discards its result instead of drawing over the level the user moved to.
+///     </para>
+/// </summary>
 public abstract class OverlaySubView : UserControl
 {
     // Navigation: a stack of render thunks. Push goes deeper; Back pops.
@@ -29,19 +33,28 @@ public abstract class OverlaySubView : UserControl
     // One-shot message shown at the top of the next rendered level, then consumed.
     private protected string? _notice;
 
-    /// <summary>Raised when the user backs out of the top level (the overlay then
-    /// returns to the Tools list).</summary>
-    public event Action? CloseRequested;
-
     /// <summary>Short name used to prefix log lines from this sub-view.</summary>
     protected abstract string LogScope { get; }
 
-    /// <summary>Asks the host to close this sub-view, for the rows that offer an explicit
-    /// way out rather than waiting for a Back press.</summary>
-    private protected void RequestClose() => CloseRequested?.Invoke();
+    /// <summary>
+    ///     Raised when the user backs out of the top level (the overlay then
+    ///     returns to the Tools list).
+    /// </summary>
+    public event Action? CloseRequested;
 
-    /// <summary>Handles a Back/B press: pops one level, or requests close at the top.
-    /// Returns true when it consumed the press.</summary>
+    /// <summary>
+    ///     Asks the host to close this sub-view, for the rows that offer an explicit
+    ///     way out rather than waiting for a Back press.
+    /// </summary>
+    private protected void RequestClose()
+    {
+        CloseRequested?.Invoke();
+    }
+
+    /// <summary>
+    ///     Handles a Back/B press: pops one level, or requests close at the top.
+    ///     Returns true when it consumed the press.
+    /// </summary>
     public bool Back()
     {
         _navigationGeneration++;
@@ -50,6 +63,7 @@ public abstract class OverlaySubView : UserControl
             CloseRequested?.Invoke();
             return true;
         }
+
         _current = _stack.Pop();
         _current();
         return true;
@@ -62,6 +76,7 @@ public abstract class OverlaySubView : UserControl
         {
             _stack.Push(_current);
         }
+
         _current = render;
         render();
     }
@@ -82,12 +97,20 @@ public abstract class OverlaySubView : UserControl
 
     private protected async Task RunSafelyAsync(Task task, string operation)
     {
-        try { await task; }
-        catch (Exception ex) { Log.Error($"{LogScope} {operation} failed.", ex); }
+        try
+        {
+            await task;
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"{LogScope} {operation} failed.", ex);
+        }
     }
 
-    /// <summary>Lists the Steam library, degrading to an empty list so a picker renders
-    /// "no games" instead of failing the whole sub-view when Steam cannot answer.</summary>
+    /// <summary>
+    ///     Lists the Steam library, degrading to an empty list so a picker renders
+    ///     "no games" instead of failing the whole sub-view when Steam cannot answer.
+    /// </summary>
     private protected async Task<IReadOnlyList<SteamCollections.AppInfo>> SafeGamesAsync()
     {
         try
@@ -123,10 +146,12 @@ public abstract class OverlaySubView : UserControl
                 Margin = new Thickness(0, 0, 0, 4)
             });
         }
+
         if (string.IsNullOrEmpty(_notice))
         {
             return stack;
         }
+
         stack.Children.Add(Caption(_notice));
         _notice = null;
         return stack;
@@ -139,7 +164,10 @@ public abstract class OverlaySubView : UserControl
         SetContent(stack);
     }
 
-    private protected void RenderLoading(string title) => RenderMessage(title, "Loading from Steam…");
+    private protected void RenderLoading(string title)
+    {
+        RenderMessage(title, "Loading from Steam…");
+    }
 
     private protected static CardButton Row(string title, string desc, Geometry? icon, Action? onClick)
     {
@@ -148,6 +176,7 @@ public abstract class OverlaySubView : UserControl
         {
             button.Click += (_, _) => onClick();
         }
+
         return button;
     }
 
@@ -166,22 +195,30 @@ public abstract class OverlaySubView : UserControl
     }
 
     private protected static CardButton CycleRow(string label, string value, Action onClick)
-        => Row(label, value, Icons.Restart, onClick).Also(b => b.TrailingText = "↔");
-
-    private protected static TextBlock Caption(string text) => new()
     {
-        Text = text,
-        Classes = { "caption" },
-        TextWrapping = TextWrapping.Wrap,
-        Margin = new Thickness(2, 0, 2, 4)
-    };
+        return Row(label, value, Icons.Restart, onClick).Also(b => b.TrailingText = "↔");
+    }
 
-    private protected static TextBlock SectionLabel(string text) => new()
+    private protected static TextBlock Caption(string text)
     {
-        Text = text,
-        Classes = { "eyebrow" },
-        Margin = new Thickness(2, 6, 2, 2)
-    };
+        return new TextBlock
+        {
+            Text = text,
+            Classes = { "caption" },
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(2, 0, 2, 4)
+        };
+    }
+
+    private protected static TextBlock SectionLabel(string text)
+    {
+        return new TextBlock
+        {
+            Text = text,
+            Classes = { "eyebrow" },
+            Margin = new Thickness(2, 6, 2, 2)
+        };
+    }
 
     // No inner ScrollViewer: the overlay's ContentScroller owns scrolling and its
     // GotFocus→BringIntoView keeps the focused control (incl. keyboard keys) on screen.
@@ -194,16 +231,18 @@ public abstract class OverlaySubView : UserControl
 
     // A row laid out inside a panel (a Grid of columns, a WrapPanel of thumbnails) is
     // still the first thing the user should land on, so the search descends one level.
-    private static void FocusFirst(StackPanel stack) => Dispatcher.UIThread.Post(() =>
+    private static void FocusFirst(StackPanel stack)
     {
-        foreach (var child in stack.Children)
+        Dispatcher.UIThread.Post(() =>
         {
-            switch (child)
+            foreach (var child in stack.Children)
             {
-                case Button { IsEffectivelyEnabled: true } b:
-                    b.Focus(NavigationMethod.Directional);
-                    return;
-                case Panel panel:
+                switch (child)
+                {
+                    case Button { IsEffectivelyEnabled: true } b:
+                        b.Focus(NavigationMethod.Directional);
+                        return;
+                    case Panel panel:
                     {
                         foreach (var nested in panel.Children)
                         {
@@ -211,14 +250,17 @@ public abstract class OverlaySubView : UserControl
                             {
                                 continue;
                             }
+
                             nestedButton.Focus(NavigationMethod.Directional);
                             return;
                         }
+
                         break;
                     }
+                }
             }
-        }
-    });
+        });
+    }
 
     // ---- Text entry ----
 
@@ -229,10 +271,10 @@ public abstract class OverlaySubView : UserControl
         // window pushes no navigation level (it is a peer, not a screen), so this re-renders the
         // current level itself instead of relying on a pop to do it.
         if (KeyboardService.Request(title, current, maxLen, v =>
-        {
-            onAccept(v);
-            _current?.Invoke();
-        }))
+            {
+                onAccept(v);
+                _current?.Invoke();
+            }))
         {
             return;
         }

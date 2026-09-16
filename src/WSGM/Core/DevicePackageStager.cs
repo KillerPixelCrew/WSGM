@@ -81,12 +81,13 @@ internal static class DevicePackageStager
             // the protected parent or reconciling recovery. An unrelated missing source still
             // reaches reconciliation before the ordinary source-absence error is returned.
             if (!ValidateDirectoryPath(
-                parent,
-                "Device package slot parent",
-                readProtectedAttributes))
+                    parent,
+                    "Device package slot parent",
+                    readProtectedAttributes))
             {
                 Directory.CreateDirectory(parent);
             }
+
             ReconcileInstalledPackage(destination, readProtectedAttributes);
             if (packageSource is null)
             {
@@ -97,7 +98,7 @@ internal static class DevicePackageStager
                 }
 
                 packageSource = NativePackageSource.TryOpen(source)
-                    ?? throw new InvalidDataException("Package source is absent or is not a directory.");
+                                ?? throw new InvalidDataException("Package source is absent or is not a directory.");
                 ValidateSecuredSourceIdentity(
                     source,
                     packageSource,
@@ -111,7 +112,7 @@ internal static class DevicePackageStager
 
             FileStream manifestStream;
             using (var manifestEntry = packageSource.OpenEntry(
-                Path.Combine(source, "plugin.wsgm.json")))
+                       Path.Combine(source, "plugin.wsgm.json")))
             {
                 if (manifestEntry.IsDirectory || manifestEntry.IsReparsePoint)
                 {
@@ -163,10 +164,11 @@ internal static class DevicePackageStager
                     throw new InvalidDataException(
                         "Device package replacement recovery unexpectedly reappeared before publication.");
                 }
+
                 if (!ValidateDirectoryPath(
-                    stagingRoot,
-                    "Device package staging root",
-                    readProtectedAttributes))
+                        stagingRoot,
+                        "Device package staging root",
+                        readProtectedAttributes))
                 {
                     throw new InvalidDataException(
                         "Device package staging root disappeared before publication.");
@@ -184,6 +186,7 @@ internal static class DevicePackageStager
                     {
                         previousSlotMoved?.Invoke();
                     }
+
                     cancellationToken.ThrowIfCancellationRequested();
                     Directory.Move(stagingRoot, destination);
                     replacementInstalled = true;
@@ -191,9 +194,9 @@ internal static class DevicePackageStager
                 catch
                 {
                     if (!previousMoved || ValidateDirectoryPath(
-                        destination,
-                        "Installed package root",
-                        readProtectedAttributes))
+                            destination,
+                            "Installed package root",
+                            readProtectedAttributes))
                     {
                         throw;
                     }
@@ -214,23 +217,24 @@ internal static class DevicePackageStager
                         stagingRoot,
                         "Device package staging root",
                         readProtectedAttributes):
-                        Directory.Delete(stagingRoot, recursive: true);
+                        Directory.Delete(stagingRoot, true);
                         break;
                     case true when previousMoved:
                         try
                         {
                             if (ValidateDirectoryPath(
-                                backupRoot,
-                                "Device package replacement recovery",
-                                readProtectedAttributes))
+                                    backupRoot,
+                                    "Device package replacement recovery",
+                                    readProtectedAttributes))
                             {
-                                Directory.Delete(backupRoot, recursive: true);
+                                Directory.Delete(backupRoot, true);
                             }
                         }
                         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                         {
                             Log.Warn($"Device package replacement recovery cleanup failed: {ex.Message}");
                         }
+
                         break;
                 }
             }
@@ -241,13 +245,16 @@ internal static class DevicePackageStager
             {
                 await manifestPin.DisposeAsync().ConfigureAwait(false);
             }
+
             packageSource?.Dispose();
         }
     }
 
-    /// <summary>Reconciles the fixed replacement sibling left by an interrupted atomic slot swap.
-    /// Callers hold <see cref="DevicePackageSlotGate"/>, so an absent destination means the prior
-    /// package must be restored, while a present destination proves the replacement was published.</summary>
+    /// <summary>
+    ///     Reconciles the fixed replacement sibling left by an interrupted atomic slot swap.
+    ///     Callers hold <see cref="DevicePackageSlotGate" />, so an absent destination means the prior
+    ///     package must be restored, while a present destination proves the replacement was published.
+    /// </summary>
     internal static void ReconcileInstalledPackage(
         string installedRoot,
         Func<string, FileAttributes?>? attributeReader = null)
@@ -299,9 +306,11 @@ internal static class DevicePackageStager
         return Path.Combine(parent, StagingDirectoryName);
     }
 
-    /// <summary>Inventories the slot that would become active after recovery, without moving files.
-    /// Startup holds <see cref="DevicePackageSlotGate"/> while calling this method, so an interrupted
-    /// swap cannot hide an ambiguous parked package set from the pre-UI cardinality refusal.</summary>
+    /// <summary>
+    ///     Inventories the slot that would become active after recovery, without moving files.
+    ///     Startup holds <see cref="DevicePackageSlotGate" /> while calling this method, so an interrupted
+    ///     swap cannot hide an ambiguous parked package set from the pre-UI cardinality refusal.
+    /// </summary>
     internal static DevicePackageInventory InventoryEffectiveInstalledPackage(
         string installedRoot,
         Func<string, FileAttributes?>? attributeReader = null)
@@ -406,7 +415,7 @@ internal static class DevicePackageStager
                     FileMode.CreateNew,
                     FileAccess.Write,
                     FileShare.None,
-                    bufferSize: 64 * 1024,
+                    64 * 1024,
                     FileOptions.Asynchronous | FileOptions.WriteThrough);
                 long fileBytes = 0;
                 while (true)
@@ -416,6 +425,7 @@ internal static class DevicePackageStager
                     {
                         break;
                     }
+
                     if (read > DevicePackagePolicy.MaxPackageFileBytes - fileBytes
                         || read > DevicePackagePolicy.MaxPackageBytes - totalBytes)
                     {
@@ -427,6 +437,7 @@ internal static class DevicePackageStager
                     await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken)
                         .ConfigureAwait(false);
                 }
+
                 await output.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
         }
@@ -443,7 +454,7 @@ internal static class DevicePackageStager
             ? result.Manifest
             : throw new InvalidDataException(
                 "Plugin manifest is invalid: "
-                    + string.Join("; ", result.Errors.Select(error => error.Message)));
+                + string.Join("; ", result.Errors.Select(error => error.Message)));
     }
 
     private static void ValidateSecuredSourceIdentity(
@@ -467,21 +478,25 @@ internal static class DevicePackageStager
         Func<string, NativePathIdentity?> readPathIdentity)
     {
         if (SourceOverlapsProtectedNamespace(
-            source,
-            destination,
-            (first, second) => PathsOverlapByIdentity(first, second, readPathIdentity)))
+                source,
+                destination,
+                (first, second) => PathsOverlapByIdentity(first, second, readPathIdentity)))
         {
             throw new InvalidDataException(
                 "Package source must be separate from the installed slot and every staging or recovery namespace.");
         }
     }
 
-    private static bool SafeSegment(string value) =>
-        DeviceIdentifier.IsValid(value, 128)
-        && string.Equals(Path.GetFileName(value), value, StringComparison.Ordinal);
+    private static bool SafeSegment(string value)
+    {
+        return DeviceIdentifier.IsValid(value, 128)
+               && string.Equals(Path.GetFileName(value), value, StringComparison.Ordinal);
+    }
 
-    private static bool PathsOverlap(string first, string second) =>
-        IsSameOrDescendant(first, second) || IsSameOrDescendant(second, first);
+    private static bool PathsOverlap(string first, string second)
+    {
+        return IsSameOrDescendant(first, second) || IsSameOrDescendant(second, first);
+    }
 
     private static bool PathsOverlapByIdentity(
         string first,
@@ -541,8 +556,10 @@ internal static class DevicePackageStager
 
     private static bool RelativePathsOverlap(
         IReadOnlyList<string> first,
-        IReadOnlyList<string> second) =>
-        IsSegmentPrefix(first, second) || IsSegmentPrefix(second, first);
+        IReadOnlyList<string> second)
+    {
+        return IsSegmentPrefix(first, second) || IsSegmentPrefix(second, first);
+    }
 
     private static bool IsSegmentPrefix(
         IReadOnlyList<string> candidatePrefix,
@@ -570,8 +587,8 @@ internal static class DevicePackageStager
             {
                 // LinkTarget remains meaningful for a dangling link even though Exists is false.
                 if (current.LinkTarget is not null
-                    || current.Exists
-                    && (current.Attributes & FileAttributes.ReparsePoint) != 0)
+                    || (current.Exists
+                        && (current.Attributes & FileAttributes.ReparsePoint) != 0))
                 {
                     return true;
                 }
@@ -590,10 +607,12 @@ internal static class DevicePackageStager
     private static bool SourceOverlapsProtectedNamespace(
         string source,
         string destination,
-        Func<string, string, bool> pathsOverlap) =>
-        pathsOverlap(source, destination)
-        || pathsOverlap(source, ReplacementStagingRoot(destination))
-        || pathsOverlap(source, ReplacementRecoveryRoot(destination));
+        Func<string, string, bool> pathsOverlap)
+    {
+        return pathsOverlap(source, destination)
+               || pathsOverlap(source, ReplacementStagingRoot(destination))
+               || pathsOverlap(source, ReplacementRecoveryRoot(destination));
+    }
 
     private static void CleanupStagingRoot(
         string destination,
@@ -609,7 +628,7 @@ internal static class DevicePackageStager
         var stagingRoot = ReplacementStagingRoot(destination);
         if (ValidateDirectoryPath(stagingRoot, "Device package staging root", readAttributes))
         {
-            Directory.Delete(stagingRoot, recursive: true);
+            Directory.Delete(stagingRoot, true);
         }
     }
 
@@ -624,7 +643,7 @@ internal static class DevicePackageStager
         }
 
         beforeDirectoryDelete?.Invoke(path);
-        Directory.Delete(path, recursive: true);
+        Directory.Delete(path, true);
     }
 
     private static bool ValidateDirectoryPath(
@@ -637,10 +656,12 @@ internal static class DevicePackageStager
         {
             return false;
         }
+
         if ((attributes.Value & FileAttributes.Directory) == 0)
         {
             throw new InvalidDataException($"{description} must be a directory.");
         }
+
         return (attributes.Value & FileAttributes.ReparsePoint) == 0
             ? true
             : throw new InvalidDataException($"{description} may not be a link or reparse point.");
@@ -651,9 +672,9 @@ internal static class DevicePackageStager
         var normalizedCandidate = DevicePackagePolicy.NormalizeDirectoryPath(candidate);
         var normalizedRoot = DevicePackagePolicy.NormalizeDirectoryPath(root);
         return string.Equals(normalizedCandidate, normalizedRoot, StringComparison.OrdinalIgnoreCase)
-            || normalizedCandidate.StartsWith(
-                normalizedRoot + Path.DirectorySeparatorChar,
-                StringComparison.OrdinalIgnoreCase);
+               || normalizedCandidate.StartsWith(
+                   normalizedRoot + Path.DirectorySeparatorChar,
+                   StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed record PathLineageEntry(

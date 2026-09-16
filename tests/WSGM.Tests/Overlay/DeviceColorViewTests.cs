@@ -22,8 +22,10 @@ public sealed class DeviceColorViewTests
     [InlineData("#123")]
     [InlineData("#GG0000")]
     [InlineData("#FFFFFFFF")]
-    public void ExactColorRejectsAnythingThatIsNotRgbHex(string text) =>
+    public void ExactColorRejectsAnythingThatIsNotRgbHex(string text)
+    {
         Assert.False(DeviceColorView.TryParseColor(text, out _));
+    }
 
     [Theory]
     [InlineData(0, false, 351)]

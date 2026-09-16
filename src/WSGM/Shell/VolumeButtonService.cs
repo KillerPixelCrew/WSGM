@@ -5,28 +5,49 @@ using WSGM.Interop;
 
 namespace WSGM.Shell;
 
-/// <summary>Owns hardware-volume handling while WSGM is the shell. Explorer
-/// remains the owner in desktop mode, avoiding double application of a button
-/// press when the normal Windows taskbar is present.</summary>
+/// <summary>
+///     Owns hardware-volume handling while WSGM is the shell. Explorer
+///     remains the owner in desktop mode, avoiding double application of a button
+///     press when the normal Windows taskbar is present.
+/// </summary>
 internal sealed class VolumeButtonService : IDisposable
 {
-    private readonly MessageWindow _window;
-    private readonly VolumeIndicator _indicator;
     private readonly AudioManager _audio;
-    private bool _gameModeActive;
+    private readonly VolumeIndicator _indicator;
+    private readonly MessageWindow _window;
     private bool _disposed;
+    private bool _gameModeActive;
 
     /// <summary>Creates the game-mode volume handler on the Avalonia UI thread.</summary>
     /// <param name="window">The process message-only window carrying the shell hook.</param>
     /// <param name="uiScale">The current UI scale for the OSD.</param>
-    /// <param name="audio">The session's audio state owner, told about every volume
-    /// this service writes so the taskbar slider does not lag the OSD by a poll.</param>
+    /// <param name="audio">
+    ///     The session's audio state owner, told about every volume
+    ///     this service writes so the taskbar slider does not lag the OSD by a poll.
+    /// </param>
     internal VolumeButtonService(MessageWindow window, Func<double> uiScale, AudioManager audio)
     {
         _window = window;
         _indicator = new VolumeIndicator(uiScale);
         _audio = audio;
         _window.ShellHookReceived += OnShellHook;
+    }
+
+    /// <summary>Unsubscribes and relinquishes shell-hook ownership.</summary>
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _window.ShellHookReceived -= OnShellHook;
+        _indicator.Dispose();
+        if (_gameModeActive)
+        {
+            _window.DeregisterShellHook();
+        }
     }
 
     /// <summary>Enables or disables WSGM's replacement-shell volume handling.</summary>
@@ -50,6 +71,7 @@ internal sealed class VolumeButtonService : IDisposable
             {
                 Log.Warn("Game-mode volume buttons unavailable: shell-hook registration failed.");
             }
+
             return;
         }
 
@@ -98,22 +120,6 @@ internal sealed class VolumeButtonService : IDisposable
         catch (Exception ex)
         {
             Log.Error($"Volume button {command} failed unexpectedly.", ex);
-        }
-    }
-
-    /// <summary>Unsubscribes and relinquishes shell-hook ownership.</summary>
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-        _disposed = true;
-        _window.ShellHookReceived -= OnShellHook;
-        _indicator.Dispose();
-        if (_gameModeActive)
-        {
-            _window.DeregisterShellHook();
         }
     }
 }

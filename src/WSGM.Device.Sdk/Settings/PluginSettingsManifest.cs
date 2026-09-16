@@ -6,17 +6,17 @@ using WSGM.Device.Sdk.Capabilities;
 namespace WSGM.Device.Sdk.Settings;
 
 /// <summary>
-/// One declared plugin setting: a preference WSGM stores and hands back, not a hardware control.
+///     One declared plugin setting: a preference WSGM stores and hands back, not a hardware control.
 /// </summary>
 /// <remarks>
-/// The distinction from <see cref="CapabilityDescriptor"/> is what decides where a control lives and
-/// is not a judgement call. Changing a setting configures how the plugin behaves and WSGM keeps the
-/// value; changing a capability writes hardware state and the device keeps it. A control that writes
-/// to the device when the user moves it is a capability, however much it reads like a preference.
+///     The distinction from <see cref="CapabilityDescriptor" /> is what decides where a control lives and
+///     is not a judgement call. Changing a setting configures how the plugin behaves and WSGM keeps the
+///     value; changing a capability writes hardware state and the device keeps it. A control that writes
+///     to the device when the user moves it is a capability, however much it reads like a preference.
 /// </remarks>
 public sealed record PluginSettingDescriptor
 {
-    /// <summary>Longest accepted <see cref="SettingId"/>.</summary>
+    /// <summary>Longest accepted <see cref="SettingId" />.</summary>
     public const int MaxSettingIdLength = 64;
 
     /// <summary>Ceiling a text setting's own maximum length may declare.</summary>
@@ -29,7 +29,7 @@ public sealed record PluginSettingDescriptor
     public required string SettingId { get; init; }
 
     /// <summary>The shape of the value, which decides the control WSGM draws.</summary>
-    /// <remarks>Undefined numeric enum values are rejected by <see cref="TryValidate"/>.</remarks>
+    /// <remarks>Undefined numeric enum values are rejected by <see cref="TryValidate" />.</remarks>
     public required CapabilityValueKind ValueKind { get; init; }
 
     /// <summary>How WSGM labels it.</summary>
@@ -39,8 +39,8 @@ public sealed record PluginSettingDescriptor
     public required CapabilityValue Default { get; init; }
 
     /// <summary>
-    /// Which declared section this belongs to. An unknown or absent section places the setting in a
-    /// WSGM-owned fallback rather than dropping it.
+    ///     Which declared section this belongs to. An unknown or absent section places the setting in a
+    ///     WSGM-owned fallback rather than dropping it.
     /// </summary>
     public string? SectionId { get; init; }
 
@@ -57,12 +57,12 @@ public sealed record PluginSettingDescriptor
     public int? Step { get; init; }
 
     /// <summary>Unit of a numeric value.</summary>
-    /// <remarks>Undefined numeric enum values are rejected by <see cref="TryValidate"/>.</remarks>
+    /// <remarks>Undefined numeric enum values are rejected by <see cref="TryValidate" />.</remarks>
     public CapabilityUnit Unit { get; init; } = CapabilityUnit.None;
 
     /// <summary>
-    /// Legal options for a choice setting. The collection, its items, and every item's display
-    /// metadata must be non-null.
+    ///     Legal options for a choice setting. The collection, its items, and every item's display
+    ///     metadata must be non-null.
     /// </summary>
     public IReadOnlyList<CapabilityChoice> Choices { get; init; } = [];
 
@@ -70,10 +70,10 @@ public sealed record PluginSettingDescriptor
     public int? MaximumLength { get; init; }
 
     /// <summary>
-    /// Whether this setting is usable.
+    ///     Whether this setting is usable.
     /// </summary>
-    /// <param name="error">The reason it is not, when the result is <see langword="false"/>.</param>
-    /// <returns><see langword="true"/> when the setting is safe to render and store.</returns>
+    /// <param name="error">The reason it is not, when the result is <see langword="false" />.</param>
+    /// <returns><see langword="true" /> when the setting is safe to render and store.</returns>
     public bool TryValidate(out string? error)
     {
         if (!PlainText.IsIdentifier(SettingId, MaxSettingIdLength))
@@ -182,7 +182,8 @@ public sealed record PluginSettingDescriptor
                     continue;
                 }
 
-                error = $"setting '{SettingId}' choice '{choice.Value}' has invalid display metadata: {choiceDisplayError}";
+                error =
+                    $"setting '{SettingId}' choice '{choice.Value}' has invalid display metadata: {choiceDisplayError}";
                 return false;
             }
         }
@@ -222,15 +223,15 @@ public sealed record PluginSettingDescriptor
     }
 
     /// <summary>
-    /// Whether a value satisfies what this setting currently declares.
+    ///     Whether a value satisfies what this setting currently declares.
     /// </summary>
     /// <param name="value">The value, typically one restored from configuration.</param>
     /// <param name="error">Why it does not, naming the value and the declared bound.</param>
-    /// <returns><see langword="true"/> when the value is usable as-is.</returns>
+    /// <returns><see langword="true" /> when the value is usable as-is.</returns>
     /// <remarks>
-    /// Separate from <see cref="TryValidate"/> because the two answer different questions at
-    /// different times: whether the plugin's declaration is coherent, and whether a value stored
-    /// under a possibly older declaration still fits the current one.
+    ///     Separate from <see cref="TryValidate" /> because the two answer different questions at
+    ///     different times: whether the plugin's declaration is coherent, and whether a value stored
+    ///     under a possibly older declaration still fits the current one.
     /// </remarks>
     public bool TryValidateValue(CapabilityValue? value, out string? error)
     {
@@ -306,9 +307,9 @@ public sealed record PluginSettingDescriptor
                 }
 
                 if (!Choices.Any(item => string.Equals(
-                    item.Value,
-                    choice,
-                    StringComparison.Ordinal)))
+                        item.Value,
+                        choice,
+                        StringComparison.Ordinal)))
                 {
                     error = $"'{choice}' is not one of the {Choices.Count} declared options.";
                     return false;
@@ -340,15 +341,15 @@ public sealed record PluginSettingDescriptor
 }
 
 /// <summary>
-/// Everything a plugin declares for its own settings page: the sections, and the settings placed in
-/// them. The plugin ships no UI — WSGM draws, validates, stores, and localizes all of it.
+///     Everything a plugin declares for its own settings page: the sections, and the settings placed in
+///     them. The plugin ships no UI — WSGM draws, validates, stores, and localizes all of it.
 /// </summary>
 public sealed record PluginSettingsManifest
 {
     /// <summary>Most sections one plugin may declare.</summary>
     /// <remarks>
-    /// Bounded because an unbounded page cannot be navigated with a gamepad, and a plugin declaring
-    /// two hundred rows produces a surface nobody can use.
+    ///     Bounded because an unbounded page cannot be navigated with a gamepad, and a plugin declaring
+    ///     two hundred rows produces a surface nobody can use.
     /// </remarks>
     public const int MaxSections = 12;
 
@@ -364,14 +365,14 @@ public sealed record PluginSettingsManifest
     public IReadOnlyList<PluginSettingDescriptor> Settings { get; init; } = [];
 
     /// <summary>
-    /// Whether the whole manifest is usable.
+    ///     Whether the whole manifest is usable.
     /// </summary>
-    /// <param name="error">The reason it is not, when the result is <see langword="false"/>.</param>
-    /// <returns><see langword="true"/> when every section and setting is safe.</returns>
+    /// <param name="error">The reason it is not, when the result is <see langword="false" />.</param>
+    /// <returns><see langword="true" /> when every section and setting is safe.</returns>
     /// <remarks>
-    /// A setting naming an unknown section is deliberately <em>not</em> an error: it renders in a
-    /// WSGM-owned fallback section and the placement is logged. Dropping it silently is the one
-    /// outcome that leaves the user with a missing control and no way to find out why.
+    ///     A setting naming an unknown section is deliberately <em>not</em> an error: it renders in a
+    ///     WSGM-owned fallback section and the placement is logged. Dropping it silently is the one
+    ///     outcome that leaves the user with a missing control and no way to find out why.
     /// </remarks>
     public bool TryValidate(out string? error)
     {

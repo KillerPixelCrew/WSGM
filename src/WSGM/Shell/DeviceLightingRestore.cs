@@ -8,13 +8,16 @@ namespace WSGM.Shell;
 /// <remarks>Readback can make a first restore ready, but cannot request repeated firmware writes.</remarks>
 internal sealed class DeviceLightingRestore
 {
-    private readonly Lock _gate = new();
     private readonly Dictionary<DeviceCapabilityKey, (long Cycle, CapabilityValue Value)> _attempts = [];
+    private readonly Lock _gate = new();
 
-    internal static bool IsLighting(CapabilityRole role) => role is
-        CapabilityRole.LightingPower or CapabilityRole.LightingBrightness
-        or CapabilityRole.LightingZoneColor or CapabilityRole.LightingEffect
-        or CapabilityRole.LightingEffectSpeed;
+    internal static bool IsLighting(CapabilityRole role)
+    {
+        return role is
+            CapabilityRole.LightingPower or CapabilityRole.LightingBrightness
+            or CapabilityRole.LightingZoneColor or CapabilityRole.LightingEffect
+            or CapabilityRole.LightingEffectSpeed;
+    }
 
     internal bool CanApply(DeviceCapabilityView view)
     {
@@ -54,17 +57,22 @@ internal sealed class DeviceLightingRestore
         }
 
         if (!IsLighting(view.Descriptor.Role) || !view.Descriptor.SupportsWrite
-            || !projection.State.Available || projection.DesiredValueOutOfRange
-            || projection.State.Quality is not (HardwareStateQuality.Observed or HardwareStateQuality.Verified)
-            || projection.PendingValue is not null
-            || view.LastResult?.Outcome is CommandOutcome.Indeterminate or CommandOutcome.TimedOut
-            || projection.DesiredValue is not { } desired
-            || (projection.State.ObservedValue is { } observed && DeviceCoordinator.SameValue(observed, desired)))
+                                              || !projection.State.Available || projection.DesiredValueOutOfRange
+                                              || projection.State.Quality is not (HardwareStateQuality.Observed
+                                                  or HardwareStateQuality.Verified)
+                                              || projection.PendingValue is not null
+                                              || view.LastResult?.Outcome is CommandOutcome.Indeterminate
+                                                  or CommandOutcome.TimedOut
+                                              || projection.DesiredValue is not { } desired
+                                              || (projection.State.ObservedValue is { } observed &&
+                                                  DeviceCoordinator.SameValue(observed, desired)))
         {
             return false;
         }
 
-        return !_attempts.TryGetValue(new DeviceCapabilityKey(view.Descriptor.CapabilityId, view.Descriptor.InstanceId), out var previous)
-            || previous.Cycle != projection.State.CycleGeneration || !DeviceCoordinator.SameValue(previous.Value, desired);
+        return !_attempts.TryGetValue(new DeviceCapabilityKey(view.Descriptor.CapabilityId, view.Descriptor.InstanceId),
+                   out var previous)
+               || previous.Cycle != projection.State.CycleGeneration ||
+               !DeviceCoordinator.SameValue(previous.Value, desired);
     }
 }

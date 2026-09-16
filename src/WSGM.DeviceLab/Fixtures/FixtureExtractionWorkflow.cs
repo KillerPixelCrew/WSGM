@@ -138,6 +138,7 @@ internal static class FixtureExtractionWorkflow
             {
                 throw new IOException("Fixture output was created before publication.");
             }
+
             Directory.Move(temporary, decision.FullPath);
         }
         catch
@@ -145,18 +146,22 @@ internal static class FixtureExtractionWorkflow
             DurableFile.TryDeleteDirectory(temporary);
             throw;
         }
+
         return manifest;
     }
 
-    private static FixtureArtifact Artifact(string path, byte[] bytes) => new()
+    private static FixtureArtifact Artifact(string path, byte[] bytes)
     {
-        Path = path,
-        MediaType = path.EndsWith(".ndjson", StringComparison.Ordinal)
-            ? "application/x-ndjson"
-            : "application/json",
-        Length = bytes.Length,
-        Sha256 = CaptureHashFile.Hash(bytes)
-    };
+        return new FixtureArtifact
+        {
+            Path = path,
+            MediaType = path.EndsWith(".ndjson", StringComparison.Ordinal)
+                ? "application/x-ndjson"
+                : "application/json",
+            Length = bytes.Length,
+            Sha256 = CaptureHashFile.Hash(bytes)
+        };
+    }
 
     private static void WriteNew(
         string root,
@@ -188,10 +193,10 @@ internal static class FixtureExtractionWorkflow
     /// <param name="value">The identifier as the capture recorded it.</param>
     /// <returns>A sanitized name that is unique to that exact identifier.</returns>
     /// <remarks>
-    /// The hash suffix is what makes it injective. Sanitizing alone maps distinct identifiers such
-    /// as <c>pad/a</c> and <c>pad?a</c> onto the same name, and the dictionary assignment then
-    /// silently replaced the first stream: the fixture still validated while omitting source data
-    /// and expected results, so replay no longer represented the capture it came from.
+    ///     The hash suffix is what makes it injective. Sanitizing alone maps distinct identifiers such
+    ///     as <c>pad/a</c> and <c>pad?a</c> onto the same name, and the dictionary assignment then
+    ///     silently replaced the first stream: the fixture still validated while omitting source data
+    ///     and expected results, so replay no longer represented the capture it came from.
     /// </remarks>
     private static string SafeName(string value)
     {

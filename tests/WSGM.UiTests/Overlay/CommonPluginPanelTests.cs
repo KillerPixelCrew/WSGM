@@ -26,7 +26,8 @@ public sealed class CommonPluginPanelTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         var host = UiFixture.Named<StackPanel>(window, "CommonPluginRows");
-        host.Children.Add(new CommonPluginPanel(new MutableProvider(), readPins: () => Task.FromResult(Array.Empty<PluginWidgetPin>())));
+        host.Children.Add(new CommonPluginPanel(new MutableProvider(),
+            readPins: () => Task.FromResult(Array.Empty<PluginWidgetPin>())));
         var tile = UiFixture.Named<CardButton>(window, "SystemPluginsTile");
         tile.IsVisible = true;
         UiFixture.Click(window, UiFixture.Tab(window, 2));
@@ -60,15 +61,31 @@ public sealed class CommonPluginPanelTests
         PluginWidgetPin second = new("missing", "default", "second");
         List<PluginWidgetPin> pins = [first, second];
         PluginWidgetPreferences preferences = new(() => Task.FromResult(pins.ToArray()),
-            (pin, offset) => { PluginWidgetPins.Move(pins, pin, offset); return Task.CompletedTask; },
-            pin => { pins.Remove(pin); return Task.CompletedTask; },
-            () => { PluginWidgetPins.ResetOrder(pins); return Task.CompletedTask; });
+            (pin, offset) =>
+            {
+                PluginWidgetPins.Move(pins, pin, offset);
+                return Task.CompletedTask;
+            },
+            pin =>
+            {
+                pins.Remove(pin);
+                return Task.CompletedTask;
+            },
+            () =>
+            {
+                PluginWidgetPins.ResetOrder(pins);
+                return Task.CompletedTask;
+            });
         PinnedPluginWidgets panel = new(new MissingProvider(), (_, _) => { }, preferences);
         Window window = new() { Content = panel, Width = 600, Height = 700 };
         try
         {
             window.Show();
-            foreach (var expander in panel.GetLogicalDescendants().OfType<Expander>()) { expander.IsExpanded = true; }
+            foreach (var expander in panel.GetLogicalDescendants().OfType<Expander>())
+            {
+                expander.IsExpanded = true;
+            }
+
             UiFixture.Click(window, Find(first, "Move down"));
             Assert.Equal([second, first], pins);
             Assert.True(Find(first, "Unpin").IsFocused);
@@ -79,12 +96,18 @@ public sealed class CommonPluginPanelTests
             Assert.Empty(pins);
             Assert.True(panel.IsFocused);
         }
-        finally { window.Close(); }
+        finally
+        {
+            window.Close();
+        }
 
         return;
 
-        Button Find(PluginWidgetPin pin, string label) => panel.GetLogicalDescendants().OfType<Button>()
-            .Single(button => Equals(button.Tag, (pin, label)));
+        Button Find(PluginWidgetPin pin, string label)
+        {
+            return panel.GetLogicalDescendants().OfType<Button>()
+                .Single(button => Equals(button.Tag, (pin, label)));
+        }
     }
 
     [AvaloniaFact]
@@ -111,7 +134,10 @@ public sealed class CommonPluginPanelTests
             UiFixture.Click(window, recovered);
             Assert.Equal(1, source.Invocations);
         }
-        finally { window.Close(); }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [AvaloniaFact]
@@ -134,7 +160,10 @@ public sealed class CommonPluginPanelTests
             Assert.Contains(panel.GetLogicalDescendants().OfType<TextBlock>(),
                 text => text is { Text: "Widget unavailable", IsEffectivelyVisible: true });
         }
-        finally { window.Close(); }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [AvaloniaFact]
@@ -149,7 +178,10 @@ public sealed class CommonPluginPanelTests
             Assert.True(panel.IsVisible);
             Assert.Equal("Plugin unavailable", Assert.IsType<TextBlock>(Assert.Single(panel.Children)).Text);
         }
-        finally { window.Close(); }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [AvaloniaFact]
@@ -179,12 +211,16 @@ public sealed class CommonPluginPanelTests
             Assert.Null(source.Requested);
             buttons.Press(GamepadButtons.A);
             Assert.False(choice.IsDropDownOpen);
-            var apply = panel.GetLogicalDescendants().OfType<Button>().Single(button => button is CardButton { Title: "Change fan" });
+            var apply = panel.GetLogicalDescendants().OfType<Button>()
+                .Single(button => button is CardButton { Title: "Change fan" });
             Assert.True(apply.Focus());
             buttons.Press(GamepadButtons.A);
             Assert.Equal("turbo", source.Requested);
         }
-        finally { window.Close(); }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [AvaloniaFact]
@@ -201,7 +237,10 @@ public sealed class CommonPluginPanelTests
             Assert.Empty(panel.GetLogicalDescendants().OfType<ComboBox>());
             Assert.Null(source.Requested);
         }
-        finally { window.Close(); }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [AvaloniaFact]
@@ -219,10 +258,15 @@ public sealed class CommonPluginPanelTests
             Assert.Equal("quiet", choice.SelectedItem);
             choice.SelectedItem = "turbo";
             Assert.Null(source.Requested);
-            UiFixture.Click(window, panel.GetLogicalDescendants().OfType<Button>().Single(button => button is CardButton { Title: "Change fan" }));
+            UiFixture.Click(window,
+                panel.GetLogicalDescendants().OfType<Button>()
+                    .Single(button => button is CardButton { Title: "Change fan" }));
             Assert.Equal("turbo", source.Requested);
         }
-        finally { window.Close(); }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [AvaloniaFact]
@@ -230,7 +274,11 @@ public sealed class CommonPluginPanelTests
     {
         using UiFixture fixture = new();
         List<bool> edits = [];
-        PluginWidgetPinControls view = new("Remote", pinned => { edits.Add(pinned); return Task.CompletedTask; });
+        PluginWidgetPinControls view = new("Remote", pinned =>
+        {
+            edits.Add(pinned);
+            return Task.CompletedTask;
+        });
         Window window = new() { Content = view, Width = 500, Height = 200 };
         try
         {
@@ -242,7 +290,10 @@ public sealed class CommonPluginPanelTests
             Assert.False(view.IsPinned);
             Assert.Equal([true, false], edits);
         }
-        finally { window.Close(); }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [AvaloniaFact]
@@ -273,6 +324,10 @@ public sealed class CommonPluginPanelTests
             Assert.Equal("HDMI 1", read().Text);
             Assert.Equal("HDMI 1", editor.Content);
         }
-        finally { window.Close(); KeyboardService.Handler = previous; }
+        finally
+        {
+            window.Close();
+            KeyboardService.Handler = previous;
+        }
     }
 }

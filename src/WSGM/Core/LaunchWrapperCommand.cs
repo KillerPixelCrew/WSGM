@@ -17,17 +17,21 @@ public enum LaunchWrapperMode
     /// <summary>Run the game at medium integrity under elevated Steam.</summary>
     Deelevate = 1,
 
-    /// <summary>Block Steam Input for the game's lifetime through the resident
-    /// shim Steam loaded itself. Fails open when no shim is loaded - the wrapper
-    /// never injects on this route.</summary>
+    /// <summary>
+    ///     Block Steam Input for the game's lifetime through the resident
+    ///     shim Steam loaded itself. Fails open when no shim is loaded - the wrapper
+    ///     never injects on this route.
+    /// </summary>
     InputLease = 2,
 
     /// <summary>Both behaviours in one wrapper process.</summary>
     Both = Deelevate | InputLease,
 
-    /// <summary>Block Steam Input by injecting the gate into Steam for the game's
-    /// lifetime. Written only when Steam Input Management is off, because then no
-    /// resident shim exists to connect to.</summary>
+    /// <summary>
+    ///     Block Steam Input by injecting the gate into Steam for the game's
+    ///     lifetime. Written only when Steam Input Management is off, because then no
+    ///     resident shim exists to connect to.
+    /// </summary>
     InputLeaseInject = 4,
 
     /// <summary>De-elevation plus the injecting lease.</summary>
@@ -35,18 +39,34 @@ public enum LaunchWrapperMode
 }
 
 /// <summary>
-/// Builds the launch configuration that hands a game to <c>WSGM.Launch.exe</c>.
+///     Builds the launch configuration that hands a game to <c>WSGM.Launch.exe</c>.
 /// </summary>
 /// <remarks>
-/// Steam takes two different routes to the same wrapper. A real Steam title uses
-/// its launch options, where <c>%command%</c> expands to the game's own command.
-/// A non-Steam shortcut cannot: Steam ignores an exe-replacing launch option there
-/// and runs the original target anyway (device-verified), so the wrapper goes in
-/// the shortcut's Target and the real program moves into its Launch Arguments.
+///     Steam takes two different routes to the same wrapper. A real Steam title uses
+///     its launch options, where <c>%command%</c> expands to the game's own command.
+///     A non-Steam shortcut cannot: Steam ignores an exe-replacing launch option there
+///     and runs the original target anyway (device-verified), so the wrapper goes in
+///     the shortcut's Target and the real program moves into its Launch Arguments.
 /// </remarks>
 internal static class LaunchWrapperCommand
 {
     private const string HelperFileName = "WSGM.Launch.exe";
+
+    /// <summary>
+    ///     The token Steam expands to a game's own command. REAL TITLES ONLY —
+    ///     a non-Steam shortcut ignores an exe-replacing launch option and runs its
+    ///     original Target anyway (device-verified), which is why the shortcut path puts
+    ///     the wrapper in the Target and never builds a value containing this.
+    /// </summary>
+    private const string CommandPlaceholder = "%command%";
+
+    // Long enough to identify the shim a user put in front of %command%, short
+    // enough that a pathological launch-option value cannot flood wsgm.log.
+    private const int PrefixLogLimit = 200;
+
+    private const string DeelevateFlag = "--deelevate";
+    private const string InputLeaseFlag = "--input-lease";
+    private const string InputLeaseInjectFlag = "--input-lease-inject";
 
     /// <summary>Resolves the wrapper beside the running WSGM executable.</summary>
     /// <returns>The absolute path a configured game will reference.</returns>
@@ -56,23 +76,23 @@ internal static class LaunchWrapperCommand
         return Path.Combine(directory ?? Installer.InstallDir, HelperFileName);
     }
 
-    /// <summary>The token Steam expands to a game's own command. REAL TITLES ONLY —
-    /// a non-Steam shortcut ignores an exe-replacing launch option and runs its
-    /// original Target anyway (device-verified), which is why the shortcut path puts
-    /// the wrapper in the Target and never builds a value containing this.</summary>
-    private const string CommandPlaceholder = "%command%";
-
-    /// <summary>Builds the value written into a real Steam title's launch options,
-    /// preserving any launch options the user already had.</summary>
+    /// <summary>
+    ///     Builds the value written into a real Steam title's launch options,
+    ///     preserving any launch options the user already had.
+    /// </summary>
     /// <param name="helperPath">Absolute path of the wrapper executable.</param>
     /// <param name="mode">Which wrapper behaviours to enable.</param>
-    /// <param name="originalOptions">The game's pre-existing launch options, if any.
-    /// A value of its own that positions <c>%command%</c> keeps its prefix and suffix
-    /// (the wrapper is substituted for the placeholder); a plain value becomes extra
-    /// arguments after the placeholder, which the wrapper forwards to the game.</param>
+    /// <param name="originalOptions">
+    ///     The game's pre-existing launch options, if any.
+    ///     A value of its own that positions <c>%command%</c> keeps its prefix and suffix
+    ///     (the wrapper is substituted for the placeholder); a plain value becomes extra
+    ///     arguments after the placeholder, which the wrapper forwards to the game.
+    /// </param>
     /// <returns>The launch-option string, quoted for paths containing spaces.</returns>
-    /// <exception cref="ArgumentException"><paramref name="helperPath"/> is missing, or
-    /// <paramref name="mode"/> selects no behaviour.</exception>
+    /// <exception cref="ArgumentException">
+    ///     <paramref name="helperPath" /> is missing, or
+    ///     <paramref name="mode" /> selects no behaviour.
+    /// </exception>
     internal static string SteamLaunchOptions(
         string helperPath, LaunchWrapperMode mode, string? originalOptions = null)
     {
@@ -82,11 +102,13 @@ internal static class LaunchWrapperCommand
         {
             return wrapper;
         }
+
         var placeholder = original.IndexOf(CommandPlaceholder, StringComparison.Ordinal);
         if (placeholder < 0)
         {
             return $"{wrapper} {original}";
         }
+
         // Substitute the first placeholder only: the user's value already says where
         // the game command belongs, so their own prefix (a profiler, an env shim) and
         // trailing arguments both survive.
@@ -96,25 +118,35 @@ internal static class LaunchWrapperCommand
             original.AsSpan(placeholder + CommandPlaceholder.Length));
     }
 
-    /// <summary>Reports the text a user placed AHEAD of their own <c>%command%</c>,
-    /// sanitized and bounded so it is safe to put in the log.</summary>
-    /// <param name="originalOptions">The user's own launch options, as
-    /// <see cref="OriginalLaunchOptions"/> recovered them.</param>
-    /// <returns>The prefix, control characters removed and length capped; an empty
-    /// string when the value is blank or does not position <c>%command%</c> itself.</returns>
+    /// <summary>
+    ///     Reports the text a user placed AHEAD of their own <c>%command%</c>,
+    ///     sanitized and bounded so it is safe to put in the log.
+    /// </summary>
+    /// <param name="originalOptions">
+    ///     The user's own launch options, as
+    ///     <see cref="OriginalLaunchOptions" /> recovered them.
+    /// </param>
+    /// <returns>
+    ///     The prefix, control characters removed and length capped; an empty
+    ///     string when the value is blank or does not position <c>%command%</c> itself.
+    /// </returns>
     /// <remarks>
-    /// <para>Diagnosability only — nothing here feeds <see cref="SteamLaunchOptions"/>,
-    /// whose output must stay byte-identical because Steam stores it verbatim. A
-    /// prefix is never stripped, reordered, escaped or refused: it is how
-    /// <c>-dx11</c>/<c>-nolauncher</c> shims, profilers and RTSS-style overlays keep
-    /// working, and it runs at Steam's own integrity level whether or not WSGM wraps
-    /// the game — applying a wrapper only ever REDUCES that, by moving the game
-    /// itself to medium.</para>
-    /// <para>Sanitized because <see cref="Log"/> interpolates its message raw: an
-    /// options string carrying a newline could otherwise forge whole log lines in the
-    /// only remote-diagnosis surface WSGM has. Control characters are dropped rather
-    /// than escaped, and the result is capped so one pathological value cannot bury a
-    /// pasted <c>wsgm.log</c>.</para>
+    ///     <para>
+    ///         Diagnosability only — nothing here feeds <see cref="SteamLaunchOptions" />,
+    ///         whose output must stay byte-identical because Steam stores it verbatim. A
+    ///         prefix is never stripped, reordered, escaped or refused: it is how
+    ///         <c>-dx11</c>/<c>-nolauncher</c> shims, profilers and RTSS-style overlays keep
+    ///         working, and it runs at Steam's own integrity level whether or not WSGM wraps
+    ///         the game — applying a wrapper only ever REDUCES that, by moving the game
+    ///         itself to medium.
+    ///     </para>
+    ///     <para>
+    ///         Sanitized because <see cref="Log" /> interpolates its message raw: an
+    ///         options string carrying a newline could otherwise forge whole log lines in the
+    ///         only remote-diagnosis surface WSGM has. Control characters are dropped rather
+    ///         than escaped, and the result is capped so one pathological value cannot bury a
+    ///         pasted <c>wsgm.log</c>.
+    ///     </para>
     /// </remarks>
     internal static string PreservedPrefix(string? originalOptions)
     {
@@ -122,11 +154,13 @@ internal static class LaunchWrapperCommand
         {
             return "";
         }
+
         var placeholder = originalOptions.IndexOf(CommandPlaceholder, StringComparison.Ordinal);
         if (placeholder <= 0)
         {
             return "";
         }
+
         var prefix = originalOptions[..placeholder].Trim();
         var builder = new StringBuilder(Math.Min(prefix.Length, PrefixLogLimit));
         foreach (var character in prefix.Where(character => !char.IsControl(character)))
@@ -135,14 +169,18 @@ internal static class LaunchWrapperCommand
             {
                 return builder.Append("...").ToString();
             }
+
             builder.Append(character);
         }
+
         return builder.ToString();
     }
 
-    /// <summary>Recovers the launch options a real Steam title had before the wrapper
-    /// was written into them, so re-applying with a different mode does not nest the
-    /// wrapper inside itself or drop the user's arguments.</summary>
+    /// <summary>
+    ///     Recovers the launch options a real Steam title had before the wrapper
+    ///     was written into them, so re-applying with a different mode does not nest the
+    ///     wrapper inside itself or drop the user's arguments.
+    /// </summary>
     /// <param name="wrapped">The title's current launch options.</param>
     /// <returns>The user's own options, or an empty string when nothing was preserved.</returns>
     internal static string OriginalLaunchOptions(string? wrapped)
@@ -151,12 +189,14 @@ internal static class LaunchWrapperCommand
         {
             return wrapped?.Trim() ?? "";
         }
+
         var placeholder = wrapped.IndexOf(CommandPlaceholder, StringComparison.Ordinal);
         var helper = wrapped.IndexOf(HelperFileName, StringComparison.OrdinalIgnoreCase);
         if (placeholder < 0 || helper < 0)
         {
             return "";
         }
+
         // Everything WSGM contributed sits between the helper path and the
         // placeholder; what brackets it is the user's. The match above lands on the
         // file name inside the (quoted) path, so walk back to where that token
@@ -174,19 +214,24 @@ internal static class LaunchWrapperCommand
     /// <param name="helperPath">Absolute path of the wrapper executable.</param>
     /// <returns>The quoted wrapper path.</returns>
     /// <remarks>
-    /// Steam stores this verbatim — it neither adds nor strips quotes — and its own
-    /// shortcuts carry the quoted form, so the quotes must be supplied here.
+    ///     Steam stores this verbatim — it neither adds nor strips quotes — and its own
+    ///     shortcuts carry the quoted form, so the quotes must be supplied here.
     /// </remarks>
-    /// <exception cref="ArgumentException"><paramref name="helperPath"/> is missing.</exception>
-    internal static string ShortcutTarget(string helperPath) => Quote(helperPath);
+    /// <exception cref="ArgumentException"><paramref name="helperPath" /> is missing.</exception>
+    internal static string ShortcutTarget(string helperPath)
+    {
+        return Quote(helperPath);
+    }
 
     /// <summary>Builds the value written into a non-Steam shortcut's Launch Arguments.</summary>
     /// <param name="mode">Which wrapper behaviours to enable.</param>
     /// <param name="originalTarget">The shortcut's original Target, quoted or bare.</param>
     /// <param name="originalArguments">The shortcut's original Launch Arguments, if any.</param>
     /// <returns>The wrapper flags, the separator, then the program the shortcut used to run.</returns>
-    /// <exception cref="ArgumentException"><paramref name="originalTarget"/> is missing, or
-    /// <paramref name="mode"/> selects no behaviour.</exception>
+    /// <exception cref="ArgumentException">
+    ///     <paramref name="originalTarget" /> is missing, or
+    ///     <paramref name="mode" /> selects no behaviour.
+    /// </exception>
     internal static string ShortcutArguments(
         LaunchWrapperMode mode,
         string originalTarget,
@@ -208,11 +253,11 @@ internal static class LaunchWrapperCommand
 
     /// <summary>Reads back which behaviours a stored launch configuration selects.</summary>
     /// <param name="value">A launch-option or shortcut-argument string, possibly empty.</param>
-    /// <returns>The behaviours the value enables, or <see cref="LaunchWrapperMode.None"/>.</returns>
+    /// <returns>The behaviours the value enables, or <see cref="LaunchWrapperMode.None" />.</returns>
     /// <remarks>
-    /// Used to show what a game is already configured with. A value that does not
-    /// reference the wrapper reports <see cref="LaunchWrapperMode.None"/> even when
-    /// it contains the flag words, so unrelated launch options are never misread.
+    ///     Used to show what a game is already configured with. A value that does not
+    ///     reference the wrapper reports <see cref="LaunchWrapperMode.None" /> even when
+    ///     it contains the flag words, so unrelated launch options are never misread.
     /// </remarks>
     internal static LaunchWrapperMode ModeFor(string? value)
     {
@@ -227,6 +272,7 @@ internal static class LaunchWrapperCommand
         {
             mode |= LaunchWrapperMode.Deelevate;
         }
+
         // Test the injecting flag FIRST and match on token boundaries: a plain
         // Contains would read "--input-lease" out of "--input-lease-inject" and
         // report both lease behaviours at once, which then trips the mutual
@@ -239,6 +285,7 @@ internal static class LaunchWrapperCommand
         {
             mode |= LaunchWrapperMode.InputLease;
         }
+
         return mode;
     }
 
@@ -260,32 +307,39 @@ internal static class LaunchWrapperCommand
                 return true;
             }
         }
+
         return false;
     }
 
-    /// <summary>Selects the lease behaviour matching the current Steam Input
-    /// Management setting.</summary>
+    /// <summary>
+    ///     Selects the lease behaviour matching the current Steam Input
+    ///     Management setting.
+    /// </summary>
     /// <param name="mode">The behaviours the user asked for.</param>
     /// <param name="shimManaged">Whether Steam Input Management is on.</param>
     /// <returns>The mode to actually write.</returns>
     /// <remarks>
-    /// With the shim deployed a game rides the payload Steam already loaded; with it
-    /// off there is nothing to ride, so the wrapper injects the way it always did.
-    /// Applied exactly once, where the fix is written, so the clipboard text, the
-    /// value written into Steam and the persisted snapshot can never disagree.
+    ///     With the shim deployed a game rides the payload Steam already loaded; with it
+    ///     off there is nothing to ride, so the wrapper injects the way it always did.
+    ///     Applied exactly once, where the fix is written, so the clipboard text, the
+    ///     value written into Steam and the persisted snapshot can never disagree.
     /// </remarks>
     internal static LaunchWrapperMode ForCurrentInputMode(
-        LaunchWrapperMode mode, bool shimManaged) =>
-        shimManaged || !mode.HasFlag(LaunchWrapperMode.InputLease)
+        LaunchWrapperMode mode, bool shimManaged)
+    {
+        return shimManaged || !mode.HasFlag(LaunchWrapperMode.InputLease)
             ? mode
             : (mode & ~LaunchWrapperMode.InputLease) | LaunchWrapperMode.InputLeaseInject;
+    }
 
     /// <summary>Whether a shortcut's Target already points at the wrapper.</summary>
     /// <param name="target">The shortcut's current Target value.</param>
     /// <returns>Whether WSGM owns this shortcut's Target.</returns>
-    internal static bool TargetsHelper(string? target) =>
-        !string.IsNullOrWhiteSpace(target) &&
-        target.Contains(HelperFileName, StringComparison.OrdinalIgnoreCase);
+    internal static bool TargetsHelper(string? target)
+    {
+        return !string.IsNullOrWhiteSpace(target) &&
+               target.Contains(HelperFileName, StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>Logs launch wrappers still running in this session so setup defers replacement.</summary>
     /// <param name="reason">Why they are being stopped, for the log.</param>
@@ -304,7 +358,7 @@ internal static class LaunchWrapperCommand
 
                 Log.Warn(
                     $"Launch wrapper pid {process.Id} is still active ({reason}); setup must "
-                        + "defer replacement until its game exits.");
+                    + "defer replacement until its game exits.");
             }
             catch (Exception ex)
             {
@@ -316,14 +370,6 @@ internal static class LaunchWrapperCommand
             }
         }
     }
-
-    // Long enough to identify the shim a user put in front of %command%, short
-    // enough that a pathological launch-option value cannot flood wsgm.log.
-    private const int PrefixLogLimit = 200;
-
-    private const string DeelevateFlag = "--deelevate";
-    private const string InputLeaseFlag = "--input-lease";
-    private const string InputLeaseInjectFlag = "--input-lease-inject";
 
     private static string Quote(string path)
     {
@@ -339,20 +385,24 @@ internal static class LaunchWrapperCommand
         {
             flags.Add(DeelevateFlag);
         }
+
         if (mode.HasFlag(LaunchWrapperMode.InputLease))
         {
             flags.Add(InputLeaseFlag);
         }
+
         if (mode.HasFlag(LaunchWrapperMode.InputLeaseInject))
         {
             flags.Add(InputLeaseInjectFlag);
         }
+
         if (mode.HasFlag(LaunchWrapperMode.InputLease)
             && mode.HasFlag(LaunchWrapperMode.InputLeaseInject))
         {
             throw new ArgumentException(
                 "A wrapper cannot both use the resident shim and inject.", nameof(mode));
         }
+
         return flags.Count == 0
             ? throw new ArgumentException("At least one wrapper behaviour is required.", nameof(mode))
             : string.Join(' ', flags);

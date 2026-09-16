@@ -5,12 +5,12 @@ using WSGM.Device.Sdk.Input;
 namespace WSGM.Input;
 
 /// <summary>
-/// Packs a canonical sample into the Steam Deck's 64-byte controller frame.
+///     Packs a canonical sample into the Steam Deck's 64-byte controller frame.
 /// </summary>
 /// <remarks>
-/// This is the wire format WSGM hands to VIIPER, which unmarshals it and re-emits it to the host as
-/// the real device's <c>ID_CONTROLLER_DECK_STATE</c> report. VIIPER's pinned packet definition and
-/// SDL's Steam Deck driver provide the byte layout, axis decode, and physical scales used here.
+///     This is the wire format WSGM hands to VIIPER, which unmarshals it and re-emits it to the host as
+///     the real device's <c>ID_CONTROLLER_DECK_STATE</c> report. VIIPER's pinned packet definition and
+///     SDL's Steam Deck driver provide the byte layout, axis decode, and physical scales used here.
 /// </remarks>
 internal static class SteamDeckNeptuneReport
 {
@@ -64,10 +64,10 @@ internal static class SteamDeckNeptuneReport
     private const float AccelCountsPerG = 16384f;
 
     /// <summary>
-    /// Writes one canonical sample into a Steam Deck frame.
+    ///     Writes one canonical sample into a Steam Deck frame.
     /// </summary>
     /// <param name="sample">The canonical sample to send.</param>
-    /// <param name="destination">A buffer of exactly <see cref="Length"/> bytes.</param>
+    /// <param name="destination">A buffer of exactly <see cref="Length" /> bytes.</param>
     /// <exception cref="ArgumentException">The destination is the wrong length.</exception>
     internal static void Write(CanonicalControllerSample sample, Span<byte> destination)
     {
@@ -86,41 +86,41 @@ internal static class SteamDeckNeptuneReport
         // rather than inventing a sequence the device would then contradict.
         var buttons = sample.Buttons;
         destination[8] = (byte)(Mask(buttons, CanonicalButtons.A, Byte8A)
-            | Mask(buttons, CanonicalButtons.X, Byte8X)
-            | Mask(buttons, CanonicalButtons.B, Byte8B)
-            | Mask(buttons, CanonicalButtons.Y, Byte8Y)
-            | Mask(buttons, CanonicalButtons.LeftShoulder, Byte8L1)
-            | Mask(buttons, CanonicalButtons.RightShoulder, Byte8R1)
-            // The digital trigger edge must rise in the same frame the analogue value leaves rest
-            // with the analogue value. A mid-travel threshold makes Steam Input register the edge
-            // as a second, later activation of the trigger:
-            // in desktop mode every normal pull then double-clicks and a held drag is torn loose
-            // (device-observed 2026-09-02).
-            | (sample.LeftTrigger > 0 ? Byte8L2 : 0)
-            | (sample.RightTrigger > 0 ? Byte8R2 : 0));
+                                | Mask(buttons, CanonicalButtons.X, Byte8X)
+                                | Mask(buttons, CanonicalButtons.B, Byte8B)
+                                | Mask(buttons, CanonicalButtons.Y, Byte8Y)
+                                | Mask(buttons, CanonicalButtons.LeftShoulder, Byte8L1)
+                                | Mask(buttons, CanonicalButtons.RightShoulder, Byte8R1)
+                                // The digital trigger edge must rise in the same frame the analogue value leaves rest
+                                // with the analogue value. A mid-travel threshold makes Steam Input register the edge
+                                // as a second, later activation of the trigger:
+                                // in desktop mode every normal pull then double-clicks and a held drag is torn loose
+                                // (device-observed 2026-09-02).
+                                | (sample.LeftTrigger > 0 ? Byte8L2 : 0)
+                                | (sample.RightTrigger > 0 ? Byte8R2 : 0));
 
         destination[9] = (byte)(Mask(buttons, CanonicalButtons.RearPaddle3, Byte9L5)
-            | Mask(buttons, CanonicalButtons.Menu, Byte9Menu)
-            | Mask(buttons, CanonicalButtons.Guide, Byte9Steam)
-            | Mask(buttons, CanonicalButtons.View, Byte9Options)
-            | Mask(buttons, CanonicalButtons.DPadDown, Byte9DPadDown)
-            | Mask(buttons, CanonicalButtons.DPadLeft, Byte9DPadLeft)
-            | Mask(buttons, CanonicalButtons.DPadRight, Byte9DPadRight)
-            | Mask(buttons, CanonicalButtons.DPadUp, Byte9DPadUp));
+                                | Mask(buttons, CanonicalButtons.Menu, Byte9Menu)
+                                | Mask(buttons, CanonicalButtons.Guide, Byte9Steam)
+                                | Mask(buttons, CanonicalButtons.View, Byte9Options)
+                                | Mask(buttons, CanonicalButtons.DPadDown, Byte9DPadDown)
+                                | Mask(buttons, CanonicalButtons.DPadLeft, Byte9DPadLeft)
+                                | Mask(buttons, CanonicalButtons.DPadRight, Byte9DPadRight)
+                                | Mask(buttons, CanonicalButtons.DPadUp, Byte9DPadUp));
 
         destination[10] = (byte)(Mask(buttons, CanonicalButtons.LeftStick, Byte10L3)
-            | Mask(buttons, CanonicalButtons.RightPadTouch, Byte10RPadTouch)
-            | Mask(buttons, CanonicalButtons.LeftPadTouch, Byte10LPadTouch)
-            | Mask(buttons, CanonicalButtons.RightPadClick, Byte10RPadPress)
-            | Mask(buttons, CanonicalButtons.LeftPadClick, Byte10LPadPress)
-            | Mask(buttons, CanonicalButtons.RearPaddle4, Byte10R5));
+                                 | Mask(buttons, CanonicalButtons.RightPadTouch, Byte10RPadTouch)
+                                 | Mask(buttons, CanonicalButtons.LeftPadTouch, Byte10LPadTouch)
+                                 | Mask(buttons, CanonicalButtons.RightPadClick, Byte10RPadPress)
+                                 | Mask(buttons, CanonicalButtons.LeftPadClick, Byte10LPadPress)
+                                 | Mask(buttons, CanonicalButtons.RearPaddle4, Byte10R5));
 
         destination[11] = Mask(buttons, CanonicalButtons.RightStick, Byte11R3);
 
         destination[13] = (byte)(Mask(buttons, CanonicalButtons.RightStickTouch, Byte13RStickTouch)
-            | Mask(buttons, CanonicalButtons.LeftStickTouch, Byte13LStickTouch)
-            | Mask(buttons, CanonicalButtons.RearPaddle2, Byte13R4)
-            | Mask(buttons, CanonicalButtons.RearPaddle1, Byte13L4));
+                                 | Mask(buttons, CanonicalButtons.LeftStickTouch, Byte13LStickTouch)
+                                 | Mask(buttons, CanonicalButtons.RearPaddle2, Byte13R4)
+                                 | Mask(buttons, CanonicalButtons.RearPaddle1, Byte13L4));
 
         destination[14] = Mask(buttons, CanonicalButtons.QuickAccess, Byte14QuickAccess);
 
@@ -189,31 +189,39 @@ internal static class SteamDeckNeptuneReport
             ScaledMotion(motion.GyroY, GyroCountsPerDegreePerSecond));
     }
 
-    private static byte Mask(CanonicalButtons buttons, CanonicalButtons flag, byte bit) =>
-        (buttons & flag) != 0 ? bit : (byte)0;
+    private static byte Mask(CanonicalButtons buttons, CanonicalButtons flag, byte bit)
+    {
+        return (buttons & flag) != 0 ? bit : (byte)0;
+    }
 
     /// <summary>Scales a 0..1 unit onto the wire's trigger/pressure range.</summary>
     /// <remarks>
-    /// The trigger and pressure fields are signed 16-bit on the wire (Valve's
-    /// <c>sTriggerRaw</c>/<c>sPressure</c> members; SDL3 doubles 0..32767 onto the full axis
-    /// range), so full travel is 32767. Scaling to 65535 made every pull past half travel read
-    /// as negative — Steam saw the trigger release mid-pull and press again on the way back,
-    /// which double-clicked and tore held drags loose in desktop mode (device-observed
-    /// 2026-09-02).
+    ///     The trigger and pressure fields are signed 16-bit on the wire (Valve's
+    ///     <c>sTriggerRaw</c>/<c>sPressure</c> members; SDL3 doubles 0..32767 onto the full axis
+    ///     range), so full travel is 32767. Scaling to 65535 made every pull past half travel read
+    ///     as negative — Steam saw the trigger release mid-pull and press again on the way back,
+    ///     which double-clicked and tore held drags loose in desktop mode (device-observed
+    ///     2026-09-02).
     /// </remarks>
-    private static ushort Trigger(float value) =>
-        (ushort)Math.Clamp(MathF.Round(value * short.MaxValue), 0, short.MaxValue);
+    private static ushort Trigger(float value)
+    {
+        return (ushort)Math.Clamp(MathF.Round(value * short.MaxValue), 0, short.MaxValue);
+    }
 
     /// <summary>Scales a canonical -1..1 axis onto the wire's signed range.</summary>
     /// <remarks>
-    /// The negative extreme is clamped one short of <see cref="short.MinValue"/>. SDL3's Deck driver
-    /// negates stick Y with a plain unary minus, so -32768 wraps back to itself and a fully
-    /// deflected stick reads as the opposite extreme; a real Deck's calibrated sticks never report
-    /// it either.
+    ///     The negative extreme is clamped one short of <see cref="short.MinValue" />. SDL3's Deck driver
+    ///     negates stick Y with a plain unary minus, so -32768 wraps back to itself and a fully
+    ///     deflected stick reads as the opposite extreme; a real Deck's calibrated sticks never report
+    ///     it either.
     /// </remarks>
-    private static short Axis(float value) =>
-        (short)Math.Clamp(MathF.Round(value * short.MaxValue), short.MinValue + 1, short.MaxValue);
+    private static short Axis(float value)
+    {
+        return (short)Math.Clamp(MathF.Round(value * short.MaxValue), short.MinValue + 1, short.MaxValue);
+    }
 
-    private static short ScaledMotion(float value, float scale) =>
-        (short)Math.Clamp(MathF.Round(value * scale), short.MinValue, short.MaxValue);
+    private static short ScaledMotion(float value, float scale)
+    {
+        return (short)Math.Clamp(MathF.Round(value * scale), short.MinValue, short.MaxValue);
+    }
 }

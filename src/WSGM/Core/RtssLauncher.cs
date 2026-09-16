@@ -7,30 +7,12 @@ using System.Threading.Tasks;
 namespace WSGM.Core;
 
 /// <summary>
-/// Starts the verified RTSS installation when WSGM needs it and it is not running — only ever the
-/// executable discovery verified, with a cooldown between attempts. The rationale is in
-/// <c>docs\rtss.md</c> ("WSGM starts RTSS").
+///     Starts the verified RTSS installation when WSGM needs it and it is not running — only ever the
+///     executable discovery verified, with a cooldown between attempts. The rationale is in
+///     <c>docs\rtss.md</c> ("WSGM starts RTSS").
 /// </summary>
 internal sealed class RtssLauncher
 {
-    /// <summary>How long to wait for a started RTSS to become visible to discovery.</summary>
-    /// <remarks>
-    /// RTSS takes a moment to create its shared memory and register its window. Returning before
-    /// that is indistinguishable from failing, and would make the next probe report NotRunning for
-    /// an RTSS that is simply still starting.
-    /// </remarks>
-    private static TimeSpan SettleTimeout { get; } = TimeSpan.FromSeconds(10);
-
-    /// <summary>Minimum gap between start attempts.</summary>
-    /// <remarks>
-    /// Not once per session: RTSS's own window has no close-to-tray, so one accidental X kills the
-    /// frame limit, the OSD and AutoTDP's frametimes for the rest of the session
-    /// (maintainer-reported 2026-09-02). Every attempt still fires only on a NotRunning probe — no
-    /// process exists — so a second copy is never started; the cooldown only keeps an RTSS that
-    /// exits immediately from being relaunched on every poll.
-    /// </remarks>
-    internal static TimeSpan RestartCooldown { get; } = TimeSpan.FromSeconds(30);
-
     private readonly Func<string, Task<bool>> _start;
     private readonly TimeProvider _timeProvider;
     private long _lastAttemptTicks = long.MinValue;
@@ -46,6 +28,24 @@ internal sealed class RtssLauncher
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
+    /// <summary>How long to wait for a started RTSS to become visible to discovery.</summary>
+    /// <remarks>
+    ///     RTSS takes a moment to create its shared memory and register its window. Returning before
+    ///     that is indistinguishable from failing, and would make the next probe report NotRunning for
+    ///     an RTSS that is simply still starting.
+    /// </remarks>
+    private static TimeSpan SettleTimeout { get; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>Minimum gap between start attempts.</summary>
+    /// <remarks>
+    ///     Not once per session: RTSS's own window has no close-to-tray, so one accidental X kills the
+    ///     frame limit, the OSD and AutoTDP's frametimes for the rest of the session
+    ///     (maintainer-reported 2026-09-02). Every attempt still fires only on a NotRunning probe — no
+    ///     process exists — so a second copy is never started; the cooldown only keeps an RTSS that
+    ///     exits immediately from being relaunched on every poll.
+    /// </remarks>
+    internal static TimeSpan RestartCooldown { get; } = TimeSpan.FromSeconds(30);
+
     /// <summary>Whether this session has already tried to start RTSS.</summary>
     internal bool Attempted => Volatile.Read(ref _lastAttemptTicks) != long.MinValue;
 
@@ -54,17 +54,17 @@ internal sealed class RtssLauncher
     /// <param name="enabled">Whether the user has performance control switched on.</param>
     /// <returns>Whether to start it.</returns>
     /// <remarks>
-    /// Deliberately only <see cref="RtssAvailability.NotRunning"/>. That state means discovery
-    /// already accepted the installation and found no process — the one case starting it fixes.
-    /// Not installed, incompatible and degraded are all states a launch cannot improve, and starting
-    /// a program because WSGM could not identify it would be exactly the wrong response.
+    ///     Deliberately only <see cref="RtssAvailability.NotRunning" />. That state means discovery
+    ///     already accepted the installation and found no process — the one case starting it fixes.
+    ///     Not installed, incompatible and degraded are all states a launch cannot improve, and starting
+    ///     a program because WSGM could not identify it would be exactly the wrong response.
     /// </remarks>
     internal static bool ShouldStart(RtssProbe probe, bool enabled)
     {
         ArgumentNullException.ThrowIfNull(probe);
         return enabled
-            && probe.Availability is RtssAvailability.NotRunning
-            && !string.IsNullOrWhiteSpace(probe.ExecutablePath);
+               && probe.Availability is RtssAvailability.NotRunning
+               && !string.IsNullOrWhiteSpace(probe.ExecutablePath);
     }
 
     /// <summary>Starts RTSS if this probe says it is needed, not running, and off cooldown.</summary>
@@ -129,9 +129,9 @@ internal sealed class RtssLauncher
     /// <param name="executable">The verified RTSS executable.</param>
     /// <returns>Whether the process was created.</returns>
     /// <remarks>
-    /// Started with its own install directory as the working directory, which is what RTSS's own
-    /// shortcut does; it loads plugins and profiles relative to it. <c>UseShellExecute</c> is false
-    /// so no window is created and WSGM does not hand it a shell verb.
+    ///     Started with its own install directory as the working directory, which is what RTSS's own
+    ///     shortcut does; it loads plugins and profiles relative to it. <c>UseShellExecute</c> is false
+    ///     so no window is created and WSGM does not hand it a shell verb.
     /// </remarks>
     private static Task<bool> StartDetachedAsync(string executable)
     {

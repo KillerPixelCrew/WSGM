@@ -13,23 +13,23 @@ internal readonly record struct ArcSyncState(
 );
 
 /// <summary>
-/// Variable refresh for the device's own panel, over Intel's Graphics Control Library.
+///     Variable refresh for the device's own panel, over Intel's Graphics Control Library.
 /// </summary>
 /// <remarks>
-/// The panel belongs to the device, so the transport that drives it belongs to the plugin. WSGM
-/// projects the capability and never learns that Intel answered — a device on another GPU vendor
-/// implements the same capability through whatever its driver offers.
-/// <para>
-/// Device-verified on the reference Claw 8 AI+ A2VM, 2026-08-30, unelevated: the panel reports
-/// supported across 30-120 Hz, a write to OFF and a restore of the saved parameter struct both
-/// succeed, and the read-back confirms each. The range collapsing to 120/120 under OFF is a second
-/// confirmation independent of the profile enum, which is why this capability can report a verified
-/// read-back rather than an applied-unverified one.
-/// </para>
-/// <para>
-/// <c>ControlLib.dll</c> ships with the Intel driver and is already in <c>System32</c>, so it is
-/// loaded by name and its absence simply means unsupported. Nothing here is vendored.
-/// </para>
+///     The panel belongs to the device, so the transport that drives it belongs to the plugin. WSGM
+///     projects the capability and never learns that Intel answered — a device on another GPU vendor
+///     implements the same capability through whatever its driver offers.
+///     <para>
+///         Device-verified on the reference Claw 8 AI+ A2VM, 2026-08-30, unelevated: the panel reports
+///         supported across 30-120 Hz, a write to OFF and a restore of the saved parameter struct both
+///         succeed, and the read-back confirms each. The range collapsing to 120/120 under OFF is a second
+///         confirmation independent of the profile enum, which is why this capability can report a verified
+///         read-back rather than an applied-unverified one.
+///     </para>
+///     <para>
+///         <c>ControlLib.dll</c> ships with the Intel driver and is already in <c>System32</c>, so it is
+///         loaded by name and its absence simply means unsupported. Nothing here is vendored.
+///     </para>
 /// </remarks>
 internal sealed unsafe class ArcSyncTransport : IDisposable
 {
@@ -50,45 +50,70 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
 
     private const int MaxDevices = 8;
     private const int MaxOutputs = 16;
+    private nint _api;
+    private delegate* unmanaged[Cdecl]<nint, int> _close;
+    private bool _disposed;
+    private delegate* unmanaged[Cdecl]<nint, uint*, nint*, int> _enumerateDevices;
+    private delegate* unmanaged[Cdecl]<nint, uint*, nint*, int> _enumerateOutputs;
+    private delegate* unmanaged[Cdecl]<nint, ArcSyncProfileParams*, int> _getProfile;
+
+    private delegate* unmanaged[Cdecl]<CtlInitArgs*, nint*, int> _init;
 
     private nint _library;
-    private nint _api;
+    private delegate* unmanaged[Cdecl]<nint, ArcSyncMonitorParams*, int> _monitorInfo;
     private nint _panel;
     private ArcSyncProfileParams _saved;
     private bool _savedValid;
-    private bool _disposed;
-
-    private delegate* unmanaged[Cdecl]<CtlInitArgs*, nint*, int> _init;
-    private delegate* unmanaged[Cdecl]<nint, int> _close;
-    private delegate* unmanaged[Cdecl]<nint, uint*, nint*, int> _enumerateDevices;
-    private delegate* unmanaged[Cdecl]<nint, uint*, nint*, int> _enumerateOutputs;
-    private delegate* unmanaged[Cdecl]<nint, ArcSyncMonitorParams*, int> _monitorInfo;
-    private delegate* unmanaged[Cdecl]<nint, ArcSyncProfileParams*, int> _getProfile;
     private delegate* unmanaged[Cdecl]<nint, ArcSyncProfileParams*, int> _setProfile;
 
     /// <summary>Whether a variable-refresh capable panel was found and is usable.</summary>
     public bool IsAvailable => _panel != 0;
 
     /// <summary>
-    /// Sizes of the three structures IGCL validates against, for a layout regression test.
+    ///     Sizes of the three structures IGCL validates against, for a layout regression test.
     /// </summary>
     /// <remarks>
-    /// Every IGCL call carries the caller's own <c>sizeof</c> in a <c>Size</c> field and the driver
-    /// refuses a mismatch. That refusal is indistinguishable from "this machine has no variable
-    /// refresh", so a layout drift would silently remove the feature instead of failing loudly.
-    /// Pinning the numbers is the only cheap way to notice.
+    ///     Every IGCL call carries the caller's own <c>sizeof</c> in a <c>Size</c> field and the driver
+    ///     refuses a mismatch. That refusal is indistinguishable from "this machine has no variable
+    ///     refresh", so a layout drift would silently remove the feature instead of failing loudly.
+    ///     Pinning the numbers is the only cheap way to notice.
     /// </remarks>
     internal static (int Init, int Monitor, int Profile) NativeStructureSizes =>
         (sizeof(CtlInitArgs), sizeof(ArcSyncMonitorParams), sizeof(ArcSyncProfileParams));
 
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        if (_api != 0 && _close is not null)
+        {
+            _ = _close(_api);
+            _api = 0;
+        }
+
+        _panel = 0;
+        if (_library == 0)
+        {
+            return;
+        }
+
+        NativeLibrary.Free(_library);
+        _library = 0;
+    }
+
     /// <summary>
-    /// Loads the library, initialises IGCL, and selects the attached panel.
+    ///     Loads the library, initialises IGCL, and selects the attached panel.
     /// </summary>
-    /// <returns><see langword="true"/> when a variable-refresh capable panel was found.</returns>
+    /// <returns><see langword="true" /> when a variable-refresh capable panel was found.</returns>
     /// <remarks>
-    /// Every failure is traced with what was actually observed, because "no variable refresh row
-    /// appeared" is otherwise indistinguishable from "the driver refused" and from "this machine has
-    /// no Intel GPU".
+    ///     Every failure is traced with what was actually observed, because "no variable refresh row
+    ///     appeared" is otherwise indistinguishable from "the driver refused" and from "this machine has
+    ///     no Intel GPU".
     /// </remarks>
     public bool TryOpen()
     {
@@ -120,7 +145,7 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
     }
 
     /// <summary>
-    /// Reads the panel's current variable-refresh state.
+    ///     Reads the panel's current variable-refresh state.
     /// </summary>
     /// <returns>The state, or null when it cannot be read.</returns>
     public ArcSyncState? Read()
@@ -154,14 +179,14 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
     }
 
     /// <summary>
-    /// Turns variable refresh on or off.
+    ///     Turns variable refresh on or off.
     /// </summary>
     /// <param name="enabled">Whether variable refresh should be active.</param>
-    /// <returns><see langword="true"/> when the panel reports the requested state afterwards.</returns>
+    /// <returns><see langword="true" /> when the panel reports the requested state afterwards.</returns>
     /// <remarks>
-    /// Enabling restores the profile captured at cycle start when there is one, so a user who had
-    /// chosen EXCELLENT does not silently end up on RECOMMENDED after a toggle. Only when nothing
-    /// was captured does it fall back to the driver's own default.
+    ///     Enabling restores the profile captured at cycle start when there is one, so a user who had
+    ///     chosen EXCELLENT does not silently end up on RECOMMENDED after a toggle. Only when nothing
+    ///     was captured does it fall back to the driver's own default.
     /// </remarks>
     public bool TryWrite(bool enabled)
     {
@@ -218,13 +243,13 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
     }
 
     /// <summary>
-    /// Writes back the profile captured when the cycle started.
+    ///     Writes back the profile captured when the cycle started.
     /// </summary>
-    /// <returns><see langword="true"/> when the saved profile was restored or none was captured.</returns>
+    /// <returns><see langword="true" /> when the saved profile was restored or none was captured.</returns>
     /// <remarks>
-    /// The saved parameter struct is written back verbatim rather than reconstructed, so a custom
-    /// profile with its own refresh bounds and frame-time limits returns exactly as it was rather
-    /// than collapsing to whichever named profile looks closest.
+    ///     The saved parameter struct is written back verbatim rather than reconstructed, so a custom
+    ///     profile with its own refresh bounds and frame-time limits returns exactly as it was rather
+    ///     than collapsing to whichever named profile looks closest.
     /// </remarks>
     public bool TryRestore()
     {
@@ -234,31 +259,6 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
         }
 
         return TryRestoreProfile(_saved, "cycle restore");
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        if (_api != 0 && _close is not null)
-        {
-            _ = _close(_api);
-            _api = 0;
-        }
-
-        _panel = 0;
-        if (_library == 0)
-        {
-            return;
-        }
-
-        NativeLibrary.Free(_library);
-        _library = 0;
     }
 
     private bool TryBind()
@@ -298,14 +298,14 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
     }
 
     /// <remarks>
-    /// Both enumerations are two-call: the count is asked for with a null buffer and only then
-    /// fetched. Passing a buffer straight away returns nothing, which cost real time to find.
-    /// <para>
-    /// The panel is chosen by which output answers rather than by index, because every unattached
-    /// connector answers <c>CTL_RESULT_ERROR_KMD_CALL</c> — the reference unit enumerates twelve
-    /// outputs of which one is real. An external display when docked is a different output, so this
-    /// deliberately selects the first output that both answers and reports support.
-    /// </para>
+    ///     Both enumerations are two-call: the count is asked for with a null buffer and only then
+    ///     fetched. Passing a buffer straight away returns nothing, which cost real time to find.
+    ///     <para>
+    ///         The panel is chosen by which output answers rather than by index, because every unattached
+    ///         connector answers <c>CTL_RESULT_ERROR_KMD_CALL</c> — the reference unit enumerates twelve
+    ///         outputs of which one is real. An external display when docked is a different output, so this
+    ///         deliberately selects the first output that both answers and reports support.
+    ///     </para>
     /// </remarks>
     private bool TrySelectPanel()
     {
@@ -419,13 +419,15 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
         return true;
     }
 
-    private static bool ProfilesEqual(ArcSyncProfileParams left, ArcSyncProfileParams right) =>
-        left.Version == right.Version
-        && left.Profile == right.Profile
-        && BitConverter.SingleToInt32Bits(left.MaximumHz) == BitConverter.SingleToInt32Bits(right.MaximumHz)
-        && BitConverter.SingleToInt32Bits(left.MinimumHz) == BitConverter.SingleToInt32Bits(right.MinimumHz)
-        && left.MaxFrameTimeIncreaseUs == right.MaxFrameTimeIncreaseUs
-        && left.MaxFrameTimeDecreaseUs == right.MaxFrameTimeDecreaseUs;
+    private static bool ProfilesEqual(ArcSyncProfileParams left, ArcSyncProfileParams right)
+    {
+        return left.Version == right.Version
+               && left.Profile == right.Profile
+               && BitConverter.SingleToInt32Bits(left.MaximumHz) == BitConverter.SingleToInt32Bits(right.MaximumHz)
+               && BitConverter.SingleToInt32Bits(left.MinimumHz) == BitConverter.SingleToInt32Bits(right.MinimumHz)
+               && left.MaxFrameTimeIncreaseUs == right.MaxFrameTimeIncreaseUs
+               && left.MaxFrameTimeDecreaseUs == right.MaxFrameTimeDecreaseUs;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct CtlInitArgs
@@ -446,6 +448,7 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
 
         /// <summary>One byte in C, so a managed <c>bool</c> here would be four and shift the floats.</summary>
         public byte IsSupported;
+
         public float MinimumHz;
         public float MaximumHz;
         public uint MaxFrameTimeIncreaseUs;

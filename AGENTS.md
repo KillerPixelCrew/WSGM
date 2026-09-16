@@ -75,11 +75,13 @@ when the guidance conflicts.
   concise language. Avoid canned AI phrasing, filler, and em dashes.
 - Prefer the smallest direct design that preserves established behavior. Remove dead paths instead
   of keeping speculative abstractions.
-- C# follows the JetBrains recommended style that Qodana checks (`qodana.yaml`): `var` for
-  locals, no trailing commas in multiline lists, and explicit types on `new` when the target type
-  is not evident. WSGM.slnx.DotSettings holds the shared "WSGM Style" cleanup profile, which
-  applies those rules without JetBrains layout formatting; `dotnet format` stays the whitespace
-  authority. Keep named arguments on literal values.
+- Rider's formatter is the C# layout authority. Its Full Cleanup profile (the same ReSharper
+  engine that `jb cleanupcode`, `jb inspectcode` and Qodana run) defines the layout, including
+  expanded braces and the JetBrains recommended style: `var` for locals, no trailing commas in
+  multiline lists, explicit types on `new` when the target type is not evident. eng/verify.ps1
+  runs that cleanup over src and tests and fails on any diff; `-Fix` applies it. `dotnet format`
+  keeps only its style and analyzer passes, and Roslyn's IDE0055 is off. WSGM.slnx.DotSettings
+  carries the shared inspection overrides; keep named arguments on literal values.
 - Keep nullable analysis, build-time code-style checks, and public XML documentation clean. Avoid
   blocking the UI thread; make ownership, cancellation, and disposal explicit for long-lived work.
 - UI-observable state belongs on the Avalonia dispatcher. High-rate input and telemetry paths must

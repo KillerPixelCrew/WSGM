@@ -6,32 +6,34 @@ using WSGM.Core;
 namespace WSGM.Shell;
 
 /// <summary>
-/// Projects the one canonical Steam running-application identity into every per-application
-/// consumer: the shared RTSS service and the managed controller target. Rapid transitions coalesce
-/// to the latest identity and never retain an executable after Steam reports exit, ambiguity, or
-/// loss of observation.
+///     Projects the one canonical Steam running-application identity into every per-application
+///     consumer: the shared RTSS service and the managed controller target. Rapid transitions coalesce
+///     to the latest identity and never retain an executable after Steam reports exit, ambiguity, or
+///     loss of observation.
 /// </summary>
 /// <remarks>
-/// One monitor and one projection for both consumers on purpose. A second observer would poll the
-/// live Steam client again over CEF and could resolve a different application than the one the RTSS
-/// profile was chosen for, so the controller target and the performance profile could disagree about
-/// what is running.
+///     One monitor and one projection for both consumers on purpose. A second observer would poll the
+///     live Steam client again over CEF and could resolve a different application than the one the RTSS
+///     profile was chosen for, so the controller target and the performance profile could disagree about
+///     what is running.
 /// </remarks>
 internal sealed class RunningApplicationCoordinator : IAsyncDisposable
 {
+    private readonly Lock _gate = new();
     private readonly IRunningApplicationTargetSource _monitor;
-    private readonly Func<PerformanceApplicationTarget?, CancellationToken, Task> _setTargetAsync;
+
     private readonly Func<RunningApplicationTargetSnapshot, CancellationToken, Task>?
         _setControllerTargetAsync;
+
+    private readonly Func<PerformanceApplicationTarget?, CancellationToken, Task> _setTargetAsync;
     private readonly CancellationTokenSource _shutdown = new();
-    private readonly Lock _gate = new();
+    private CancellationTokenSource? _activeApply;
+    private bool _disposed;
+    private long _latestGeneration = -1;
     private IDisposable? _observation;
     private RunningApplicationTargetSnapshot? _pending;
     private Task _worker = Task.CompletedTask;
-    private CancellationTokenSource? _activeApply;
-    private long _latestGeneration = -1;
     private bool _workerRunning;
-    private bool _disposed;
 
     internal RunningApplicationCoordinator(
         IRunningApplicationTargetSource monitor,
@@ -126,20 +128,27 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
 
     internal static PerformanceApplicationTarget? Project(
         RunningApplicationTargetSnapshot snapshot)
-        => snapshot.State is RunningApplicationTargetState.Active
-                or RunningApplicationTargetState.IdentityOnly
-            && snapshot.ApplicationId is { Length: > 0 } applicationId
-                ? new PerformanceApplicationTarget(
-                    applicationId,
-                    snapshot.SteamAppId,
-                    snapshot.RtssProfileName)
-                : null;
+    {
+        return snapshot.State is RunningApplicationTargetState.Active
+                   or RunningApplicationTargetState.IdentityOnly
+               && snapshot.ApplicationId is { Length: > 0 } applicationId
+            ? new PerformanceApplicationTarget(
+                applicationId,
+                snapshot.SteamAppId,
+                snapshot.RtssProfileName)
+            : null;
+    }
 
     /// <summary>Whether a delivered snapshot predates the newest one already accepted.</summary>
-    internal static bool IsOlder(long latestGeneration, RunningApplicationTargetSnapshot snapshot) =>
-        snapshot.Generation < latestGeneration;
+    internal static bool IsOlder(long latestGeneration, RunningApplicationTargetSnapshot snapshot)
+    {
+        return snapshot.Generation < latestGeneration;
+    }
 
-    private void OnTargetChanged(RunningApplicationTargetSnapshot snapshot) => Queue(snapshot);
+    private void OnTargetChanged(RunningApplicationTargetSnapshot snapshot)
+    {
+        Queue(snapshot);
+    }
 
     private void Queue(RunningApplicationTargetSnapshot snapshot)
     {
@@ -176,13 +185,13 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
     }
 
     /// <summary>
-    /// Starts controller and power reconciliation only while this snapshot is still current.
+    ///     Starts controller and power reconciliation only while this snapshot is still current.
     /// </summary>
     /// <remarks>
-    /// The check and delegate invocation share the queue gate. This gives queueing, disposal, and
-    /// controller dispatch one ordering point instead of leaving a race between a separate
-    /// supersession check and the call. The delegate's later async work carries the per-snapshot
-    /// cancellation token and is retired as soon as a newer snapshot is queued.
+    ///     The check and delegate invocation share the queue gate. This gives queueing, disposal, and
+    ///     controller dispatch one ordering point instead of leaving a race between a separate
+    ///     supersession check and the call. The delegate's later async work carries the per-snapshot
+    ///     cancellation token and is retired as soon as a newer snapshot is queued.
     /// </remarks>
     private Task? StartControllerApply(
         RunningApplicationTargetSnapshot snapshot,
@@ -269,6 +278,7 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
                         _activeApply = null;
                     }
                 }
+
                 applyCancellation.Dispose();
             }
         }

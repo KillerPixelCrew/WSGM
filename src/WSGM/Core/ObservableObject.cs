@@ -11,7 +11,10 @@ public abstract class ObservableObject : INotifyPropertyChanged
 
     /// <summary>Tells bindings that a property changed.</summary>
     /// <param name="name">The property name.</param>
-    protected void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    protected void Raise(string name)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
 
     /// <summary>Stores a value and raises its change, even when the value is the same.</summary>
     /// <typeparam name="T">The field type.</typeparam>

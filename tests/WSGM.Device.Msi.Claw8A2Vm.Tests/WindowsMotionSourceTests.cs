@@ -50,12 +50,18 @@ public sealed class WindowsMotionSourceTests
     }
 
     [Theory]
-    [InlineData("Physical Accelerometer", "Physical Accelerometer", "e83af229-8640-4d18-a213-e22675ebb2c3", "HID#VID_8087&PID_0AC2", true)]
-    [InlineData("Physical Gyrometer", "Physical Gyrometer", "e83af229-8640-4d18-a213-e22675ebb2c3", "HID#VID_8087&PID_0AC2", true)]
-    [InlineData("Calibrated Accelerometer", "Physical Accelerometer", "e83af229-8640-4d18-a213-e22675ebb2c3", "HID#VID_8087&PID_0AC2", false)]
-    [InlineData("Physical Gyrometer", "Physical Accelerometer", "e83af229-8640-4d18-a213-e22675ebb2c3", "HID#VID_8087&PID_0AC2", false)]
-    [InlineData("Physical Accelerometer", "Physical Accelerometer", "c2fb0f5f-e2d2-4c78-bcd0-352a9582819d", "HID#VID_8087&PID_0AC2", false)]
-    [InlineData("Physical Accelerometer", "Physical Accelerometer", "e83af229-8640-4d18-a213-e22675ebb2c3", "HID#VID_1234&PID_5678", false)]
+    [InlineData("Physical Accelerometer", "Physical Accelerometer", "e83af229-8640-4d18-a213-e22675ebb2c3",
+        "HID#VID_8087&PID_0AC2", true)]
+    [InlineData("Physical Gyrometer", "Physical Gyrometer", "e83af229-8640-4d18-a213-e22675ebb2c3",
+        "HID#VID_8087&PID_0AC2", true)]
+    [InlineData("Calibrated Accelerometer", "Physical Accelerometer", "e83af229-8640-4d18-a213-e22675ebb2c3",
+        "HID#VID_8087&PID_0AC2", false)]
+    [InlineData("Physical Gyrometer", "Physical Accelerometer", "e83af229-8640-4d18-a213-e22675ebb2c3",
+        "HID#VID_8087&PID_0AC2", false)]
+    [InlineData("Physical Accelerometer", "Physical Accelerometer", "c2fb0f5f-e2d2-4c78-bcd0-352a9582819d",
+        "HID#VID_8087&PID_0AC2", false)]
+    [InlineData("Physical Accelerometer", "Physical Accelerometer", "e83af229-8640-4d18-a213-e22675ebb2c3",
+        "HID#VID_1234&PID_5678", false)]
     public void OnlyTheReviewedCustomIntelCollectionMatches(
         string name,
         string expectedName,
@@ -101,8 +107,8 @@ public sealed class WindowsMotionSourceTests
         await source.DisposeAsync();
         await source.DisposeAsync();
         Assert.Equal(1, sensors.Disposals);
-        await Assert.ThrowsAsync<ObjectDisposedException>(
-            () => source.StartAsync(_ => ValueTask.CompletedTask, CancellationToken.None).AsTask());
+        await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+            source.StartAsync(_ => ValueTask.CompletedTask, CancellationToken.None).AsTask());
     }
 
     [Fact]
@@ -148,6 +154,9 @@ public sealed class WindowsMotionSourceTests
     {
         public int Disposals { get; private set; }
 
-        public void Dispose() => Disposals++;
+        public void Dispose()
+        {
+            Disposals++;
+        }
     }
 }

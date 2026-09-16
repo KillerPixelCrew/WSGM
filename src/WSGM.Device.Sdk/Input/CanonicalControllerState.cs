@@ -4,14 +4,14 @@ using System.Text.Json.Serialization;
 namespace WSGM.Device.Sdk.Input;
 
 /// <summary>
-/// Every button a handheld may physically have.
+///     Every button a handheld may physically have.
 /// </summary>
 /// <remarks>
-/// The canonical state represents the richest supported handheld without assuming a virtual target.
-/// A target consumes only what it genuinely supports: the Steam Deck composite takes rear paddles and
-/// native motion, Xbox 360 takes neither, and nothing is synthesized to fill the gap. Gyro is passed
-/// through where the target supports motion and simply absent where it does not — it is never
-/// converted into stick or mouse movement, which is the line between calibration and remapping.
+///     The canonical state represents the richest supported handheld without assuming a virtual target.
+///     A target consumes only what it genuinely supports: the Steam Deck composite takes rear paddles and
+///     native motion, Xbox 360 takes neither, and nothing is synthesized to fill the gap. Gyro is passed
+///     through where the target supports motion and simply absent where it does not — it is never
+///     converted into stick or mouse movement, which is the line between calibration and remapping.
 /// </remarks>
 [Flags]
 public enum CanonicalButtons : uint
@@ -99,7 +99,7 @@ public enum CanonicalButtons : uint
 }
 
 /// <summary>
-/// How much a controller sample can be trusted.
+///     How much a controller sample can be trusted.
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<SampleQuality>))]
 public enum SampleQuality
@@ -108,51 +108,51 @@ public enum SampleQuality
     Good,
 
     /// <summary>
-    /// Reports were lost between this sample and the previous one.
+    ///     Reports were lost between this sample and the previous one.
     /// </summary>
     /// <remarks>
-    /// Surfaced rather than hidden because a consumer deriving edges from full states needs to know
-    /// its edge detection may have missed a press-and-release entirely.
+    ///     Surfaced rather than hidden because a consumer deriving edges from full states needs to know
+    ///     its edge detection may have missed a press-and-release entirely.
     /// </remarks>
     ReportLoss,
 
     /// <summary>
-    /// The stream restarted, so no relationship to the previous sample can be assumed.
+    ///     The stream restarted, so no relationship to the previous sample can be assumed.
     /// </summary>
     Discontinuity,
 
     /// <summary>
-    /// The first sample after acquisition, which some devices deliver uninitialized.
+    ///     The first sample after acquisition, which some devices deliver uninitialized.
     /// </summary>
     /// <remarks>
-    /// A real observed failure mode, not defensive noise: the reference controller can return a
-    /// corrupt first state with every axis at its extreme, which would read as a fully deflected
-    /// stick if it were forwarded.
+    ///     A real observed failure mode, not defensive noise: the reference controller can return a
+    ///     corrupt first state with every axis at its extreme, which would read as a fully deflected
+    ///     stick if it were forwarded.
     /// </remarks>
     FirstSampleUnreliable
 }
 
 /// <summary>
-/// One complete sample of the physical controller, normalized by the plugin.
+///     One complete sample of the physical controller, normalized by the plugin.
 /// </summary>
 /// <remarks>
-/// Full state rather than deltas: a dropped delta leaves a control stuck forever, while a dropped
-/// full state is corrected by the next one. Axes are normalized so no consumer needs to know the
-/// device's raw ranges, centres, or inversions — that translation is the plugin's, and it is the
-/// only place that knows them.
-/// <para>
-/// <b>This model is deliberately complete rather than minimal.</b> It defines every control the
-/// virtual targets WSGM presents can express — Steam Deck Composite, Xbox 360, and DualShock 4 —
-/// even where no plugin reports one yet. That is the opposite of the usual rule for this SDK, and
-/// the reason is the API version: it is an exact integer match across WSGM, Device Lab,
-/// and every installed plugin, so adding one control later is a breaking rebuild for every plugin
-/// that exists. The target set is fixed and its control surface is knowable today, so the contract
-/// is settled once here instead of a button at a time.
-/// </para>
-/// <para>
-/// A plugin reports only what its hardware has and leaves the rest alone; a target renders only what
-/// it can represent, dropping the rest rather than remapping it. Neither side invents a control.
-/// </para>
+///     Full state rather than deltas: a dropped delta leaves a control stuck forever, while a dropped
+///     full state is corrected by the next one. Axes are normalized so no consumer needs to know the
+///     device's raw ranges, centres, or inversions — that translation is the plugin's, and it is the
+///     only place that knows them.
+///     <para>
+///         <b>This model is deliberately complete rather than minimal.</b> It defines every control the
+///         virtual targets WSGM presents can express — Steam Deck Composite, Xbox 360, and DualShock 4 —
+///         even where no plugin reports one yet. That is the opposite of the usual rule for this SDK, and
+///         the reason is the API version: it is an exact integer match across WSGM, Device Lab,
+///         and every installed plugin, so adding one control later is a breaking rebuild for every plugin
+///         that exists. The target set is fixed and its control surface is knowable today, so the contract
+///         is settled once here instead of a button at a time.
+///     </para>
+///     <para>
+///         A plugin reports only what its hardware has and leaves the rest alone; a target renders only what
+///         it can represent, dropping the rest rather than remapping it. Neither side invents a control.
+///     </para>
 /// </remarks>
 public sealed record CanonicalControllerSample
 {
@@ -188,11 +188,11 @@ public sealed record CanonicalControllerSample
 
     /// <summary>Left touch contact position on the horizontal axis, from -1 to 1.</summary>
     /// <remarks>
-    /// The touch surface is expressed as two independent contacts, left and right, because that
-    /// covers both shapes WSGM's virtual targets present: the Steam Deck's two separate trackpads
-    /// map one contact each, and the DualShock 4's single two-finger touchpad maps its first finger
-    /// to the left contact and its second to the right. A device with neither leaves these zero and
-    /// never reports a touch.
+    ///     The touch surface is expressed as two independent contacts, left and right, because that
+    ///     covers both shapes WSGM's virtual targets present: the Steam Deck's two separate trackpads
+    ///     map one contact each, and the DualShock 4's single two-finger touchpad maps its first finger
+    ///     to the left contact and its second to the right. A device with neither leaves these zero and
+    ///     never reports a touch.
     /// </remarks>
     public float LeftPadX { get; init; }
 
@@ -224,12 +224,12 @@ public sealed record CanonicalControllerSample
     public SampleQuality Quality { get; init; } = SampleQuality.Good;
 
     /// <summary>
-    /// The neutral sample: nothing held, every axis centred.
+    ///     The neutral sample: nothing held, every axis centred.
     /// </summary>
     /// <remarks>
-    /// Published to the virtual target whenever forwarding stops — UI capture, target removal, game
-    /// exit, suspend, disconnect, plugin disable, or fault. Without it the last forwarded state stays
-    /// latched and the game keeps seeing a held control.
+    ///     Published to the virtual target whenever forwarding stops — UI capture, target removal, game
+    ///     exit, suspend, disconnect, plugin disable, or fault. Without it the last forwarded state stays
+    ///     latched and the game keeps seeing a held control.
     /// </remarks>
     /// <param name="sequence">Sequence number to stamp on the neutral sample.</param>
     /// <param name="cycleGeneration">Device generation to stamp on the neutral sample.</param>
@@ -238,21 +238,24 @@ public sealed record CanonicalControllerSample
     public static CanonicalControllerSample Neutral(
         long sequence,
         long cycleGeneration,
-        DateTimeOffset timestamp) => new()
+        DateTimeOffset timestamp)
+    {
+        return new CanonicalControllerSample
         {
             Sequence = sequence,
             CycleGeneration = cycleGeneration,
             Timestamp = timestamp
         };
+    }
 }
 
 /// <summary>
-/// One motion sample.
+///     One motion sample.
 /// </summary>
 /// <remarks>
-/// Gyroscope and accelerometer are separate and optional because a device may have one without the
-/// other, or its operating-system sensor stack may project only one of them. Synthesizing a missing
-/// sensor would invent data.
+///     Gyroscope and accelerometer are separate and optional because a device may have one without the
+///     other, or its operating-system sensor stack may project only one of them. Synthesizing a missing
+///     sensor would invent data.
 /// </remarks>
 public sealed record MotionSample
 {

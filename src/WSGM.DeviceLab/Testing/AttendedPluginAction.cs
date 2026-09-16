@@ -25,9 +25,9 @@ internal enum AttendedPluginActionKind
     ControllerManagement,
 
     /// <summary>
-    /// Interactive motor calibration: descending haptic sweeps stepped by the device's own A
-    /// button, with B marking the perception boundary, producing the measured
-    /// <c>MinimumStartIntensity</c> and <c>MinimumPulse</c> for the plugin's haptic capabilities.
+    ///     Interactive motor calibration: descending haptic sweeps stepped by the device's own A
+    ///     button, with B marking the perception boundary, producing the measured
+    ///     <c>MinimumStartIntensity</c> and <c>MinimumPulse</c> for the plugin's haptic capabilities.
     /// </summary>
     HapticSweep
 }
@@ -38,7 +38,7 @@ internal sealed record AttendedPluginActionRequest
     /// <summary>Selected compiled action.</summary>
     public required AttendedPluginActionKind Kind { get; init; }
 
-    /// <summary>Exact semantic capability ID for <see cref="AttendedPluginActionKind.CapabilityValue"/>.</summary>
+    /// <summary>Exact semantic capability ID for <see cref="AttendedPluginActionKind.CapabilityValue" />.</summary>
     public string? CapabilityId { get; init; }
 
     /// <summary>Optional exact capability, controller-source, or haptic-sink instance discriminator.</summary>
@@ -105,7 +105,7 @@ internal sealed record AttendedPluginActionReport
     /// <summary>Whether the changed value or controller topology was restored and verified.</summary>
     public required bool RestorationVerified { get; init; }
 
-    /// <summary>Measured sweep boundaries for <see cref="AttendedPluginActionKind.HapticSweep"/>.</summary>
+    /// <summary>Measured sweep boundaries for <see cref="AttendedPluginActionKind.HapticSweep" />.</summary>
     public AttendedHapticSweepReport? HapticSweep { get; init; }
 
     /// <summary>Failure detail when the action or mandatory restoration was not verified.</summary>
@@ -114,9 +114,9 @@ internal sealed record AttendedPluginActionReport
 
 /// <summary>Perception boundaries measured by the attended haptic sweep.</summary>
 /// <remarks>
-/// Each boundary is the last value the operator confirmed feeling before pressing B; a null
-/// boundary means the operator felt every step, so the true boundary lies below the sweep floor
-/// and the smallest swept value is the honest declaration.
+///     Each boundary is the last value the operator confirmed feeling before pressing B; a null
+///     boundary means the operator felt every step, so the true boundary lies below the sweep floor
+///     and the smallest swept value is the honest declaration.
 /// </remarks>
 internal sealed record AttendedHapticSweepReport
 {
@@ -136,6 +136,9 @@ internal sealed record AttendedHapticSweepReport
 /// <summary>Executes the three explicit semantic actions available behind Device Lab's attended gate.</summary>
 internal static class AttendedPluginActionRunner
 {
+    /// <summary>Tick length used while sweeping the event floor.</summary>
+    private const int TickPulseMilliseconds = 30;
+
     private static readonly TimeSpan ActionBudget = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan HapticPulseDuration = TimeSpan.FromMilliseconds(250);
 
@@ -143,17 +146,17 @@ internal static class AttendedPluginActionRunner
     private static readonly TimeSpan SweepBudget = TimeSpan.FromMinutes(5);
 
     /// <summary>Descending drive levels swept by the strength phases, on the 0..1 output scale.</summary>
-    private static readonly float[] SweepLevels = [.. new[]
-    {
-        255, 224, 192, 160, 128, 112, 96, 80, 64, 56, 48, 40, 32, 24, 16, 8
-    }.Select(static level => level / 255f)];
+    private static readonly float[] SweepLevels =
+    [
+        .. new[]
+        {
+            255, 224, 192, 160, 128, 112, 96, 80, 64, 56, 48, 40, 32, 24, 16, 8
+        }.Select(static level => level / 255f)
+    ];
 
     /// <summary>Descending pulse lengths swept at full strength by the duration phase.</summary>
     private static readonly int[] SweepPulseMilliseconds =
         [200, 150, 120, 90, 70, 55, 45, 35, 28, 22, 17, 13, 10, 7, 5];
-
-    /// <summary>Tick length used while sweeping the event floor.</summary>
-    private const int TickPulseMilliseconds = 30;
 
     /// <summary>Executes one selected action and its action-specific verified restoration.</summary>
     /// <param name="plugin">Already-started exact-device plugin.</param>
@@ -203,7 +206,7 @@ internal static class AttendedPluginActionRunner
         CancellationToken cancellationToken)
     {
         if (!TrySelectCapability(host, request, out var descriptorSet,
-            out var descriptor, out var state, out var selectionError))
+                out var descriptor, out var state, out var selectionError))
         {
             return Failed(request.Kind, selectionError!);
         }
@@ -212,7 +215,7 @@ internal static class AttendedPluginActionRunner
         var selectedDescriptor = descriptor!;
         var selectedState = state!;
         if (!TryParseValue(selectedDescriptor, request.ValueText, out var requested,
-            out var parseError))
+                out var parseError))
         {
             return Failed(
                 request.Kind,
@@ -313,9 +316,9 @@ internal static class AttendedPluginActionRunner
         {
             Kind = request.Kind,
             Passed = originalVerified
-                && applyVerified
-                && restorationVerified
-                && error is null,
+                     && applyVerified
+                     && restorationVerified
+                     && error is null,
             CapabilityId = selectedDescriptor.CapabilityId,
             InstanceId = selectedDescriptor.InstanceId,
             OriginalValue = original,
@@ -340,8 +343,8 @@ internal static class AttendedPluginActionRunner
             ? CapabilityRole.HapticSink
             : CapabilityRole.ControllerSource;
         if (!TrySelectRole(host, requiredRole, request.InstanceId,
-            out var descriptorSet,
-            out var descriptor, out var selectionError))
+                out var descriptorSet,
+                out var descriptor, out var selectionError))
         {
             return Failed(kind, selectionError!);
         }
@@ -367,7 +370,7 @@ internal static class AttendedPluginActionRunner
             requiredRole,
             controllerGeneration,
             ActionBudget,
-            stopHaptics: isPulse,
+            isPulse,
             ActionLabel(kind),
             isPulse
                 ? async () =>
@@ -383,7 +386,7 @@ internal static class AttendedPluginActionRunner
                     pulseSent = true;
                     await Task.Delay(HapticPulseDuration, cancellationToken).ConfigureAwait(false);
                 }
-        : null,
+                : null,
             cancellationToken).ConfigureAwait(false);
 
         var actionPassed = run is { ManagementEnabled: true, AvailabilityObserved: true };
@@ -449,7 +452,7 @@ internal static class AttendedPluginActionRunner
             managementAttempted = true;
             await plugin.SetControllerManagementAsync(
                 new PluginControllerManagementContext(
-                    Enabled: true,
+                    true,
                     controllerGeneration,
                     DateTimeOffset.UtcNow + managementBudget),
                 cancellationToken).ConfigureAwait(false);
@@ -526,15 +529,6 @@ internal static class AttendedPluginActionRunner
             error);
     }
 
-    private readonly record struct ManagedControllerRun(
-        bool ManagementEnabled,
-        bool AvailabilityObserved,
-        bool StopAttempted,
-        bool StopSent,
-        PluginControllerRelease? Release,
-        bool RestorationVerified,
-        string? Error);
-
     private static bool TrySelectCapability(
         TestPluginHostAdapter host,
         AttendedPluginActionRequest request,
@@ -559,10 +553,13 @@ internal static class AttendedPluginActionRunner
             return false;
         }
 
-        CapabilityDescriptor[] matches = [.. descriptorSet.Descriptors.Where(candidate =>
-            string.Equals(candidate.CapabilityId, request.CapabilityId, StringComparison.Ordinal)
-            && (request.InstanceId is null
-                || string.Equals(candidate.InstanceId, request.InstanceId, StringComparison.Ordinal)))];
+        CapabilityDescriptor[] matches =
+        [
+            .. descriptorSet.Descriptors.Where(candidate =>
+                string.Equals(candidate.CapabilityId, request.CapabilityId, StringComparison.Ordinal)
+                && (request.InstanceId is null
+                    || string.Equals(candidate.InstanceId, request.InstanceId, StringComparison.Ordinal)))
+        ];
         if (matches.Length == 0)
         {
             error = "The selected capability or instance is not present in the latest descriptor set.";
@@ -578,7 +575,7 @@ internal static class AttendedPluginActionRunner
         var selectedDescriptor = matches[0];
         descriptor = selectedDescriptor;
         if (!selectedDescriptor.SupportsRead || !selectedDescriptor.SupportsWrite
-            || selectedDescriptor.ValueKind is CapabilityValueKind.None)
+                                             || selectedDescriptor.ValueKind is CapabilityValueKind.None)
         {
             error = "The selected capability must support both value readback and writes.";
             return false;
@@ -606,13 +603,13 @@ internal static class AttendedPluginActionRunner
 
     /// <summary>Runs the interactive three-phase motor calibration behind the attended gate.</summary>
     /// <remarks>
-    /// Self-paced on the device's own controls, because perception is the instrument: A steps the
-    /// sweep (confirming the previous step was felt), B marks the boundary. Phase one holds a
-    /// continuous drive at descending levels (informational — the host never floors continuous
-    /// output), phase two fires 30 ms ticks at descending levels (the
-    /// <c>MinimumStartIntensity</c>), phase three fires full-strength pulses of descending length
-    /// (the <c>MinimumPulse</c>). Prompts go to standard error like every other attended
-    /// diagnostic; the measured boundaries travel in the report.
+    ///     Self-paced on the device's own controls, because perception is the instrument: A steps the
+    ///     sweep (confirming the previous step was felt), B marks the boundary. Phase one holds a
+    ///     continuous drive at descending levels (informational — the host never floors continuous
+    ///     output), phase two fires 30 ms ticks at descending levels (the
+    ///     <c>MinimumStartIntensity</c>), phase three fires full-strength pulses of descending length
+    ///     (the <c>MinimumPulse</c>). Prompts go to standard error like every other attended
+    ///     diagnostic; the measured boundaries travel in the report.
     /// </remarks>
     private static async Task<AttendedPluginActionReport> RunHapticSweepAsync(
         IDevicePlugin plugin,
@@ -622,8 +619,8 @@ internal static class AttendedPluginActionRunner
     {
         const AttendedPluginActionKind kind = AttendedPluginActionKind.HapticSweep;
         if (!TrySelectRole(host, CapabilityRole.HapticSink, request.InstanceId,
-            out var descriptorSet,
-            out var descriptor, out var selectionError))
+                out var descriptorSet,
+                out var descriptor, out var selectionError))
         {
             return Failed(kind, selectionError!);
         }
@@ -647,7 +644,7 @@ internal static class AttendedPluginActionRunner
             CapabilityRole.HapticSink,
             controllerGeneration,
             SweepBudget,
-            stopHaptics: true,
+            true,
             ActionLabel(kind),
             async () => sweep = await RunSweepPhasesAsync(plugin, host, controllerGeneration, cancellationToken)
                 .ConfigureAwait(false),
@@ -657,14 +654,14 @@ internal static class AttendedPluginActionRunner
         {
             Kind = kind,
             Passed = run is
-            {
-                ManagementEnabled: true,
-                AvailabilityObserved: true,
-                StopSent: true,
-                RestorationVerified: true,
-                Error: null
-            }
-                && sweep is { Completed: true },
+                     {
+                         ManagementEnabled: true,
+                         AvailabilityObserved: true,
+                         StopSent: true,
+                         RestorationVerified: true,
+                         Error: null
+                     }
+                     && sweep is { Completed: true },
             CapabilityId = descriptor!.CapabilityId,
             InstanceId = descriptor.InstanceId,
             HapticStopAttempted = run.StopAttempted,
@@ -688,12 +685,16 @@ internal static class AttendedPluginActionRunner
         SweepStepReader steps = new(host);
 
         await Console.Error.WriteLineAsync().ConfigureAwait(false);
-        await Console.Error.WriteLineAsync("Haptic sweep: A on the device steps the sweep, B marks the boundary.").ConfigureAwait(false);
+        await Console.Error.WriteLineAsync("Haptic sweep: A on the device steps the sweep, B marks the boundary.")
+            .ConfigureAwait(false);
 
         // Phase 1: continuous drive, descending. A means "I feel this, go weaker"; B means "I no
         // longer feel it", so the boundary is the last A-confirmed level.
         await Console.Error.WriteLineAsync().ConfigureAwait(false);
-        await Console.Error.WriteLineAsync("Phase 1/3 - continuous strength. Rumble is running; A = felt, step weaker; B = can no longer feel it.").ConfigureAwait(false);
+        await Console.Error
+            .WriteLineAsync(
+                "Phase 1/3 - continuous strength. Rumble is running; A = felt, step weaker; B = can no longer feel it.")
+            .ConfigureAwait(false);
         float? continuousFloor = null;
         for (var index = 0; index < SweepLevels.Length; index++)
         {
@@ -713,17 +714,23 @@ internal static class AttendedPluginActionRunner
         // Phases 2 and 3: A fires the next pulse (confirming the previous one was felt); B marks
         // the previous pulse as the last one felt.
         await Console.Error.WriteLineAsync().ConfigureAwait(false);
-        await Console.Error.WriteLineAsync("Phase 2/3 - 30 ms ticks. A = fire next weaker tick; B = did NOT feel the last one.").ConfigureAwait(false);
+        await Console.Error
+            .WriteLineAsync("Phase 2/3 - 30 ms ticks. A = fire next weaker tick; B = did NOT feel the last one.")
+            .ConfigureAwait(false);
         var tickFloor = await RunPulsePhaseAsync(
             steps,
             SweepLevels,
-            level => FirePulseAsync(Apply, Stop, TimeSpan.FromMilliseconds(TickPulseMilliseconds), level, cancellationToken),
+            level => FirePulseAsync(Apply, Stop, TimeSpan.FromMilliseconds(TickPulseMilliseconds), level,
+                cancellationToken),
             static (levels, lastFelt) => lastFelt >= 0 ? levels[lastFelt] : null,
             deadline,
             cancellationToken).ConfigureAwait(false);
 
         await Console.Error.WriteLineAsync().ConfigureAwait(false);
-        await Console.Error.WriteLineAsync("Phase 3/3 - full-strength pulses. A = fire next shorter pulse; B = did NOT feel the last one.").ConfigureAwait(false);
+        await Console.Error
+            .WriteLineAsync(
+                "Phase 3/3 - full-strength pulses. A = fire next shorter pulse; B = did NOT feel the last one.")
+            .ConfigureAwait(false);
         var pulseBoundary = await RunPulsePhaseAsync(
             steps,
             [.. SweepPulseMilliseconds.Select(static ms => (float)ms)],
@@ -746,22 +753,29 @@ internal static class AttendedPluginActionRunner
         await Console.Error.WriteLineAsync(FormattableString.Invariant(
             $"  MinimumStartIntensity = {report.TickFloor ?? SweepLevels[^1]:F3}f")).ConfigureAwait(false);
         await Console.Error.WriteLineAsync(FormattableString.Invariant(
-            $"  MinimumPulse = TimeSpan.FromMilliseconds({(report.MinimumPulse ?? TimeSpan.FromMilliseconds(SweepPulseMilliseconds[^1])).TotalMilliseconds:F0})")).ConfigureAwait(false);
+                $"  MinimumPulse = TimeSpan.FromMilliseconds({(report.MinimumPulse ?? TimeSpan.FromMilliseconds(SweepPulseMilliseconds[^1])).TotalMilliseconds:F0})"))
+            .ConfigureAwait(false);
         return report;
 
-        Task Apply(float level) => plugin.ApplyHapticOutputAsync(
-            new HapticOutputFrame
-            {
-                TargetGeneration = controllerGeneration,
-                LowFrequency = level,
-                HighFrequency = level,
-                Timestamp = DateTimeOffset.UtcNow
-            },
-            cancellationToken).AsTask();
+        Task Apply(float level)
+        {
+            return plugin.ApplyHapticOutputAsync(
+                new HapticOutputFrame
+                {
+                    TargetGeneration = controllerGeneration,
+                    LowFrequency = level,
+                    HighFrequency = level,
+                    Timestamp = DateTimeOffset.UtcNow
+                },
+                cancellationToken).AsTask();
+        }
 
-        Task Stop() => plugin.ApplyHapticOutputAsync(
-            HapticOutputFrame.Stop(controllerGeneration, DateTimeOffset.UtcNow),
-            cancellationToken).AsTask();
+        Task Stop()
+        {
+            return plugin.ApplyHapticOutputAsync(
+                HapticOutputFrame.Stop(controllerGeneration, DateTimeOffset.UtcNow),
+                cancellationToken).AsTask();
+        }
     }
 
     private static async Task<float?> RunPulsePhaseAsync(
@@ -776,7 +790,8 @@ internal static class AttendedPluginActionRunner
         while (lastFired < values.Length - 1)
         {
             await Console.Error.WriteLineAsync(FormattableString.Invariant(
-                $"  press A for step {lastFired + 2}/{values.Length} ({values[lastFired + 1]:F3})")).ConfigureAwait(false);
+                    $"  press A for step {lastFired + 2}/{values.Length} ({values[lastFired + 1]:F3})"))
+                .ConfigureAwait(false);
             if (await steps.WaitAsync(deadline, cancellationToken).ConfigureAwait(false) == SweepStep.Boundary)
             {
                 // The boundary refers to the last fired pulse; everything before it was felt.
@@ -809,63 +824,6 @@ internal static class AttendedPluginActionRunner
         }
     }
 
-    private enum SweepStep
-    {
-        Advance,
-        Boundary
-    }
-
-    /// <summary>Turns the plugin's own published controller samples into sweep steps.</summary>
-    /// <remarks>
-    /// Polls the recording host adapter for fresh samples and reports rising edges of A and B.
-    /// The device under calibration is also the input device — that is the point: no keyboard
-    /// reach, and the samples prove the controller path is alive while the sweep runs.
-    /// </remarks>
-    private sealed class SweepStepReader(TestPluginHostAdapter host)
-    {
-        private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(25);
-        private int _consumed = host.ControllerSamples.Count;
-        private bool _aHeld;
-        private bool _bHeld;
-
-        public async Task<SweepStep> WaitAsync(
-            DateTimeOffset deadline,
-            CancellationToken cancellationToken)
-        {
-            while (DateTimeOffset.UtcNow < deadline)
-            {
-                var samples = host.ControllerSamples;
-                for (; _consumed < samples.Count; _consumed++)
-                {
-                    var buttons = samples[_consumed].Buttons;
-                    var a = (buttons & CanonicalButtons.A) != 0;
-                    var b = (buttons & CanonicalButtons.B) != 0;
-                    var aEdge = a && !_aHeld;
-                    var bEdge = b && !_bHeld;
-                    _aHeld = a;
-                    _bHeld = b;
-                    if (bEdge)
-                    {
-                        _consumed++;
-                        return SweepStep.Boundary;
-                    }
-
-                    if (!aEdge)
-                    {
-                        continue;
-                    }
-
-                    _consumed++;
-                    return SweepStep.Advance;
-                }
-
-                await Task.Delay(PollInterval, cancellationToken).ConfigureAwait(false);
-            }
-
-            throw new TimeoutException("The haptic sweep timed out waiting for an A or B press.");
-        }
-    }
-
     private static bool TrySelectRole(
         TestPluginHostAdapter host,
         CapabilityRole role,
@@ -883,10 +841,13 @@ internal static class AttendedPluginActionRunner
             return false;
         }
 
-        CapabilityDescriptor[] matches = [.. descriptorSet.Descriptors.Where(candidate =>
-            candidate.Role == role
-            && (instanceId is null
-                || string.Equals(candidate.InstanceId, instanceId, StringComparison.Ordinal)))];
+        CapabilityDescriptor[] matches =
+        [
+            .. descriptorSet.Descriptors.Where(candidate =>
+                candidate.Role == role
+                && (instanceId is null
+                    || string.Equals(candidate.InstanceId, instanceId, StringComparison.Ordinal)))
+        ];
         if (matches.Length == 0)
         {
             error = instanceId is null
@@ -926,11 +887,11 @@ internal static class AttendedPluginActionRunner
         return descriptor.ValueKind switch
         {
             CapabilityValueKind.None => state.ObservedValue is null
-                || state.ObservedValue.Kind is CapabilityValueKind.None,
+                                        || state.ObservedValue.Kind is CapabilityValueKind.None,
             CapabilityValueKind.Boolean => state.ObservedValue is
-            { Kind: CapabilityValueKind.Boolean, BooleanValue: true },
+                { Kind: CapabilityValueKind.Boolean, BooleanValue: true },
             CapabilityValueKind.Choice => state.ObservedValue is
-            { Kind: CapabilityValueKind.Choice, ChoiceValue: "plugin" },
+                { Kind: CapabilityValueKind.Choice, ChoiceValue: "plugin" },
             _ => false
         };
     }
@@ -985,9 +946,9 @@ internal static class AttendedPluginActionRunner
                 break;
             case CapabilityValueKind.Choice:
                 if (!descriptor.Choices.Any(choice => string.Equals(
-                    choice.Value,
-                    text,
-                    StringComparison.Ordinal)))
+                        choice.Value,
+                        text,
+                        StringComparison.Ordinal)))
                 {
                     error = "The requested choice is not present in the current descriptor.";
                     return false;
@@ -1079,7 +1040,9 @@ internal static class AttendedPluginActionRunner
     private static CapabilityCommand Command(
         CapabilityDescriptorSet descriptorSet,
         CapabilityDescriptor descriptor,
-        CapabilityValue value) => new()
+        CapabilityValue value)
+    {
+        return new CapabilityCommand
         {
             CommandId = Guid.NewGuid(),
             CapabilityId = descriptor.CapabilityId,
@@ -1089,15 +1052,18 @@ internal static class AttendedPluginActionRunner
             ExpectedCycleGeneration = descriptorSet.CycleGeneration,
             Deadline = DateTimeOffset.UtcNow + ActionBudget
         };
+    }
 
     private static bool IsVerified(
         CapabilityCommandResult result,
         Guid commandId,
-        CapabilityValue expected) =>
-        result.CommandId == commandId
-        && result.Outcome is CommandOutcome.AppliedVerified
-        && result.ReadbackValue is not null
-        && ValuesEqual(result.ReadbackValue, expected);
+        CapabilityValue expected)
+    {
+        return result.CommandId == commandId
+               && result.Outcome is CommandOutcome.AppliedVerified
+               && result.ReadbackValue is not null
+               && ValuesEqual(result.ReadbackValue, expected);
+    }
 
     private static bool ValuesEqual(CapabilityValue left, CapabilityValue right)
     {
@@ -1137,10 +1103,12 @@ internal static class AttendedPluginActionRunner
         return checked(generation + 1);
     }
 
-    private static bool IsVerifiedRelease(PluginControllerRelease release) =>
-        release.Result is ControllerHandoffResult.ReleasedVerified
-        && release.Step is ControllerHandoffStep.TopologyVerified
-            or ControllerHandoffStep.WsgmStateRemoved;
+    private static bool IsVerifiedRelease(PluginControllerRelease release)
+    {
+        return release.Result is ControllerHandoffResult.ReleasedVerified
+               && release.Step is ControllerHandoffStep.TopologyVerified
+                   or ControllerHandoffStep.WsgmStateRemoved;
+    }
 
     private static string DescribeResult(
         string operation,
@@ -1163,12 +1131,15 @@ internal static class AttendedPluginActionRunner
             : $"{operation} was not verified.";
     }
 
-    private static string ActionLabel(AttendedPluginActionKind kind) => kind switch
+    private static string ActionLabel(AttendedPluginActionKind kind)
     {
-        AttendedPluginActionKind.HapticPulse => "Haptic pulse",
-        AttendedPluginActionKind.ControllerManagement => "Controller management",
-        _ => "Attended action"
-    };
+        return kind switch
+        {
+            AttendedPluginActionKind.HapticPulse => "Haptic pulse",
+            AttendedPluginActionKind.ControllerManagement => "Controller management",
+            _ => "Attended action"
+        };
+    }
 
     private static CancellationTokenSource Deadline()
     {
@@ -1177,8 +1148,10 @@ internal static class AttendedPluginActionRunner
         return deadline;
     }
 
-    private static void AppendError(ref string? error, string detail) =>
+    private static void AppendError(ref string? error, string detail)
+    {
         error = error is null ? detail : $"{error} {detail}";
+    }
 
     private static AttendedPluginActionReport Failed(
         AttendedPluginActionKind kind,
@@ -1186,7 +1159,9 @@ internal static class AttendedPluginActionRunner
         string? capabilityId = null,
         string? instanceId = null,
         CapabilityValue? original = null,
-        CapabilityValue? requested = null) => new()
+        CapabilityValue? requested = null)
+    {
+        return new AttendedPluginActionReport
         {
             Kind = kind,
             Passed = false,
@@ -1197,4 +1172,71 @@ internal static class AttendedPluginActionRunner
             RestorationVerified = false,
             Error = error
         };
+    }
+
+    private readonly record struct ManagedControllerRun(
+        bool ManagementEnabled,
+        bool AvailabilityObserved,
+        bool StopAttempted,
+        bool StopSent,
+        PluginControllerRelease? Release,
+        bool RestorationVerified,
+        string? Error);
+
+    private enum SweepStep
+    {
+        Advance,
+        Boundary
+    }
+
+    /// <summary>Turns the plugin's own published controller samples into sweep steps.</summary>
+    /// <remarks>
+    ///     Polls the recording host adapter for fresh samples and reports rising edges of A and B.
+    ///     The device under calibration is also the input device — that is the point: no keyboard
+    ///     reach, and the samples prove the controller path is alive while the sweep runs.
+    /// </remarks>
+    private sealed class SweepStepReader(TestPluginHostAdapter host)
+    {
+        private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(25);
+        private bool _aHeld;
+        private bool _bHeld;
+        private int _consumed = host.ControllerSamples.Count;
+
+        public async Task<SweepStep> WaitAsync(
+            DateTimeOffset deadline,
+            CancellationToken cancellationToken)
+        {
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                var samples = host.ControllerSamples;
+                for (; _consumed < samples.Count; _consumed++)
+                {
+                    var buttons = samples[_consumed].Buttons;
+                    var a = (buttons & CanonicalButtons.A) != 0;
+                    var b = (buttons & CanonicalButtons.B) != 0;
+                    var aEdge = a && !_aHeld;
+                    var bEdge = b && !_bHeld;
+                    _aHeld = a;
+                    _bHeld = b;
+                    if (bEdge)
+                    {
+                        _consumed++;
+                        return SweepStep.Boundary;
+                    }
+
+                    if (!aEdge)
+                    {
+                        continue;
+                    }
+
+                    _consumed++;
+                    return SweepStep.Advance;
+                }
+
+                await Task.Delay(PollInterval, cancellationToken).ConfigureAwait(false);
+            }
+
+            throw new TimeoutException("The haptic sweep timed out waiting for an A or B press.");
+        }
+    }
 }

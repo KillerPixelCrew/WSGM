@@ -13,10 +13,12 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
-    /// <summary>Builds the proper control for a writable capability — slider, toggle, dropdown or
-    /// text editor — or null when it has no dedicated control and should render as a plain row (an
-    /// action, a colour swatch, or a read-only value). Sets the row's focus target so gamepad
-    /// focus restore lands on the interactive control.</summary>
+    /// <summary>
+    ///     Builds the proper control for a writable capability — slider, toggle, dropdown or
+    ///     text editor — or null when it has no dedicated control and should render as a plain row (an
+    ///     action, a colour swatch, or a read-only value). Sets the row's focus target so gamepad
+    ///     focus restore lands on the interactive control.
+    /// </summary>
     private Control? TryCreateDeviceControl(DeviceOverlayCapability capability, string key)
     {
         if (RendersAsSlider(capability))
@@ -97,9 +99,11 @@ public partial class OverlayWindow
         _ = CommitDeviceValueAsync(bridge, capability with { NextValue = value });
     }
 
-    /// <summary>Builds the labelled slider for an integer-range capability and wires its debounced
-    /// commit to the device write path — the same <c>InvokeAsync(with NextValue)</c> the colour
-    /// editor uses.</summary>
+    /// <summary>
+    ///     Builds the labelled slider for an integer-range capability and wires its debounced
+    ///     commit to the device write path — the same <c>InvokeAsync(with NextValue)</c> the colour
+    ///     editor uses.
+    /// </summary>
     private DeviceSliderRow CreateDeviceSliderRow(DeviceOverlayCapability capability, string key)
     {
         var min = capability.Minimum!.Value;
@@ -123,15 +127,15 @@ public partial class OverlayWindow
 
     /// <summary>Builds the fan-curve editor for a writable curve capability.</summary>
     /// <remarks>
-    /// The live temperature marker comes from whichever capability reports one, which is why it is
-    /// looked up rather than passed in: the reading is published as its own descriptor and may not
-    /// exist at all, and a curve without a marker is still a curve worth editing.
+    ///     The live temperature marker comes from whichever capability reports one, which is why it is
+    ///     looked up rather than passed in: the reading is published as its own descriptor and may not
+    ///     exist at all, and a curve without a marker is still a curve worth editing.
     /// </remarks>
     private DeviceCurveRow CreateDeviceCurveRow(DeviceOverlayCapability capability, string key)
     {
         var marker = _deviceBridge?.Snapshot().Capabilities
             .FirstOrDefault(candidate => candidate.Role is CapabilityRole.Telemetry
-                && candidate.Unit is CapabilityUnit.Celsius)
+                                         && candidate.Unit is CapabilityUnit.Celsius)
             ?.CurrentValue?.IntegerValue;
         return new DeviceCurveRow(
             key,
@@ -203,7 +207,7 @@ public partial class OverlayWindow
             await RunRowCommandAsync(
                 button,
                 capability.CanInvoke,
-                restoreFocus: true,
+                true,
                 token => bridge.InvokeAsync(capability, token),
                 $"Device overlay command failed: {capability.CapabilityId}");
         };
@@ -221,16 +225,36 @@ public partial class OverlayWindow
             Tag = descriptor.Id
         };
         AutomationProperties.SetName(choice, "Button glyph style");
-        var detail = new TextBlock { Text = descriptor.Description, Classes = { "caption" }, TextWrapping = TextWrapping.Wrap };
+        var detail = new TextBlock
+            { Text = descriptor.Description, Classes = { "caption" }, TextWrapping = TextWrapping.Wrap };
         var panel = new StackPanel { Spacing = 8, Children = { choice, detail } };
         choice.SelectionChanged += async (_, _) =>
         {
-            if (choice.SelectedIndex < 0 || _deviceBridge is not { } bridge || _closed) { return; }
+            if (choice.SelectedIndex < 0 || _deviceBridge is not { } bridge || _closed)
+            {
+                return;
+            }
+
             choice.IsEnabled = false;
-            try { await bridge.SetPhysicalGlyphSelectionAsync((DeviceGlyphSelection)choice.SelectedIndex, _deviceLifetime.Token); }
-            catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested) { }
-            catch (Exception ex) { detail.Text = "Glyph selection could not be saved: " + ex.Message; }
-            finally { if (!_closed) { choice.IsEnabled = descriptor.CanInvoke; } }
+            try
+            {
+                await bridge.SetPhysicalGlyphSelectionAsync((DeviceGlyphSelection)choice.SelectedIndex,
+                    _deviceLifetime.Token);
+            }
+            catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                detail.Text = "Glyph selection could not be saved: " + ex.Message;
+            }
+            finally
+            {
+                if (!_closed)
+                {
+                    choice.IsEnabled = descriptor.CanInvoke;
+                }
+            }
         };
         return panel;
     }

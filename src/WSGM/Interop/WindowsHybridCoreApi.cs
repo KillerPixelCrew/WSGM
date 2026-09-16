@@ -16,11 +16,28 @@ internal interface IHybridCoreApi
 /// <summary>Adapts the reusable library to WSGM's policy test seam.</summary>
 internal sealed class WindowsHybridCoreApi : IHybridCoreApi
 {
-    public Guid ReadActiveScheme() => WindowsPower.GetActiveScheme();
-    public HybridCoreSupport Query(Guid scheme) => WindowsPower.QueryHybridCores(scheme);
+    public Guid ReadActiveScheme()
+    {
+        return WindowsPower.GetActiveScheme();
+    }
+
+    public HybridCoreSupport Query(Guid scheme)
+    {
+        return WindowsPower.QueryHybridCores(scheme);
+    }
+
     public HybridCoreState Read(Guid scheme, bool onBattery)
-        => WindowsPower.ReadHybridCores(scheme, onBattery);
+    {
+        return WindowsPower.ReadHybridCores(scheme, onBattery);
+    }
+
     public void Write(Guid scheme, bool onBattery, HybridCoreState state)
-        => WindowsPower.WriteHybridCores(scheme, onBattery, state);
-    public void RefreshActiveScheme() => WindowsPower.RefreshActiveScheme();
+    {
+        WindowsPower.WriteHybridCores(scheme, onBattery, state);
+    }
+
+    public void RefreshActiveScheme()
+    {
+        WindowsPower.RefreshActiveScheme();
+    }
 }

@@ -9,10 +9,10 @@ namespace WSGM.Core;
 
 /// <summary>How WSGM offers to place threads across a hybrid CPU's core types.</summary>
 /// <remarks>
-/// These are WSGM's names for values Windows publishes for its thread scheduling policy. Windows
-/// names them itself, which is why they are the ones WSGM writes: its heterogeneous-policy setting
-/// is enumerated only as "use heterogeneous policy 0..4" with no published meaning, so WSGM reads
-/// and restores that value but never chooses one.
+///     These are WSGM's names for values Windows publishes for its thread scheduling policy. Windows
+///     names them itself, which is why they are the ones WSGM writes: its heterogeneous-policy setting
+///     is enumerated only as "use heterogeneous policy 0..4" with no published meaning, so WSGM reads
+///     and restores that value but never chooses one.
 /// </remarks>
 internal enum HybridCoreMode
 {
@@ -54,17 +54,15 @@ internal sealed record HybridCoreStatus(
     HybridCoreMode? OnBattery);
 
 /// <summary>
-/// Manual hybrid core placement over the reusable library. Reads always consult Windows; a write is
-/// confirmed by readback and applied to the active scheme.
+///     Manual hybrid core placement over the reusable library. Reads always consult Windows; a write is
+///     confirmed by readback and applied to the active scheme.
 /// </summary>
 /// <remarks>
-/// Independent of device integration: this is Windows power policy, not a device capability, so it
-/// works with no plugin installed. Call from background work when projecting into a UI.
+///     Independent of device integration: this is Windows power policy, not a device capability, so it
+///     works with no plugin installed. Call from background work when projecting into a UI.
 /// </remarks>
 internal sealed class HybridCores(IHybridCoreApi api)
 {
-    internal static HybridCores Windows { get; } = new(new WindowsHybridCoreApi());
-
     private static readonly HybridCoreOption[] Offered =
     [
         new(HybridCoreMode.Automatic, "Automatic",
@@ -79,25 +77,30 @@ internal sealed class HybridCores(IHybridCoreApi api)
             "Nothing runs on the fast cores. Lowest draw, for light or idle sessions.")
     ];
 
+    internal static HybridCores Windows { get; } = new(new WindowsHybridCoreApi());
+
     /// <summary>The scheduling policy pair a mode writes, for ordinary and short-running threads.</summary>
     /// <remarks>
-    /// One pair, not two independent settings: a mode that steered ordinary threads one way and
-    /// short-lived ones another would be a placement nobody asked for and could not be read back as
-    /// any offered mode.
+    ///     One pair, not two independent settings: a mode that steered ordinary threads one way and
+    ///     short-lived ones another would be a placement nobody asked for and could not be read back as
+    ///     any offered mode.
     /// </remarks>
-    private static HybridSchedulingPolicy PolicyFor(HybridCoreMode mode) => mode switch
+    private static HybridSchedulingPolicy PolicyFor(HybridCoreMode mode)
     {
-        HybridCoreMode.PreferPerformance => HybridSchedulingPolicy.PreferPerformantProcessors,
-        HybridCoreMode.PreferEfficiency => HybridSchedulingPolicy.PreferEfficientProcessors,
-        HybridCoreMode.PerformanceOnly => HybridSchedulingPolicy.PerformantProcessors,
-        HybridCoreMode.EfficiencyOnly => HybridSchedulingPolicy.EfficientProcessors,
-        _ => HybridSchedulingPolicy.Automatic
-    };
+        return mode switch
+        {
+            HybridCoreMode.PreferPerformance => HybridSchedulingPolicy.PreferPerformantProcessors,
+            HybridCoreMode.PreferEfficiency => HybridSchedulingPolicy.PreferEfficientProcessors,
+            HybridCoreMode.PerformanceOnly => HybridSchedulingPolicy.PerformantProcessors,
+            HybridCoreMode.EfficiencyOnly => HybridSchedulingPolicy.EfficientProcessors,
+            _ => HybridSchedulingPolicy.Automatic
+        };
+    }
 
     /// <summary>The mode a stored pair reads back as, or null when it matches none WSGM offers.</summary>
     /// <remarks>
-    /// Null rather than a nearest guess. Something else set that pair — an OEM tool, a policy, a
-    /// hand edit — and showing it as one of WSGM's modes would claim WSGM put it there.
+    ///     Null rather than a nearest guess. Something else set that pair — an OEM tool, a policy, a
+    ///     hand edit — and showing it as one of WSGM's modes would claim WSGM put it there.
     /// </remarks>
     internal static HybridCoreMode? ModeFor(HybridCoreState state)
     {
@@ -106,6 +109,7 @@ internal sealed class HybridCores(IHybridCoreApi api)
         {
             return null;
         }
+
         foreach (var option in Offered)
         {
             if (PolicyFor(option.Mode) == state.Threads)
@@ -113,28 +117,32 @@ internal sealed class HybridCores(IHybridCoreApi api)
                 return option.Mode;
             }
         }
+
         return null;
     }
 
     /// <summary>The stable id a mode is published under, independent of its display name.</summary>
     /// <remarks>
-    /// One vocabulary for every surface. The overlay picks a mode from the list directly, but Steam
-    /// carries the choice as a string over the bridge, and an id derived from the localized name
-    /// would change meaning the moment the wording did.
+    ///     One vocabulary for every surface. The overlay picks a mode from the list directly, but Steam
+    ///     carries the choice as a string over the bridge, and an id derived from the localized name
+    ///     would change meaning the moment the wording did.
     /// </remarks>
     /// <param name="mode">The mode to name.</param>
     /// <returns>An id matching the bridge's identifier rules.</returns>
-    internal static string IdFor(HybridCoreMode mode) => mode switch
+    internal static string IdFor(HybridCoreMode mode)
     {
-        HybridCoreMode.PreferPerformance => "prefer-performance",
-        HybridCoreMode.PreferEfficiency => "prefer-efficiency",
-        HybridCoreMode.PerformanceOnly => "performance-only",
-        HybridCoreMode.EfficiencyOnly => "efficiency-only",
-        _ => "automatic"
-    };
+        return mode switch
+        {
+            HybridCoreMode.PreferPerformance => "prefer-performance",
+            HybridCoreMode.PreferEfficiency => "prefer-efficiency",
+            HybridCoreMode.PerformanceOnly => "performance-only",
+            HybridCoreMode.EfficiencyOnly => "efficiency-only",
+            _ => "automatic"
+        };
+    }
 
     /// <summary>The mode an id names, or null when it names none.</summary>
-    /// <param name="id">An id previously produced by <see cref="IdFor"/>.</param>
+    /// <param name="id">An id previously produced by <see cref="IdFor" />.</param>
     /// <returns>The mode, or null for an id this build does not know.</returns>
     internal static HybridCoreMode? ModeForId(string id)
     {
@@ -145,6 +153,7 @@ internal sealed class HybridCores(IHybridCoreApi api)
                 return option.Mode;
             }
         }
+
         return null;
     }
 
@@ -166,15 +175,21 @@ internal sealed class HybridCores(IHybridCoreApi api)
             (current, observed) => Math.Max(current, observed.EfficiencyClass));
         foreach (var observed in support.Classes)
         {
-            if (observed.EfficiencyClass == best) { performance += observed.Cores; }
-            else { efficiency += observed.Cores; }
+            if (observed.EfficiencyClass == best)
+            {
+                performance += observed.Cores;
+            }
+            else
+            {
+                efficiency += observed.Cores;
+            }
         }
 
         // Only modes this Windows build actually publishes a value for. A mode offered here that
         // the machine will not accept is a control that does nothing when pressed.
         var options = Offered
             .Where(option => support.SchedulingPolicies.Contains(PolicyFor(option.Mode))
-                && support.ShortSchedulingPolicies.Contains(PolicyFor(option.Mode)))
+                             && support.ShortSchedulingPolicies.Contains(PolicyFor(option.Mode)))
             .ToList();
 
         return new HybridCoreStatus(
@@ -182,16 +197,16 @@ internal sealed class HybridCores(IHybridCoreApi api)
             performance,
             efficiency,
             options,
-            ModeFor(api.Read(scheme, onBattery: false)),
-            ModeFor(api.Read(scheme, onBattery: true)));
+            ModeFor(api.Read(scheme, false)),
+            ModeFor(api.Read(scheme, true)));
     }
 
     /// <summary>Applies one mode to both power sources and confirms it by readback.</summary>
     /// <remarks>
-    /// The heterogeneous-policy value is carried through untouched, because Windows publishes no
-    /// meaning for it. Activation is what makes processor policy take effect, and it is global, so
-    /// the write and the activation happen under <see cref="PowerSchemes.MutationGate"/> together, the
-    /// gate scheme selection and timeout writes take as well.
+    ///     The heterogeneous-policy value is carried through untouched, because Windows publishes no
+    ///     meaning for it. Activation is what makes processor policy take effect, and it is global, so
+    ///     the write and the activation happen under <see cref="PowerSchemes.MutationGate" /> together, the
+    ///     gate scheme selection and timeout writes take as well.
     /// </remarks>
     /// <param name="mode">The mode to apply.</param>
     /// <param name="cancellationToken">Cancels before the write starts.</param>
@@ -219,8 +234,8 @@ internal sealed class HybridCores(IHybridCoreApi api)
                 {
                     throw new InvalidOperationException(
                         "Windows did not confirm the processor core preference. "
-                            + $"Requested {mode}, and the {(onBattery ? "battery" : "plugged in")} "
-                            + "value reads back as something else.");
+                        + $"Requested {mode}, and the {(onBattery ? "battery" : "plugged in")} "
+                        + "value reads back as something else.");
                 }
             }
         }

@@ -124,35 +124,47 @@ public sealed class RtssDiscoveryTests
             @"C:\Program Files (x86)"
         ];
 
-        public IReadOnlyList<RtssInstallRecord> ReadInstallRecords() => Records;
-
-        public RtssFileIdentity ReadFileIdentity(string path) => path.EndsWith(
-            Environment.Is64BitProcess ? "RTSSHooks64.dll" : "RTSSHooks.dll",
-            StringComparison.OrdinalIgnoreCase)
-            ? ApiIdentity
-            : ExecutableIdentity;
-
-        public IReadOnlyList<RtssProcessIdentity> ReadProcesses() => Processes;
-
-        public static FakeDiscoveryEnvironment Valid() => new()
+        public IReadOnlyList<RtssInstallRecord> ReadInstallRecords()
         {
-            Records =
-            [
-                new RtssInstallRecord(
-                    "RivaTuner Statistics Server 7.3.7",
-                    "7.3.7",
-                    "Unwinder",
-                    string.Empty,
-                    $"\"{InstallRoot}\\uninstall.exe\"",
-                    $"\"{InstallRoot}\\uninstall.exe\"")
-            ],
-            Processes =
-            [
-                new RtssProcessIdentity(
-                    321,
-                    $"{InstallRoot}\\RTSS.exe",
-                    DateTimeOffset.UnixEpoch)
-            ]
-        };
+            return Records;
+        }
+
+        public RtssFileIdentity ReadFileIdentity(string path)
+        {
+            return path.EndsWith(
+                Environment.Is64BitProcess ? "RTSSHooks64.dll" : "RTSSHooks.dll",
+                StringComparison.OrdinalIgnoreCase)
+                ? ApiIdentity
+                : ExecutableIdentity;
+        }
+
+        public IReadOnlyList<RtssProcessIdentity> ReadProcesses()
+        {
+            return Processes;
+        }
+
+        public static FakeDiscoveryEnvironment Valid()
+        {
+            return new FakeDiscoveryEnvironment
+            {
+                Records =
+                [
+                    new RtssInstallRecord(
+                        "RivaTuner Statistics Server 7.3.7",
+                        "7.3.7",
+                        "Unwinder",
+                        string.Empty,
+                        $"\"{InstallRoot}\\uninstall.exe\"",
+                        $"\"{InstallRoot}\\uninstall.exe\"")
+                ],
+                Processes =
+                [
+                    new RtssProcessIdentity(
+                        321,
+                        $"{InstallRoot}\\RTSS.exe",
+                        DateTimeOffset.UnixEpoch)
+                ]
+            };
+        }
     }
 }

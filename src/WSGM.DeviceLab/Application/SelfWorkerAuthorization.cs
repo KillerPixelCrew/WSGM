@@ -12,10 +12,15 @@ internal static class SelfWorkerAuthorization
 {
     internal const int SecretBytes = 32;
 
-    internal static byte[] CreateSecret() => RandomNumberGenerator.GetBytes(SecretBytes);
+    internal static byte[] CreateSecret()
+    {
+        return RandomNumberGenerator.GetBytes(SecretBytes);
+    }
 
-    internal static string Hash(ReadOnlySpan<byte> secret) =>
-        Convert.ToHexString(SHA256.HashData(secret)).ToLowerInvariant();
+    internal static string Hash(ReadOnlySpan<byte> secret)
+    {
+        return Convert.ToHexString(SHA256.HashData(secret)).ToLowerInvariant();
+    }
 
     internal static async Task<byte[]?> ReadSecretAsync(
         string inheritedHandle,
@@ -49,8 +54,8 @@ internal static class SelfWorkerAuthorization
             }
         }
         catch (Exception exception) when (exception is IOException
-            or UnauthorizedAccessException
-            or ArgumentException)
+                                              or UnauthorizedAccessException
+                                              or ArgumentException)
         {
             return Reject(secret);
         }
@@ -88,7 +93,7 @@ internal static class SelfWorkerAuthorization
 
         var actual = SHA256.HashData(secret);
         return expected.Length == actual.Length
-            && CryptographicOperations.FixedTimeEquals(actual, expected);
+               && CryptographicOperations.FixedTimeEquals(actual, expected);
     }
 
     internal static bool TryConstrainSessionFiles(
@@ -127,16 +132,18 @@ internal static class SelfWorkerAuthorization
             return true;
         }
         catch (Exception exception) when (exception is IOException
-            or UnauthorizedAccessException
-            or ArgumentException
-            or NotSupportedException)
+                                              or UnauthorizedAccessException
+                                              or ArgumentException
+                                              or NotSupportedException)
         {
             return false;
         }
     }
 
-    private static bool IsLink(string path) =>
-        (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+    private static bool IsLink(string path)
+    {
+        return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+    }
 
     private static bool ContainsLinkInAncestry(string directory)
     {

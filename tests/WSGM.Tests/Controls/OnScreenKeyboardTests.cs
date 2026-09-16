@@ -97,6 +97,7 @@ public class OnScreenKeyboardTests
                 missing.Add(c);
             }
         }
+
         Assert.Empty(missing);
     }
 

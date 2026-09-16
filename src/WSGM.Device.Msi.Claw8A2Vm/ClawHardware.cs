@@ -78,9 +78,9 @@ internal sealed record LightingState(
 /// <param name="PhysicalLocation">Composite USB location shared by the interfaces.</param>
 /// <param name="PhysicalDevices">Interfaces WSGM may hide, which is the set the handoff needs.</param>
 /// <param name="ObservedEndpoints">
-/// Every candidate endpoint seen at this location, as "productId/usagePage:usage in/out". Carried so
-/// a failed handoff can say what it actually found rather than only that it found nothing — a plugin
-/// has no logging channel of its own, so a reason string is the only way this reaches a log.
+///     Every candidate endpoint seen at this location, as "productId/usagePage:usage in/out". Carried so
+///     a failed handoff can say what it actually found rather than only that it found nothing — a plugin
+///     has no logging channel of its own, so a reason string is the only way this reaches a log.
 /// </param>
 internal sealed record ControllerTopology(
     ClawControllerMode Mode,
@@ -182,15 +182,17 @@ internal sealed record ClawHardwareServices(
 
 /// <summary>Applies the one minimum budget required before any Claw hardware write.</summary>
 /// <remarks>
-/// Two seconds covers the slowest journal flush plus one bounded firmware exchange. Keeping this
-/// threshold here prevents lifecycle, command, lighting, and mode-switch paths from drifting apart.
+///     Two seconds covers the slowest journal flush plus one bounded firmware exchange. Keeping this
+///     threshold here prevents lifecycle, command, lighting, and mode-switch paths from drifting apart.
 /// </remarks>
 internal static class ClawWriteBudget
 {
     private static readonly TimeSpan Minimum = TimeSpan.FromSeconds(2);
 
-    internal static bool IsAvailable(DateTimeOffset deadline) =>
-        deadline - DateTimeOffset.UtcNow >= Minimum;
+    internal static bool IsAvailable(DateTimeOffset deadline)
+    {
+        return deadline - DateTimeOffset.UtcNow >= Minimum;
+    }
 
     internal static void Require(DateTimeOffset deadline, string operation)
     {

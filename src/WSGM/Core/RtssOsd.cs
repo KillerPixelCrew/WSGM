@@ -16,9 +16,11 @@ using WSGM.Interop;
 namespace WSGM.Core;
 
 /// <summary>Write access to one RTSS on-screen-display slot, for the writer and tests.</summary>
-/// <remarks>Offsets are absolute within the <c>RTSSSharedMemoryV2</c> mapping. The busy flag is
-/// separate from the plain writes because the real region takes it with an interlocked exchange
-/// on the mapped page, which an accessor cannot express.</remarks>
+/// <remarks>
+///     Offsets are absolute within the <c>RTSSSharedMemoryV2</c> mapping. The busy flag is
+///     separate from the plain writes because the real region takes it with an interlocked exchange
+///     on the mapped page, which an accessor cannot express.
+/// </remarks>
 internal interface IRtssOsdRegion
 {
     /// <summary>Mapped length in bytes.</summary>
@@ -34,13 +36,13 @@ internal interface IRtssOsdRegion
     /// <param name="value">The value.</param>
     void WriteUInt32(long offset, uint value);
 
-    /// <summary>Reads <paramref name="count"/> bytes into <paramref name="buffer"/>.</summary>
+    /// <summary>Reads <paramref name="count" /> bytes into <paramref name="buffer" />.</summary>
     /// <param name="offset">Byte offset.</param>
     /// <param name="buffer">Destination.</param>
     /// <param name="count">Bytes to read.</param>
     void ReadBytes(long offset, byte[] buffer, int count);
 
-    /// <summary>Writes <paramref name="count"/> bytes from <paramref name="buffer"/>.</summary>
+    /// <summary>Writes <paramref name="count" /> bytes from <paramref name="buffer" />.</summary>
     /// <param name="offset">Byte offset.</param>
     /// <param name="buffer">Source.</param>
     /// <param name="count">Bytes to write.</param>
@@ -51,16 +53,16 @@ internal interface IRtssOsdRegion
     /// <returns>Whether the flag was taken.</returns>
     bool TryAcquireBusy(long offset);
 
-    /// <summary>Releases the busy flag taken by <see cref="TryAcquireBusy"/>.</summary>
+    /// <summary>Releases the busy flag taken by <see cref="TryAcquireBusy" />.</summary>
     /// <param name="offset">The busy DWORD's byte offset.</param>
     void ReleaseBusy(long offset);
 }
 
 /// <summary>
-/// The RTSS OSD slot protocol: claim by owner name, update text, release by zeroing. A C# port of
-/// the slot semantics of RTSSSharedMemoryNET (the library HandheldCompanion ships), decided over
-/// vendoring its C++/CLI project — the decompiled claim/update/release paths and the header layout
-/// were live-verified against RTSS 2.21 on the reference Claw (2026-09-01).
+///     The RTSS OSD slot protocol: claim by owner name, update text, release by zeroing. A C# port of
+///     the slot semantics of RTSSSharedMemoryNET (the library HandheldCompanion ships), decided over
+///     vendoring its C++/CLI project — the decompiled claim/update/release paths and the header layout
+///     were live-verified against RTSS 2.21 on the reference Claw (2026-09-01).
 /// </summary>
 internal static class RtssOsdSlots
 {
@@ -88,14 +90,18 @@ internal static class RtssOsdSlots
     private const uint TextExMinimumVersion = 0x0002_0007;
     private const uint BusyMinimumVersion = 0x0002_000E;
 
-    /// <summary>Claims a slot for <paramref name="owner"/> when needed and writes the OSD text.</summary>
+    /// <summary>Claims a slot for <paramref name="owner" /> when needed and writes the OSD text.</summary>
     /// <param name="region">The mapped RTSS shared memory.</param>
     /// <param name="owner">Slot owner identity, ANSI, at most 255 bytes.</param>
     /// <param name="text">OSD text; empty clears the display while keeping the slot.</param>
-    /// <returns>False when the mapping is not an RTSS region this build understands or every
-    /// slot is owned by someone else.</returns>
-    /// <remarks>Slot 0 belongs to RTSS itself and is never touched. An existing slot carrying
-    /// this owner is reused, so the claim survives a writer restart.</remarks>
+    /// <returns>
+    ///     False when the mapping is not an RTSS region this build understands or every
+    ///     slot is owned by someone else.
+    /// </returns>
+    /// <remarks>
+    ///     Slot 0 belongs to RTSS itself and is never touched. An existing slot carrying
+    ///     this owner is reused, so the claim survives a writer restart.
+    /// </remarks>
     internal static bool TryWrite(IRtssOsdRegion region, string owner, string text)
     {
         ArgumentNullException.ThrowIfNull(region);
@@ -106,7 +112,7 @@ internal static class RtssOsdSlots
         }
 
         var ownerBytes = Encoding.ASCII.GetBytes(owner);
-        var slot = FindSlot(region, ownerBytes, entrySize, arrayOffset, arraySize, claim: true);
+        var slot = FindSlot(region, ownerBytes, entrySize, arrayOffset, arraySize, true);
         if (slot < 0)
         {
             return false;
@@ -140,7 +146,7 @@ internal static class RtssOsdSlots
         return true;
     }
 
-    /// <summary>Releases every slot owned by <paramref name="owner"/> by zeroing it whole.</summary>
+    /// <summary>Releases every slot owned by <paramref name="owner" /> by zeroing it whole.</summary>
     /// <param name="region">The mapped RTSS shared memory.</param>
     /// <param name="owner">Slot owner identity.</param>
     internal static void Release(IRtssOsdRegion region, string owner)
@@ -153,7 +159,7 @@ internal static class RtssOsdSlots
         }
 
         var ownerBytes = Encoding.ASCII.GetBytes(owner);
-        var slot = FindSlot(region, ownerBytes, entrySize, arrayOffset, arraySize, claim: false);
+        var slot = FindSlot(region, ownerBytes, entrySize, arrayOffset, arraySize, false);
         if (slot < 0)
         {
             return;
@@ -247,20 +253,47 @@ internal static class RtssOsdSlots
         }
 
         return current.AsSpan(0, owner.Length).SequenceEqual(owner)
-            && current[owner.Length] == 0;
+               && current[owner.Length] == 0;
     }
 }
 
-/// <summary>Owns WSGM's RTSS OSD slot: read-write mapping, reopen after an RTSS restart, and a
-/// zeroed release on dispose so the slot returns to the pool.</summary>
+/// <summary>
+///     Owns WSGM's RTSS OSD slot: read-write mapping, reopen after an RTSS restart, and a
+///     zeroed release on dispose so the slot returns to the pool.
+/// </summary>
 internal sealed class RtssOsdWriter : IDisposable
 {
     private const string MapName = "RTSSSharedMemoryV2";
     private const string Owner = "WSGM";
+    private bool _disposed;
 
     private MemoryMappedFile? _map;
     private MemoryMappedViewAccessor? _view;
-    private bool _disposed;
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        try
+        {
+            if (_view is not null)
+            {
+                RtssOsdSlots.Release(new AccessorRegion(_view), Owner);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                       or ArgumentException or ObjectDisposedException)
+        {
+            // RTSS already gone; there is no slot left to hand back.
+        }
+
+        Close();
+    }
 
     /// <summary>Writes the OSD text, claiming a slot when needed.</summary>
     /// <param name="text">OSD text; empty clears the display while keeping the slot.</param>
@@ -283,38 +316,13 @@ internal sealed class RtssOsdWriter : IDisposable
             return written;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-            or ArgumentException or ObjectDisposedException)
+                                       or ArgumentException or ObjectDisposedException)
         {
             // RTSS exited or replaced its mapping mid-write; reopen on the next tick.
             Log.Warn($"RTSS OSD write failed; reopening next tick: {ex.Message}");
             Close();
             return false;
         }
-    }
-
-    /// <inheritdoc/>
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        try
-        {
-            if (_view is not null)
-            {
-                RtssOsdSlots.Release(new AccessorRegion(_view), Owner);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-            or ArgumentException or ObjectDisposedException)
-        {
-            // RTSS already gone; there is no slot left to hand back.
-        }
-
-        Close();
     }
 
     private bool TryOpen()
@@ -332,7 +340,7 @@ internal sealed class RtssOsdWriter : IDisposable
             return true;
         }
         catch (Exception ex) when (ex is FileNotFoundException or UnauthorizedAccessException
-            or IOException)
+                                       or IOException)
         {
             // Not running, or running elevated while WSGM is not — the OSD is simply
             // unavailable until RTSS is reachable, exactly like the frametime source.
@@ -356,15 +364,25 @@ internal sealed class RtssOsdWriter : IDisposable
     {
         public long Capacity => view.Capacity;
 
-        public uint ReadUInt32(long offset) => view.ReadUInt32(offset);
+        public uint ReadUInt32(long offset)
+        {
+            return view.ReadUInt32(offset);
+        }
 
-        public void WriteUInt32(long offset, uint value) => view.Write(offset, value);
+        public void WriteUInt32(long offset, uint value)
+        {
+            view.Write(offset, value);
+        }
 
-        public void ReadBytes(long offset, byte[] buffer, int count) =>
+        public void ReadBytes(long offset, byte[] buffer, int count)
+        {
             view.ReadArray(offset, buffer, 0, count);
+        }
 
-        public void WriteBytes(long offset, byte[] buffer, int count) =>
+        public void WriteBytes(long offset, byte[] buffer, int count)
+        {
             view.WriteArray(offset, buffer, 0, count);
+        }
 
         public unsafe bool TryAcquireBusy(long offset)
         {
@@ -396,8 +414,10 @@ internal sealed class RtssOsdWriter : IDisposable
     }
 }
 
-/// <summary>One sample of everything the OSD can currently source. Null omits the element, which
-/// is HandheldCompanion's own degrade rule — an entry with no elements never renders.</summary>
+/// <summary>
+///     One sample of everything the OSD can currently source. Null omits the element, which
+///     is HandheldCompanion's own degrade rule — an entry with no elements never renders.
+/// </summary>
 internal sealed record RtssOsdMetrics(
     double? CpuLoadPercent,
     double? CpuPowerWatts,
@@ -434,9 +454,11 @@ internal sealed record RtssOsdPowerStatus(
     internal static readonly RtssOsdPowerStatus Empty = new(null, false, false, null, string.Empty);
 }
 
-/// <summary>The custom overlay's configuration — selector level 4, HandheldCompanion's Custom
-/// level: which widgets render, in which order, at which detail. Configured in WSGM's Settings
-/// rather than through any RTSS-side mechanism.</summary>
+/// <summary>
+///     The custom overlay's configuration — selector level 4, HandheldCompanion's Custom
+///     level: which widgets render, in which order, at which detail. Configured in WSGM's Settings
+///     rather than through any RTSS-side mechanism.
+/// </summary>
 /// <param name="Order">Canonical widget names in render order, one row per name.</param>
 /// <param name="Time">Clock detail: 0 hidden, 1 short time, 2 full timestamp.</param>
 /// <param name="Fps">Framerate detail: 0 hidden, 1 FPS, 2 FPS and frametime.</param>
@@ -460,7 +482,7 @@ internal sealed record RtssOsdCustomSettings(
 
     /// <summary>HandheldCompanion's defaults: its shipped order, every widget at full detail.</summary>
     internal static readonly RtssOsdCustomSettings Default =
-        new(KnownWidgets: "Time,GPU,CPU,VRAM,RAM,BATT,FPS", 2, 2, 2, 2, 2, 2, 2);
+        new("Time,GPU,CPU,VRAM,RAM,BATT,FPS", 2, 2, 2, 2, 2, 2, 2);
 
     private RtssOsdCustomSettings(
         string KnownWidgets, int Time, int Fps, int Cpu, int Ram, int Gpu, int Vram, int Battery)
@@ -468,8 +490,10 @@ internal sealed record RtssOsdCustomSettings(
     {
     }
 
-    /// <summary>Builds the settings from the persisted configuration, dropping unknown widget
-    /// names and clamping every detail level into range.</summary>
+    /// <summary>
+    ///     Builds the settings from the persisted configuration, dropping unknown widget
+    ///     names and clamping every detail level into range.
+    /// </summary>
     /// <param name="configuration">The persisted performance configuration.</param>
     /// <returns>The renderer-ready settings.</returns>
     internal static RtssOsdCustomSettings FromConfig(PerformanceConfig configuration)
@@ -490,7 +514,7 @@ internal sealed record RtssOsdCustomSettings(
     {
         List<string> names = [];
         foreach (var part in (order ?? string.Empty).Split(
-            ',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+                     ',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
         {
             var canonical = part.ToUpperInvariant();
             if (Array.IndexOf(KnownWidgets, canonical) >= 0 && !names.Contains(canonical))
@@ -505,24 +529,33 @@ internal sealed record RtssOsdCustomSettings(
 
 /// <summary>Reads the sensor XML RTSS's own LibreHardwareMonitor provider publishes.</summary>
 /// <remarks>
-/// <c>LHMDataProvider.exe</c> is the GUI-less LibreHardwareMonitor the Overlay Editor ships; it
-/// exports the whole sensor tree as XML into the <c>LHMDPSharedMemory</c> mapping under the
-/// <c>Global\Access_LHMDPSharedMemory</c> mutex (live-verified on the Claw, 2026-09-01). Reading
-/// it gives WSGM the same values the user's overlay layouts see, with no sensor stack of its own.
-/// The provider self-deduplicates, so asking it to start when the mapping is absent is safe.
+///     <c>LHMDataProvider.exe</c> is the GUI-less LibreHardwareMonitor the Overlay Editor ships; it
+///     exports the whole sensor tree as XML into the <c>LHMDPSharedMemory</c> mapping under the
+///     <c>Global\Access_LHMDPSharedMemory</c> mutex (live-verified on the Claw, 2026-09-01). Reading
+///     it gives WSGM the same values the user's overlay layouts see, with no sensor stack of its own.
+///     The provider self-deduplicates, so asking it to start when the mapping is absent is safe.
 /// </remarks>
 internal sealed class LhmSensorReader : IDisposable
 {
     private const string MapName = "LHMDPSharedMemory";
+
     private const string MutexName = "Global\\Access_LHMDPSharedMemory";
 
-    private MemoryMappedFile? _map;
-    private MemoryMappedViewAccessor? _view;
     // Kept across samples: a fresh multi-megabyte array each second landed on the large object heap,
     // and reopening the named mutex every read cost a kernel round trip for the same object.
     private byte[] _buffer = [];
-    private Mutex? _gate;
     private bool _disposed;
+    private Mutex? _gate;
+
+    private MemoryMappedFile? _map;
+    private MemoryMappedViewAccessor? _view;
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _disposed = true;
+        Close();
+    }
 
     /// <summary>Reads the current sensor XML, or null while the provider is not publishing.</summary>
     /// <returns>The XML fragment stream (multiple root elements), or null.</returns>
@@ -544,7 +577,7 @@ internal sealed class LhmSensorReader : IDisposable
                     held = _gate.WaitOne(TimeSpan.FromMilliseconds(200));
                 }
                 catch (Exception ex) when (ex is WaitHandleCannotBeOpenedException
-                    or UnauthorizedAccessException or AbandonedMutexException)
+                                               or UnauthorizedAccessException or AbandonedMutexException)
                 {
                     // No lock is still a readable snapshot: the provider replaces the buffer
                     // in one write and the XML parse rejects a torn one harmlessly.
@@ -556,6 +589,7 @@ internal sealed class LhmSensorReader : IDisposable
                 {
                     _buffer = new byte[size];
                 }
+
                 _view.ReadArray(0, _buffer, 0, size);
                 var length = Array.IndexOf(_buffer, (byte)0);
                 return length <= 0 ? null : Encoding.UTF8.GetString(_buffer, 0, length);
@@ -569,19 +603,12 @@ internal sealed class LhmSensorReader : IDisposable
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-            or ArgumentException or ObjectDisposedException)
+                                       or ArgumentException or ObjectDisposedException)
         {
             Log.Warn($"LHM sensor read failed; reopening next sample: {ex.Message}");
             Close();
             return null;
         }
-    }
-
-    /// <inheritdoc/>
-    public void Dispose()
-    {
-        _disposed = true;
-        Close();
     }
 
     private bool TryOpen()
@@ -599,7 +626,7 @@ internal sealed class LhmSensorReader : IDisposable
             return true;
         }
         catch (Exception ex) when (ex is FileNotFoundException or UnauthorizedAccessException
-            or IOException)
+                                       or IOException)
         {
             Log.Change(
                 "rtss-lhm-map",
@@ -620,12 +647,16 @@ internal sealed class LhmSensorReader : IDisposable
     }
 }
 
-/// <summary>Selects the OSD's values out of the provider's sensor XML — HandheldCompanion's
-/// sensor-name rules (<c>LibreHardwarePlatform</c>) ported onto the exported tree.</summary>
+/// <summary>
+///     Selects the OSD's values out of the provider's sensor XML — HandheldCompanion's
+///     sensor-name rules (<c>LibreHardwarePlatform</c>) ported onto the exported tree.
+/// </summary>
 internal static class RtssLhmSensors
 {
-    /// <summary>Parses the provider XML into the metrics it can supply. Fields with no matching
-    /// sensor stay null; a torn or foreign buffer yields <see cref="RtssOsdMetrics.Empty"/>.</summary>
+    /// <summary>
+    ///     Parses the provider XML into the metrics it can supply. Fields with no matching
+    ///     sensor stay null; a torn or foreign buffer yields <see cref="RtssOsdMetrics.Empty" />.
+    /// </summary>
     /// <param name="xml">The exported sensor XML (a fragment stream, one element per hardware).</param>
     /// <returns>The partial metrics.</returns>
     internal static RtssOsdMetrics Parse(string xml)
@@ -653,123 +684,127 @@ internal static class RtssLhmSensors
                 switch (reader.NodeType)
                 {
                     case XmlNodeType.Element:
+                    {
+                        element = reader.Name;
+                        if (element != "sensor")
                         {
-                            element = reader.Name;
-                            if (element != "sensor")
-                            {
-                                break;
-                            }
-
-                            inSensor = true;
-                            sensorName = sensorType = sensorValue = string.Empty;
                             break;
                         }
+
+                        inSensor = true;
+                        sensorName = sensorType = sensorValue = string.Empty;
+                        break;
+                    }
                     case XmlNodeType.Text:
+                    {
+                        switch (inSensor)
                         {
-                            switch (inSensor)
-                            {
-                                case false when element == "type":
-                                    hardwareType = reader.Value;
-                                    break;
-                                case true:
-                                    switch (element)
-                                    {
-                                        case "name": sensorName = reader.Value; break;
-                                        case "type": sensorType = reader.Value; break;
-                                        case "value": sensorValue = reader.Value; break;
-                                    }
-                                    break;
-                            }
-                            break;
+                            case false when element == "type":
+                                hardwareType = reader.Value;
+                                break;
+                            case true:
+                                switch (element)
+                                {
+                                    case "name": sensorName = reader.Value; break;
+                                    case "type": sensorType = reader.Value; break;
+                                    case "value": sensorValue = reader.Value; break;
+                                }
+
+                                break;
                         }
+
+                        break;
+                    }
                     case XmlNodeType.EndElement when reader.Name == "sensor":
+                    {
+                        inSensor = false;
+                        if (!TryParseValue(sensorValue, out var value))
                         {
-                            inSensor = false;
-                            if (!TryParseValue(sensorValue, out var value))
-                            {
-                                continue;
-                            }
-
-                            if (hardwareType.StartsWith("Cpu", StringComparison.Ordinal))
-                            {
-                                // HC: total load, package power, package temperature.
-                                switch (sensorType)
-                                {
-                                    case "Load" when sensorName == "CPU Total":
-                                        cpuLoad = value;
-                                        break;
-                                    case "Power" when sensorName is "CPU Package" or "Package":
-                                        cpuPower = value;
-                                        break;
-                                    case "Temperature" when sensorName is "CPU Package" or "Core (Tctl/Tdie)":
-                                        cpuTemp = value;
-                                        break;
-                                }
-                            }
-                            else if (hardwareType.StartsWith("Gpu", StringComparison.Ordinal))
-                            {
-                                switch (sensorType)
-                                {
-                                    case "Load"
-                                        when sensorName == "D3D 3D" || (sensorName == "GPU Core" && gpuLoad is null):
-                                        gpuLoad = sensorName == "D3D 3D" ? value : gpuLoad ?? value;
-                                        break;
-                                    case "Power" when gpuPower is null
-                                        && sensorName is "GPU Power" or "GPU Package" or "GPU Core" or "GPU SoC":
-                                        gpuPower = value;
-                                        break;
-                                    case "Temperature" when sensorName == "GPU Core":
-                                        gpuTemp = value;
-                                        break;
-                                    case "Data" or "SmallData":
-                                        {
-                                            // HC's preference order: dedicated GPU memory beats D3D dedicated
-                                            // beats D3D shared; the exporter reports megabytes.
-                                            var usedRank = sensorName switch
-                                            {
-                                                "GPU Memory Used" => 0,
-                                                "D3D Dedicated Memory Used" => 1,
-                                                "D3D Shared Memory Used" => 2,
-                                                _ => -1
-                                            };
-                                            if (usedRank >= 0 && usedRank < gpuMemoryUsedRank)
-                                            {
-                                                gpuMemoryUsedRank = usedRank;
-                                                gpuMemoryUsedMb = value;
-                                            }
-
-                                            var totalRank = sensorName switch
-                                            {
-                                                "GPU Memory Total" => 0,
-                                                "D3D Dedicated Memory Total" => 1,
-                                                "D3D Shared Memory Total" => 2,
-                                                _ => -1
-                                            };
-                                            if (totalRank < 0 || totalRank >= gpuMemoryTotalRank)
-                                            {
-                                                break;
-                                            }
-
-                                            gpuMemoryTotalRank = totalRank;
-                                            gpuMemoryTotalMb = value;
-                                            break;
-                                        }
-                                }
-                            }
-                            else if (hardwareType == "Memory")
-                            {
-                                switch (sensorType)
-                                {
-                                    case "Data" when sensorName == "Memory Used":
-                                        memoryUsedGb = value;
-                                        break;
-                                    case "Data" when sensorName == "Memory Available":
-                                        memoryAvailableGb = value;
-                                        break;
-                                }
-                            }
-                            break;
+                            continue;
                         }
+
+                        if (hardwareType.StartsWith("Cpu", StringComparison.Ordinal))
+                        {
+                            // HC: total load, package power, package temperature.
+                            switch (sensorType)
+                            {
+                                case "Load" when sensorName == "CPU Total":
+                                    cpuLoad = value;
+                                    break;
+                                case "Power" when sensorName is "CPU Package" or "Package":
+                                    cpuPower = value;
+                                    break;
+                                case "Temperature" when sensorName is "CPU Package" or "Core (Tctl/Tdie)":
+                                    cpuTemp = value;
+                                    break;
+                            }
+                        }
+                        else if (hardwareType.StartsWith("Gpu", StringComparison.Ordinal))
+                        {
+                            switch (sensorType)
+                            {
+                                case "Load"
+                                    when sensorName == "D3D 3D" || (sensorName == "GPU Core" && gpuLoad is null):
+                                    gpuLoad = sensorName == "D3D 3D" ? value : gpuLoad ?? value;
+                                    break;
+                                case "Power" when gpuPower is null
+                                                  && sensorName is "GPU Power" or "GPU Package" or "GPU Core"
+                                                      or "GPU SoC":
+                                    gpuPower = value;
+                                    break;
+                                case "Temperature" when sensorName == "GPU Core":
+                                    gpuTemp = value;
+                                    break;
+                                case "Data" or "SmallData":
+                                {
+                                    // HC's preference order: dedicated GPU memory beats D3D dedicated
+                                    // beats D3D shared; the exporter reports megabytes.
+                                    var usedRank = sensorName switch
+                                    {
+                                        "GPU Memory Used" => 0,
+                                        "D3D Dedicated Memory Used" => 1,
+                                        "D3D Shared Memory Used" => 2,
+                                        _ => -1
+                                    };
+                                    if (usedRank >= 0 && usedRank < gpuMemoryUsedRank)
+                                    {
+                                        gpuMemoryUsedRank = usedRank;
+                                        gpuMemoryUsedMb = value;
+                                    }
+
+                                    var totalRank = sensorName switch
+                                    {
+                                        "GPU Memory Total" => 0,
+                                        "D3D Dedicated Memory Total" => 1,
+                                        "D3D Shared Memory Total" => 2,
+                                        _ => -1
+                                    };
+                                    if (totalRank < 0 || totalRank >= gpuMemoryTotalRank)
+                                    {
+                                        break;
+                                    }
+
+                                    gpuMemoryTotalRank = totalRank;
+                                    gpuMemoryTotalMb = value;
+                                    break;
+                                }
+                            }
+                        }
+                        else if (hardwareType == "Memory")
+                        {
+                            switch (sensorType)
+                            {
+                                case "Data" when sensorName == "Memory Used":
+                                    memoryUsedGb = value;
+                                    break;
+                                case "Data" when sensorName == "Memory Available":
+                                    memoryAvailableGb = value;
+                                    break;
+                            }
+                        }
+
+                        break;
+                    }
                 }
             }
         }
@@ -805,10 +840,12 @@ internal static class RtssLhmSensors
     }
 }
 
-/// <summary>Sources the OSD metrics: RTSS's LibreHardwareMonitor provider first, with the kernel
-/// counters (CPU times, memory status, power status) filling anything the provider does not
-/// publish. Samples are cached for one second — HandheldCompanion's sensor cadence — so the OSD's
-/// 100 ms redraw does not turn scheduler noise into a flickering number.</summary>
+/// <summary>
+///     Sources the OSD metrics: RTSS's LibreHardwareMonitor provider first, with the kernel
+///     counters (CPU times, memory status, power status) filling anything the provider does not
+///     publish. Samples are cached for one second — HandheldCompanion's sensor cadence — so the OSD's
+///     100 ms redraw does not turn scheduler noise into a flickering number.
+/// </summary>
 internal sealed class RtssOsdMetricsSource : IDisposable
 {
     private static readonly TimeSpan SampleLifetime = TimeSpan.FromSeconds(1);
@@ -816,25 +853,35 @@ internal sealed class RtssOsdMetricsSource : IDisposable
 
     private readonly LhmSensorReader _lhm = new();
     private readonly Func<string?>? _rtssExecutablePath;
+    private double? _batteryWatts;
+
+    private long _batteryWattsAtTicks = -1000;
+
     // "Never" is one interval in the past, not long.MinValue: TickCount64 minus MinValue
     // overflows negative, which read as "cache still fresh" forever and shipped an OSD with no
     // sensor values at all. One interval back keeps the first call eligible even right at boot.
     private RtssOsdMetrics _cached = RtssOsdMetrics.Empty;
     private long _cachedAtTicks = -(long)SampleLifetime.TotalMilliseconds;
-    private long _providerAttemptTicks = -(long)ProviderStartCooldown.TotalMilliseconds;
-    private long _lastIdle;
-    private long _lastBusyBase;
     private bool _hasCpuSample;
-    private double? _batteryWatts;
-    private long _batteryWattsAtTicks = -1000;
+    private long _lastBusyBase;
+    private long _lastIdle;
+    private long _providerAttemptTicks = -(long)ProviderStartCooldown.TotalMilliseconds;
 
     internal RtssOsdMetricsSource(Func<string?>? rtssExecutablePath = null)
     {
         _rtssExecutablePath = rtssExecutablePath;
     }
 
-    /// <summary>Takes one sample, at most once per second. CPU load needs two samples before the
-    /// kernel fallback reports.</summary>
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _lhm.Dispose();
+    }
+
+    /// <summary>
+    ///     Takes one sample, at most once per second. CPU load needs two samples before the
+    ///     kernel fallback reports.
+    /// </summary>
     /// <returns>The sample.</returns>
     internal RtssOsdMetrics Sample()
     {
@@ -875,11 +922,10 @@ internal sealed class RtssOsdMetricsSource : IDisposable
         return _cached;
     }
 
-    /// <inheritdoc/>
-    public void Dispose() => _lhm.Dispose();
-
-    /// <summary>Starts RTSS's LHM provider when its mapping is absent. It deduplicates itself,
-    /// and the Overlay Editor starts the same process the same way.</summary>
+    /// <summary>
+    ///     Starts RTSS's LHM provider when its mapping is absent. It deduplicates itself,
+    ///     and the Overlay Editor starts the same process the same way.
+    /// </summary>
     /// <param name="nowTicks">Current tick count, for the retry cooldown.</param>
     private void TryStartProvider(long nowTicks)
     {
@@ -1004,11 +1050,11 @@ internal sealed class RtssOsdMetricsSource : IDisposable
 }
 
 /// <summary>
-/// Builds the OSD text for the WSGM-rendered overlay levels. The structure, tags, colors and
-/// per-level layout are HandheldCompanion's (<c>OSDManager</c> / <c>Overlay/Strategy</c>): level 1
-/// is Minimal (FPS), level 2 Extended (one combined row) and level 3 Full (one row per subject).
-/// <c>&lt;FR&gt;</c>/<c>&lt;FT&gt;</c> are RTSS's own framerate/frametime tags, filled per hooked
-/// application, so FPS needs no sensor. Pure, for the tests.
+///     Builds the OSD text for the WSGM-rendered overlay levels. The structure, tags, colors and
+///     per-level layout are HandheldCompanion's (<c>OSDManager</c> / <c>Overlay/Strategy</c>): level 1
+///     is Minimal (FPS), level 2 Extended (one combined row) and level 3 Full (one row per subject).
+///     <c>&lt;FR&gt;</c>/<c>&lt;FT&gt;</c> are RTSS's own framerate/frametime tags, filled per hooked
+///     application, so FPS needs no sensor. Pure, for the tests.
 /// </summary>
 internal static class RtssOsdContent
 {
@@ -1042,34 +1088,41 @@ internal static class RtssOsdContent
             3 => Compose(
                 Row(TdpEntry(powerStatus, true)),
                 Row(AutoTdpEntry(powerStatus, true)),
-                Row(Entry("GPU", GpuColor, true, GpuElements(metrics, full: true))),
-                Row(Entry("CPU", CpuColor, true, CpuElements(metrics, full: true))),
-                Row(Entry("RAM", RamColor, true, RamElements(metrics, full: true))),
-                Row(Entry("VRAM", VramColor, true, VramElements(metrics, full: true))),
-                Row(Entry("BATT", BattColor, true, BatteryElements(metrics, full: true))),
-                Row(Entry("<APP>", FpsColor, true, FpsElements(full: true)))),
+                Row(Entry("GPU", GpuColor, true, GpuElements(metrics, true))),
+                Row(Entry("CPU", CpuColor, true, CpuElements(metrics, true))),
+                Row(Entry("RAM", RamColor, true, RamElements(metrics, true))),
+                Row(Entry("VRAM", VramColor, true, VramElements(metrics, true))),
+                Row(Entry("BATT", BattColor, true, BatteryElements(metrics, true))),
+                Row(Entry("<APP>", FpsColor, true, FpsElements(true)))),
             _ => string.Empty
         };
     }
 
-    private static string MinimalFpsRow() =>
-        Row(Entry("<APP>", FpsColor, false, FpsElements(full: false)));
+    private static string MinimalFpsRow()
+    {
+        return Row(Entry("<APP>", FpsColor, false, FpsElements(false)));
+    }
 
     // Keep HC's subject order after WSGM's live power entries; every entry uses minimal detail.
     private static string ExtendedRow(
         RtssOsdMetrics metrics,
-        RtssOsdPowerStatus powerStatus) => Row(
-        Entry("<APP>", FpsColor, false, FpsElements(full: true)),
-        TdpEntry(powerStatus, false),
-        AutoTdpEntry(powerStatus, false),
-        Entry("GPU", GpuColor, false, GpuElements(metrics, full: false)),
-        Entry("VRAM", VramColor, false, VramElements(metrics, full: false)),
-        Entry("CPU", CpuColor, false, CpuElements(metrics, full: false)),
-        Entry("RAM", RamColor, false, RamElements(metrics, full: false)),
-        Entry("BATT", BattColor, false, BatteryElements(metrics, full: false)));
+        RtssOsdPowerStatus powerStatus)
+    {
+        return Row(
+            Entry("<APP>", FpsColor, false, FpsElements(true)),
+            TdpEntry(powerStatus, false),
+            AutoTdpEntry(powerStatus, false),
+            Entry("GPU", GpuColor, false, GpuElements(metrics, false)),
+            Entry("VRAM", VramColor, false, VramElements(metrics, false)),
+            Entry("CPU", CpuColor, false, CpuElements(metrics, false)),
+            Entry("RAM", RamColor, false, RamElements(metrics, false)),
+            Entry("BATT", BattColor, false, BatteryElements(metrics, false)));
+    }
 
-    /// <summary>Builds the user-configured Custom overlay — HandheldCompanion's Custom level:
-    /// one row per configured widget name, each at its own detail.</summary>
+    /// <summary>
+    ///     Builds the user-configured Custom overlay — HandheldCompanion's Custom level:
+    ///     one row per configured widget name, each at its own detail.
+    /// </summary>
     /// <param name="custom">The order and per-widget detail from WSGM's Settings.</param>
     /// <param name="metrics">The current sample.</param>
     /// <param name="powerStatus">Current device-power status, prepended when available.</param>
@@ -1089,10 +1142,12 @@ internal static class RtssOsdContent
         {
             rows.Add(tdpRow);
         }
+
         if (autoTdpRow.Length > 0)
         {
             rows.Add(autoTdpRow);
         }
+
         foreach (var name in custom.Order)
         {
             // HC's CustomStrategy shows the widget's literal name, FPS included.
@@ -1148,8 +1203,10 @@ internal static class RtssOsdContent
         return Entry("AUTO TDP", AutoTdpColor, indent, elements);
     }
 
-    private static List<string> TimeElements(bool full) =>
-        [Element(DateTime.Now.ToString(full ? "G" : "t", CultureInfo.InvariantCulture), string.Empty)];
+    private static List<string> TimeElements(bool full)
+    {
+        return [Element(DateTime.Now.ToString(full ? "G" : "t", CultureInfo.InvariantCulture), string.Empty)];
+    }
 
     private static List<string> FpsElements(bool full)
     {
@@ -1296,7 +1353,10 @@ internal static class RtssOsdContent
         return $"{label} {string.Join(" ", elements)}";
     }
 
-    private static string Element(string value, string unit) => $"<C0>{value}<S1>{unit}<S><C>";
+    private static string Element(string value, string unit)
+    {
+        return $"<C0>{value}<S1>{unit}<S><C>";
+    }
 
     private static string Format(double value, string unit)
     {
@@ -1311,22 +1371,24 @@ internal static class RtssOsdContent
     }
 }
 
-/// <summary>Renders the WSGM-owned overlay levels into RTSS's OSD at HC's 100 ms cadence and
-/// carries the whole selector state: 0 clears and parks the loop, 1 to 3 render the fixed
-/// presets, and 4 renders the user-configured Custom layout.</summary>
+/// <summary>
+///     Renders the WSGM-owned overlay levels into RTSS's OSD at HC's 100 ms cadence and
+///     carries the whole selector state: 0 clears and parks the loop, 1 to 3 render the fixed
+///     presets, and 4 renders the user-configured Custom layout.
+/// </summary>
 internal sealed class RtssOsdRenderer : IDisposable
 {
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromMilliseconds(100);
-
-    private readonly RtssOsdWriter _writer = new();
+    private readonly Task _loop;
     private readonly RtssOsdMetricsSource _metrics;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SemaphoreSlim _wake = new(0, 1);
-    private readonly Task _loop;
+
+    private readonly RtssOsdWriter _writer = new();
     private volatile RtssOsdCustomSettings _custom = RtssOsdCustomSettings.Default;
-    private volatile RtssOsdPowerStatus _powerStatus = RtssOsdPowerStatus.Empty;
-    private volatile int _level;
     private bool _disposed;
+    private volatile int _level;
+    private volatile RtssOsdPowerStatus _powerStatus = RtssOsdPowerStatus.Empty;
 
     internal RtssOsdRenderer(Func<string?>? rtssExecutablePath = null)
     {
@@ -1334,50 +1396,10 @@ internal sealed class RtssOsdRenderer : IDisposable
         _loop = Task.Run(RenderLoopAsync);
     }
 
-    /// <summary>Applies the Custom overlay's configuration; live on the next tick when level 4
-    /// is showing.</summary>
-    /// <param name="settings">The widget order and per-widget detail.</param>
-    internal void ApplyCustom(RtssOsdCustomSettings settings)
-    {
-        ArgumentNullException.ThrowIfNull(settings);
-        _custom = settings;
-    }
-
-    /// <summary>Applies the latest device and AutoTDP projection; live on the next tick.</summary>
-    /// <param name="status">The cached power status from the session owner.</param>
-    internal void ApplyPowerStatus(RtssOsdPowerStatus status)
-    {
-        ArgumentNullException.ThrowIfNull(status);
-        _powerStatus = status;
-    }
-
     /// <summary>Gets the level currently rendered — the adapter's overlay readback.</summary>
     internal int Level => _level;
 
-    /// <summary>Switches the selector level.</summary>
-    /// <param name="level">0 clears; 1 to 3 render the presets, 4 the Custom layout. Values
-    /// outside are clamped into range.</param>
-    internal void SetLevel(int level)
-    {
-        var bounded = Math.Clamp(level, 0, 4);
-        if (_level == bounded)
-        {
-            return;
-        }
-
-        _level = bounded;
-        Log.Change("rtss-osd-level", $"RTSS OSD level {bounded}.");
-        try
-        {
-            _wake.Release();
-        }
-        catch (SemaphoreFullException)
-        {
-            // A pending wake already covers this change.
-        }
-    }
-
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public void Dispose()
     {
         if (_disposed)
@@ -1407,6 +1429,50 @@ internal sealed class RtssOsdRenderer : IDisposable
         _writer.Dispose();
         _metrics.Dispose();
         _shutdown.Dispose();
+    }
+
+    /// <summary>
+    ///     Applies the Custom overlay's configuration; live on the next tick when level 4
+    ///     is showing.
+    /// </summary>
+    /// <param name="settings">The widget order and per-widget detail.</param>
+    internal void ApplyCustom(RtssOsdCustomSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        _custom = settings;
+    }
+
+    /// <summary>Applies the latest device and AutoTDP projection; live on the next tick.</summary>
+    /// <param name="status">The cached power status from the session owner.</param>
+    internal void ApplyPowerStatus(RtssOsdPowerStatus status)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+        _powerStatus = status;
+    }
+
+    /// <summary>Switches the selector level.</summary>
+    /// <param name="level">
+    ///     0 clears; 1 to 3 render the presets, 4 the Custom layout. Values
+    ///     outside are clamped into range.
+    /// </param>
+    internal void SetLevel(int level)
+    {
+        var bounded = Math.Clamp(level, 0, 4);
+        if (_level == bounded)
+        {
+            return;
+        }
+
+        _level = bounded;
+        Log.Change("rtss-osd-level", $"RTSS OSD level {bounded}.");
+        try
+        {
+            _wake.Release();
+        }
+        catch (SemaphoreFullException)
+        {
+            // A pending wake already covers this change.
+        }
     }
 
     private async Task RenderLoopAsync()

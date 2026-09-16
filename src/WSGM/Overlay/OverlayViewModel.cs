@@ -5,34 +5,64 @@ namespace WSGM.Overlay;
 /// <summary>State for the overlay, recomputed every time it is shown.</summary>
 public sealed class OverlayViewModel : ObservableObject
 {
+    /// <summary>What a display-off row says when nothing bounds it.</summary>
+    public const string DisplayTimeoutDescription = "Idle time before the display turns off";
+
     private string _warningText = "";
 
     /// <summary>Gets or sets whether Explorer is currently running.</summary>
     public bool ExplorerRunning
     {
         get;
-        set { if (SetFieldIfChanged(ref field, value, nameof(ExplorerRunning))) { Raise(nameof(DesktopButtonText)); } }
+        set
+        {
+            if (SetFieldIfChanged(ref field, value, nameof(ExplorerRunning)))
+            {
+                Raise(nameof(DesktopButtonText));
+            }
+        }
     }
 
     /// <summary>Gets or sets whether the configured home application has a live process.</summary>
     public bool HomeAppAlive
     {
         get;
-        set { if (SetFieldIfChanged(ref field, value, nameof(HomeAppAlive))) { Raise(nameof(HomeAppButtonText)); } }
+        set
+        {
+            if (SetFieldIfChanged(ref field, value, nameof(HomeAppAlive)))
+            {
+                Raise(nameof(HomeAppButtonText));
+            }
+        }
     }
 
     /// <summary>Gets or sets the configured home application's display name.</summary>
     public string HomeAppName
     {
         get;
-        set { if (!SetFieldIfChanged(ref field, value, nameof(HomeAppName))) { return; } Raise(nameof(HomeAppButtonText)); Raise(nameof(CloseLauncherText)); }
+        set
+        {
+            if (!SetFieldIfChanged(ref field, value, nameof(HomeAppName)))
+            {
+                return;
+            }
+
+            Raise(nameof(HomeAppButtonText));
+            Raise(nameof(CloseLauncherText));
+        }
     } = "Home app";
 
     /// <summary>Gets or sets the non-fatal warning displayed by the overlay.</summary>
     public string WarningText
     {
         get => _warningText;
-        set { if (SetFieldIfChanged(ref _warningText, value, nameof(WarningText))) { Raise(nameof(HasWarning)); } }
+        set
+        {
+            if (SetFieldIfChanged(ref _warningText, value, nameof(WarningText)))
+            {
+                Raise(nameof(HasWarning));
+            }
+        }
     }
 
     /// <summary>Gets whether a warning should be rendered.</summary>
@@ -45,21 +75,30 @@ public sealed class OverlayViewModel : ObservableObject
         set => SetFieldIfChanged(ref field, value, nameof(GlyphStyle));
     } = GlyphStyle.Xbox;
 
-    /// <summary>Armed state of the destructive Close-Steam confirm. Lives here so
-    /// the bound title renders it — a direct Text write would fight the binding.</summary>
+    /// <summary>
+    ///     Armed state of the destructive Close-Steam confirm. Lives here so
+    ///     the bound title renders it — a direct Text write would fight the binding.
+    /// </summary>
     public bool ConfirmingCloseLauncher
     {
         get;
-        set { field = value; Raise(nameof(ConfirmingCloseLauncher)); Raise(nameof(CloseLauncherText)); }
+        set
+        {
+            field = value;
+            Raise(nameof(ConfirmingCloseLauncher));
+            Raise(nameof(CloseLauncherText));
+        }
     }
 
     /// <summary>Gets the action label that switches between desktop and game mode.</summary>
     public string DesktopButtonText => ExplorerRunning ? "Back to Game Mode" : "Return to Desktop";
 
-    /// <summary>Gets whether the desktop/game-mode row is offered at all. False for a
-    /// preview surface (Settings' "Test panel", <c>--overlay-test</c>), which has no
-    /// ShellSession, tray host or watchdog behind it — performing a real transition
-    /// there would exit Explorer and leave the user with no shell to recover to.</summary>
+    /// <summary>
+    ///     Gets whether the desktop/game-mode row is offered at all. False for a
+    ///     preview surface (Settings' "Test panel", <c>--overlay-test</c>), which has no
+    ///     ShellSession, tray host or watchdog behind it — performing a real transition
+    ///     there would exit Explorer and leave the user with no shell to recover to.
+    /// </summary>
     public bool ModeSwitchAvailable { get; init; } = true;
 
     /// <summary>Gets the action label that starts or focuses the home application.</summary>
@@ -68,8 +107,10 @@ public sealed class OverlayViewModel : ObservableObject
     /// <summary>Gets the destructive-action label, including confirmation state.</summary>
     public string CloseLauncherText => ConfirmingCloseLauncher ? "Really?" : $"Close {HomeAppName}";
 
-    /// <summary>Whether the keep-awake row is shown at all (a session
-    /// <c>KeepAwakeService</c> exists; the Settings preview overlay has none).</summary>
+    /// <summary>
+    ///     Whether the keep-awake row is shown at all (a session
+    ///     <c>KeepAwakeService</c> exists; the Settings preview overlay has none).
+    /// </summary>
     public bool ShowKeepAwake { get; init; }
 
     /// <summary>The user's manual wake mode (the row cycles it).</summary>
@@ -82,6 +123,7 @@ public sealed class OverlayViewModel : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(KeepAwakeDescription));
             Raise(nameof(KeepAwakeTrailing));
         }
@@ -97,14 +139,17 @@ public sealed class OverlayViewModel : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(KeepAwakeDescription));
             Raise(nameof(KeepAwakeTrailing));
         }
     }
 
-    /// <summary>System-wide wake-lock holder summary from the indicator poll
-    /// (for example "Standby blocked by steam.exe ×3"); empty when free, unknown,
-    /// or when only WSGM itself holds locks.</summary>
+    /// <summary>
+    ///     System-wide wake-lock holder summary from the indicator poll
+    ///     (for example "Standby blocked by steam.exe ×3"); empty when free, unknown,
+    ///     or when only WSGM itself holds locks.
+    /// </summary>
     public string WakeLockSummary
     {
         get;
@@ -117,8 +162,10 @@ public sealed class OverlayViewModel : ObservableObject
         }
     } = "";
 
-    /// <summary>Gets the status line rendered under the keep-awake row: WSGM's own
-    /// mode first, then other holders seen by the indicator, then the cycle hint.</summary>
+    /// <summary>
+    ///     Gets the status line rendered under the keep-awake row: WSGM's own
+    ///     mode first, then other holders seen by the indicator, then the cycle hint.
+    /// </summary>
     public string KeepAwakeDescription => KeepAwakeManualMode switch
     {
         ManualWakeMode.StandbyAndDisplay => "Standby blocked and screen kept on",
@@ -128,8 +175,10 @@ public sealed class OverlayViewModel : ObservableObject
         _ => "Off"
     };
 
-    /// <summary>Gets the trailing badge for the keep-awake row ("ON" for a standby
-    /// hold, "ON+" when the display is pinned too, empty otherwise).</summary>
+    /// <summary>
+    ///     Gets the trailing badge for the keep-awake row ("ON" for a standby
+    ///     hold, "ON+" when the display is pinned too, empty otherwise).
+    /// </summary>
     public string KeepAwakeTrailing => KeepAwakeManualMode switch
     {
         ManualWakeMode.StandbyAndDisplay => "ON+",
@@ -137,8 +186,10 @@ public sealed class OverlayViewModel : ObservableObject
         _ => KeepAwakeDownloadActive ? "ON" : ""
     };
 
-    /// <summary>Current display-off timeout on battery, as a trailing badge ("5 min",
-    /// "Never", "—" when the power API gave no answer).</summary>
+    /// <summary>
+    ///     Current display-off timeout on battery, as a trailing badge ("5 min",
+    ///     "Never", "—" when the power API gave no answer).
+    /// </summary>
     public string DisplayDcTimeout
     {
         get;
@@ -151,9 +202,6 @@ public sealed class OverlayViewModel : ObservableObject
         get;
         set => SetFieldIfChanged(ref field, value, nameof(DisplayAcTimeout));
     } = "—";
-
-    /// <summary>What a display-off row says when nothing bounds it.</summary>
-    public const string DisplayTimeoutDescription = "Idle time before the display turns off";
 
     /// <summary>The battery display-off row's description, naming Steam's screensaver bound when there is one.</summary>
     public string DisplayDcDescription
@@ -187,17 +235,27 @@ public sealed class OverlayViewModel : ObservableObject
     // is open must be able to hide a feature the user just turned off, instead of
     // leaving a button that drives a now-disabled integration until the next reopen.
 
-    /// <summary>Whether the CEF library-tabs builder button is shown
-    /// (<c>Cef.Enabled &amp;&amp; Cef.LibraryTabs</c>). A hidden button removes the
-    /// only entry point to that CEF feature.</summary>
+    /// <summary>
+    ///     Whether the CEF library-tabs builder button is shown
+    ///     (<c>Cef.Enabled &amp;&amp; Cef.LibraryTabs</c>). A hidden button removes the
+    ///     only entry point to that CEF feature.
+    /// </summary>
     public bool ShowLibraryTabs
     {
         get;
-        set { if (SetFieldIfChanged(ref field, value, nameof(ShowLibraryTabs))) { Raise(nameof(ShowSteamLibrarySection)); } }
+        set
+        {
+            if (SetFieldIfChanged(ref field, value, nameof(ShowLibraryTabs)))
+            {
+                Raise(nameof(ShowSteamLibrarySection));
+            }
+        }
     } = true;
 
-    /// <summary>Whether the CEF SD-card library-manager button is shown
-    /// (<c>Cef.Enabled &amp;&amp; Cef.CardManager</c>).</summary>
+    /// <summary>
+    ///     Whether the CEF SD-card library-manager button is shown
+    ///     (<c>Cef.Enabled &amp;&amp; Cef.CardManager</c>).
+    /// </summary>
     public bool ShowCardManager
     {
         get;
@@ -207,21 +265,32 @@ public sealed class OverlayViewModel : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(ShowSteamLibrarySection));
             Raise(nameof(ShowFormatInTools));
         }
     } = true;
 
-    /// <summary>Whether the CEF shortcut-artwork button is shown
-    /// (<c>Cef.Enabled &amp;&amp; Cef.Artwork</c>).</summary>
+    /// <summary>
+    ///     Whether the CEF shortcut-artwork button is shown
+    ///     (<c>Cef.Enabled &amp;&amp; Cef.Artwork</c>).
+    /// </summary>
     public bool ShowArtwork
     {
         get;
-        set { if (SetFieldIfChanged(ref field, value, nameof(ShowArtwork))) { Raise(nameof(ShowSteamLibrarySection)); } }
+        set
+        {
+            if (SetFieldIfChanged(ref field, value, nameof(ShowArtwork)))
+            {
+                Raise(nameof(ShowSteamLibrarySection));
+            }
+        }
     } = true;
 
-    /// <summary>Whether the CEF Format-SD-card and Add-library buttons are shown
-    /// (<c>Cef.Enabled &amp;&amp; Cef.SdFormat</c>).</summary>
+    /// <summary>
+    ///     Whether the CEF Format-SD-card and Add-library buttons are shown
+    ///     (<c>Cef.Enabled &amp;&amp; Cef.SdFormat</c>).
+    /// </summary>
     public bool ShowSdCard
     {
         get;
@@ -231,26 +300,33 @@ public sealed class OverlayViewModel : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(ShowSteamLibrarySection));
             Raise(nameof(ShowFormatInTools));
         }
     } = true;
 
-    /// <summary>Whether the Tools tab still needs its own Format-SD-card button.
-    /// Formatting normally lives inside the Card Manager (cards are one subject, one
-    /// place), so the Tools entry only comes back when the Card Manager is switched
-    /// off — otherwise turning that toggle off would strip the only way to reach a
-    /// feature its own toggle says is enabled.</summary>
+    /// <summary>
+    ///     Whether the Tools tab still needs its own Format-SD-card button.
+    ///     Formatting normally lives inside the Card Manager (cards are one subject, one
+    ///     place), so the Tools entry only comes back when the Card Manager is switched
+    ///     off — otherwise turning that toggle off would strip the only way to reach a
+    ///     feature its own toggle says is enabled.
+    /// </summary>
     public bool ShowFormatInTools => ShowSdCard && !ShowCardManager;
 
-    /// <summary>Whether the "STEAM LIBRARY" tools section has any visible button, so
-    /// its header is hidden rather than left orphaned when every CEF feature is off.</summary>
+    /// <summary>
+    ///     Whether the "STEAM LIBRARY" tools section has any visible button, so
+    ///     its header is hidden rather than left orphaned when every CEF feature is off.
+    /// </summary>
     public bool ShowSteamLibrarySection =>
         ShowLibraryTabs || ShowCardManager || ShowArtwork || ShowSdCard;
 
-    /// <summary>Whether the launch-wrapper buttons configure the selected game in the
-    /// running Steam client (<c>Cef.Enabled</c>) instead of copying a command to the
-    /// clipboard for the user to paste by hand.</summary>
+    /// <summary>
+    ///     Whether the launch-wrapper buttons configure the selected game in the
+    ///     running Steam client (<c>Cef.Enabled</c>) instead of copying a command to the
+    ///     clipboard for the user to paste by hand.
+    /// </summary>
     public bool ConfigureLaunchOptionsLive
     {
         get;
@@ -263,17 +339,20 @@ public sealed class OverlayViewModel : ObservableObject
         }
     } = true;
 
-    /// <summary>Whether the "remove wrappers" row is shown — only meaningful when WSGM
-    /// can write the launch configuration itself.</summary>
+    /// <summary>
+    ///     Whether the "remove wrappers" row is shown — only meaningful when WSGM
+    ///     can write the launch configuration itself.
+    /// </summary>
     public bool ShowRemoveLaunchWrapper => ConfigureLaunchOptionsLive;
 
-    /// <summary>Gets or sets whether a per-game input-lease fix should ride Steam's
-    /// resident shim rather than injecting.</summary>
+    /// <summary>
+    ///     Gets or sets whether a per-game input-lease fix should ride Steam's
+    ///     resident shim rather than injecting.
+    /// </summary>
     /// <remarks>
-    /// Mirrors Steam Input Management. With it off there is no shim for a game to
-    /// use, so the fix is written with the injecting flag instead - the launch
-    /// option a game carries always names the route it will actually take.
+    ///     Mirrors Steam Input Management. With it off there is no shim for a game to
+    ///     use, so the fix is written with the injecting flag instead - the launch
+    ///     option a game carries always names the route it will actually take.
     /// </remarks>
     public bool InputLeaseUsesShim { get; set; } = true;
-
 }

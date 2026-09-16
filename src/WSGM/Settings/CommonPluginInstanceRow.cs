@@ -19,27 +19,45 @@ public sealed class CommonPluginInstanceRow : ObservableObject
 
     /// <summary>Package identity.</summary>
     private string PluginId { get; }
+
     /// <summary>Stable instance identity.</summary>
     private string InstanceId { get; }
+
     /// <summary>Installed package display name.</summary>
     public string Name { get; }
+
     /// <summary>Whether validated metadata and an entry assembly are installed.</summary>
     private bool Installed { get; }
+
     /// <summary>Instance information, including missing packages.</summary>
-    public string Detail => Installed ? $"{PluginId} / {InstanceId}" : $"{PluginId} / {InstanceId} (package unavailable)";
+    public string Detail =>
+        Installed ? $"{PluginId} / {InstanceId}" : $"{PluginId} / {InstanceId} (package unavailable)";
+
     /// <summary>Whether the resident host should activate this instance after Save.</summary>
     public bool Enabled
     {
         get => _enabled;
         set
         {
-            if (_enabled == value) { return; }
+            if (_enabled == value)
+            {
+                return;
+            }
+
             _enabled = value;
             Raise(nameof(Enabled));
         }
     }
 
     internal bool Edited => _enabled != _savedEnabled;
-    internal CommonPluginInstanceConfig Capture() => new() { PluginId = PluginId, InstanceId = InstanceId, Enabled = Enabled };
-    internal void AcceptSaved() => _savedEnabled = _enabled;
+
+    internal CommonPluginInstanceConfig Capture()
+    {
+        return new CommonPluginInstanceConfig { PluginId = PluginId, InstanceId = InstanceId, Enabled = Enabled };
+    }
+
+    internal void AcceptSaved()
+    {
+        _savedEnabled = _enabled;
+    }
 }

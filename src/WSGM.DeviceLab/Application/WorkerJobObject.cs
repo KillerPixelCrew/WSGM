@@ -21,6 +21,12 @@ internal sealed partial class WorkerJobObject : IDisposable
         _handle = handle;
     }
 
+    public void Dispose()
+    {
+        var handle = Interlocked.Exchange(ref _handle, null);
+        handle?.Dispose();
+    }
+
     internal static unsafe WorkerJobObject Create()
     {
         var handle = CreateJobObjectW(0, null);
@@ -98,8 +104,7 @@ internal sealed partial class WorkerJobObject : IDisposable
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(20)).ConfigureAwait(false);
-        }
-        while (elapsed.Elapsed < timeout);
+        } while (elapsed.Elapsed < timeout);
 
         return TryGetActiveProcessCount(handle, out activeProcesses) && activeProcesses == 0;
     }
@@ -122,12 +127,6 @@ internal sealed partial class WorkerJobObject : IDisposable
 
         activeProcesses = information.ActiveProcesses;
         return true;
-    }
-
-    public void Dispose()
-    {
-        var handle = Interlocked.Exchange(ref _handle, null);
-        handle?.Dispose();
     }
 
     [LibraryImport("kernel32.dll", EntryPoint = "CreateJobObjectW", SetLastError = true,

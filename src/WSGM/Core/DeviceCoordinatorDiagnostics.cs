@@ -34,9 +34,9 @@ internal sealed record DeviceInstalledPackageDiagnostic(
 /// <summary>Current-user-only one-shot diagnostics server owned by the shell process.</summary>
 internal sealed class DeviceCoordinatorDiagnosticsServer : IAsyncDisposable
 {
+    private readonly CancellationTokenSource _lifetime = new();
     private readonly string _pipeName;
     private readonly Func<DeviceCoordinatorDiagnosticsSnapshot> _snapshot;
-    private readonly CancellationTokenSource _lifetime = new();
     private readonly Task _worker;
 
     internal DeviceCoordinatorDiagnosticsServer(
@@ -75,8 +75,8 @@ internal sealed class DeviceCoordinatorDiagnosticsServer : IAsyncDisposable
                     NamedPipeServerStream.MaxAllowedServerInstances,
                     PipeTransmissionMode.Byte,
                     PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly,
-                    inBufferSize: 4096,
-                    outBufferSize: 64 * 1024);
+                    4096,
+                    64 * 1024);
                 await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
                 await JsonSerializer.SerializeAsync(
                     pipe,
@@ -90,7 +90,7 @@ internal sealed class DeviceCoordinatorDiagnosticsServer : IAsyncDisposable
                 return;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                or JsonException)
+                                           or JsonException)
             {
                 Log.Warn($"Device diagnostics pipe recovered after failure: {ex.Message}");
             }
@@ -123,7 +123,7 @@ internal static class DeviceCoordinatorDiagnosticsClient
                 bounded.Token).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is IOException or TimeoutException or OperationCanceledException
-            or JsonException)
+                                       or JsonException)
         {
             if (cancellationToken.IsCancellationRequested)
             {

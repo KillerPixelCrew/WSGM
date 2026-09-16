@@ -11,15 +11,15 @@ namespace WSGM.Core;
 
 /// <summary>Replaces a file only once its new content is completely written.</summary>
 /// <remarks>
-/// The content goes to a uniquely named sibling that is moved over the destination, so a failed
-/// or interrupted write leaves the previous file intact and the temporary file is removed on every
-/// path. A durable write also asks Windows to put the bytes on disk before the replace.
+///     The content goes to a uniquely named sibling that is moved over the destination, so a failed
+///     or interrupted write leaves the previous file intact and the temporary file is removed on every
+///     path. A durable write also asks Windows to put the bytes on disk before the replace.
 /// </remarks>
 internal static class AtomicFile
 {
-    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
+    private static readonly UTF8Encoding Utf8NoBom = new(false);
 
-    /// <summary>Replaces <paramref name="path"/> with UTF-8 text.</summary>
+    /// <summary>Replaces <paramref name="path" /> with UTF-8 text.</summary>
     /// <param name="path">The file to replace.</param>
     /// <param name="content">The complete new content.</param>
     /// <param name="durable">Writes through and flushes to disk before the replace.</param>
@@ -28,19 +28,21 @@ internal static class AtomicFile
         string path,
         string content,
         bool durable,
-        Action<string, Exception>? cleanupFailed = null) =>
+        Action<string, Exception>? cleanupFailed = null)
+    {
         Write(
             path,
             stream =>
             {
-                using StreamWriter writer = new(stream, Utf8NoBom, bufferSize: -1, leaveOpen: true);
+                using StreamWriter writer = new(stream, Utf8NoBom, -1, true);
                 writer.Write(content);
                 return true;
             },
             durable,
             cleanupFailed);
+    }
 
-    /// <summary>Replaces <paramref name="path"/> with whatever <paramref name="write"/> produces.</summary>
+    /// <summary>Replaces <paramref name="path" /> with whatever <paramref name="write" /> produces.</summary>
     /// <param name="path">The file to replace.</param>
     /// <param name="write">Writes the content and returns whether the replace should happen.</param>
     /// <param name="durable">Writes through and flushes to disk before the replace.</param>
@@ -61,13 +63,13 @@ internal static class AtomicFile
                 written = write(stream);
                 if (written && durable)
                 {
-                    stream.Flush(flushToDisk: true);
+                    stream.Flush(true);
                 }
             }
 
             if (written)
             {
-                File.Move(temporary, path, overwrite: true);
+                File.Move(temporary, path, true);
             }
 
             return written;
@@ -78,7 +80,7 @@ internal static class AtomicFile
         }
     }
 
-    /// <summary>Replaces <paramref name="path"/> with content written asynchronously.</summary>
+    /// <summary>Replaces <paramref name="path" /> with content written asynchronously.</summary>
     /// <param name="path">The file to replace.</param>
     /// <param name="write">Writes the complete content.</param>
     /// <param name="durable">Opens the temporary file write-through.</param>
@@ -99,24 +101,29 @@ internal static class AtomicFile
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            File.Move(temporary, path, overwrite: true);
+            File.Move(temporary, path, true);
         }
         finally
         {
-            TryDelete(temporary, cleanupFailed: null);
+            TryDelete(temporary, null);
         }
     }
 
-    private static string TemporaryPath(string path) =>
-        $"{path}.wsgm-{Environment.ProcessId}-{Guid.NewGuid():N}.tmp";
+    private static string TemporaryPath(string path)
+    {
+        return $"{path}.wsgm-{Environment.ProcessId}-{Guid.NewGuid():N}.tmp";
+    }
 
-    private static FileStream Open(string temporary, bool durable, FileOptions options) => new(
-        temporary,
-        FileMode.CreateNew,
-        FileAccess.Write,
-        FileShare.None,
-        4096,
-        durable ? options | FileOptions.WriteThrough : options);
+    private static FileStream Open(string temporary, bool durable, FileOptions options)
+    {
+        return new FileStream(
+            temporary,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.None,
+            4096,
+            durable ? options | FileOptions.WriteThrough : options);
+    }
 
     private static void TryDelete(string temporary, Action<string, Exception>? cleanupFailed)
     {

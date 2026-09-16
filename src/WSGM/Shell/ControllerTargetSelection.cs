@@ -15,13 +15,13 @@ internal enum ControllerTargetSource
 }
 
 /// <summary>
-/// The complete stored controller-management selection, projected through the release gate.
+///     The complete stored controller-management selection, projected through the release gate.
 /// </summary>
 /// <remarks>
-/// Two settings and one gate, resolved once here so no consumer re-derives them. The compile-time
-/// release gate belongs in this projection rather than inside
-/// <see cref="ControllerManager"/>: the manager's behaviour with management enabled has to stay
-/// testable while the shipped gate is closed.
+///     Two settings and one gate, resolved once here so no consumer re-derives them. The compile-time
+///     release gate belongs in this projection rather than inside
+///     <see cref="ControllerManager" />: the manager's behaviour with management enabled has to stay
+///     testable while the shipped gate is closed.
 /// </remarks>
 /// <param name="Enabled">Whether controller management may run at all.</param>
 /// <param name="GlobalDefault">The global default target.</param>
@@ -52,20 +52,20 @@ internal sealed record ResolvedControllerTarget(
     string? ApplicationId);
 
 /// <summary>
-/// The complete controller-target policy: one global default plus per-application overrides.
+///     The complete controller-target policy: one global default plus per-application overrides.
 /// </summary>
 /// <remarks>
-/// Two layers, resolved here and nowhere else. The semantic capabilities have a five-layer desired
-/// state (temporary, application, profile, AC/DC, global) because hardware limits genuinely differ
-/// on battery and per profile; the controller target does not — a game either wants a DualShock or
-/// it does not, and running it on mains power does not change the answer. Reusing that resolver
-/// would add four layers no one can set and a projection stack between the setting and the target.
-/// <para>
-/// Overrides are keyed by the canonical running-application identity produced by the one
-/// <see cref="RunningApplicationMonitor"/>, which is also what resolves the RTSS profile. Matching on
-/// the executable path instead would never fire: the monitor only resolves an executable for an
-/// application it has already identified.
-/// </para>
+///     Two layers, resolved here and nowhere else. The semantic capabilities have a five-layer desired
+///     state (temporary, application, profile, AC/DC, global) because hardware limits genuinely differ
+///     on battery and per profile; the controller target does not — a game either wants a DualShock or
+///     it does not, and running it on mains power does not change the answer. Reusing that resolver
+///     would add four layers no one can set and a projection stack between the setting and the target.
+///     <para>
+///         Overrides are keyed by the canonical running-application identity produced by the one
+///         <see cref="RunningApplicationMonitor" />, which is also what resolves the RTSS profile. Matching on
+///         the executable path instead would never fire: the monitor only resolves an executable for an
+///         application it has already identified.
+///     </para>
 /// </remarks>
 internal static class ControllerTargetSelection
 {
@@ -89,7 +89,8 @@ internal static class ControllerTargetSelection
         {
             if (string.Equals(candidate.ApplicationId, applicationId, StringComparison.Ordinal))
             {
-                return new ResolvedControllerTarget(candidate.Target, ControllerTargetSource.ApplicationOverride, applicationId);
+                return new ResolvedControllerTarget(candidate.Target, ControllerTargetSource.ApplicationOverride,
+                    applicationId);
             }
         }
 

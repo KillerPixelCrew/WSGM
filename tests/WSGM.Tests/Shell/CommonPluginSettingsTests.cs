@@ -21,7 +21,8 @@ public sealed class CommonPluginSettingsTests
         Assert.Equal(0, registration.Settings!.Desired!.Revision);
         Assert.Equal(PluginConfigurationOrigin.Restore, plugin.Deliveries[0].Origin);
         plugin.Outcome = PluginConfigurationOutcome.Unconfirmed;
-        var result = await registration.ConfigureAsync(0, new Dictionary<string, PluginValue> { ["level"] = new(Number: 40) }, Deadline, CancellationToken.None);
+        var result = await registration.ConfigureAsync(0,
+            new Dictionary<string, PluginValue> { ["level"] = new(Number: 40) }, Deadline, CancellationToken.None);
         Assert.Equal(PluginConfigurationOutcome.Unconfirmed, result.Outcome);
         var saved = Assert.Single(store.Config.PluginConfigurations);
         Assert.Equal(new PluginValue(Number: 40), Assert.Single(saved.Values).Value);
@@ -41,7 +42,8 @@ public sealed class CommonPluginSettingsTests
         await registration.StartAsync(Deadline, CancellationToken.None);
         var changes = new Dictionary<string, PluginValue> { ["level"] = new(Number: 40) };
         await registration.ConfigureAsync(0, changes, Deadline, CancellationToken.None);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => registration.ConfigureAsync(0, changes, Deadline, CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            registration.ConfigureAsync(0, changes, Deadline, CancellationToken.None));
         Assert.Equal(2, plugin.Deliveries.Count);
         Assert.False(registration.Quarantined);
         changes["level"] = new PluginValue(Number: 30);
@@ -60,7 +62,8 @@ public sealed class CommonPluginSettingsTests
         await registration.StartAsync(Deadline, CancellationToken.None);
         var changes = new Dictionary<string, PluginValue> { ["level"] = new(Number: 40) };
         store.FailSave = true;
-        await Assert.ThrowsAsync<IOException>(() => registration.ConfigureAsync(0, changes, Deadline, CancellationToken.None));
+        await Assert.ThrowsAsync<IOException>(() =>
+            registration.ConfigureAsync(0, changes, Deadline, CancellationToken.None));
         Assert.Single(plugin.Deliveries);
         Assert.Empty(store.Config.PluginConfigurations);
         store.FailSave = false;
@@ -78,7 +81,7 @@ public sealed class CommonPluginSettingsTests
         AppConfig config = new();
         var identity = new PluginInstanceIdentity("test.config", "one");
         ApplicationPluginConfigurationStore.SaveInto(config, identity, 0, new Dictionary<string, PluginValue>
-        { ["flag"] = new(Boolean: false), ["level"] = new(Number: 0), ["text"] = new(Text: "") });
+            { ["flag"] = new(false), ["level"] = new(Number: 0), ["text"] = new(Text: "") });
         var json = JsonSerializer.Serialize(config, ConfigJsonContext.Default.AppConfig);
         var restored = ApplicationPluginConfigurationStore.ReadFrom(ConfigStore.DeserializeConfig(json), identity);
         Assert.Equal(1, restored.Revision);
@@ -130,25 +133,55 @@ public sealed class CommonPluginSettingsTests
     {
         private IPluginHost? _host;
         private long _sequence;
-        public string Id => "test.config";
-        public IReadOnlyList<PluginSetting> Settings =>
-            [new("level", "Level", PluginSettingKind.Number, new PluginValue(Number: 20), 0, 100),
-             new("enabled", "Enabled", PluginSettingKind.Boolean, new PluginValue(Boolean: true))];
         internal List<PluginConfiguration> Deliveries { get; } = [];
         internal PluginConfigurationOutcome Outcome { get; set; } = PluginConfigurationOutcome.Applied;
         internal bool WrongRevision { get; set; }
         internal bool FailConfiguration { get; set; }
-        public ValueTask<PluginHealth> StartAsync(IPluginHost host, PluginContext context, CancellationToken cancellationToken)
-        { _host = host; return ValueTask.FromResult(PluginHealth.Ready); }
-        public ValueTask<PluginConfigurationResult> ConfigureAsync(PluginConfiguration configuration, PluginContext context, CancellationToken cancellationToken)
+
+        public IReadOnlyList<PluginSetting> Settings =>
+        [
+            new("level", "Level", PluginSettingKind.Number, new PluginValue(Number: 20), 0, 100),
+            new("enabled", "Enabled", PluginSettingKind.Boolean, new PluginValue(true))
+        ];
+
+        public ValueTask<PluginConfigurationResult> ConfigureAsync(PluginConfiguration configuration,
+            PluginContext context, CancellationToken cancellationToken)
         {
             Deliveries.Add(configuration);
-            if (FailConfiguration) { throw new IOException("Fixture configuration failure after dispatch"); }
-            _host!.PublishState(new PluginStatePublication(context.Instance, context.Generation, ++_sequence, "level", new PluginValue(Number: 100), PluginStateOrigin.HardwareReadback));
-            return ValueTask.FromResult(new PluginConfigurationResult(WrongRevision ? configuration.Revision + 1 : configuration.Revision, Outcome));
+            if (FailConfiguration)
+            {
+                throw new IOException("Fixture configuration failure after dispatch");
+            }
+
+            _host!.PublishState(new PluginStatePublication(context.Instance, context.Generation, ++_sequence, "level",
+                new PluginValue(Number: 100), PluginStateOrigin.HardwareReadback));
+            return ValueTask.FromResult(
+                new PluginConfigurationResult(WrongRevision ? configuration.Revision + 1 : configuration.Revision,
+                    Outcome));
         }
-        public ValueTask SessionChangedAsync(PluginContext context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
-        public ValueTask<bool> StopAsync(PluginContext context, CancellationToken cancellationToken) => ValueTask.FromResult(true);
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        public string Id => "test.config";
+
+        public ValueTask<PluginHealth> StartAsync(IPluginHost host, PluginContext context,
+            CancellationToken cancellationToken)
+        {
+            _host = host;
+            return ValueTask.FromResult(PluginHealth.Ready);
+        }
+
+        public ValueTask SessionChangedAsync(PluginContext context, CancellationToken cancellationToken)
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask<bool> StopAsync(PluginContext context, CancellationToken cancellationToken)
+        {
+            return ValueTask.FromResult(true);
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            return ValueTask.CompletedTask;
+        }
     }
 }

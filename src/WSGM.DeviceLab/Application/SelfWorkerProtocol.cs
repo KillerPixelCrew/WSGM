@@ -15,9 +15,9 @@ internal sealed record SelfWorkerSession<TRequest>(TRequest Request, string Resu
 
 /// <summary>The command envelope shared by Device Lab's disposable self-workers.</summary>
 /// <remarks>
-/// Each worker takes one value per option, proves through the inherited one-use secret that its
-/// supervisor started it, reads its request from the constrained session directory, and writes one
-/// create-new result. Refusals go to standard error under the worker's own label.
+///     Each worker takes one value per option, proves through the inherited one-use secret that its
+///     supervisor started it, reads its request from the constrained session directory, and writes one
+///     create-new result. Refusals go to standard error under the worker's own label.
 /// </remarks>
 internal static class SelfWorkerProtocol
 {
@@ -83,7 +83,7 @@ internal static class SelfWorkerProtocol
     {
         byte[]? secret;
         using (var authorization =
-            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+               CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
         {
             authorization.CancelAfter(AuthorizationDeadline);
             secret = await SelfWorkerAuthorization.ReadSecretAsync(
@@ -93,7 +93,8 @@ internal static class SelfWorkerProtocol
 
         if (secret is null)
         {
-            await Console.Error.WriteLineAsync($"The {worker} was not authorized by its supervisor.").ConfigureAwait(false);
+            await Console.Error.WriteLineAsync($"The {worker} was not authorized by its supervisor.")
+                .ConfigureAwait(false);
             return null;
         }
 
@@ -119,7 +120,8 @@ internal static class SelfWorkerProtocol
             var rejection = rejectRequest(request);
             if (rejection is not null || request is null)
             {
-                await Console.Error.WriteLineAsync(rejection ?? $"The {worker} request was malformed.").ConfigureAwait(false);
+                await Console.Error.WriteLineAsync(rejection ?? $"The {worker} request was malformed.")
+                    .ConfigureAwait(false);
                 return null;
             }
 
@@ -128,7 +130,8 @@ internal static class SelfWorkerProtocol
                 return new SelfWorkerSession<TRequest>(request, resultPath!);
             }
 
-            await Console.Error.WriteLineAsync($"The {worker} was not authorized by its supervisor.").ConfigureAwait(false);
+            await Console.Error.WriteLineAsync($"The {worker} was not authorized by its supervisor.")
+                .ConfigureAwait(false);
             return null;
         }
         finally
@@ -152,7 +155,7 @@ internal static class SelfWorkerProtocol
             FileMode.CreateNew,
             FileAccess.Write,
             FileShare.None,
-            bufferSize: 4096,
+            4096,
             FileOptions.Asynchronous | FileOptions.WriteThrough);
         await serialize(stream, cancellationToken).ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
@@ -161,8 +164,10 @@ internal static class SelfWorkerProtocol
     /// <summary>Bounds diagnostic text a worker reports.</summary>
     /// <param name="value">Diagnostic text.</param>
     /// <returns>At most 16 KiB characters of it.</returns>
-    internal static string Bound(string value) =>
-        value[..Math.Min(value.Length, MaximumMessageLength)];
+    internal static string Bound(string value)
+    {
+        return value[..Math.Min(value.Length, MaximumMessageLength)];
+    }
 
     private static async Task<TRequest?> ReadRequestAsync<TRequest>(
         string path,
@@ -182,7 +187,7 @@ internal static class SelfWorkerProtocol
             FileMode.Open,
             FileAccess.Read,
             FileShare.Read,
-            bufferSize: 4096,
+            4096,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
         return await deserialize(stream, cancellationToken).ConfigureAwait(false);
     }
@@ -206,7 +211,7 @@ internal static class SelfWorkerProtocol
 
             values = null;
             error = $"The {worker} requires exactly "
-                + $"{string.Join(", ", options.Take(options.Count - 1))}, and {options[^1]} once each.";
+                    + $"{string.Join(", ", options.Take(options.Count - 1))}, and {options[^1]} once each.";
             return false;
         }
 

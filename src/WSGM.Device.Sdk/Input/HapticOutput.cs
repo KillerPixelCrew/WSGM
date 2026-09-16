@@ -4,12 +4,12 @@ using System.Text.Json.Serialization;
 namespace WSGM.Device.Sdk.Input;
 
 /// <summary>
-/// One output frame travelling from the virtual target back to the physical device.
+///     One output frame travelling from the virtual target back to the physical device.
 /// </summary>
 /// <remarks>
-/// The return channel is separate from input state, and carries its own target generation, because
-/// the two travel in opposite directions and a target can be replaced while output is in flight.
-/// Applying a frame addressed to a removed target would drive whatever took its slot.
+///     The return channel is separate from input state, and carries its own target generation, because
+///     the two travel in opposite directions and a target can be replaced while output is in flight.
+///     Applying a frame addressed to a removed target would drive whatever took its slot.
 /// </remarks>
 public sealed record HapticOutputFrame
 {
@@ -31,33 +31,36 @@ public sealed record HapticOutputFrame
     /// <summary>When the frame was produced, in UTC.</summary>
     public required DateTimeOffset Timestamp { get; init; }
 
+    /// <summary>Whether this frame commands no output at all.</summary>
+    public bool IsSilent =>
+        LowFrequency <= 0 && HighFrequency <= 0 && LeftTrigger <= 0 && RightTrigger <= 0;
+
     /// <summary>
-    /// A frame that stops all output.
+    ///     A frame that stops all output.
     /// </summary>
     /// <param name="targetGeneration">Generation to stamp on the frame.</param>
     /// <param name="timestamp">When the stop was issued.</param>
     /// <returns>A frame with every channel at zero.</returns>
     /// <remarks>
-    /// Rumble always needs an explicit stop path. A motor left running is not a cosmetic bug: it
-    /// keeps vibrating after the game closed, the overlay opened, or the plugin was disabled, and
-    /// nothing else will turn it off.
+    ///     Rumble always needs an explicit stop path. A motor left running is not a cosmetic bug: it
+    ///     keeps vibrating after the game closed, the overlay opened, or the plugin was disabled, and
+    ///     nothing else will turn it off.
     /// </remarks>
-    public static HapticOutputFrame Stop(long targetGeneration, DateTimeOffset timestamp) => new()
+    public static HapticOutputFrame Stop(long targetGeneration, DateTimeOffset timestamp)
     {
-        TargetGeneration = targetGeneration,
-        Timestamp = timestamp
-    };
-
-    /// <summary>Whether this frame commands no output at all.</summary>
-    public bool IsSilent =>
-        LowFrequency <= 0 && HighFrequency <= 0 && LeftTrigger <= 0 && RightTrigger <= 0;
+        return new HapticOutputFrame
+        {
+            TargetGeneration = targetGeneration,
+            Timestamp = timestamp
+        };
+    }
 }
 
 /// <summary>What a device does with an output channel it cannot reproduce.</summary>
 /// <remarks>
-/// Declared per channel so the plugin's answer is visible rather than implied. A device with two
-/// rumble motors and no trigger haptics should say so; silently discarding trigger output looks
-/// identical to a broken implementation from the outside.
+///     Declared per channel so the plugin's answer is visible rather than implied. A device with two
+///     rumble motors and no trigger haptics should say so; silently discarding trigger output looks
+///     identical to a broken implementation from the outside.
 /// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<OutputChannelSupport>))]
 public enum OutputChannelSupport
@@ -89,19 +92,19 @@ public sealed record HapticCapabilities
 
     /// <summary>Lowest intensity at which the device's motors reliably produce output, 0 to 1.</summary>
     /// <remarks>
-    /// Motor technology, declared by the plugin because the host cannot know it: a voice coil or
-    /// LRA renders arbitrarily small intensities and keeps the default of zero, while an ERM
-    /// motor does not start below roughly a third of full drive. The host maps bounded haptic
-    /// events — not continuous rumble envelopes — onto this floor so LRA-grade ticks remain
-    /// perceptible; scaling a faithful actuator by an ERM floor would be as wrong as the reverse.
+    ///     Motor technology, declared by the plugin because the host cannot know it: a voice coil or
+    ///     LRA renders arbitrarily small intensities and keeps the default of zero, while an ERM
+    ///     motor does not start below roughly a third of full drive. The host maps bounded haptic
+    ///     events — not continuous rumble envelopes — onto this floor so LRA-grade ticks remain
+    ///     perceptible; scaling a faithful actuator by an ERM floor would be as wrong as the reverse.
     /// </remarks>
     public float MinimumStartIntensity { get; init; }
 
     /// <summary>Shortest pulse the device's motors can render perceptibly.</summary>
     /// <remarks>
-    /// Zero for actuators with millisecond response; ERM motors need tens of milliseconds just
-    /// to spin up. The host stretches bounded haptic events to at least this length and leaves
-    /// continuous output untouched.
+    ///     Zero for actuators with millisecond response; ERM motors need tens of milliseconds just
+    ///     to spin up. The host stretches bounded haptic events to at least this length and leaves
+    ///     continuous output untouched.
     /// </remarks>
     public TimeSpan MinimumPulse { get; init; }
 
@@ -109,9 +112,9 @@ public sealed record HapticCapabilities
     /// <param name="frame">The frame as produced by the virtual target.</param>
     /// <returns>A frame carrying only channels the device supports.</returns>
     /// <remarks>
-    /// Channels are dropped, never redistributed. Folding an unsupported trigger haptic into the
-    /// rumble motors would invent an effect the game never asked for, which is the output-side
-    /// equivalent of converting gyro into stick movement.
+    ///     Channels are dropped, never redistributed. Folding an unsupported trigger haptic into the
+    ///     rumble motors would invent an effect the game never asked for, which is the output-side
+    ///     equivalent of converting gyro into stick movement.
     /// </remarks>
     public HapticOutputFrame Clamp(HapticOutputFrame frame)
     {

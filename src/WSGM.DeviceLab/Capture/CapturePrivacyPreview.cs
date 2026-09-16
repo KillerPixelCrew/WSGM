@@ -70,16 +70,19 @@ internal sealed record CapturePrivacyPreview
             Redaction = bundle.Redaction,
             Streams = streams,
             Analysis = analysis,
-            Blobs = [.. bundle.Blobs.Select(blob => new CaptureBlobPreview
-            {
-                Path = blob.Descriptor.Path,
-                MediaType = blob.Descriptor.MediaType,
-                ByteLength = blob.Bytes.LongLength,
-                Sha256 = CaptureHashFile.Hash(blob.Bytes),
-                Base64Prefix = Convert.ToBase64String(
-                    blob.Bytes.AsSpan(0, Math.Min(blob.Bytes.Length, MaximumBlobPrefixBytes))),
-                PrefixTruncated = blob.Bytes.Length > MaximumBlobPrefixBytes
-            })],
+            Blobs =
+            [
+                .. bundle.Blobs.Select(blob => new CaptureBlobPreview
+                {
+                    Path = blob.Descriptor.Path,
+                    MediaType = blob.Descriptor.MediaType,
+                    ByteLength = blob.Bytes.LongLength,
+                    Sha256 = CaptureHashFile.Hash(blob.Bytes),
+                    Base64Prefix = Convert.ToBase64String(
+                        blob.Bytes.AsSpan(0, Math.Min(blob.Bytes.Length, MaximumBlobPrefixBytes))),
+                    PrefixTruncated = blob.Bytes.Length > MaximumBlobPrefixBytes
+                })
+            ],
             Explanation = remainingSamples == 0
                 ? $"Every shareable lane is listed with its exact item count, byte length, and hash. Content samples are capped globally at {MaximumSamples}; the sanitized root documents are shown in full."
                 : "Every shareable lane is listed with its exact item count, byte length, and hash; the sanitized root documents and available content samples are shown."

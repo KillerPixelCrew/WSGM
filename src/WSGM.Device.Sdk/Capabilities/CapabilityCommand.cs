@@ -4,13 +4,13 @@ using System.Text.Json.Serialization;
 namespace WSGM.Device.Sdk.Capabilities;
 
 /// <summary>
-/// A request to change or invoke one capability.
+///     A request to change or invoke one capability.
 /// </summary>
 /// <remarks>
-/// The generation fields make a command refusable rather than merely late. A command authored against
-/// descriptor generation 4 must not be applied after the plugin republished generation 5, because the
-/// range it was validated against no longer exists — the plugin rejects it and WSGM re-issues from
-/// the current descriptors. Without that, a stale slider position becomes a hardware write.
+///     The generation fields make a command refusable rather than merely late. A command authored against
+///     descriptor generation 4 must not be applied after the plugin republished generation 5, because the
+///     range it was validated against no longer exists — the plugin rejects it and WSGM re-issues from
+///     the current descriptors. Without that, a stale slider position becomes a hardware write.
 /// </remarks>
 public sealed record CapabilityCommand
 {
@@ -27,9 +27,11 @@ public sealed record CapabilityCommand
     public CapabilityValue? RequestedValue { get; init; }
 
     /// <summary>Apply the requested sustained wattage to its declared power pair.</summary>
-    /// <remarks>Valid only when the descriptor declares <see cref="CapabilityDescriptor.PairedPowerLimitId"/>.
-    /// The plugin owns write ordering, paired readback and rollback. Verified success confirms both
-    /// limits; <see cref="CapabilityCommandResult.ReadbackValue"/> reports the sustained wattage.</remarks>
+    /// <remarks>
+    ///     Valid only when the descriptor declares <see cref="CapabilityDescriptor.PairedPowerLimitId" />.
+    ///     The plugin owns write ordering, paired readback and rollback. Verified success confirms both
+    ///     limits; <see cref="CapabilityCommandResult.ReadbackValue" /> reports the sustained wattage.
+    /// </remarks>
     public bool ApplyPowerPair { get; init; }
 
     /// <summary>Descriptor generation this command was authored against.</summary>
@@ -43,14 +45,14 @@ public sealed record CapabilityCommand
 }
 
 /// <summary>
-/// How a command finished.
+///     How a command finished.
 /// </summary>
 /// <remarks>
-/// Six outcomes rather than success and failure, because the three unhappy ones need different
-/// handling. <see cref="Indeterminate"/> in particular is returned to the owning service and must
-/// never be retried blindly for a
-/// persistent write: the plugin does not know whether the write landed, and a second attempt could
-/// double-apply it.
+///     Six outcomes rather than success and failure, because the three unhappy ones need different
+///     handling. <see cref="Indeterminate" /> in particular is returned to the owning service and must
+///     never be retried blindly for a
+///     persistent write: the plugin does not know whether the write landed, and a second attempt could
+///     double-apply it.
 /// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<CommandOutcome>))]
 public enum CommandOutcome
@@ -75,7 +77,7 @@ public enum CommandOutcome
 }
 
 /// <summary>
-/// The result of a capability command.
+///     The result of a capability command.
 /// </summary>
 public sealed record CapabilityCommandResult
 {
@@ -89,11 +91,11 @@ public sealed record CapabilityCommandResult
     public CapabilityReason? Reason { get; init; }
 
     /// <summary>
-    /// The value read back from hardware after applying.
+    ///     The value read back from hardware after applying.
     /// </summary>
     /// <remarks>
-    /// Present only for <see cref="CommandOutcome.AppliedVerified"/>. This field, not the absence of
-    /// an error, is what lets WSGM report a value as verified.
+    ///     Present only for <see cref="CommandOutcome.AppliedVerified" />. This field, not the absence of
+    ///     an error, is what lets WSGM report a value as verified.
     /// </remarks>
     public CapabilityValue? ReadbackValue { get; init; }
 

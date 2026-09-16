@@ -28,7 +28,7 @@ public sealed class CaptureBundleReaderTests
         });
         valid.Position = 0;
         List<(string Path, string Content)> entries = [];
-        using (ZipArchive archive = new(valid, ZipArchiveMode.Read, leaveOpen: true))
+        using (ZipArchive archive = new(valid, ZipArchiveMode.Read, true))
         {
             foreach (var entry in archive.Entries.Where(entry => entry.FullName != CaptureBundleLayout.HashesPath))
             {
@@ -38,9 +38,11 @@ public sealed class CaptureBundleReaderTests
                 {
                     content = content.Replace($"\"{descriptor.Sha256}\"", "null", StringComparison.Ordinal);
                 }
+
                 entries.Add((entry.FullName, content));
             }
         }
+
         var hashes = string.Join('\n', entries.Select(entry =>
             $"{CaptureHashFile.Hash(Encoding.UTF8.GetBytes(entry.Content))}  {entry.Path}")) + "\n";
         entries.Add((CaptureBundleLayout.HashesPath, hashes));
@@ -194,18 +196,21 @@ public sealed class CaptureBundleReaderTests
         Assert.True(Convert.FromBase64String(blob.Base64Prefix).Length < bytes.Length);
     }
 
-    private static List<(string Path, string Content)> CanonicalJsonEntries() =>
-    [
-        (CaptureBundleLayout.ManifestPath, "{"),
-        (CaptureBundleLayout.RecipePath, "{"),
-        (CaptureBundleLayout.InventoryPath, "{"),
-        (CaptureBundleLayout.RedactionPath, "{")
-    ];
+    private static List<(string Path, string Content)> CanonicalJsonEntries()
+    {
+        return
+        [
+            (CaptureBundleLayout.ManifestPath, "{"),
+            (CaptureBundleLayout.RecipePath, "{"),
+            (CaptureBundleLayout.InventoryPath, "{"),
+            (CaptureBundleLayout.RedactionPath, "{")
+        ];
+    }
 
     private static MemoryStream Archive(IEnumerable<(string Path, string Content)> entries)
     {
         MemoryStream output = new();
-        using (ZipArchive archive = new(output, ZipArchiveMode.Create, leaveOpen: true))
+        using (ZipArchive archive = new(output, ZipArchiveMode.Create, true))
         {
             foreach (var (path, content) in entries)
             {

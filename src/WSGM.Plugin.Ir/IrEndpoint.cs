@@ -5,21 +5,45 @@ using System.Text.Json;
 
 namespace WSGM.Plugin.Ir;
 
-/// <summary>Identity reply. Network fields are absent on firmware before 0.2.0, and the built-in remote
-/// fields before 0.4.0; both then read as unconfigured.</summary>
-internal sealed record IrEndpointIdentity(string Identity, string Model, string Firmware, int Protocol, int MaxTimings,
-    string? Hostname = null, int Port = 0, bool WifiConfigured = false, bool WifiConnected = false, string? Ip = null,
-    int WebPort = 0, bool WebConfigured = false, int Remotes = 0, bool SequenceRunning = false);
+/// <summary>
+///     Identity reply. Network fields are absent on firmware before 0.2.0, and the built-in remote
+///     fields before 0.4.0; both then read as unconfigured.
+/// </summary>
+internal sealed record IrEndpointIdentity(
+    string Identity,
+    string Model,
+    string Firmware,
+    int Protocol,
+    int MaxTimings,
+    string? Hostname = null,
+    int Port = 0,
+    bool WifiConfigured = false,
+    bool WifiConnected = false,
+    string? Ip = null,
+    int WebPort = 0,
+    bool WebConfigured = false,
+    int Remotes = 0,
+    bool SequenceRunning = false);
 
 /// <summary>One button of a built-in remote.</summary>
 internal sealed record IrRemoteButton(string Id, string Label);
 
 /// <summary>What a built-in remote's air conditioner accepts, as the firmware declares it.</summary>
-internal sealed record IrRemoteClimate(string Protocol, string[] Modes, string[] Fans,
-    double MinDegrees, double MaxDegrees, bool Celsius = true, string Swing = "none");
+internal sealed record IrRemoteClimate(
+    string Protocol,
+    string[] Modes,
+    string[] Fans,
+    double MinDegrees,
+    double MaxDegrees,
+    bool Celsius = true,
+    string Swing = "none");
 
 /// <summary>One remote built into the endpoint firmware.</summary>
-internal sealed record IrRemote(string Id, string Name, IrRemoteButton[] Buttons, IrRemoteButton[] Sequences,
+internal sealed record IrRemote(
+    string Id,
+    string Name,
+    IrRemoteButton[] Buttons,
+    IrRemoteButton[] Sequences,
     IrRemoteClimate? Climate = null);
 
 /// <summary>Every remote the endpoint carries.</summary>
@@ -33,21 +57,29 @@ internal sealed record IrEndpointTarget(bool Network, string Address, string? To
 
 internal interface IIrEndpoint : IAsyncDisposable
 {
-    /// <summary>The verified identity, or null until <see cref="IdentifyAsync"/> succeeds or after any failed exchange.</summary>
+    /// <summary>The verified identity, or null until <see cref="IdentifyAsync" /> succeeds or after any failed exchange.</summary>
     IrEndpointIdentity? Identity { get; }
+
     Task<IrEndpointIdentity> IdentifyAsync(CancellationToken token);
     Task<IrPayload> LearnAsync(TimeSpan timeout, CancellationToken token);
     Task TransmitAsync(IrPayload payload, int repeats, int gapMs, CancellationToken token);
+
     /// <summary>Stores network credentials and the pairing token on the endpoint, or clears them when the SSID is empty.</summary>
-    Task<IrEndpointIdentity> ConfigureNetworkAsync(string ssid, string password, string networkToken, CancellationToken token);
+    Task<IrEndpointIdentity> ConfigureNetworkAsync(string ssid, string password, string networkToken,
+        CancellationToken token);
+
     /// <summary>Reads the remotes built into the firmware. Firmware before 0.4.0 has none.</summary>
     Task<IrRemoteCatalog> ListRemotesAsync(CancellationToken token);
+
     /// <summary>Presses one button of a built-in remote.</summary>
     Task PressAsync(string remote, string button, CancellationToken token);
+
     /// <summary>Sends one complete air-conditioner state to a built-in remote.</summary>
     Task ClimateAsync(string remote, IrClimateRequest request, CancellationToken token);
+
     /// <summary>Starts a built-in remote's sequence. The endpoint runs it in the background.</summary>
     Task RunSequenceAsync(string remote, string sequence, CancellationToken token);
+
     /// <summary>Stops a running learn or sequence. A distinct operation, never a retry.</summary>
     Task CancelAsync(CancellationToken token);
 }
@@ -56,11 +88,15 @@ internal interface IIrEndpoint : IAsyncDisposable
 internal interface IIrLink : IDisposable
 {
     void WriteLine(string frame);
+
     /// <summary>Returns the next received character, or -1 while idle.</summary>
     int ReadChar();
 }
 
-/// <summary>USB CDC serial link at the protocol's fixed rate. Opening does not assert DTR or RTS, so the endpoint is not reset.</summary>
+/// <summary>
+///     USB CDC serial link at the protocol's fixed rate. Opening does not assert DTR or RTS, so the endpoint is not
+///     reset.
+/// </summary>
 internal sealed class SerialIrLink : IIrLink
 {
     private readonly SerialPort _port;
@@ -79,26 +115,38 @@ internal sealed class SerialIrLink : IIrLink
         _port.Open();
     }
 
-    public void WriteLine(string frame) => _port.WriteLine(frame);
+    public void WriteLine(string frame)
+    {
+        _port.WriteLine(frame);
+    }
 
     public int ReadChar()
     {
-        try { return _port.ReadChar(); }
-        catch (TimeoutException) { return -1; }
+        try
+        {
+            return _port.ReadChar();
+        }
+        catch (TimeoutException)
+        {
+            return -1;
+        }
     }
 
-    public void Dispose() => _port.Dispose();
+    public void Dispose()
+    {
+        _port.Dispose();
+    }
 }
 
 /// <summary>Plain TCP link to the endpoint's local-network listener. Authentication is the per-request pairing token.</summary>
 internal sealed class TcpIrLink : IIrLink
 {
     private const int DefaultPort = 7521;
-    private readonly TcpClient _client = new() { NoDelay = true, ReceiveTimeout = 100, SendTimeout = 1000 };
-    private readonly NetworkStream _stream;
-    private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
     private readonly byte[] _byte = new byte[1];
     private readonly char[] _chars = new char[2];
+    private readonly TcpClient _client = new() { NoDelay = true, ReceiveTimeout = 100, SendTimeout = 1000 };
+    private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
+    private readonly NetworkStream _stream;
     private int _pending, _index;
 
     public TcpIrLink(string address, CancellationToken token)
@@ -112,8 +160,17 @@ internal sealed class TcpIrLink : IIrLink
             host = address[..separator];
             port = explicitPort;
         }
-        try { _client.ConnectAsync(host, port, token).AsTask().GetAwaiter().GetResult(); }
-        catch { _client.Dispose(); throw; }
+
+        try
+        {
+            _client.ConnectAsync(host, port, token).AsTask().GetAwaiter().GetResult();
+        }
+        catch
+        {
+            _client.Dispose();
+            throw;
+        }
+
         _stream = _client.GetStream();
     }
 
@@ -125,11 +182,26 @@ internal sealed class TcpIrLink : IIrLink
 
     public int ReadChar()
     {
-        if (_index < _pending) { return _chars[_index++]; }
+        if (_index < _pending)
+        {
+            return _chars[_index++];
+        }
+
         int value;
-        try { value = _stream.ReadByte(); }
-        catch (IOException ex) when (ex.InnerException is SocketException { SocketErrorCode: SocketError.TimedOut }) { return -1; }
-        if (value < 0) { throw new IOException("The IR endpoint closed the network connection."); }
+        try
+        {
+            value = _stream.ReadByte();
+        }
+        catch (IOException ex) when (ex.InnerException is SocketException { SocketErrorCode: SocketError.TimedOut })
+        {
+            return -1;
+        }
+
+        if (value < 0)
+        {
+            throw new IOException("The IR endpoint closed the network connection.");
+        }
+
         _byte[0] = (byte)value;
         _pending = _decoder.GetChars(_byte, 0, 1, _chars, 0);
         _index = 0;
@@ -144,24 +216,21 @@ internal sealed class TcpIrLink : IIrLink
 }
 
 /// <summary>One serialized endpoint connection over any link. Uncertain operations are never retried.</summary>
-internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open, string? pairingToken = null) : IIrEndpoint
+internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open, string? pairingToken = null)
+    : IIrEndpoint
 {
     private const int MaxFrame = 32768;
     private static readonly JsonSerializerOptions WireJson = new(JsonSerializerDefaults.Web) { MaxDepth = 16 };
     private readonly SemaphoreSlim _lane = new(1, 1);
-    private IIrLink? _link;
     private bool _disposed;
-
-    /// <summary>Opens the endpoint the target names; a USB target needs no token, a network target sends its pairing token.</summary>
-    public static IrEndpointConnection Create(IrEndpointTarget target) => target.Network
-        ? new IrEndpointConnection(token => new TcpIrLink(target.Address, token), target.Token)
-        : new IrEndpointConnection(_ => new SerialIrLink(target.Address));
+    private IIrLink? _link;
 
     public IrEndpointIdentity? Identity { get; private set; }
 
     public async Task<IrEndpointIdentity> IdentifyAsync(CancellationToken token)
     {
-        using var response = await ExchangeAsync("identify", new { }, TimeSpan.FromSeconds(3), token).ConfigureAwait(false);
+        using var response =
+            await ExchangeAsync("identify", new { }, TimeSpan.FromSeconds(3), token).ConfigureAwait(false);
         try
         {
             Identity = ParseIdentity(response);
@@ -174,17 +243,13 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
         }
     }
 
-    /// <summary>Closes the link without disposing the endpoint, so the next exchange opens a fresh one after identification.</summary>
-    private async Task DropAsync()
-    {
-        await _lane.WaitAsync().ConfigureAwait(false);
-        try { _link?.Dispose(); _link = null; Identity = null; }
-        finally { _lane.Release(); }
-    }
-
     public async Task<IrPayload> LearnAsync(TimeSpan timeout, CancellationToken token)
     {
-        if (timeout.TotalMilliseconds is < 1000 or > 30000) { throw new ArgumentOutOfRangeException(nameof(timeout)); }
+        if (timeout.TotalMilliseconds is < 1000 or > 30000)
+        {
+            throw new ArgumentOutOfRangeException(nameof(timeout));
+        }
+
         using var response = await ExchangeAsync("learn", new { timeoutMs = (int)timeout.TotalMilliseconds },
             timeout + TimeSpan.FromSeconds(2), token).ConfigureAwait(false);
         var payload = response.RootElement.GetProperty("data").Deserialize<IrPayload>(IrLibrary.Json)
@@ -196,8 +261,9 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
     public async Task TransmitAsync(IrPayload payload, int repeats, int gapMs, CancellationToken token)
     {
         payload.Validate(repeats, gapMs);
-        using var response = await ExchangeAsync("send", new { payload, repeats, gapMs }, TimeSpan.FromSeconds(7), token)
-            .ConfigureAwait(false);
+        using var response =
+            await ExchangeAsync("send", new { payload, repeats, gapMs }, TimeSpan.FromSeconds(7), token)
+                .ConfigureAwait(false);
     }
 
     public async Task<IrRemoteCatalog> ListRemotesAsync(CancellationToken token)
@@ -205,7 +271,7 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
         using var response = await ExchangeAsync("remotes", new { }, TimeSpan.FromSeconds(5), token)
             .ConfigureAwait(false);
         return response.RootElement.GetProperty("data").Deserialize<IrRemoteCatalog>(WireJson)
-            ?? throw new InvalidDataException("Missing built-in remote catalog.");
+               ?? throw new InvalidDataException("Missing built-in remote catalog.");
     }
 
     public async Task PressAsync(string remote, string button, CancellationToken token)
@@ -234,15 +300,57 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
             .ConfigureAwait(false);
     }
 
-    public async Task<IrEndpointIdentity> ConfigureNetworkAsync(string ssid, string password, string networkToken, CancellationToken token)
+    public async Task<IrEndpointIdentity> ConfigureNetworkAsync(string ssid, string password, string networkToken,
+        CancellationToken token)
     {
         if (ssid.Length > 32 || password.Length > 63 || (ssid.Length != 0 && networkToken.Length is < 16 or > 64))
         {
             throw new ArgumentException("SSID is at most 32 characters and the password at most 63.");
         }
+
         using var response = await ExchangeAsync("wifi", new { ssid, password, token = networkToken },
             TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
         return ParseIdentity(response);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _lane.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            _disposed = true;
+            _link?.Dispose();
+            _link = null;
+            Identity = null;
+        }
+        finally
+        {
+            _lane.Release();
+        }
+    }
+
+    /// <summary>Opens the endpoint the target names; a USB target needs no token, a network target sends its pairing token.</summary>
+    public static IrEndpointConnection Create(IrEndpointTarget target)
+    {
+        return target.Network
+            ? new IrEndpointConnection(token => new TcpIrLink(target.Address, token), target.Token)
+            : new IrEndpointConnection(_ => new SerialIrLink(target.Address));
+    }
+
+    /// <summary>Closes the link without disposing the endpoint, so the next exchange opens a fresh one after identification.</summary>
+    private async Task DropAsync()
+    {
+        await _lane.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            _link?.Dispose();
+            _link = null;
+            Identity = null;
+        }
+        finally
+        {
+            _lane.Release();
+        }
     }
 
     private static IrEndpointIdentity ParseIdentity(JsonDocument response)
@@ -251,24 +359,32 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
                        ?? throw new InvalidDataException("Missing IR endpoint identity.");
         if (identity.Protocol != 1 || identity.MaxTimings != 1024 || string.IsNullOrWhiteSpace(identity.Identity))
         {
-            throw new InvalidDataException($"IR endpoint protocol {identity.Protocol} is incompatible; this plugin requires protocol 1.");
+            throw new InvalidDataException(
+                $"IR endpoint protocol {identity.Protocol} is incompatible; this plugin requires protocol 1.");
         }
+
         return identity;
     }
 
-    private async Task<JsonDocument> ExchangeAsync(string operation, object arguments, TimeSpan timeout, CancellationToken token)
+    private async Task<JsonDocument> ExchangeAsync(string operation, object arguments, TimeSpan timeout,
+        CancellationToken token)
     {
         await _lane.WaitAsync(token).ConfigureAwait(false);
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (operation != "identify" && Identity is null) { throw new InvalidOperationException("Identify the IR endpoint first."); }
+            if (operation != "identify" && Identity is null)
+            {
+                throw new InvalidOperationException("Identify the IR endpoint first.");
+            }
+
             using var bounded = CancellationTokenSource.CreateLinkedTokenSource(token);
             bounded.CancelAfter(timeout);
             var boundedToken = bounded.Token;
             // Opening and the synchronous driver reads run on a worker. The link's read timeout bounds
             // each poll; cancellation closes this connection and retires all outstanding responses.
-            return await Task.Run(() => Exchange(operation, arguments, boundedToken), CancellationToken.None).ConfigureAwait(false);
+            return await Task.Run(() => Exchange(operation, arguments, boundedToken), CancellationToken.None)
+                .ConfigureAwait(false);
         }
         catch
         {
@@ -277,7 +393,10 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
             Identity = null;
             throw;
         }
-        finally { _lane.Release(); }
+        finally
+        {
+            _lane.Release();
+        }
     }
 
     private JsonDocument Exchange(string operation, object arguments, CancellationToken token)
@@ -290,9 +409,17 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
         request["v"] = 1;
         request["id"] = id;
         request["op"] = operation;
-        if (pairingToken is not null) { request["token"] = pairingToken; }
+        if (pairingToken is not null)
+        {
+            request["token"] = pairingToken;
+        }
+
         var frame = JsonSerializer.Serialize(request); // One compact line, regardless of library formatting.
-        if (Encoding.UTF8.GetByteCount(frame) > MaxFrame) { throw new InvalidDataException("IR request exceeds frame limit."); }
+        if (Encoding.UTF8.GetByteCount(frame) > MaxFrame)
+        {
+            throw new InvalidDataException("IR request exceeds frame limit.");
+        }
+
         _link.WriteLine(frame);
         StringBuilder line = new();
         try
@@ -301,28 +428,43 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
             {
                 token.ThrowIfCancellationRequested();
                 var character = _link.ReadChar();
-                if (character is < 0 or '\r') { continue; }
+                if (character is < 0 or '\r')
+                {
+                    continue;
+                }
+
                 if (character != '\n')
                 {
-                    if (line.Length >= MaxFrame) { throw new InvalidDataException("IR response exceeds frame limit."); }
+                    if (line.Length >= MaxFrame)
+                    {
+                        throw new InvalidDataException("IR response exceeds frame limit.");
+                    }
+
                     line.Append((char)character);
                     continue;
                 }
+
                 var text = line.ToString();
                 line.Clear();
-                if (!text.StartsWith('{')) { continue; } // Boot ROM diagnostics are not protocol frames.
+                if (!text.StartsWith('{'))
+                {
+                    continue;
+                } // Boot ROM diagnostics are not protocol frames.
+
                 var response = JsonDocument.Parse(text, new JsonDocumentOptions { MaxDepth = 16 });
                 if (!response.RootElement.TryGetProperty("id", out var responseId) || responseId.GetString() != id)
                 {
                     response.Dispose();
                     continue;
                 }
+
                 var expected = ExpectedStatus(operation);
                 if (response.RootElement.GetProperty("v").GetInt32() == 1
                     && response.RootElement.GetProperty("status").GetString() == expected)
                 {
                     return response;
                 }
+
                 var status = response.RootElement.GetProperty("status").GetString() ?? "unknown";
                 response.Dispose();
                 throw new InvalidDataException(Describe(operation, status));
@@ -334,53 +476,68 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
             // then discarded; firmware also has its own bounded learning deadline.
             try
             {
-                Dictionary<string, object?> cancel = new() { ["v"] = 1, ["id"] = Guid.NewGuid().ToString("N"), ["op"] = "cancel" };
-                if (pairingToken is not null) { cancel["token"] = pairingToken; }
+                Dictionary<string, object?> cancel = new()
+                    { ["v"] = 1, ["id"] = Guid.NewGuid().ToString("N"), ["op"] = "cancel" };
+                if (pairingToken is not null)
+                {
+                    cancel["token"] = pairingToken;
+                }
+
                 _link.WriteLine(JsonSerializer.Serialize(cancel));
             }
-            catch (IOException) { }
-            catch (TimeoutException) { }
+            catch (IOException)
+            {
+            }
+            catch (TimeoutException)
+            {
+            }
+
             throw;
         }
     }
 
-    /// <summary>The status one operation reports on success. A sequence only reports that it
-    /// started: the endpoint runs its steps in the background.</summary>
-    private static string ExpectedStatus(string operation) => operation switch
+    /// <summary>
+    ///     The status one operation reports on success. A sequence only reports that it
+    ///     started: the endpoint runs its steps in the background.
+    /// </summary>
+    private static string ExpectedStatus(string operation)
     {
-        "send" or "press" or "climate" => "transmitted",
-        "learn" => "learned",
-        "run" => "started",
-        _ => "ok"
-    };
+        return operation switch
+        {
+            "send" or "press" or "climate" => "transmitted",
+            "learn" => "learned",
+            "run" => "started",
+            _ => "ok"
+        };
+    }
 
     /// <summary>Turns a protocol refusal into the message shown in Tools. Unknown statuses stay literal.</summary>
-    internal static string Describe(string operation, string status) => status switch
+    internal static string Describe(string operation, string status)
     {
-        "busy" when operation is "press" or "climate" or "run" or "send" =>
-            "The endpoint is still learning or running a sequence. Wait for it or cancel first.",
-        "unknown-remote" => "The endpoint has no remote with that id. Read its built-in remotes first.",
-        "unknown-button" => "That remote has no button with that id.",
-        "unknown-sequence" => "That remote has no sequence with that id.",
-        "unknown-climate" => "That remote is not an air conditioner.",
-        "invalid-ac-state" => "The endpoint refused that air-conditioner state; check the mode, fan and temperature it declares.",
-        "unsupported-operation" when operation is "remotes" or "press" or "climate" or "run" =>
-            "This endpoint firmware has no built-in remotes; flash firmware 0.4.0 or later.",
-        "timeout" => "No IR signal arrived before the learn timeout. Point the remote at the receiver and press one button briefly.",
-        "busy" => "The endpoint is still learning. Wait for the timeout or cancel first.",
-        "capture-overflow" => "The signal was too long to capture in one payload. Press the remote button briefly instead of holding it.",
-        "timing-limit" => "The captured signal contains a gap longer than one payload can represent.",
-        "protocol-mismatch" => "The endpoint firmware speaks a different protocol version than this plugin.",
-        "unauthorized" => "The endpoint rejected the pairing token. Pair it again over USB.",
-        "usb-only" => "Wi-Fi setup is only accepted over the USB connection.",
-        "unsupported-operation" when operation == "wifi" => "This endpoint firmware has no Wi-Fi support; flash firmware 0.2.0 or later.",
-        _ => $"IR endpoint refused {operation}: {status}."
-    };
-
-    public async ValueTask DisposeAsync()
-    {
-        await _lane.WaitAsync().ConfigureAwait(false);
-        try { _disposed = true; _link?.Dispose(); _link = null; Identity = null; }
-        finally { _lane.Release(); }
+        return status switch
+        {
+            "busy" when operation is "press" or "climate" or "run" or "send" =>
+                "The endpoint is still learning or running a sequence. Wait for it or cancel first.",
+            "unknown-remote" => "The endpoint has no remote with that id. Read its built-in remotes first.",
+            "unknown-button" => "That remote has no button with that id.",
+            "unknown-sequence" => "That remote has no sequence with that id.",
+            "unknown-climate" => "That remote is not an air conditioner.",
+            "invalid-ac-state" =>
+                "The endpoint refused that air-conditioner state; check the mode, fan and temperature it declares.",
+            "unsupported-operation" when operation is "remotes" or "press" or "climate" or "run" =>
+                "This endpoint firmware has no built-in remotes; flash firmware 0.4.0 or later.",
+            "timeout" =>
+                "No IR signal arrived before the learn timeout. Point the remote at the receiver and press one button briefly.",
+            "busy" => "The endpoint is still learning. Wait for the timeout or cancel first.",
+            "capture-overflow" =>
+                "The signal was too long to capture in one payload. Press the remote button briefly instead of holding it.",
+            "timing-limit" => "The captured signal contains a gap longer than one payload can represent.",
+            "protocol-mismatch" => "The endpoint firmware speaks a different protocol version than this plugin.",
+            "unauthorized" => "The endpoint rejected the pairing token. Pair it again over USB.",
+            "usb-only" => "Wi-Fi setup is only accepted over the USB connection.",
+            "unsupported-operation" when operation == "wifi" =>
+                "This endpoint firmware has no Wi-Fi support; flash firmware 0.2.0 or later.",
+            _ => $"IR endpoint refused {operation}: {status}."
+        };
     }
 }

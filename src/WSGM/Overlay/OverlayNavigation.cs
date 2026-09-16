@@ -79,9 +79,9 @@ internal enum OverlayPage
     PowerActions,
 
     /// <summary>
-    /// Steam start/focus, desktop, Big Picture and Steam exit. A root tab of its own until
-    /// 2026-09-11: four buttons did not justify one, and they are lifecycle transitions, which
-    /// is what the rest of Power is.
+    ///     Steam start/focus, desktop, Big Picture and Steam exit. A root tab of its own until
+    ///     2026-09-11: four buttons did not justify one, and they are lifecycle transitions, which
+    ///     is what the rest of Power is.
     /// </summary>
     PowerSession,
     PowerWakeLocks
@@ -106,8 +106,8 @@ internal readonly record struct OverlayRoute(
     string? SectionId = null);
 
 /// <summary>
-/// Owns top-level destination visibility and the bounded nested-page stack without retaining
-/// controls, device descriptors, or service generations.
+///     Owns top-level destination visibility and the bounded nested-page stack without retaining
+///     controls, device descriptors, or service generations.
 /// </summary>
 internal sealed class OverlayNavigation
 {
@@ -130,19 +130,29 @@ internal sealed class OverlayNavigation
 
     internal int Depth => _stack.Count;
 
-    internal bool NeedsDeviceRoot(bool pluginVisible)
-        => !pluginVisible && Page == OverlayPage.DevicePluginSection
-            && SectionId != DeviceSections.PowerId
-            && SectionId != DeviceSections.ControllerId;
-
     internal IReadOnlyList<OverlayDestination> VisibleDestinations => _deviceVisible
-        ? [OverlayDestination.QuickAccess, OverlayDestination.Steam,
-            OverlayDestination.Device, OverlayDestination.System, OverlayDestination.Power]
-        : [OverlayDestination.QuickAccess, OverlayDestination.Steam,
-            OverlayDestination.System, OverlayDestination.Power];
+        ?
+        [
+            OverlayDestination.QuickAccess, OverlayDestination.Steam,
+            OverlayDestination.Device, OverlayDestination.System, OverlayDestination.Power
+        ]
+        :
+        [
+            OverlayDestination.QuickAccess, OverlayDestination.Steam,
+            OverlayDestination.System, OverlayDestination.Power
+        ];
+
+    internal bool NeedsDeviceRoot(bool pluginVisible)
+    {
+        return !pluginVisible && Page == OverlayPage.DevicePluginSection
+                              && SectionId != DeviceSections.PowerId
+                              && SectionId != DeviceSections.ControllerId;
+    }
 
     internal bool IsVisible(OverlayDestination destination)
-        => destination != OverlayDestination.Device || _deviceVisible;
+    {
+        return destination != OverlayDestination.Device || _deviceVisible;
+    }
 
     internal bool SetDeviceVisible(bool visible, bool coreControlsAvailable = false)
     {
@@ -185,7 +195,7 @@ internal sealed class OverlayNavigation
         if (_stack.Count >= MaximumDepth || DestinationFor(page) != Destination)
         {
             Log.Warn($"Overlay nav: push {page} refused from {Destination}/{Page} "
-                + $"(depth={_stack.Count}, pageDestination={DestinationFor(page)}).");
+                     + $"(depth={_stack.Count}, pageDestination={DestinationFor(page)}).");
             return false;
         }
 
@@ -231,38 +241,44 @@ internal sealed class OverlayNavigation
             : OverlayBackAction.ReturnHome;
     }
 
-    private static OverlayPage RootPage(OverlayDestination destination) => destination switch
+    private static OverlayPage RootPage(OverlayDestination destination)
     {
-        OverlayDestination.QuickAccess => OverlayPage.QuickAccess,
-        OverlayDestination.Steam => OverlayPage.Steam,
-        OverlayDestination.Device => OverlayPage.Device,
-        OverlayDestination.System => OverlayPage.System,
-        OverlayDestination.Power => OverlayPage.Power,
-        _ => throw new ArgumentOutOfRangeException(nameof(destination))
-    };
+        return destination switch
+        {
+            OverlayDestination.QuickAccess => OverlayPage.QuickAccess,
+            OverlayDestination.Steam => OverlayPage.Steam,
+            OverlayDestination.Device => OverlayPage.Device,
+            OverlayDestination.System => OverlayPage.System,
+            OverlayDestination.Power => OverlayPage.Power,
+            _ => throw new ArgumentOutOfRangeException(nameof(destination))
+        };
+    }
 
-    private static OverlayDestination DestinationFor(OverlayPage page) => page switch
+    private static OverlayDestination DestinationFor(OverlayPage page)
     {
-        OverlayPage.QuickAccess => OverlayDestination.QuickAccess,
-        OverlayPage.Steam or OverlayPage.SteamLibrary or OverlayPage.SteamLaunchFixes
-            or OverlayPage.SteamLibraryTabs or OverlayPage.SteamCardManager
-            or OverlayPage.SteamArtwork or OverlayPage.SteamLaunchConfiguration
-            or OverlayPage.SteamStorageFormat => OverlayDestination.Steam,
-        OverlayPage.Device or OverlayPage.DeviceOverview or OverlayPage.DeviceProfiles
-            or OverlayPage.DevicePowerAndThermals or OverlayPage.DeviceControllerAndMotion
-            or OverlayPage.DeviceOem or OverlayPage.DeviceLightingAndFeatures
-            or OverlayPage.DeviceColor or OverlayPage.DeviceDiagnostics
-            or OverlayPage.DevicePluginSection
-            => OverlayDestination.Device,
-        OverlayPage.System or OverlayPage.SystemTools or OverlayPage.SystemPerformance
-            or OverlayPage.SystemStorage or OverlayPage.SystemDisplay
-            or OverlayPage.SystemPlugins or OverlayPage.SystemController
-            => OverlayDestination.System,
-        OverlayPage.Power or OverlayPage.PowerWake or OverlayPage.PowerTimeouts
-            or OverlayPage.PowerActions or OverlayPage.PowerSession
-            or OverlayPage.PowerWakeLocks => OverlayDestination.Power,
-        _ => throw new ArgumentOutOfRangeException(nameof(page))
-    };
+        return page switch
+        {
+            OverlayPage.QuickAccess => OverlayDestination.QuickAccess,
+            OverlayPage.Steam or OverlayPage.SteamLibrary or OverlayPage.SteamLaunchFixes
+                or OverlayPage.SteamLibraryTabs or OverlayPage.SteamCardManager
+                or OverlayPage.SteamArtwork or OverlayPage.SteamLaunchConfiguration
+                or OverlayPage.SteamStorageFormat => OverlayDestination.Steam,
+            OverlayPage.Device or OverlayPage.DeviceOverview or OverlayPage.DeviceProfiles
+                or OverlayPage.DevicePowerAndThermals or OverlayPage.DeviceControllerAndMotion
+                or OverlayPage.DeviceOem or OverlayPage.DeviceLightingAndFeatures
+                or OverlayPage.DeviceColor or OverlayPage.DeviceDiagnostics
+                or OverlayPage.DevicePluginSection
+                => OverlayDestination.Device,
+            OverlayPage.System or OverlayPage.SystemTools or OverlayPage.SystemPerformance
+                or OverlayPage.SystemStorage or OverlayPage.SystemDisplay
+                or OverlayPage.SystemPlugins or OverlayPage.SystemController
+                => OverlayDestination.System,
+            OverlayPage.Power or OverlayPage.PowerWake or OverlayPage.PowerTimeouts
+                or OverlayPage.PowerActions or OverlayPage.PowerSession
+                or OverlayPage.PowerWakeLocks => OverlayDestination.Power,
+            _ => throw new ArgumentOutOfRangeException(nameof(page))
+        };
+    }
 }
 
 /// <summary>Semantic focus and scroll state retained without keeping a page or control alive.</summary>
@@ -274,12 +290,16 @@ internal sealed class OverlayFocusMemory
     private readonly Dictionary<OverlayDestination, OverlayFocusState> _states = new();
 
     internal void Remember(OverlayDestination destination, string? semanticKey, double scrollOffset)
-        => _states[destination] = new OverlayFocusState(
+    {
+        _states[destination] = new OverlayFocusState(
             string.IsNullOrWhiteSpace(semanticKey) ? null : semanticKey,
             Math.Max(0, scrollOffset));
+    }
 
     internal OverlayFocusState Recall(OverlayDestination destination)
-        => _states.TryGetValue(destination, out var state)
+    {
+        return _states.TryGetValue(destination, out var state)
             ? state
             : new OverlayFocusState(null, 0);
+    }
 }

@@ -10,11 +10,11 @@ using WSGM.DeviceLab.Probes;
 namespace WSGM.DeviceLab;
 
 /// <summary>
-/// Serialization for Device Lab output.
+///     Serialization for Device Lab output.
 /// </summary>
 /// <remarks>
-/// The single assembly context keeps property order deterministic so identical observations produce
-/// byte-identical output and capture hashes remain meaningful.
+///     The single assembly context keeps property order deterministic so identical observations produce
+///     byte-identical output and capture hashes remain meaningful.
 /// </remarks>
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
@@ -53,28 +53,36 @@ internal static class DeviceLabCompactJson
 internal static class DeviceLabJson
 {
     /// <summary>
-    /// Serializes an inventory to its canonical JSON form.
+    ///     Serializes an inventory to its canonical JSON form.
     /// </summary>
     /// <param name="inventory">The inventory to write.</param>
     /// <returns>Indented JSON, stable across runs for the same input.</returns>
-    public static string Serialize(MachineInventory inventory) =>
-        JsonSerializer.Serialize(inventory, DeviceLabJsonContext.Default.MachineInventory);
+    public static string Serialize(MachineInventory inventory)
+    {
+        return JsonSerializer.Serialize(inventory, DeviceLabJsonContext.Default.MachineInventory);
+    }
 
     /// <summary>Serializes an inert observe-only recipe to canonical JSON.</summary>
     /// <param name="recipe">Recipe to serialize.</param>
     /// <returns>Indented JSON with deterministic property ordering.</returns>
-    public static string Serialize(ObserveOnlyRecipe recipe) =>
-        JsonSerializer.Serialize(recipe, DeviceLabJsonContext.Default.ObserveOnlyRecipe);
+    public static string Serialize(ObserveOnlyRecipe recipe)
+    {
+        return JsonSerializer.Serialize(recipe, DeviceLabJsonContext.Default.ObserveOnlyRecipe);
+    }
 
     /// <summary>Serializes a Device Lab doctor report to canonical JSON.</summary>
     /// <param name="report">Doctor report to serialize.</param>
     /// <returns>Indented JSON with deterministic property ordering.</returns>
-    public static string Serialize(DeviceLabDoctorReport report) =>
-        JsonSerializer.Serialize(report, DeviceLabJsonContext.Default.DeviceLabDoctorReport);
+    public static string Serialize(DeviceLabDoctorReport report)
+    {
+        return JsonSerializer.Serialize(report, DeviceLabJsonContext.Default.DeviceLabDoctorReport);
+    }
 
     /// <summary>Serializes one inert read-probe worker invocation envelope.</summary>
     /// <param name="request">Request to serialize.</param>
     /// <returns>Indented deterministic JSON.</returns>
-    public static string Serialize(ReadProbeWorkerRequest request) =>
-        JsonSerializer.Serialize(request, DeviceLabJsonContext.Default.ReadProbeWorkerRequest);
+    public static string Serialize(ReadProbeWorkerRequest request)
+    {
+        return JsonSerializer.Serialize(request, DeviceLabJsonContext.Default.ReadProbeWorkerRequest);
+    }
 }

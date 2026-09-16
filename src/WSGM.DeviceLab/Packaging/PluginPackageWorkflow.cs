@@ -132,7 +132,10 @@ internal static class PluginPackageWorkflow
         return Report(
             manifest.Id,
             manifest.Version,
-            [.. issues.OrderBy(issue => issue.Path, StringComparer.Ordinal).ThenBy(issue => issue.Code, StringComparer.Ordinal)]);
+            [
+                .. issues.OrderBy(issue => issue.Path, StringComparer.Ordinal)
+                    .ThenBy(issue => issue.Code, StringComparer.Ordinal)
+            ]);
     }
 
     /// <summary>Writes a deterministic package after a clean offline validation.</summary>
@@ -145,12 +148,15 @@ internal static class PluginPackageWorkflow
         string sourceDirectory,
         string outputPath,
         DeviceLabPathBoundaries boundaries,
-        CancellationToken cancellationToken = default) => Pack(
+        CancellationToken cancellationToken = default)
+    {
+        return Pack(
             sourceDirectory,
             outputPath,
             boundaries,
-            sourceValidated: null,
+            null,
             cancellationToken);
+    }
 
     internal static PluginPackageValidationReport Pack(
         string sourceDirectory,
@@ -214,19 +220,19 @@ internal static class PluginPackageWorkflow
             sourceValidated?.Invoke();
             cancellationToken.ThrowIfCancellationRequested();
             using (FileStream stream = new(
-                temporary,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None,
-                64 * 1024,
-                FileOptions.WriteThrough))
-            using (ZipArchive archive = new(stream, ZipArchiveMode.Create, leaveOpen: true, Encoding.UTF8))
+                       temporary,
+                       FileMode.CreateNew,
+                       FileAccess.Write,
+                       FileShare.None,
+                       64 * 1024,
+                       FileOptions.WriteThrough))
+            using (ZipArchive archive = new(stream, ZipArchiveMode.Create, true, Encoding.UTF8))
             {
                 var fileCount = 0;
                 long totalBytes = 0;
                 foreach (var file in packageFiles.OrderBy(
-                    file => file.RelativePath,
-                    StringComparer.Ordinal))
+                             file => file.RelativePath,
+                             StringComparer.Ordinal))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var written = WriteEntry(
@@ -316,6 +322,7 @@ internal static class PluginPackageWorkflow
         {
             return Report(null, null, [Issue("unreadable-root", "", exception.GetType().Name)]);
         }
+
         return null;
     }
 
@@ -325,8 +332,8 @@ internal static class PluginPackageWorkflow
     {
         string[] forbiddenExtensions = [".sys", ".inf", ".cat", ".ps1", ".cmd", ".bat", ".reg"];
         foreach (var path in paths.Where(path => forbiddenExtensions.Contains(
-            Path.GetExtension(path),
-            StringComparer.OrdinalIgnoreCase)))
+                     Path.GetExtension(path),
+                     StringComparer.OrdinalIgnoreCase)))
         {
             issues.Add(Issue(
                 "forbidden-provisioning-artifact",
@@ -366,12 +373,13 @@ internal static class PluginPackageWorkflow
             {
                 expected.Add(GlyphPackageLayout.Asset(asset.Sha256, asset.Format));
             }
+
             expected.Add(profile.Manifest.NoticePath);
         }
 
         foreach (var path in packageFiles.Where(path => path.StartsWith("glyphs/", StringComparison.Ordinal))
-            .Except(expected, StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal))
+                     .Except(expected, StringComparer.Ordinal)
+                     .Order(StringComparer.Ordinal))
         {
             issues.Add(Issue(
                 "glyph-unreferenced-file",
@@ -389,10 +397,12 @@ internal static class PluginPackageWorkflow
         {
             return "package-too-many-files";
         }
+
         if (nextFileBytes is < 0 or > MaximumPackageFileBytes)
         {
             return "file-too-large";
         }
+
         if (acceptedBytes < 0
             || acceptedBytes > MaximumPackageBytes
             || nextFileBytes > MaximumPackageBytes - acceptedBytes)
@@ -403,8 +413,10 @@ internal static class PluginPackageWorkflow
         return null;
     }
 
-    internal static bool PackageEntryBudgetExceeded(int acceptedEntryCount) =>
-        acceptedEntryCount >= MaximumPackageEntries;
+    internal static bool PackageEntryBudgetExceeded(int acceptedEntryCount)
+    {
+        return acceptedEntryCount >= MaximumPackageEntries;
+    }
 
     internal static bool IsLink(string path)
     {
@@ -412,7 +424,7 @@ internal static class PluginPackageWorkflow
             ? new DirectoryInfo(path)
             : new FileInfo(path);
         return info.Exists && (info.LinkTarget is not null
-            || (info.Attributes & FileAttributes.ReparsePoint) != 0);
+                               || (info.Attributes & FileAttributes.ReparsePoint) != 0);
     }
 
     private static string ToKebabCase(string value)
@@ -425,8 +437,10 @@ internal static class PluginPackageWorkflow
             {
                 builder.Append('-');
             }
+
             builder.Append(char.ToLowerInvariant(character));
         }
+
         return builder.ToString();
     }
 
@@ -473,6 +487,7 @@ internal static class PluginPackageWorkflow
             {
                 break;
             }
+
             if (read > MaximumPackageFileBytes - written
                 || read > MaximumPackageBytes - acceptedBytes - written)
             {
@@ -499,11 +514,13 @@ internal static class PluginPackageWorkflow
         {
             return new PluginManifestReadResult(
                 null,
-                [new ManifestValidationError(
-                    "",
-                    ManifestValidationCode.DocumentTooLarge,
-                    $"Manifest is {stream.Length} bytes, above the "
-                        + $"{ManifestLimits.MaxDocumentBytes}-byte limit.")]);
+                [
+                    new ManifestValidationError(
+                        "",
+                        ManifestValidationCode.DocumentTooLarge,
+                        $"Manifest is {stream.Length} bytes, above the "
+                        + $"{ManifestLimits.MaxDocumentBytes}-byte limit.")
+                ]);
         }
 
         var bytes = new byte[(int)stream.Length];
@@ -517,10 +534,12 @@ internal static class PluginPackageWorkflow
         {
             return new PluginManifestReadResult(
                 null,
-                [new ManifestValidationError(
-                    "",
-                    ManifestValidationCode.DocumentTooLarge,
-                    $"Manifest is outside the {ManifestLimits.MaxDocumentBytes}-byte limit.")]);
+                [
+                    new ManifestValidationError(
+                        "",
+                        ManifestValidationCode.DocumentTooLarge,
+                        $"Manifest is outside the {ManifestLimits.MaxDocumentBytes}-byte limit.")
+                ]);
         }
 
         return PluginManifestReader.Read(bytes);
@@ -543,34 +562,42 @@ internal static class PluginPackageWorkflow
             return metadata.IsAssembly;
         }
         catch (Exception exception) when (exception is IOException
-            or UnauthorizedAccessException
-            or BadImageFormatException)
+                                              or UnauthorizedAccessException
+                                              or BadImageFormatException)
         {
             return false;
         }
     }
 
-    internal static string PackageBudgetMessage(string violation) => violation switch
+    internal static string PackageBudgetMessage(string violation)
     {
-        "package-too-many-files" => $"Package contains more than {MaximumPackageFiles} files.",
-        "file-too-large" => $"A package file exceeds {MaximumPackageFileBytes} bytes.",
-        "package-too-large" => $"Package exceeds {MaximumPackageBytes} total bytes.",
-        _ => "Package exceeds a filesystem budget."
-    };
+        return violation switch
+        {
+            "package-too-many-files" => $"Package contains more than {MaximumPackageFiles} files.",
+            "file-too-large" => $"A package file exceeds {MaximumPackageFileBytes} bytes.",
+            "package-too-large" => $"Package exceeds {MaximumPackageBytes} total bytes.",
+            _ => "Package exceeds a filesystem budget."
+        };
+    }
 
-    private static PluginPackageValidationIssue Issue(string code, string path, string message) =>
-        new(code, path, message);
+    private static PluginPackageValidationIssue Issue(string code, string path, string message)
+    {
+        return new PluginPackageValidationIssue(code, path, message);
+    }
 
     private static PluginPackageValidationReport Report(
         string? id,
         string? version,
-        IReadOnlyList<PluginPackageValidationIssue> issues) => new()
+        IReadOnlyList<PluginPackageValidationIssue> issues)
+    {
+        return new PluginPackageValidationReport
         {
             Valid = issues.Count == 0,
             PackageId = id,
             PackageVersion = version,
             Issues = issues
         };
+    }
 
     private static void TryDelete(string path)
     {
@@ -598,22 +625,25 @@ internal sealed class SnapshotGlyphPackageSource(
     CancellationToken cancellationToken = default) : IGlyphPackageSource
 {
     private readonly DeviceLabPackageSnapshot _snapshot = snapshot
-        ?? throw new ArgumentNullException(nameof(snapshot));
+                                                          ?? throw new ArgumentNullException(nameof(snapshot));
 
     /// <inheritdoc />
     public IReadOnlyList<string> EnumerateProfileIds()
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return [.. _snapshot.Files
-            .Select(file => file.RelativePath)
-            .Where(path => path.StartsWith("glyphs/profiles/", StringComparison.Ordinal)
-                && path.EndsWith(".json", StringComparison.Ordinal)
-                && path.AsSpan("glyphs/profiles/".Length).IndexOf('/') < 0)
-            .Select(Path.GetFileNameWithoutExtension)
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Select(id => id!)
-            .Distinct(StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal)];
+        return
+        [
+            .. _snapshot.Files
+                .Select(file => file.RelativePath)
+                .Where(path => path.StartsWith("glyphs/profiles/", StringComparison.Ordinal)
+                               && path.EndsWith(".json", StringComparison.Ordinal)
+                               && path.AsSpan("glyphs/profiles/".Length).IndexOf('/') < 0)
+                .Select(Path.GetFileNameWithoutExtension)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id!)
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal)
+        ];
     }
 
     /// <inheritdoc />
@@ -624,11 +654,11 @@ internal sealed class SnapshotGlyphPackageSource(
         {
             cancellationToken.ThrowIfCancellationRequested();
             return _snapshot.TryGetFile(relativePath, out var file)
-                && file.TryReadAllBytes(maximumBytes, out bytes);
+                   && file.TryReadAllBytes(maximumBytes, out bytes);
         }
         catch (Exception exception) when (exception is IOException
-            or UnauthorizedAccessException
-            or InvalidDataException)
+                                              or UnauthorizedAccessException
+                                              or InvalidDataException)
         {
             bytes = [];
             return false;

@@ -16,7 +16,9 @@ internal sealed class GameWindowReturn(
     CancellationToken lifetime = default)
 {
     internal GameWindowReturn(Func<uint, CancellationToken, Task<bool>> raiseSteamGame, CancellationToken lifetime)
-        : this(raiseSteamGame, ReadProcessId, IsConsole, Focus, Log.Info, lifetime) { }
+        : this(raiseSteamGame, ReadProcessId, IsConsole, Focus, Log.Info, lifetime)
+    {
+    }
 
     internal async Task ReturnAsync(nint hwnd, uint processId, CancellationToken cancellationToken)
     {
@@ -40,7 +42,10 @@ internal sealed class GameWindowReturn(
                 steamCompleted = await raiseSteamGame(processId, cancellationToken);
             }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             log($"Game return: Steam activation unavailable: {ex.Message}");
@@ -52,6 +57,7 @@ internal sealed class GameWindowReturn(
             log("Game return: selected window disappeared or changed owner during Steam activation.");
             return;
         }
+
         var foreground = focus(hwnd);
         log($"Game return: pid={processId}, hwnd=0x{hwnd:X}, Steam call completed={steamCompleted}, "
             + $"foreground verified={foreground}. Overlay recovery remains unverified.");
@@ -59,7 +65,11 @@ internal sealed class GameWindowReturn(
 
     private static uint ReadProcessId(nint hwnd)
     {
-        if (!NativeMethods.IsWindow(hwnd)) { return 0; }
+        if (!NativeMethods.IsWindow(hwnd))
+        {
+            return 0;
+        }
+
         NativeMethods.GetWindowThreadProcessId(hwnd, out var processId);
         return processId;
     }

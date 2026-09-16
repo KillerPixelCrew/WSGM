@@ -6,9 +6,9 @@
     <Version>0.2.0</Version>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../WSGM.Plugin.Sdk/WSGM.Plugin.Sdk.csproj" />
-    <PackageReference Include="System.IO.Ports" Version="10.0.12" />
-    <InternalsVisibleTo Include="WSGM.Plugin.Ir.Tests" />
-    <None Update="plugin.wsgm.json" CopyToOutputDirectory="PreserveNewest" />
+    <ProjectReference Include="../WSGM.Plugin.Sdk/WSGM.Plugin.Sdk.csproj"/>
+    <PackageReference Include="System.IO.Ports" Version="10.0.12"/>
+    <InternalsVisibleTo Include="WSGM.Plugin.Ir.Tests"/>
+    <None Update="plugin.wsgm.json" CopyToOutputDirectory="PreserveNewest"/>
   </ItemGroup>
 </Project>

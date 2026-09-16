@@ -2,9 +2,9 @@ namespace WSGM.Device.Sdk.Packaging;
 
 /// <summary>The complete metadata contract for one installed device plugin.</summary>
 /// <remarks>
-/// Hardware identity, dependencies, capabilities, glyphs, and recovery policy belong to plugin
-/// code or fixed package data. The manifest only identifies the assembly and exact SDK API it was
-/// compiled against.
+///     Hardware identity, dependencies, capabilities, glyphs, and recovery policy belong to plugin
+///     code or fixed package data. The manifest only identifies the assembly and exact SDK API it was
+///     compiled against.
 /// </remarks>
 public sealed record PluginManifest
 {
@@ -17,7 +17,7 @@ public sealed record PluginManifest
     /// <summary>Package version as a dotted numeric version.</summary>
     public required string Version { get; init; }
 
-    /// <summary>Exact <see cref="DeviceApi.Version"/> required by this package.</summary>
+    /// <summary>Exact <see cref="DeviceApi.Version" /> required by this package.</summary>
     public required int ApiVersion { get; init; }
 
     /// <summary>Package-relative plugin assembly path.</summary>

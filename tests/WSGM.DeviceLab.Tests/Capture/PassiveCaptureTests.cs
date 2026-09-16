@@ -37,7 +37,8 @@ public sealed class PassiveCaptureTests
             Observation(1) with
             {
                 SourceId = GuidedOperatorMarkers.SourceId,
-                Payload = new CapturedPayload { Disposition = PayloadDisposition.Included, Length = bytes.Length, Bytes = bytes }
+                Payload = new CapturedPayload
+                    { Disposition = PayloadDisposition.Included, Length = bytes.Length, Bytes = bytes }
             });
 
         Assert.Equal(accepted, GuidedOperatorMarkers.TryDecode(captureEvent, out _, out _, out _));
@@ -55,7 +56,8 @@ public sealed class PassiveCaptureTests
             Observation(1) with
             {
                 SourceId = GuidedOperatorMarkers.SourceId,
-                Payload = new CapturedPayload { Disposition = PayloadDisposition.Included, Length = bytes.Length, Bytes = bytes }
+                Payload = new CapturedPayload
+                    { Disposition = PayloadDisposition.Included, Length = bytes.Length, Bytes = bytes }
             });
 
         Assert.False(GuidedOperatorMarkers.TryDecode(captureEvent, out _, out var action, out var label));
@@ -73,7 +75,8 @@ public sealed class PassiveCaptureTests
             Observation(1) with
             {
                 SourceId = GuidedOperatorMarkers.SourceId,
-                Payload = new CapturedPayload { Disposition = PayloadDisposition.Included, Length = bytes.Length, Bytes = bytes }
+                Payload = new CapturedPayload
+                    { Disposition = PayloadDisposition.Included, Length = bytes.Length, Bytes = bytes }
             });
 
         Assert.True(GuidedOperatorMarkers.TryDecode(captureEvent, out _, out var action, out var decoded));
@@ -81,14 +84,17 @@ public sealed class PassiveCaptureTests
         Assert.Equal(label, decoded);
     }
 
-    private static PassiveObservation Observation(long sequence) => new()
+    private static PassiveObservation Observation(long sequence)
     {
-        SourceId = "test-source",
-        RecipeStepId = "test-step",
-        SourceSequence = sequence,
-        DeviceGeneration = 1,
-        Payload = new CapturedPayload { Disposition = PayloadDisposition.NotCaptured, Length = 0 }
-    };
+        return new PassiveObservation
+        {
+            SourceId = "test-source",
+            RecipeStepId = "test-step",
+            SourceSequence = sequence,
+            DeviceGeneration = 1,
+            Payload = new CapturedPayload { Disposition = PayloadDisposition.NotCaptured, Length = 0 }
+        };
+    }
 
     private sealed class ReceiptClock : ICaptureReceiptClock
     {
@@ -96,6 +102,9 @@ public sealed class PassiveCaptureTests
 
         public long Frequency => 1000;
 
-        public long GetTimestamp() => _timestamp -= 10;
+        public long GetTimestamp()
+        {
+            return _timestamp -= 10;
+        }
     }
 }

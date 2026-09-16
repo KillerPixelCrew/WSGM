@@ -101,25 +101,31 @@ try {
     dotnet restore WSGM.slnx -m:1
     if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed" }
 
-    # Nothing under external/ is ours to restyle, and it is reachable through project references.
-    # Reformatting vendored upstream source would destroy the diff against upstream, which is what
-    # makes it re-syncable; reformatting a submodule dirties a working tree this repository only
-    # pins, and the result could never be committed from here anyway. Each has its own gates.
-    $notOurs = @("external/")
+    # Rider's formatter is the layout authority. The same ReSharper engine runs here as
+    # jb cleanupcode with the built-in Full Cleanup profile and the solution settings layer, and
+    # the gate is that it changes nothing. Nothing under external/ is ours to restyle from here:
+    # each submodule has its own gate, and vendored upstream source keeps its diff against upstream.
+    dotnet tool restore
+    if ($LASTEXITCODE -ne 0) { throw "dotnet tool restore failed" }
+    dotnet jb cleanupcode WSGM.slnx --settings=WSGM.slnx.DotSettings --profile="Built-in: Full Cleanup" `
+        --include="src\**\*.cs;tests\**\*.cs" --exclude="**\obj\**;**\bin\**" --no-build --verbosity=WARN
+    if ($LASTEXITCODE -ne 0) { throw "jb cleanupcode failed" }
+    if (-not $Fix) {
+        git diff --exit-code --stat -- src tests
+        if ($LASTEXITCODE -ne 0) { throw "C# layout differs from Rider's Full Cleanup; run eng/verify.ps1 -Fix" }
+    }
 
     # The documentation diagnostics are build errors already (warnaserror below). Left in the
     # style pass, the fixer for them splices `/// <inheritdoc/>` into the middle of a declaration
     # under -Fix, which corrupted CardButton.cs on 2026-09-03; they are for a person to write.
     $documentationDiagnostics = @("--exclude-diagnostics", "CS1591", "CS1573")
     $formatModes = @(
-        @{ Name = "whitespace"; Severity = @(); Excluded = @(); Failure = "C# whitespace format check failed" },
         @{ Name = "style"; Severity = @("--severity", "warn"); Excluded = $documentationDiagnostics; Failure = "C# style check failed" },
         @{ Name = "analyzers"; Severity = @("--severity", "warn"); Excluded = $documentationDiagnostics; Failure = "C# analyzer check failed" }
     )
     foreach ($mode in $formatModes) {
         $formatArgs = @("format", "WSGM.slnx", $mode.Name, "--no-restore") + $mode.Severity +
-            @("--verbosity", "minimal") + $mode.Excluded
-        foreach ($path in $notOurs) { $formatArgs += @("--exclude", $path) }
+            @("--verbosity", "minimal") + $mode.Excluded + @("--exclude", "external/")
         if (-not $Fix) { $formatArgs += "--verify-no-changes" }
         & dotnet @formatArgs
         if ($LASTEXITCODE -ne 0) { throw $mode.Failure }

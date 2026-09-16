@@ -9,19 +9,20 @@ namespace WSGM.Tests.Overlay;
 
 public sealed class PowerSchemeSelectionTests
 {
+    private static readonly Guid First = Guid.NewGuid();
+    private static readonly Guid Second = Guid.NewGuid();
+
     [Fact]
     public void CorePowerProfilesKeepDeviceAvailableWhenThePluginIsOff()
     {
         var navigation = new OverlayNavigation();
-        navigation.SetDeviceVisible(false, coreControlsAvailable: true);
+        navigation.SetDeviceVisible(false, true);
         Assert.Contains(OverlayDestination.Device, navigation.VisibleDestinations);
         navigation.Select(OverlayDestination.Device);
-        navigation.SetDeviceVisible(true, coreControlsAvailable: true);
-        navigation.SetDeviceVisible(false, coreControlsAvailable: true);
+        navigation.SetDeviceVisible(true, true);
+        navigation.SetDeviceVisible(false, true);
         Assert.Equal(OverlayDestination.Device, navigation.Destination);
     }
-    private static readonly Guid First = Guid.NewGuid();
-    private static readonly Guid Second = Guid.NewGuid();
 
     [Fact]
     public async Task SteamDropdownUsesTheSameVerifiedGuidBackend()
@@ -72,7 +73,8 @@ public sealed class PowerSchemeSelectionTests
         Assert.Equal(Second, model.ActiveId);
         Assert.Equal(1, api.Writes);
         var json = JsonSerializer.Serialize(config, ConfigJsonContext.Default.AppConfig);
-        Assert.Equal(Second, JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig)!.LastSelectedPowerSchemeId);
+        Assert.Equal(Second,
+            JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig)!.LastSelectedPowerSchemeId);
         Assert.DoesNotContain("Duplicate localized name", json, StringComparison.Ordinal);
     }
 
@@ -109,7 +111,7 @@ public sealed class PowerSchemeSelectionTests
     public async Task PreviewAndUnknownIdsCannotWrite()
     {
         FakeApi api = new();
-        using var preview = new PowerSchemeSelection(new PowerSchemes(api), _ => { }, readOnly: true);
+        using var preview = new PowerSchemeSelection(new PowerSchemes(api), _ => { }, true);
         await preview.RefreshAsync();
         await preview.ApplyAsync(Second);
         Assert.False(preview.CanSelect);
@@ -139,7 +141,11 @@ public sealed class PowerSchemeSelectionTests
         FakeApi api = new();
         using ManualResetEventSlim release = new(false);
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        api.BeforeRead = () => { entered.TrySetResult(); release.Wait(TimeSpan.FromSeconds(10)); };
+        api.BeforeRead = () =>
+        {
+            entered.TrySetResult();
+            release.Wait(TimeSpan.FromSeconds(10));
+        };
         var model = new PowerSchemeSelection(new PowerSchemes(api), _ => { });
         var notifications = 0;
         model.Changed += () => notifications++;
@@ -152,7 +158,11 @@ public sealed class PowerSchemeSelectionTests
             Assert.True(model.Busy);
             model.Dispose();
         }
-        finally { release.Set(); }
+        finally
+        {
+            release.Set();
+        }
+
         await pending;
         Assert.Equal(1, notifications);
         Assert.Empty(model.Schemes);
@@ -167,17 +177,31 @@ public sealed class PowerSchemeSelectionTests
         internal bool Empty { get; set; }
         internal bool ReadFailure { get; set; }
         internal Action? BeforeRead { get; set; }
-        public Guid? Enumerate(uint index) => Empty ? null : index switch { 0 => First, 1 => Second, _ => null };
-        public string ReadName(Guid id) => "Duplicate localized name";
+
+        public Guid? Enumerate(uint index)
+        {
+            return Empty ? null : index switch { 0 => First, 1 => Second, _ => null };
+        }
+
+        public string ReadName(Guid id)
+        {
+            return "Duplicate localized name";
+        }
+
         public Guid ReadActive()
         {
             BeforeRead?.Invoke();
             return ReadFailure ? throw new Win32Exception(5) : Active;
         }
+
         public void SetActive(Guid id)
         {
             Writes++;
-            if (Reject) { throw new Win32Exception(5); }
+            if (Reject)
+            {
+                throw new Win32Exception(5);
+            }
+
             Active = id;
         }
     }

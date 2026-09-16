@@ -152,14 +152,14 @@ public sealed class PhysicalGlyphServiceTests
             selected,
             GlyphControlId.FaceSouth,
             PhysicalGlyphSurface.DeviceDescription,
-            activeInputSourceIsManagedHandheld: false,
+            false,
             PhysicalGlyphTheme.Dark,
             1);
         var externalNavigation = service.Resolve(
             selected,
             GlyphControlId.FaceSouth,
             PhysicalGlyphSurface.NavigationHint,
-            activeInputSourceIsManagedHandheld: false,
+            false,
             PhysicalGlyphTheme.Dark,
             1);
 
@@ -177,8 +177,8 @@ public sealed class PhysicalGlyphServiceTests
         using PhysicalGlyphCatalog catalog = new();
         using PhysicalGlyphService service = new(
             catalog,
-            maximumCacheEntries: 1,
-            maximumCacheBytes: 4096);
+            1,
+            4096);
         catalog.ReplacePackageProfiles([profile]);
         catalog.SetActiveDevice("device-a");
         var selected = catalog.SelectProfile(
@@ -202,7 +202,7 @@ public sealed class PhysicalGlyphServiceTests
     [Fact]
     public void PresentControlWithoutReviewedArtwork_UsesGenericFallback()
     {
-        var profile = ImportProfile(["device-a"], includeArtwork: false);
+        var profile = ImportProfile(["device-a"], false);
         using PhysicalGlyphCatalog catalog = new();
         using PhysicalGlyphService service = new(catalog);
         catalog.ReplacePackageProfiles([profile]);
@@ -291,10 +291,11 @@ public sealed class PhysicalGlyphServiceTests
         WritePngChunk(output, "IHDR", header);
 
         using MemoryStream compressed = new();
-        using (ZLibStream zlib = new(compressed, CompressionLevel.SmallestSize, leaveOpen: true))
+        using (ZLibStream zlib = new(compressed, CompressionLevel.SmallestSize, true))
         {
             zlib.Write([0, 255, 0, 0, 255]);
         }
+
         WritePngChunk(output, "IDAT", compressed.ToArray());
         WritePngChunk(output, "IEND", []);
         return output.ToArray();
@@ -327,7 +328,7 @@ public sealed class PhysicalGlyphServiceTests
                 crc = (crc >> 1) ^ (0xedb88320u & mask);
             }
         }
+
         return ~crc;
     }
-
 }

@@ -21,6 +21,7 @@ public partial class OverlayWindow
         {
             return;
         }
+
         if (!_opened)
         {
             _rendersAwaitingOpen |= PerformanceRenderAwaitingOpen;
@@ -30,11 +31,12 @@ public partial class OverlayWindow
         PlacePerformanceSection(_navigation.IsVisible(OverlayDestination.Device));
         var snapshot = _performanceSource?.Snapshot();
         PerformanceSection.IsVisible = snapshot?.Visible is true && PerformanceBelongsOnCurrentPage();
-        DevicePerformanceCard.IsVisible = PerformanceSection.IsVisible && _navigation.IsVisible(OverlayDestination.Device);
+        DevicePerformanceCard.IsVisible =
+            PerformanceSection.IsVisible && _navigation.IsVisible(OverlayDestination.Device);
         // The Tools root offers Performance only while the rows live there: with Device visible they
         // belong to its Power page instead, and a tile leading to an empty page is a dead end.
         SystemPerformanceTile.IsVisible = snapshot?.Visible is true
-            && !_navigation.IsVisible(OverlayDestination.Device);
+                                          && !_navigation.IsVisible(OverlayDestination.Device);
         if (snapshot is not { Visible: true })
         {
             PerformanceRows.Children.Clear();
@@ -100,7 +102,12 @@ public partial class OverlayWindow
                 HorizontalContentAlignment = HorizontalAlignment.Stretch
             };
             more.PropertyChanged += (_, change) =>
-            { if (change.Property == Expander.IsExpandedProperty) { _performanceDetailsExpanded = more.IsExpanded; } };
+            {
+                if (change.Property == Expander.IsExpandedProperty)
+                {
+                    _performanceDetailsExpanded = more.IsExpanded;
+                }
+            };
             PerformanceRows.Children.Add(more);
         }
 
@@ -110,13 +117,13 @@ public partial class OverlayWindow
     }
 
     /// <summary>
-    /// Builds the control a performance row asks for — a slider for a range, a dropdown for named
-    /// options — or null when the row is a button and should stay one.
+    ///     Builds the control a performance row asks for — a slider for a range, a dropdown for named
+    ///     options — or null when the row is a button and should stay one.
     /// </summary>
     /// <remarks>
-    /// A disabled control is still drawn rather than falling back to a button: RTSS going away
-    /// should grey the frame-limit slider, not replace it with a different-looking row that appears
-    /// when the service is unhealthy.
+    ///     A disabled control is still drawn rather than falling back to a button: RTSS going away
+    ///     should grey the frame-limit slider, not replace it with a different-looking row that appears
+    ///     when the service is unhealthy.
     /// </remarks>
     private Control? TryCreatePerformanceControl(DescriptorRow descriptor, string key)
     {
@@ -142,13 +149,15 @@ public partial class OverlayWindow
         }
 
         IReadOnlyList<CapabilityChoice> choices =
-            [.. descriptor.Options.Select(option => new CapabilityChoice(
+        [
+            .. descriptor.Options.Select(option => new CapabilityChoice(
                 option.Value.ToString(CultureInfo.InvariantCulture),
                 new CapabilityDisplay
                 {
                     Key = DisplayKey.Custom,
                     CustomLabel = option.Label
-                }))];
+                }))
+        ];
         var selected = descriptor.Value?.ToString(CultureInfo.InvariantCulture);
         return DeviceControlRows.Choice(
             key,
@@ -168,17 +177,22 @@ public partial class OverlayWindow
 
     /// <summary>What a slider position actually commits, once the row's off band is applied.</summary>
     /// <remarks>
-    /// The label and the write ask the same question, so the number the user is reading while they
-    /// drag is the number that lands. Without that the handle would show a cap in the off band and
-    /// then write zero.
+    ///     The label and the write ask the same question, so the number the user is reading while they
+    ///     drag is the number that lands. Without that the handle would show a cap in the off band and
+    ///     then write zero.
     /// </remarks>
-    private static int SettledValue(DescriptorRange range, int value) =>
-        value < range.OffBelow ? 0 : value;
+    private static int SettledValue(DescriptorRange range, int value)
+    {
+        return value < range.OffBelow ? 0 : value;
+    }
 
     /// <summary>A frame limit reads as a rate, and zero means the cap is off rather than "0 FPS".</summary>
-    private static string FormatFrameRate(int value) => value <= 0
-        ? "Off"
-        : $"{value.ToString(CultureInfo.CurrentCulture)} FPS";
+    private static string FormatFrameRate(int value)
+    {
+        return value <= 0
+            ? "Off"
+            : $"{value.ToString(CultureInfo.CurrentCulture)} FPS";
+    }
 
     private void WritePerformanceValue(string rowId, int value)
     {
@@ -224,7 +238,7 @@ public partial class OverlayWindow
             await RunRowCommandAsync(
                 button,
                 descriptor.CanInvoke,
-                restoreFocus: false,
+                false,
                 token => source.InvokeAsync(descriptor, token),
                 $"Performance overlay command failed: {descriptor.Id}");
         };
@@ -263,7 +277,7 @@ public partial class OverlayWindow
             {
                 button.IsEnabled = enabledAfter;
                 if (restoreAfterInvoke && button.IsEffectivelyVisible
-                    && FocusManager?.GetFocusedElement() is null)
+                                       && FocusManager?.GetFocusedElement() is null)
                 {
                     button.Focus(NavigationMethod.Directional);
                 }
@@ -273,8 +287,10 @@ public partial class OverlayWindow
 
     /// <summary>Puts the shared performance rows where the user will look for them.</summary>
     /// <param name="deviceVisible">Whether the Device destination exists in this session.</param>
-    /// <remarks>Without Device, the rows live on Tools. With Device, one shared control tree
-    /// serves its overview and Power page, beside the Windows and device power controls.</remarks>
+    /// <remarks>
+    ///     Without Device, the rows live on Tools. With Device, one shared control tree
+    ///     serves its overview and Power page, beside the Windows and device power controls.
+    /// </remarks>
     private void PlacePerformanceSection(bool deviceVisible)
     {
         var target = deviceVisible ? DevicePerformanceColumn : PanelSystemPerformance;
@@ -282,14 +298,17 @@ public partial class OverlayWindow
         {
             return;
         }
+
         DevicePerformanceColumn.Children.Remove(PerformanceSection);
         PanelSystemPerformance.Children.Remove(PerformanceSection);
         target.Children.Add(PerformanceSection);
     }
 
     /// <summary>Whether the performance rows belong on the page currently showing.</summary>
-    /// <remarks>Device shows performance on its overview and the shared or plugin-declared Power
-    /// page. Unrelated Device pages do not retain these controls.</remarks>
+    /// <remarks>
+    ///     Device shows performance on its overview and the shared or plugin-declared Power
+    ///     page. Unrelated Device pages do not retain these controls.
+    /// </remarks>
     private bool PerformanceBelongsOnCurrentPage()
     {
         if (!_navigation.IsVisible(OverlayDestination.Device))
@@ -298,16 +317,17 @@ public partial class OverlayWindow
         }
 
         if (_navigation.Page == OverlayPage.Device || DeviceOverlaySectionPages.SectionFor(_navigation.Page)
-            is DeviceOverlaySection.PowerAndThermals)
+                is DeviceOverlaySection.PowerAndThermals)
         {
             return true;
         }
 
         return _navigation.Page is OverlayPage.DevicePluginSection
-            && _navigation.SectionId is { } sectionId
-            && (_deviceBridge?.Snapshot()
-                ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, null, [])) is { } snapshot
-            && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, sectionId)
-                is DeviceOverlaySection.PowerAndThermals;
+               && _navigation.SectionId is { } sectionId
+               && (_deviceBridge?.Snapshot()
+                   ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, null, [])) is
+               { } snapshot
+               && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, sectionId)
+                   is DeviceOverlaySection.PowerAndThermals;
     }
 }

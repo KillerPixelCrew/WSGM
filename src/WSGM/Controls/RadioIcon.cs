@@ -19,36 +19,36 @@ public enum RadioIconState
     Connected
 }
 
-/// <summary>A Wi-Fi or Bluetooth status icon that shows its state at a glance.
-///
-/// Three states, because "is it off, is it just not connected, or is it working"
-/// are three different problems and a single glyph cannot tell them apart: off
-/// is struck through, disconnected is muted, connected takes the accent color.
-/// Wi-Fi additionally fills its arcs by signal strength, the way Windows does —
-/// a connection at 20% and one at 100% are not the same thing to a user standing
-/// at the edge of range.
-///
-/// Drawn rather than assembled from <see cref="Icons"/> geometries because the
-/// arcs have to be lit individually, which a single path cannot express.</summary>
+/// <summary>
+///     A Wi-Fi or Bluetooth status icon that shows its state at a glance.
+///     Three states, because "is it off, is it just not connected, or is it working"
+///     are three different problems and a single glyph cannot tell them apart: off
+///     is struck through, disconnected is muted, connected takes the accent color.
+///     Wi-Fi additionally fills its arcs by signal strength, the way Windows does —
+///     a connection at 20% and one at 100% are not the same thing to a user standing
+///     at the edge of range.
+///     Drawn rather than assembled from <see cref="Icons" /> geometries because the
+///     arcs have to be lit individually, which a single path cannot express.
+/// </summary>
 public sealed class RadioIcon : Control
 {
-    /// <summary>Defines the <see cref="State"/> property.</summary>
+    /// <summary>Defines the <see cref="State" /> property.</summary>
     public static readonly StyledProperty<RadioIconState> StateProperty =
         AvaloniaProperty.Register<RadioIcon, RadioIconState>(nameof(State));
 
-    /// <summary>Defines the <see cref="Signal"/> property.</summary>
+    /// <summary>Defines the <see cref="Signal" /> property.</summary>
     public static readonly StyledProperty<int> SignalProperty =
         AvaloniaProperty.Register<RadioIcon, int>(nameof(Signal));
 
-    /// <summary>Defines the <see cref="Bluetooth"/> property.</summary>
+    /// <summary>Defines the <see cref="Bluetooth" /> property.</summary>
     public static readonly StyledProperty<bool> BluetoothProperty =
         AvaloniaProperty.Register<RadioIcon, bool>(nameof(Bluetooth));
 
-    /// <summary>Defines the <see cref="Accent"/> property.</summary>
+    /// <summary>Defines the <see cref="Accent" /> property.</summary>
     public static readonly StyledProperty<IBrush?> AccentProperty =
         AvaloniaProperty.Register<RadioIcon, IBrush?>(nameof(Accent));
 
-    /// <summary>Defines the <see cref="Muted"/> property.</summary>
+    /// <summary>Defines the <see cref="Muted" /> property.</summary>
     public static readonly StyledProperty<IBrush?> MutedProperty =
         AvaloniaProperty.Register<RadioIcon, IBrush?>(nameof(Muted));
 
@@ -73,8 +73,10 @@ public sealed class RadioIcon : Control
         set => SetValue(SignalProperty, value);
     }
 
-    /// <summary>Gets or sets whether this is the Bluetooth rune rather than the
-    /// Wi-Fi fan.</summary>
+    /// <summary>
+    ///     Gets or sets whether this is the Bluetooth rune rather than the
+    ///     Wi-Fi fan.
+    /// </summary>
     public bool Bluetooth
     {
         get => GetValue(BluetoothProperty);
@@ -95,18 +97,22 @@ public sealed class RadioIcon : Control
         set => SetValue(MutedProperty, value);
     }
 
-    /// <summary>How many of the three Wi-Fi arcs are lit for a signal quality.
-    ///
-    /// Windows reports 0-100 and shows four levels; the arcs here are the outer
-    /// three, so the thresholds split the range into thirds with a dead band at
-    /// the bottom — a network at 5% should not look like a usable one.</summary>
-    private static int ArcsForSignal(int signal) => signal switch
+    /// <summary>
+    ///     How many of the three Wi-Fi arcs are lit for a signal quality.
+    ///     Windows reports 0-100 and shows four levels; the arcs here are the outer
+    ///     three, so the thresholds split the range into thirds with a dead band at
+    ///     the bottom — a network at 5% should not look like a usable one.
+    /// </summary>
+    private static int ArcsForSignal(int signal)
     {
-        >= 70 => 3,
-        >= 40 => 2,
-        >= 10 => 1,
-        _ => 0
-    };
+        return signal switch
+        {
+            >= 70 => 3,
+            >= 40 => 2,
+            >= 10 => 1,
+            _ => 0
+        };
+    }
 
     /// <inheritdoc />
     public override void Render(DrawingContext context)
@@ -116,6 +122,7 @@ public sealed class RadioIcon : Control
         {
             return;
         }
+
         var accent = Accent ?? Brushes.White;
         var muted = Muted ?? Brushes.Gray;
         var on = State == RadioIconState.Connected;
@@ -171,7 +178,9 @@ public sealed class RadioIcon : Control
             var isLit = i < arcs;
             var brush = State == RadioIconState.Off
                 ? muted
-                : isLit ? connected ? accent : muted : dim;
+                : isLit
+                    ? connected ? accent : muted
+                    : dim;
             var pen = new Pen(brush, size * 0.085, lineCap: PenLineCap.Round);
             // A 120-degree fan centred on straight up, which is the Windows shape.
             var geometry = new StreamGeometry();
@@ -187,6 +196,7 @@ public sealed class RadioIcon : Control
                     SweepDirection.Clockwise);
                 sink.EndFigure(false);
             }
+
             context.DrawGeometry(null, pen, geometry);
         }
     }
@@ -222,6 +232,7 @@ public sealed class RadioIcon : Control
             sink.LineTo(new Point(x - wing, origin.Y + size * 0.70));
             sink.EndFigure(false);
         }
+
         context.DrawGeometry(null, pen, geometry);
     }
 }

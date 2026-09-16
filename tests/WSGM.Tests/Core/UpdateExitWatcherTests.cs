@@ -14,16 +14,20 @@ public sealed class UpdateExitWatcherTests
 
     [Fact]
     public void BuildEventSddl_UserSid_GrantsThatSidAndAdministratorsModifyState()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             "D:(A;;0x00100002;;;S-1-5-21-1111111111-2222222222-3333333333-1001)"
-                + "(A;;0x00100002;;;BA)S:(ML;;NW;;;ME)",
+            + "(A;;0x00100002;;;BA)S:(ML;;NW;;;ME)",
             UpdateExitWatcher.BuildEventSddl(UserSid));
+    }
 
     [Fact]
     public void BuildEventSddl_NullUserSid_FallsBackToTheEveryoneGrant()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             "D:(A;;0x00100002;;;WD)(A;;0x00100002;;;BA)S:(ML;;NW;;;ME)",
             UpdateExitWatcher.BuildEventSddl(null));
+    }
 
     [Fact]
     public void BuildEventSddl_EitherUserSid_KeepsTheMediumNoWriteUpLabel()
@@ -52,23 +56,31 @@ public sealed class UpdateExitWatcherTests
 
     [Fact]
     public void EventName_Always_MatchesTheNameTheInstallerOpens()
-        => Assert.Equal(@"Local\WSGM.ExitForUpdate", UpdateExitWatcher.EventName);
+    {
+        Assert.Equal(@"Local\WSGM.ExitForUpdate", UpdateExitWatcher.EventName);
+    }
 
     [Fact]
     public void UninstallEventName_Always_MatchesTheNameTheInstallerOpens()
-        => Assert.Equal(@"Local\WSGM.ExitForUninstall", UpdateExitWatcher.UninstallEventName);
+    {
+        Assert.Equal(@"Local\WSGM.ExitForUninstall", UpdateExitWatcher.UninstallEventName);
+    }
 
     [Fact]
     public void HandoffEventNameFor_Update_UsesOneCompletionChannel()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             @"Local\WSGM.ExitForUpdate.Completed",
             UpdateExitWatcher.HandoffEventNameFor(ApplicationShutdownReason.Update));
+    }
 
     [Fact]
     public void HandoffEventNameFor_Uninstall_UsesOneSeparateCompletionChannel()
-        => Assert.Equal(
+    {
+        Assert.Equal(
             @"Local\WSGM.ExitForUninstall.Completed",
             UpdateExitWatcher.HandoffEventNameFor(ApplicationShutdownReason.Uninstall));
+    }
 
     [Fact]
     public void HandoffEventNameFor_NonInstallerExit_HasNoCrossProcessChannel()

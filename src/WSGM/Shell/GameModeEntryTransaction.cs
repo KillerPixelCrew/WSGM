@@ -29,8 +29,10 @@ internal enum GameModeEntryOutcome
 /// <param name="Warning">User-facing warning, or null when there is nothing to say.</param>
 internal sealed record GameModeEntryResult(GameModeEntryOutcome Outcome, string? Warning = null);
 
-/// <summary>Everything the entry transaction can do to the machine. The transaction owns the order
-/// and the compensation; the backend owns the effects.</summary>
+/// <summary>
+///     Everything the entry transaction can do to the machine. The transaction owns the order
+///     and the compensation; the backend owns the effects.
+/// </summary>
 internal interface IGameModeEntryBackend
 {
     /// <summary>Shows one status line on the splash.</summary>
@@ -93,9 +95,11 @@ internal interface IGameModeEntryBackend
     Task CommitGameModeAsync();
 }
 
-/// <summary>Enters Game Mode with one recovery path. Desktop requests are honoured between
-/// operations, including after Explorer exit; a write already in flight settles before recovery.
-/// Big Picture starts after the display layout, and the UI commit is awaited.</summary>
+/// <summary>
+///     Enters Game Mode with one recovery path. Desktop requests are honoured between
+///     operations, including after Explorer exit; a write already in flight settles before recovery.
+///     Big Picture starts after the display layout, and the UI commit is awaited.
+/// </summary>
 internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, GameModeLaunchConfiguration launch)
 {
     /// <summary>Runs the entry.</summary>
@@ -106,12 +110,18 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
         IReadOnlyList<PluginActionStepResult> entered = [];
         DisplayLayout? returnLayout = null;
         var recoveryAttempted = false;
+
         async Task RecoverAsync()
         {
-            if (recoveryAttempted) { return; }
+            if (recoveryAttempted)
+            {
+                return;
+            }
+
             recoveryAttempted = true;
             await RecoverDesktopAsync(entered, returnLayout).ConfigureAwait(false);
         }
+
         try
         {
             backend.SetCancellable(true);
@@ -131,7 +141,8 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
                 if (entered.FirstOrDefault(step => !step.Succeeded) is { } failed)
                 {
                     await RecoverAsync().ConfigureAwait(false);
-                    return new GameModeEntryResult(GameModeEntryOutcome.Failed, $"Game Mode entry action: {failed.Detail}");
+                    return new GameModeEntryResult(GameModeEntryOutcome.Failed,
+                        $"Game Mode entry action: {failed.Detail}");
                 }
             }
 
@@ -155,7 +166,8 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
             if (!prepared)
             {
                 await RecoverAsync().ConfigureAwait(false);
-                return new GameModeEntryResult(GameModeEntryOutcome.DesktopPreserved, SessionModes.ExplorerTakeoverRefusedWarning);
+                return new GameModeEntryResult(GameModeEntryOutcome.DesktopPreserved,
+                    SessionModes.ExplorerTakeoverRefusedWarning);
             }
 
             // A display can drop out again between the wait and here, and re-entering the wait is
@@ -179,7 +191,8 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
             if (!exited)
             {
                 await RecoverAsync().ConfigureAwait(false);
-                return new GameModeEntryResult(GameModeEntryOutcome.DesktopPreserved, SessionModes.ExplorerExitFailedWarning);
+                return new GameModeEntryResult(GameModeEntryOutcome.DesktopPreserved,
+                    SessionModes.ExplorerExitFailedWarning);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -192,7 +205,10 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
                 // Past the boundary a refused layout is not worth abandoning Game Mode over: the
                 // session is usable on whatever the desktop is showing, and saying so is better
                 // than tearing everything down again.
-                if (!applied.Applied) { layoutWarning = "Game Mode display layout: " + applied.Detail; }
+                if (!applied.Applied)
+                {
+                    layoutWarning = "Game Mode display layout: " + applied.Detail;
+                }
             }
             else
             {
@@ -221,30 +237,43 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
         }
     }
 
-    /// <summary>Every display the entry has to see before it can proceed: whatever the user asked
-    /// to wait for, plus every display the layout is going to configure.</summary>
+    /// <summary>
+    ///     Every display the entry has to see before it can proceed: whatever the user asked
+    ///     to wait for, plus every display the layout is going to configure.
+    /// </summary>
     private List<DisplayTargetIdentity> RequiredDisplays()
     {
         List<DisplayTargetIdentity> required = [];
         foreach (var target in new[] { launch.WaitForDisplay }.OfType<DisplayTargetIdentity>()
-            .Concat(launch.Kind == GameModeLaunchKind.Custom
-                ? launch.GameLayout?.Outputs.Select(output => output.Target) ?? []
-                : []))
+                     .Concat(launch.Kind == GameModeLaunchKind.Custom
+                         ? launch.GameLayout?.Outputs.Select(output => output.Target) ?? []
+                         : []))
         {
-            if (!required.Exists(other => other.Matches(target))) { required.Add(target); }
+            if (!required.Exists(other => other.Matches(target)))
+            {
+                required.Add(target);
+            }
         }
+
         return required;
     }
 
-    private static DisplayLayout Captured(DisplayArrangement arrangement) =>
-        new([.. arrangement.Targets.Where(target => target is { Active: true, Current: not null })
-            .Select(target => target.Current!)]);
+    private static DisplayLayout Captured(DisplayArrangement arrangement)
+    {
+        return new DisplayLayout([
+            .. arrangement.Targets.Where(target => target is { Active: true, Current: not null })
+                .Select(target => target.Current!)
+        ]);
+    }
 
     private async Task RecoverDesktopAsync(
         IReadOnlyList<PluginActionStepResult> entered, DisplayLayout? returnLayout)
     {
         var restored = await backend.ReturnToDesktopAsync(returnLayout,
             PluginActionSequence.NeedsCompensation(entered)).ConfigureAwait(false);
-        if (!restored) { throw new InvalidOperationException(SessionModes.ExplorerDesktopPendingWarning); }
+        if (!restored)
+        {
+            throw new InvalidOperationException(SessionModes.ExplorerDesktopPendingWarning);
+        }
     }
 }

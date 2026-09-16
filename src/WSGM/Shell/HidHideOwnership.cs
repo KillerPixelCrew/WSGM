@@ -48,11 +48,13 @@ internal sealed class HidHideExactSnapshot
 
     // Inverse mode needs no field of its own here: it is encoded as Health.Incompatible, so a flip
     // still fails this comparison.
-    internal bool ExactStateEquals(HidHideExactSnapshot other) =>
-        Health == other.Health
-        && Active == other.Active
-        && Applications.SequenceEqual(other.Applications, StringComparer.Ordinal)
-        && Devices.SequenceEqual(other.Devices, StringComparer.Ordinal);
+    internal bool ExactStateEquals(HidHideExactSnapshot other)
+    {
+        return Health == other.Health
+               && Active == other.Active
+               && Applications.SequenceEqual(other.Applications, StringComparer.Ordinal)
+               && Devices.SequenceEqual(other.Devices, StringComparer.Ordinal);
+    }
 }
 
 internal enum HidHideEntryKind
@@ -168,7 +170,7 @@ internal sealed class FileHidHideOwnershipStore : IHidHideOwnershipStore
                 ledger,
                 HidHideOwnershipJsonContext.Default.HidHideOwnershipLedger,
                 token),
-            durable: true,
+            true,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -209,17 +211,17 @@ internal sealed class HidHideOwnedDeltaManager
     /// <param name="cancellationToken">Cancels the check.</param>
     /// <returns>A description of what was found, for the log.</returns>
     /// <remarks>
-    /// <see cref="StartAsync"/> allowlists WSGM too, but only as the first step of WSGM's own
-    /// hiding transaction — which is to say only once WSGM already knows which devices to hide. That
-    /// ordering assumes WSGM is the only thing using HidHide. When something else hid the controller
-    /// first, the plugin cannot see the device it is being asked to discover, discovery finds
-    /// nothing, and the allowlisting that would have fixed it never runs because it comes later
-    /// (device evidence in <c>docs\device-security.md</c>).
-    /// <para>
-    /// This adds nothing to the hidden set and takes nothing away from another owner: it only grants
-    /// WSGM's own process the ability to read. It is therefore safe before a transaction exists, and
-    /// it is idempotent, so the later transaction finds it present and records no delta.
-    /// </para>
+    ///     <see cref="StartAsync" /> allowlists WSGM too, but only as the first step of WSGM's own
+    ///     hiding transaction — which is to say only once WSGM already knows which devices to hide. That
+    ///     ordering assumes WSGM is the only thing using HidHide. When something else hid the controller
+    ///     first, the plugin cannot see the device it is being asked to discover, discovery finds
+    ///     nothing, and the allowlisting that would have fixed it never runs because it comes later
+    ///     (device evidence in <c>docs\device-security.md</c>).
+    ///     <para>
+    ///         This adds nothing to the hidden set and takes nothing away from another owner: it only grants
+    ///         WSGM's own process the ability to read. It is therefore safe before a transaction exists, and
+    ///         it is idempotent, so the later transaction finds it present and records no delta.
+    ///     </para>
     /// </remarks>
     internal async Task<string> EnsureReadableAsync(
         bool controllerManagementEnabled,
@@ -261,11 +263,11 @@ internal sealed class HidHideOwnedDeltaManager
             if (!mutation.Applied)
             {
                 return "HidHide is hiding devices and WSGM could not add itself to its allowlist: "
-                    + mutation.Detail;
+                       + mutation.Detail;
             }
 
             return $"HidHide hides {snapshot.Devices.Count} device(s) that WSGM does not own; "
-                + "added WSGM to its allowlist so the plugin can read them.";
+                   + "added WSGM to its allowlist so the plugin can read them.";
         }
         finally
         {
@@ -320,10 +322,10 @@ internal sealed class HidHideOwnedDeltaManager
                     cancellationToken).ConfigureAwait(false);
 
                 foreach (var instancePath in physicalDevices
-                    .Where(device => device.RequiresHiding)
-                    .Select(device => device.InstancePath)
-                    .Where(path => !string.IsNullOrWhiteSpace(path))
-                    .Distinct(StringComparer.OrdinalIgnoreCase))
+                             .Where(device => device.RequiresHiding)
+                             .Select(device => device.InstancePath)
+                             .Where(path => !string.IsNullOrWhiteSpace(path))
+                             .Distinct(StringComparer.OrdinalIgnoreCase))
                 {
                     snapshot = await AddIfAbsentAsync(
                         snapshot,
@@ -505,20 +507,23 @@ internal sealed class HidHideOwnedDeltaManager
 
     private static IReadOnlyList<string> Entries(
         HidHideExactSnapshot snapshot,
-        HidHideEntryKind entryKind) => entryKind is HidHideEntryKind.Application
+        HidHideEntryKind entryKind)
+    {
+        return entryKind is HidHideEntryKind.Application
             ? snapshot.Applications
             : snapshot.Devices;
+    }
 
     /// <summary>Whether HidHide already lists this entry, in whichever notation it stored it.</summary>
     /// <param name="entries">Entries exactly as HidHide returned them.</param>
     /// <param name="value">The entry WSGM is looking for.</param>
     /// <returns>Whether it is present.</returns>
     /// <remarks>
-    /// A plain string compare is not enough for applications: HidHide stores them as NT device
-    /// paths — <c>\Device\HarddiskVolume3\Program Files\…</c> — while WSGM knows its own executables
-    /// by drive letter. Without normalization the allowlist grows on every activation and cleanup
-    /// leaves the other notation's duplicate behind (device evidence in
-    /// <c>docs\device-security.md</c>).
+    ///     A plain string compare is not enough for applications: HidHide stores them as NT device
+    ///     paths — <c>\Device\HarddiskVolume3\Program Files\…</c> — while WSGM knows its own executables
+    ///     by drive letter. Without normalization the allowlist grows on every activation and cleanup
+    ///     leaves the other notation's duplicate behind (device evidence in
+    ///     <c>docs\device-security.md</c>).
     /// </remarks>
     internal static bool Contains(IEnumerable<string> entries, string value)
     {
@@ -533,9 +538,9 @@ internal sealed class HidHideOwnedDeltaManager
     /// <param name="value">A DOS path, an NT device path, or a device instance path.</param>
     /// <returns>The comparable form.</returns>
     /// <remarks>
-    /// Only the volume prefix differs between the two notations, so stripping it leaves the part
-    /// that identifies the file. Device instance paths carry no such prefix and pass through, which
-    /// is why the device list never had this problem.
+    ///     Only the volume prefix differs between the two notations, so stripping it leaves the part
+    ///     that identifies the file. Device instance paths carry no such prefix and pass through, which
+    ///     is why the device list never had this problem.
     /// </remarks>
     internal static string NormalizePath(string value)
     {

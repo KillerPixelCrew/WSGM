@@ -4,24 +4,32 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-/// <summary>Cross-process exclusion for the one protected Device Plugin slot. Runtime discovery
-/// and host creation share this gate with package installation/removal so the slot cannot move
-/// underneath a host that is entering its lifecycle.</summary>
+/// <summary>
+///     Cross-process exclusion for the one protected Device Plugin slot. Runtime discovery
+///     and host creation share this gate with package installation/removal so the slot cannot move
+///     underneath a host that is entering its lifecycle.
+/// </summary>
 internal sealed class DevicePackageSlotGate : IAsyncDisposable
 {
     internal const string ProductionName = @"Global\WSGM.DevicePackageSlot";
+
     // A task signal rather than a ManualResetEventSlim: the owner thread blocks on it, and it
     // needs no disposal that could race the Set from DisposeAsync.
     private static readonly TimeSpan ReleaseWait = TimeSpan.FromSeconds(10);
-    private readonly TaskCompletionSource _releaseRequested = new(
-        TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly TaskCompletionSource _releaseCompleted = new(
-        TaskCreationOptions.RunContinuationsAsynchronously);
+
     private readonly TaskCompletionSource<DevicePackageSlotGate?> _acquisition = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly string _name;
-    private readonly TimeSpan _timeout;
+
     private readonly CancellationToken _cancellationToken;
+    private readonly string _name;
+
+    private readonly TaskCompletionSource _releaseCompleted = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private readonly TaskCompletionSource _releaseRequested = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private readonly TimeSpan _timeout;
     private readonly Action? _waitStarted;
     private int _disposeState;
 
@@ -35,78 +43,6 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
         _timeout = timeout;
         _cancellationToken = cancellationToken;
         _waitStarted = waitStarted;
-    }
-
-    /// <summary>Acquires the production package-slot gate within one bounded wait.</summary>
-    internal static Task<DevicePackageSlotGate?> TryAcquireAsync(
-        TimeSpan timeout,
-        CancellationToken cancellationToken = default) =>
-        TryAcquireAsync(ProductionName, timeout, cancellationToken: cancellationToken);
-
-    /// <summary>Acquires a named package-slot gate. The name seam keeps cross-process exclusion
-    /// testable without touching the production object.</summary>
-    internal static async Task<DevicePackageSlotGate?> TryAcquireAsync(
-        string name,
-        TimeSpan timeout,
-        Action? waitStarted = null,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        ArgumentOutOfRangeException.ThrowIfLessThan(timeout, TimeSpan.Zero);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var contender = new DevicePackageSlotGate(name, timeout, waitStarted, cancellationToken);
-        var ownerThread = new Thread(contender.OwnMutex)
-        {
-            IsBackground = true,
-            Name = "WSGM device package slot gate"
-        };
-        ownerThread.Start();
-        return await contender._acquisition.Task.ConfigureAwait(false);
-    }
-
-    /// <summary>Runs one bounded operation under the production gate on the calling thread. This
-    /// exists for recovery-first startup work that must preserve the process entry thread's STA
-    /// apartment before Avalonia creates its dispatcher.</summary>
-    internal static T? TryRunSynchronously<T>(TimeSpan timeout, Func<T> operation)
-        where T : class =>
-        TryRunSynchronously(ProductionName, timeout, operation);
-
-    /// <summary>Runs one bounded operation under a named gate on the calling thread.</summary>
-    internal static T? TryRunSynchronously<T>(
-        string name,
-        TimeSpan timeout,
-        Func<T> operation,
-        Action? waitStarted = null)
-        where T : class
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        ArgumentNullException.ThrowIfNull(operation);
-        ArgumentOutOfRangeException.ThrowIfLessThan(timeout, TimeSpan.Zero);
-
-        using var mutex = new Mutex(initiallyOwned: false, name);
-        waitStarted?.Invoke();
-        if (WaitForSlot(mutex, timeout, CancellationToken.None) is not SlotWait.Acquired)
-        {
-            return null;
-        }
-
-        try
-        {
-            return operation();
-        }
-        finally
-        {
-            try
-            {
-                mutex.ReleaseMutex();
-            }
-            catch (ApplicationException)
-            {
-                // The operation and release stay on one thread. If Windows reports ownership
-                // already lost, teardown is complete and the next waiter still recovers safely.
-            }
-        }
     }
 
     /// <inheritdoc />
@@ -131,13 +67,93 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
         }
     }
 
+    /// <summary>Acquires the production package-slot gate within one bounded wait.</summary>
+    internal static Task<DevicePackageSlotGate?> TryAcquireAsync(
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        return TryAcquireAsync(ProductionName, timeout, cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
+    ///     Acquires a named package-slot gate. The name seam keeps cross-process exclusion
+    ///     testable without touching the production object.
+    /// </summary>
+    internal static async Task<DevicePackageSlotGate?> TryAcquireAsync(
+        string name,
+        TimeSpan timeout,
+        Action? waitStarted = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentOutOfRangeException.ThrowIfLessThan(timeout, TimeSpan.Zero);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var contender = new DevicePackageSlotGate(name, timeout, waitStarted, cancellationToken);
+        var ownerThread = new Thread(contender.OwnMutex)
+        {
+            IsBackground = true,
+            Name = "WSGM device package slot gate"
+        };
+        ownerThread.Start();
+        return await contender._acquisition.Task.ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Runs one bounded operation under the production gate on the calling thread. This
+    ///     exists for recovery-first startup work that must preserve the process entry thread's STA
+    ///     apartment before Avalonia creates its dispatcher.
+    /// </summary>
+    internal static T? TryRunSynchronously<T>(TimeSpan timeout, Func<T> operation)
+        where T : class
+    {
+        return TryRunSynchronously(ProductionName, timeout, operation);
+    }
+
+    /// <summary>Runs one bounded operation under a named gate on the calling thread.</summary>
+    internal static T? TryRunSynchronously<T>(
+        string name,
+        TimeSpan timeout,
+        Func<T> operation,
+        Action? waitStarted = null)
+        where T : class
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentOutOfRangeException.ThrowIfLessThan(timeout, TimeSpan.Zero);
+
+        using var mutex = new Mutex(false, name);
+        waitStarted?.Invoke();
+        if (WaitForSlot(mutex, timeout, CancellationToken.None) is not SlotWait.Acquired)
+        {
+            return null;
+        }
+
+        try
+        {
+            return operation();
+        }
+        finally
+        {
+            try
+            {
+                mutex.ReleaseMutex();
+            }
+            catch (ApplicationException)
+            {
+                // The operation and release stay on one thread. If Windows reports ownership
+                // already lost, teardown is complete and the next waiter still recovers safely.
+            }
+        }
+    }
+
     private void OwnMutex()
     {
         Mutex? mutex = null;
         var ownsMutex = false;
         try
         {
-            mutex = new Mutex(initiallyOwned: false, _name);
+            mutex = new Mutex(false, _name);
             _waitStarted?.Invoke();
             var wait = WaitForSlot(mutex, _timeout, _cancellationToken);
             if (wait is SlotWait.TimedOut)
@@ -145,6 +161,7 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
                 _acquisition.TrySetResult(null);
                 return;
             }
+
             if (wait is SlotWait.Canceled || _cancellationToken.IsCancellationRequested)
             {
                 ownsMutex = wait is SlotWait.Acquired;
@@ -174,21 +191,17 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
                     // completed teardown so callers never hang while the process is already safe.
                 }
             }
+
             mutex?.Dispose();
             _releaseCompleted.TrySetResult();
         }
     }
 
-    private enum SlotWait
-    {
-        Acquired,
-        TimedOut,
-        Canceled
-    }
-
-    /// <summary>One bounded wait on the slot mutex, shared by the async owner thread and the
-    /// synchronous STA path. An abandoned mutex counts as acquired: the previous owner crashed and
-    /// the slot must stay recoverable.</summary>
+    /// <summary>
+    ///     One bounded wait on the slot mutex, shared by the async owner thread and the
+    ///     synchronous STA path. An abandoned mutex counts as acquired: the previous owner crashed and
+    ///     the slot must stay recoverable.
+    /// </summary>
     private static SlotWait WaitForSlot(
         Mutex mutex,
         TimeSpan timeout,
@@ -212,5 +225,12 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
             0 => SlotWait.Acquired,
             _ => SlotWait.Canceled
         };
+    }
+
+    private enum SlotWait
+    {
+        Acquired,
+        TimedOut,
+        Canceled
     }
 }

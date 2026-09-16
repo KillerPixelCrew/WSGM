@@ -14,7 +14,9 @@ public sealed class AudioManagerTests
     [InlineData(100, 100)]
     [InlineData(150, 100)]
     public void SliderValuesAreRoundedAndBoundedForCoreAudio(double value, int expected)
-        => Assert.Equal(expected, AudioManager.NormalizeVolume(value));
+    {
+        Assert.Equal(expected, AudioManager.NormalizeVolume(value));
+    }
 
     [Fact]
     public void NonFiniteSliderValuesFailClosedToZero()

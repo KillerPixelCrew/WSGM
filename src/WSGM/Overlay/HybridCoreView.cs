@@ -8,22 +8,26 @@ using WSGM.Core;
 
 namespace WSGM.Overlay;
 
-/// <summary>Processor core-preference picker for the overlay. It reports intent through its model
-/// and never acquires native services or writes configuration itself.</summary>
+/// <summary>
+///     Processor core-preference picker for the overlay. It reports intent through its model
+///     and never acquires native services or writes configuration itself.
+/// </summary>
 public sealed class HybridCoreView : UserControl
 {
+    private readonly Button _apply = new() { Content = "Apply", Tag = "system.hybrid-cores.apply" };
+    private readonly TextBlock _effect = new() { TextWrapping = TextWrapping.Wrap, Classes = { "caption" } };
+
     private readonly ComboBox _modes = new()
     {
         DisplayMemberBinding = new Binding(nameof(HybridCoreOption.Name)),
         HorizontalAlignment = HorizontalAlignment.Stretch,
         Tag = "system.hybrid-cores.choice"
     };
-    private readonly Button _apply = new() { Content = "Apply", Tag = "system.hybrid-cores.apply" };
+
     private readonly Button _refresh = new() { Content = "Refresh", Tag = "system.hybrid-cores.refresh" };
-    private readonly TextBlock _effect = new() { TextWrapping = TextWrapping.Wrap, Classes = { "caption" } };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Classes = { "caption" } };
-    private HybridCoreSelection? _model;
     private IReadOnlyList<HybridCoreOption>? _items;
+    private HybridCoreSelection? _model;
 
     /// <summary>Creates persistent controls so a refresh cannot interrupt a selection.</summary>
     public HybridCoreView()
@@ -78,12 +82,14 @@ public sealed class HybridCoreView : UserControl
         {
             _model.Changed -= Render;
         }
+
         _model = model;
         _items = null;
         if (model is not null)
         {
             model.Changed += Render;
         }
+
         Render();
     }
 
@@ -119,15 +125,17 @@ public sealed class HybridCoreView : UserControl
         UpdateButtons();
     }
 
-    private void UpdateEffect() =>
+    private void UpdateEffect()
+    {
         _effect.Text = _modes.SelectedItem is HybridCoreOption choice ? choice.Description : string.Empty;
+    }
 
     private void UpdateButtons()
     {
         _modes.IsEnabled = _model?.CanSelect is true && _items?.Count > 0;
         _apply.IsEnabled = _model?.CanSelect is true
-            && _modes.SelectedItem is HybridCoreOption choice
-            && (_model.Status.OnAc != choice.Mode || _model.Status.OnBattery != choice.Mode);
+                           && _modes.SelectedItem is HybridCoreOption choice
+                           && (_model.Status.OnAc != choice.Mode || _model.Status.OnBattery != choice.Mode);
         _refresh.IsEnabled = _model is { Busy: false };
     }
 }

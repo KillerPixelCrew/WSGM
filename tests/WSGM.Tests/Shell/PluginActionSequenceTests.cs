@@ -56,7 +56,7 @@ public sealed class PluginActionSequenceTests
         invoker.Hang = "slow";
 
         var results = await new PluginActionSequence(invoker)
-            .RunAllAsync([Step("slow", timeoutSeconds: 1), Step("after")], CancellationToken.None);
+            .RunAllAsync([Step("slow", 1), Step("after")], CancellationToken.None);
 
         Assert.Equal(PluginActionOutcome.Unconfirmed, results[0].Outcome);
         Assert.Contains("may still take effect", results[0].Detail, StringComparison.Ordinal);
@@ -109,18 +109,33 @@ public sealed class PluginActionSequenceTests
         internal string? Throw { get; set; }
         internal Action? AfterInvoke { get; set; }
 
-        internal void Add(string actionId, PluginActionOutcome outcome) => _outcomes[actionId] = outcome;
-
-        public IEnumerator GetEnumerator() => _outcomes.GetEnumerator();
+        public IEnumerator GetEnumerator()
+        {
+            return _outcomes.GetEnumerator();
+        }
 
         public async Task<PluginActionResult> InvokeAsync(
             PluginActionStep step, DateTimeOffset deadline, CancellationToken cancellationToken)
         {
             Invoked.Add(step.ActionId!);
-            if (step.ActionId == Throw) { throw new InvalidOperationException("the endpoint went away"); }
-            if (step.ActionId == Hang) { await Task.Delay(Timeout.Infinite, cancellationToken); }
+            if (step.ActionId == Throw)
+            {
+                throw new InvalidOperationException("the endpoint went away");
+            }
+
+            if (step.ActionId == Hang)
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+
             AfterInvoke?.Invoke();
-            return new PluginActionResult(Guid.NewGuid(), _outcomes.GetValueOrDefault(step.ActionId!, PluginActionOutcome.Rejected));
+            return new PluginActionResult(Guid.NewGuid(),
+                _outcomes.GetValueOrDefault(step.ActionId!, PluginActionOutcome.Rejected));
+        }
+
+        internal void Add(string actionId, PluginActionOutcome outcome)
+        {
+            _outcomes[actionId] = outcome;
         }
     }
 }

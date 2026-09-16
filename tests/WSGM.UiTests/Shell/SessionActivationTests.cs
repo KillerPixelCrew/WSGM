@@ -15,10 +15,10 @@ public sealed class SessionActivationTests
         Assert.False(SettingsActivation.TryRequest(name));
         var requests = 0;
         using (new SettingsActivation(() =>
-        {
-            Assert.True(Dispatcher.UIThread.CheckAccess());
-            requests++;
-        }, name))
+               {
+                   Assert.True(Dispatcher.UIThread.CheckAccess());
+                   requests++;
+               }, name))
         {
             Assert.True(SettingsActivation.TryRequest(name));
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
@@ -27,6 +27,7 @@ public sealed class SessionActivationTests
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
             Assert.Equal(2, requests);
         }
+
         Assert.False(SettingsActivation.TryRequest(name));
     }
 
@@ -40,6 +41,7 @@ public sealed class SessionActivationTests
         {
             Assert.True(SettingsActivation.TryRequest(name));
         }
+
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
         Assert.Equal(0, requests);
     }

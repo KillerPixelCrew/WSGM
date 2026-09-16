@@ -25,7 +25,9 @@ public sealed class PowerSchemesTests
 
     [Fact]
     public void EmptyEnumerationIsNotAnInventedDefault()
-        => Assert.Empty(new PowerSchemes(new FakeApi()).Enumerate());
+    {
+        Assert.Empty(new PowerSchemes(new FakeApi()).Enumerate());
+    }
 
     [Fact]
     public void EnumerationFailureDoesNotReturnAPartialList()
@@ -74,7 +76,7 @@ public sealed class PowerSchemesTests
     {
         FakeApi api = new();
         Assert.Throws<OperationCanceledException>(() =>
-            new PowerSchemes(api).Select(Custom, new CancellationToken(canceled: true)));
+            new PowerSchemes(api).Select(Custom, new CancellationToken(true)));
         Assert.Empty(api.Calls);
     }
 
@@ -95,6 +97,7 @@ public sealed class PowerSchemesTests
                 {
                     throw new TimeoutException();
                 }
+
                 api.Active = Balanced;
                 return true;
             }));
@@ -111,7 +114,11 @@ public sealed class PowerSchemesTests
             Assert.NotSame(selection, await Task.WhenAny(selection, Task.Delay(100)));
             Assert.Equal(0, api.Writes);
         }
-        finally { releaseTimeout.Set(); }
+        finally
+        {
+            releaseTimeout.Set();
+        }
+
         await timeout;
         await selection;
         Assert.Equal(Custom, api.Active);
@@ -173,10 +180,14 @@ public sealed class PowerSchemesTests
             {
                 throw new Win32Exception(5);
             }
+
             return index < Schemes.Count ? Schemes[(int)index].Id : null;
         }
 
-        public string ReadName(Guid id) => Schemes.Single(scheme => scheme.Id == id).Name;
+        public string ReadName(Guid id)
+        {
+            return Schemes.Single(scheme => scheme.Id == id).Name;
+        }
 
         public Guid ReadActive()
         {
@@ -192,6 +203,7 @@ public sealed class PowerSchemesTests
             {
                 throw WriteFailure;
             }
+
             if (!IgnoreWrite)
             {
                 Active = id;

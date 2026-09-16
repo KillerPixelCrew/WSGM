@@ -8,10 +8,10 @@ namespace WSGM.Core;
 
 /// <summary>Why a provider cannot be searched right now.</summary>
 /// <remarks>
-/// Separate from "no results" on purpose. A provider that needs credentials nobody has entered
-/// returns nothing, and so does a provider that searched and found nothing; showing both as an
-/// empty grid tells the user their game has no artwork when the truth is that a source was never
-/// asked. That distinction is the whole reason this is a first-class state.
+///     Separate from "no results" on purpose. A provider that needs credentials nobody has entered
+///     returns nothing, and so does a provider that searched and found nothing; showing both as an
+///     empty grid tells the user their game has no artwork when the truth is that a source was never
+///     asked. That distinction is the whole reason this is a first-class state.
 /// </remarks>
 public enum ArtworkProviderReadiness
 {
@@ -27,7 +27,7 @@ public enum ArtworkProviderReadiness
 
 /// <summary>Whether a provider can be searched, and what to say when it cannot.</summary>
 /// <param name="Readiness">The provider's current state.</param>
-/// <param name="Detail">A user-facing sentence when it is not <see cref="ArtworkProviderReadiness.Ready"/>.</param>
+/// <param name="Detail">A user-facing sentence when it is not <see cref="ArtworkProviderReadiness.Ready" />.</param>
 public readonly record struct ArtworkProviderStatus(ArtworkProviderReadiness Readiness, string Detail = "")
 {
     /// <summary>Whether the provider may be searched.</summary>
@@ -65,10 +65,10 @@ public sealed record ArtworkGameMatch(string ProviderId, string Id, string Name,
 
 /// <summary>One artwork source.</summary>
 /// <remarks>
-/// Everything source-specific lives behind this: endpoints, authentication, media vocabularies,
-/// rate limits and their error shapes. What comes back out is the same for every provider, which is
-/// what keeps the picker free of provider knowledge. Applying a chosen image is deliberately not
-/// here — that is one Steam client call and is the same whichever source supplied the bytes.
+///     Everything source-specific lives behind this: endpoints, authentication, media vocabularies,
+///     rate limits and their error shapes. What comes back out is the same for every provider, which is
+///     what keeps the picker free of provider knowledge. Applying a chosen image is deliberately not
+///     here — that is one Steam client call and is the same whichever source supplied the bytes.
 /// </remarks>
 public interface IArtworkProvider
 {
@@ -93,7 +93,7 @@ public interface IArtworkProvider
 
     /// <summary>Lists artwork for a game this provider matched.</summary>
     /// <param name="asset">Which artwork slot.</param>
-    /// <param name="gameId">A game id this provider returned from <see cref="SearchGamesAsync"/>.</param>
+    /// <param name="gameId">A game id this provider returned from <see cref="SearchGamesAsync" />.</param>
     /// <param name="config">The loaded configuration, for credentials.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The candidates, best first.</returns>
@@ -132,8 +132,8 @@ public sealed record ArtworkSearchResult(
 {
     /// <summary>Whether every ready provider failed, which is different from finding nothing.</summary>
     /// <remarks>
-    /// An empty grid needs a reason. If no provider was even ready, or all of them faulted, the
-    /// picker must say so rather than report that the game has no artwork.
+    ///     An empty grid needs a reason. If no provider was even ready, or all of them faulted, the
+    ///     picker must say so rather than report that the game has no artwork.
     /// </remarks>
     public bool NoProviderAnswered => !Outcomes.Any(o => o.Status.IsReady && o.Failure is null);
 
@@ -151,10 +151,10 @@ public sealed record ArtworkSearchResult(
 
 /// <summary>Asks every configured artwork provider and merges what comes back.</summary>
 /// <remarks>
-/// Providers are searched in parallel rather than in priority order. Fallback would mean a slow or
-/// empty primary hides a good secondary result, and the acceptance this was written against is that
-/// one provider's failure does not break another — which only holds if the others were actually
-/// asked. Ranking then restores the intent that the primary source leads.
+///     Providers are searched in parallel rather than in priority order. Fallback would mean a slow or
+///     empty primary hides a good secondary result, and the acceptance this was written against is that
+///     one provider's failure does not break another — which only holds if the others were actually
+///     asked. Ranking then restores the intent that the primary source leads.
 /// </remarks>
 public static class ArtworkSearch
 {
@@ -165,8 +165,10 @@ public static class ArtworkSearch
     /// <summary>Finds the provider with this id, or null.</summary>
     /// <param name="providerId">A provider id previously returned in a result.</param>
     /// <returns>The provider, or null when no provider claims that id.</returns>
-    public static IArtworkProvider? Find(string providerId) =>
-        Providers.FirstOrDefault(p => p.Id == providerId);
+    public static IArtworkProvider? Find(string providerId)
+    {
+        return Providers.FirstOrDefault(p => p.Id == providerId);
+    }
 
     /// <summary>Searches every ready provider for games matching a title.</summary>
     /// <param name="term">The search term.</param>
@@ -215,19 +217,21 @@ public static class ArtworkSearch
     /// <returns>The merged, de-duplicated and ranked candidates with per-provider outcomes.</returns>
     public static Task<ArtworkSearchResult> GetAssetsForSteamAppAsync(
         ArtworkAsset asset, long steamAppId, AppConfig config, CancellationToken cancellationToken = default)
-        => GatherAsync(config, (provider, token) =>
+    {
+        return GatherAsync(config, (provider, token) =>
             provider.GetAssetsForSteamAppAsync(asset, steamAppId, config, token), cancellationToken);
+    }
 
     /// <summary>Searches one provider for artwork for a game the user chose from its matches.</summary>
     /// <param name="asset">Which artwork slot.</param>
-    /// <param name="match">A match previously returned by <see cref="SearchGamesAsync"/>.</param>
+    /// <param name="match">A match previously returned by <see cref="SearchGamesAsync" />.</param>
     /// <param name="config">The loaded configuration.</param>
     /// <param name="cancellationToken">Cancels the search.</param>
     /// <returns>The candidates and that provider's outcome.</returns>
     /// <remarks>
-    /// One provider, not all of them: a game id belongs to the source that issued it, and asking
-    /// another provider for it would either return nothing or, worse, return a different game's
-    /// artwork that happened to share the number.
+    ///     One provider, not all of them: a game id belongs to the source that issued it, and asking
+    ///     another provider for it would either return nothing or, worse, return a different game's
+    ///     artwork that happened to share the number.
     /// </remarks>
     public static Task<ArtworkSearchResult> GetAssetsForMatchAsync(
         ArtworkAsset asset, ArtworkGameMatch match, AppConfig config,
@@ -257,6 +261,7 @@ public static class ArtworkSearch
             {
                 return (Candidates: (IReadOnlyList<ArtworkCandidate>)[], Failure: null);
             }
+
             try
             {
                 var candidates = await fetch(provider, cancellationToken).ConfigureAwait(false);

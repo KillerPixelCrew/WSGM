@@ -46,10 +46,10 @@ public sealed class OemActionPolicyTests
     {
         Assert.False(OemActionRules.IsAvailable(
             OemAction.VirtualTargetRearButton1,
-            targetHasRearButtons: false));
+            false));
         Assert.True(OemActionRules.IsAvailable(
             OemAction.VirtualTargetRearButton1,
-            targetHasRearButtons: true));
+            true));
     }
 
     [Fact]

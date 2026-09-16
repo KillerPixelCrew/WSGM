@@ -17,15 +17,13 @@ internal sealed class TemporaryDirectory : IDisposable
 
     public string Root { get; }
 
-    public string GetPath(params string[] segments) => segments.Aggregate(Root, Path.Combine);
-
     public void Dispose()
     {
         for (var attempt = 0; attempt < 5 && Directory.Exists(Root); attempt++)
         {
             try
             {
-                Directory.Delete(Root, recursive: true);
+                Directory.Delete(Root, true);
             }
             catch (Exception exception) when (
                 attempt < 4
@@ -39,5 +37,10 @@ internal sealed class TemporaryDirectory : IDisposable
                 Thread.Sleep(20);
             }
         }
+    }
+
+    public string GetPath(params string[] segments)
+    {
+        return segments.Aggregate(Root, Path.Combine);
     }
 }

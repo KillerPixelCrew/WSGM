@@ -43,5 +43,4 @@ public sealed class PerformancePolicyResolverTests
             PerformancePersistenceTarget.Application,
             PerformancePolicyResolver.ResolveEditTarget(withOverride, target));
     }
-
 }

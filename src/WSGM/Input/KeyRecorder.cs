@@ -7,9 +7,11 @@ using WSGM.Interop;
 
 namespace WSGM.Input;
 
-/// <summary>Records a keyboard shortcut by listening to raw key events with a
-/// low-level hook, so we capture actual virtual-key codes (what RegisterHotKey wants)
-/// instead of guessing them from a UI key enum. The hook lives only while recording.</summary>
+/// <summary>
+///     Records a keyboard shortcut by listening to raw key events with a
+///     low-level hook, so we capture actual virtual-key codes (what RegisterHotKey wants)
+///     instead of guessing them from a UI key enum. The hook lives only while recording.
+/// </summary>
 public sealed class KeyRecorder : IDisposable
 {
     private const int WmKeyDown = 0x0100;
@@ -25,22 +27,35 @@ public sealed class KeyRecorder : IDisposable
     private static KeyRecorder? _active;
     private nint _hook;
 
-    /// <summary>Fires with the captured shortcut. Escape cancels and reports
-    /// <see cref="Cleared"/>.</summary>
+    /// <summary>Stops capture and releases the keyboard hook.</summary>
+    public void Dispose()
+    {
+        Stop();
+    }
+
+    /// <summary>
+    ///     Fires with the captured shortcut. Escape cancels and reports
+    ///     <see cref="Cleared" />.
+    /// </summary>
     public event Action<HotkeyConfig>? Recorded;
 
     /// <summary>A cleared shortcut: disabled, no modifiers, no key.</summary>
-    /// <remarks>Every field is set explicitly because <see cref="HotkeyConfig"/>'s
-    /// defaults describe the shipped Ctrl+Alt+Home shortcut, not an empty one.</remarks>
-    public static HotkeyConfig Cleared() => new()
+    /// <remarks>
+    ///     Every field is set explicitly because <see cref="HotkeyConfig" />'s
+    ///     defaults describe the shipped Ctrl+Alt+Home shortcut, not an empty one.
+    /// </remarks>
+    public static HotkeyConfig Cleared()
     {
-        Enabled = false,
-        Ctrl = false,
-        Alt = false,
-        Shift = false,
-        Win = false,
-        VirtualKey = 0
-    };
+        return new HotkeyConfig
+        {
+            Enabled = false,
+            Ctrl = false,
+            Alt = false,
+            Shift = false,
+            Win = false,
+            VirtualKey = 0
+        };
+    }
 
     /// <summary>Installs the low-level keyboard hook and begins capturing one shortcut.</summary>
     public void Start()
@@ -54,6 +69,7 @@ public sealed class KeyRecorder : IDisposable
             Log.Warn("Key recorder: a new recording replaced an active one; releasing the previous keyboard hook.");
             previous.Stop();
         }
+
         Stop();
         _active = this;
         unsafe
@@ -61,13 +77,14 @@ public sealed class KeyRecorder : IDisposable
             delegate* unmanaged<int, nint, nint, nint> callback = &HookProc;
             _hook = NativeMethods.SetWindowsHookExW(NativeMethods.WhKeyboardLl, (nint)callback, 0, 0);
         }
+
         if (_hook != 0)
         {
             return;
         }
 
         var error = Marshal.GetLastWin32Error();
-        Stop();     // clear _active so the failed recorder isn't statically rooted
+        Stop(); // clear _active so the failed recorder isn't statically rooted
         Log.Warn($"Could not install keyboard hook for recording (Win32 error {error}).");
         Recorded?.Invoke(Cleared());
     }
@@ -80,6 +97,7 @@ public sealed class KeyRecorder : IDisposable
             NativeMethods.UnhookWindowsHookEx(_hook);
             _hook = 0;
         }
+
         if (ReferenceEquals(_active, this))
         {
             _active = null;
@@ -139,12 +157,17 @@ public sealed class KeyRecorder : IDisposable
         return 1;
     }
 
-    private static bool IsModifier(int vk) =>
-        vk is VkShift or VkControl or VkMenu
+    private static bool IsModifier(int vk)
+    {
+        return vk is VkShift or VkControl or VkMenu
             or VkLShift or VkRShift or VkLControl or VkRControl
             or VkLMenu or VkRMenu or VkLWin or VkRWin;
+    }
 
-    private static bool IsDown(int vk) => (NativeMethods.GetAsyncKeyState(vk) & 0x8000) != 0;
+    private static bool IsDown(int vk)
+    {
+        return (NativeMethods.GetAsyncKeyState(vk) & 0x8000) != 0;
+    }
 
     /// <summary>Human-readable shortcut text, e.g. "Ctrl + Alt + Home".</summary>
     public static string Describe(HotkeyConfig hotkey)
@@ -153,6 +176,7 @@ public sealed class KeyRecorder : IDisposable
         {
             return "None";
         }
+
         var parts = new List<string>();
         if (hotkey.Ctrl)
         {
@@ -181,50 +205,50 @@ public sealed class KeyRecorder : IDisposable
     /// <summary>Converts a Win32 virtual-key code into its user-facing name.</summary>
     /// <param name="vk">The virtual-key code to describe.</param>
     /// <returns>A readable key name.</returns>
-    public static string KeyName(int vk) => vk switch
+    public static string KeyName(int vk)
     {
-        0x08 => "Backspace",
-        0x09 => "Tab",
-        0x0D => "Enter",
-        0x13 => "Pause",
-        0x14 => "Caps Lock",
-        0x1B => "Esc",
-        0x20 => "Space",
-        0x21 => "Page Up",
-        0x22 => "Page Down",
-        0x23 => "End",
-        0x24 => "Home",
-        0x25 => "Left",
-        0x26 => "Up",
-        0x27 => "Right",
-        0x28 => "Down",
-        0x2C => "Print Screen",
-        0x2D => "Insert",
-        0x2E => "Delete",
-        >= 0x30 and <= 0x39 => ((char)vk).ToString(),                 // 0-9
-        >= 0x41 and <= 0x5A => ((char)vk).ToString(),                 // A-Z
-        >= 0x60 and <= 0x69 => $"Numpad {vk - 0x60}",
-        0x6A => "Numpad *",
-        0x6B => "Numpad +",
-        0x6C => "Numpad Separator",
-        0x6D => "Numpad -",
-        0x6E => "Numpad .",
-        0x6F => "Numpad /",
-        >= 0x70 and <= 0x87 => $"F{vk - 0x6F}",                       // F1-F24
-        0xBA => ";",
-        0xBB => "+",
-        0xBC => ",",
-        0xBD => "-",
-        0xBE => ".",
-        0xBF => "/",
-        0xC0 => "`",
-        0xDB => "[",
-        0xDC => "\\",
-        0xDD => "]",
-        0xDE => "'",
-        _ => $"Key 0x{vk:X2}"
-    };
-
-    /// <summary>Stops capture and releases the keyboard hook.</summary>
-    public void Dispose() => Stop();
+        return vk switch
+        {
+            0x08 => "Backspace",
+            0x09 => "Tab",
+            0x0D => "Enter",
+            0x13 => "Pause",
+            0x14 => "Caps Lock",
+            0x1B => "Esc",
+            0x20 => "Space",
+            0x21 => "Page Up",
+            0x22 => "Page Down",
+            0x23 => "End",
+            0x24 => "Home",
+            0x25 => "Left",
+            0x26 => "Up",
+            0x27 => "Right",
+            0x28 => "Down",
+            0x2C => "Print Screen",
+            0x2D => "Insert",
+            0x2E => "Delete",
+            >= 0x30 and <= 0x39 => ((char)vk).ToString(), // 0-9
+            >= 0x41 and <= 0x5A => ((char)vk).ToString(), // A-Z
+            >= 0x60 and <= 0x69 => $"Numpad {vk - 0x60}",
+            0x6A => "Numpad *",
+            0x6B => "Numpad +",
+            0x6C => "Numpad Separator",
+            0x6D => "Numpad -",
+            0x6E => "Numpad .",
+            0x6F => "Numpad /",
+            >= 0x70 and <= 0x87 => $"F{vk - 0x6F}", // F1-F24
+            0xBA => ";",
+            0xBB => "+",
+            0xBC => ",",
+            0xBD => "-",
+            0xBE => ".",
+            0xBF => "/",
+            0xC0 => "`",
+            0xDB => "[",
+            0xDC => "\\",
+            0xDD => "]",
+            0xDE => "'",
+            _ => $"Key 0x{vk:X2}"
+        };
+    }
 }

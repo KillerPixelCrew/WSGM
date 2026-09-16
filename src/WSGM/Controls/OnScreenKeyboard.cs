@@ -8,46 +8,56 @@ using Avalonia.Threading;
 
 namespace WSGM.Controls;
 
-/// <summary>An on-screen keyboard drawn by WSGM itself.
-///
-/// Windows' own touch keyboard is not an option in game mode. It is rendered by
-/// TextInputHost, part of the same immersive-shell AppX family as `ms-settings`,
-/// and that cannot activate with no Explorer in the session — the same wall the
-/// settings-activation work already hit. Starting TabTip.exe does nothing either:
-/// on Windows 11 it is already running, so a second launch just exits.
-///
-/// So the only text entry that can be relied on for a Wi-Fi password or a
-/// Bluetooth PIN is one this process draws. Being ours has a second benefit: the
-/// keys are ordinary buttons, so controller navigation works on them for free.
+/// <summary>
+///     An on-screen keyboard drawn by WSGM itself.
+///     Windows' own touch keyboard is not an option in game mode. It is rendered by
+///     TextInputHost, part of the same immersive-shell AppX family as `ms-settings`,
+///     and that cannot activate with no Explorer in the session — the same wall the
+///     settings-activation work already hit. Starting TabTip.exe does nothing either:
+///     on Windows 11 it is already running, so a second launch just exits.
+///     So the only text entry that can be relied on for a Wi-Fi password or a
+///     Bluetooth PIN is one this process draws. Being ours has a second benefit: the
+///     keys are ordinary buttons, so controller navigation works on them for free.
 /// </summary>
 public sealed class OnScreenKeyboard : Decorator
 {
-    /// <summary>Defines the <see cref="Target"/> property.</summary>
+    private const int LayerLetters = 0;
+    private const int LayerSymbols = 1;
+    private const int LayerMoreSymbols = 2;
+
+    /// <summary>Defines the <see cref="Target" /> property.</summary>
     private static readonly StyledProperty<TextBox?> TargetProperty =
         AvaloniaProperty.Register<OnScreenKeyboard, TextBox?>(nameof(Target));
 
-    /// <summary>Raised when the user presses the accept key.</summary>
-    public event EventHandler? Accepted;
+    // Rows are the standard phone layout rather than a full PC one: a password
+    // field does not need function keys, and wider keys are what a thumb needs.
+    private static readonly string[] LettersLower = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
+    private static readonly string[] LettersUpper = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
+    private static readonly string[] Symbols = ["1234567890", "-/:;()$&@\"", ".,?!'#%*+="];
 
-    /// <summary>Raised when the user asks the owning window to paste clipboard text.</summary>
-    public event EventHandler? PasteRequested;
+    /// <summary>
+    ///     The printable ASCII the first symbol page has no room for.
+    ///     Together with the letters, digits, space and <see cref="Symbols" /> this
+    ///     completes the set a WPA passphrase is allowed to contain.
+    /// </summary>
+    private static readonly string[] MoreSymbols = ["[]{}<>", "\\|~`^_"];
+
+    private readonly StackPanel?[] _layers = new StackPanel?[4];
 
     // One panel per key layer, built the first time it is shown and then only shown or hidden, so a
     // layer switch no longer rebuilds every key.
     private readonly Panel _root = new();
-    private readonly StackPanel?[] _layers = new StackPanel?[4];
-    private bool _shift;
 
-    /// <summary>Which key layer is showing: 0 letters, 1 symbols, 2 the rest of
-    /// the symbols. Three layers because a WPA passphrase may contain any
-    /// printable ASCII character and this keyboard is the only way to type one
-    /// in game mode — a character it cannot reach is a network that cannot be
-    /// joined.</summary>
+    /// <summary>
+    ///     Which key layer is showing: 0 letters, 1 symbols, 2 the rest of
+    ///     the symbols. Three layers because a WPA passphrase may contain any
+    ///     printable ASCII character and this keyboard is the only way to type one
+    ///     in game mode — a character it cannot reach is a network that cannot be
+    ///     joined.
+    /// </summary>
     private int _layer;
 
-    private const int LayerLetters = 0;
-    private const int LayerSymbols = 1;
-    private const int LayerMoreSymbols = 2;
+    private bool _shift;
 
     /// <summary>Creates the keyboard.</summary>
     public OnScreenKeyboard()
@@ -63,16 +73,13 @@ public sealed class OnScreenKeyboard : Decorator
         set => SetValue(TargetProperty, value);
     }
 
-    // Rows are the standard phone layout rather than a full PC one: a password
-    // field does not need function keys, and wider keys are what a thumb needs.
-    private static readonly string[] LettersLower = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
-    private static readonly string[] LettersUpper = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
-    private static readonly string[] Symbols = ["1234567890", "-/:;()$&@\"", ".,?!'#%*+="];
+    private int CurrentLayerIndex => _layer == LayerLetters ? _shift ? 1 : 0 : _layer + 1;
 
-    /// <summary>The printable ASCII the first symbol page has no room for.
-    /// Together with the letters, digits, space and <see cref="Symbols"/> this
-    /// completes the set a WPA passphrase is allowed to contain.</summary>
-    private static readonly string[] MoreSymbols = ["[]{}<>", "\\|~`^_"];
+    /// <summary>Raised when the user presses the accept key.</summary>
+    public event EventHandler? Accepted;
+
+    /// <summary>Raised when the user asks the owning window to paste clipboard text.</summary>
+    public event EventHandler? PasteRequested;
 
     private void ShowLayer()
     {
@@ -83,13 +90,12 @@ public sealed class OnScreenKeyboard : Decorator
             _layers[index] = layer;
             _root.Children.Add(layer);
         }
+
         foreach (var child in _root.Children)
         {
             child.IsVisible = ReferenceEquals(child, layer);
         }
     }
-
-    private int CurrentLayerIndex => _layer == LayerLetters ? _shift ? 1 : 0 : _layer + 1;
 
     private StackPanel BuildLayer()
     {
@@ -112,6 +118,7 @@ public sealed class OnScreenKeyboard : Decorator
             {
                 panel.Children.Add(KeyButton(key.ToString(), () => Insert(key.ToString())));
             }
+
             layer.Children.Add(panel);
         }
 
@@ -142,43 +149,47 @@ public sealed class OnScreenKeyboard : Decorator
                     _ => "?123"
                 });
             },
-            width: 58));
+            58));
         controls.Children.Add(KeyButton("Shift", () =>
         {
             _shift = !_shift;
             _layer = LayerLetters;
             ShowLayer();
             FocusControl("Shift");
-        }, width: 62));
-        controls.Children.Add(KeyButton("Space", () => Insert(" "), width: 96));
-        controls.Children.Add(KeyButton("Paste", () => PasteRequested?.Invoke(this, EventArgs.Empty), width: 62));
-        controls.Children.Add(KeyButton("Back", Backspace, width: 58));
+        }, 62));
+        controls.Children.Add(KeyButton("Space", () => Insert(" "), 96));
+        controls.Children.Add(KeyButton("Paste", () => PasteRequested?.Invoke(this, EventArgs.Empty), 62));
+        controls.Children.Add(KeyButton("Back", Backspace, 58));
         controls.Children.Add(KeyButton("Enter", () => Accepted?.Invoke(this, EventArgs.Empty),
-            width: 62));
+            62));
         layer.Children.Add(controls);
         return layer;
     }
 
-    private void FocusControl(string label) => Dispatcher.UIThread.Post(() =>
+    private void FocusControl(string label)
     {
-        if (_layers[CurrentLayerIndex] is not { } layer)
+        Dispatcher.UIThread.Post(() =>
         {
-            return;
-        }
-        foreach (var row in layer.Children.OfType<Panel>())
-        {
-            foreach (var button in row.Children.OfType<Button>())
+            if (_layers[CurrentLayerIndex] is not { } layer)
             {
-                if (!string.Equals(button.Content?.ToString(), label, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                button.Focus();
                 return;
             }
-        }
-    });
+
+            foreach (var row in layer.Children.OfType<Panel>())
+            {
+                foreach (var button in row.Children.OfType<Button>())
+                {
+                    if (!string.Equals(button.Content?.ToString(), label, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    button.Focus();
+                    return;
+                }
+            }
+        });
+    }
 
     private static Button KeyButton(string label, Action action, double width = 44)
     {
@@ -219,6 +230,7 @@ public sealed class OnScreenKeyboard : Decorator
         {
             return;
         }
+
         var current = target.Text ?? "";
         // Respect the caret rather than always appending: a mistyped character
         // in the middle of a long password is otherwise unfixable.
@@ -240,6 +252,7 @@ public sealed class OnScreenKeyboard : Decorator
         {
             return;
         }
+
         var current = target.Text ?? "";
         var start = Math.Clamp(Math.Min(target.SelectionStart, target.SelectionEnd), 0, current.Length);
         var end = Math.Clamp(Math.Max(target.SelectionStart, target.SelectionEnd), start, current.Length);
@@ -251,11 +264,13 @@ public sealed class OnScreenKeyboard : Decorator
             target.SelectionEnd = start;
             return;
         }
+
         var caret = Math.Clamp(target.CaretIndex, 0, current.Length);
         if (caret == 0 || current.Length == 0)
         {
             return;
         }
+
         target.Text = current[..(caret - 1)] + current[caret..];
         target.CaretIndex = caret - 1;
         target.SelectionStart = target.CaretIndex;
@@ -275,9 +290,13 @@ public sealed class OnScreenKeyboard : Decorator
         ShowLayer();
     }
 
-    /// <summary>The key rows, exposed so a test can assert the layout covers
-    /// what a WPA passphrase is allowed to contain. The space bar is a control
-    /// key rather than a row, so it is included here explicitly.</summary>
-    internal static IReadOnlyList<string> AllKeys() =>
-        [.. LettersLower, .. LettersUpper, .. Symbols, .. MoreSymbols, " "];
+    /// <summary>
+    ///     The key rows, exposed so a test can assert the layout covers
+    ///     what a WPA passphrase is allowed to contain. The space bar is a control
+    ///     key rather than a row, so it is included here explicitly.
+    /// </summary>
+    internal static IReadOnlyList<string> AllKeys()
+    {
+        return [.. LettersLower, .. LettersUpper, .. Symbols, .. MoreSymbols, " "];
+    }
 }
