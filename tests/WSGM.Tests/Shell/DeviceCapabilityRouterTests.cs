@@ -23,23 +23,28 @@ public sealed class DeviceCapabilityRouterTests
     }
 
     [Fact]
-    public async Task OnlyTheNewestPostedSnapshotCanReachTheUi()
+    public async Task ABurstOfChangesPostsOneBuildThatRaisesChangedOnce()
     {
         List<Action> posted = [];
         await using DeviceCapabilityRouter router = new(posted.Add);
         var notifications = 0;
         router.Changed += _ => notifications++;
 
-        // Any two publications in a row will do; the point is that the older posted action
-        // is superseded and must not raise Changed when it finally runs on the UI thread.
+        // Changes that arrive before the posted build runs join it; the build reads the state
+        // when it runs on the UI thread, so it carries all of them.
         router.UpdateDesiredContext(null, onAcPower: true, hardwareProfileId: null, applicationId: null);
         router.UpdateDesiredContext(null, onAcPower: false, hardwareProfileId: null, applicationId: null);
 
-        Assert.Equal(2, posted.Count);
+        Assert.Single(posted);
         posted[0]();
-        Assert.Equal(0, notifications);
-        posted[1]();
         Assert.Equal(1, notifications);
+
+        // Once it has run, the next change needs a build of its own.
+        router.UpdateDesiredContext(null, onAcPower: true, hardwareProfileId: null, applicationId: null);
+
+        Assert.Equal(2, posted.Count);
+        posted[1]();
+        Assert.Equal(2, notifications);
     }
 
     [Fact]
