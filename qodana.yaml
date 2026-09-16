@@ -1,6 +1,7 @@
 # Qodana for .NET. The workflow runs this natively on a Windows runner, because WSGM targets
-# net10.0-windows and its build stages the Steam Input Lease (Rust, with MinHook C sources) and
-# VIIPER (Go with cgo) libraries from the submodules, as build.ps1 does. The bootstrap runs in cmd.
+# net10.0-windows and its build stages the Steam Input Lease (Rust) and VIIPER (Go with cgo)
+# libraries from the submodules. eng/qodana-bootstrap.ps1 builds everything and writes the
+# WSGM.Tests coverage report to .qodana/code-coverage, where Qodana reads it.
 # The JavaScript, Python and C++ analyses use the configurations in .qodana/.
 version: "1.0"
 linter: qodana-dotnet
@@ -11,10 +12,7 @@ dotnet:
   solution: WSGM.slnx
   configuration: Release
 
-bootstrap: >-
-  pwsh -NoLogo -NoProfile -File eng\build-steam-input-lease.ps1 && pwsh -NoLogo -NoProfile -File
-  eng\build-viiper.ps1 && dotnet restore WSGM.slnx && dotnet build WSGM.slnx --configuration Release
-  --no-restore
+bootstrap: pwsh -NoLogo -NoProfile -File eng\qodana-bootstrap.ps1
 
 exclude:
   - name: All
@@ -25,3 +23,4 @@ exclude:
       - publish
       - src/WSGM/Native
       - src/WSGM.Plugin.Ir/Firmware/.pio
+      - TestResults

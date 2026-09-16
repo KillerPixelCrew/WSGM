@@ -17,7 +17,7 @@ concurrency:
 jobs:
   # WSGM targets net10.0-windows and its build stages the Rust and Go libraries from the submodules,
   # so the .NET analysis runs natively on Windows with the same toolchains as ci.yml. qodana.yaml
-  # holds the build commands.
+  # runs eng/qodana-bootstrap.ps1, which builds the solution and collects WSGM.Tests coverage.
   dotnet:
     runs-on: windows-latest
     timeout-minutes: 60

@@ -511,3 +511,6 @@ _ref/
 
 # Maintainer-requested portable Ally X tester download.
 !tools/AllyXLab/Downloads/AllyXLab.exe
+
+# Coverage report that eng/qodana-bootstrap.ps1 writes for Qodana. Generated, never committed.
+/.qodana/code-coverage/
