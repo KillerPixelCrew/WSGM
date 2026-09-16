@@ -167,7 +167,10 @@ Filename: "{autopf}\WSGM\WSGM.LogonService.exe"; Parameters: "--install"; Flags:
 ; without the driver is a supported state where controller management reports itself unavailable —
 ; so this can never strand a WSGM install on a driver problem.
 Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\Install-UsbipDriver.ps1"" -StatusPath ""{commonappdata}\WSGM\usbip-install-status.ini"""; StatusMsg: "Installing the USB/IP driver for virtual controller support..."; Tasks: usbipdriver; Flags: runhidden waituntilterminated; BeforeInstall: PrepareUsbipInstallOutcome; AfterInstall: ReportUsbipInstallOutcome
-Filename: "{app}\HidHide_1.5.230_x64.exe"; Parameters: "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /SP-"; StatusMsg: "Installing HidHide for physical controller isolation..."; Tasks: usbipdriver; Flags: runhidden waituntilterminated skipifdoesntexist
+; A [Run] entry cannot see its program's exit code, so HidHide is installed by the Check function
+; itself, which reports a failure and returns False; the entry then never runs a second time. It
+; keeps its place after the USB/IP driver and before the restart entries below.
+Filename: "{app}\HidHide_1.5.230_x64.exe"; StatusMsg: "Installing HidHide for physical controller isolation..."; Tasks: usbipdriver; Flags: runhidden waituntilterminated skipifdoesntexist; Check: InstallHidHideAndReport
 ; Update restart: if the shell was running it comes back as the shell; a plain
 ; settings instance comes back as settings (no args = DecideMode).
 Filename: "{app}\WSGM.exe"; Parameters: "--shell"; Flags: nowait; Check: WasShellRunning
@@ -434,6 +437,36 @@ begin
 
   WarnUsbipInstallOutcome(
     'The USB/IP driver returned an incomplete result (' + Detail + ').');
+end;
+
+// HidHide is Inno-built, so any non-zero exit code is a failed or cancelled install. WSGM still
+// installs: the device banner reports the missing isolation at runtime, but without this the only
+// symptom was duplicate controllers with no install-time diagnostic.
+function InstallHidHideAndReport(): Boolean;
+var
+  Installer, Detail: String;
+  ResultCode: Integer;
+begin
+  Result := False;
+  Installer := ExpandConstant('{app}\HidHide_1.5.230_x64.exe');
+  if not FileExists(Installer) then
+    Exit;
+  WizardForm.StatusLabel.Caption := 'Installing HidHide for physical controller isolation...';
+  if not Exec(Installer, '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /SP-', '',
+    SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    Detail := 'HidHide setup could not be started: ' + SysErrorMessage(ResultCode)
+  else if ResultCode <> 0 then
+    Detail := 'HidHide setup exited with code ' + IntToStr(ResultCode) + '.'
+  else
+  begin
+    Log('HidHide: installed.');
+    Exit;
+  end;
+  Log('HidHide: ' + Detail);
+  if not WizardSilent() then
+    MsgBox(Detail + #13#10 + #13#10 +
+      'WSGM was installed, but physical controllers are not isolated, so Steam may show duplicate controllers.',
+      mbInformation, MB_OK);
 end;
 
 { The install mode, for --setup. Custom deliberately names no mode: the user picked components
