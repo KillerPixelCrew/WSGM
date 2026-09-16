@@ -26,10 +26,40 @@ public static class ExplorerControl
     /// process is already dying.</para></summary>
     public static void StartExplorerAndVerify() => StartExplorerCore(waitForElevationRepair: true);
 
+    /// <summary>Gets whether Explorer's desktop shell, not merely a folder window, runs in this session.</summary>
+    /// <remarks>Explorer is a per-session shell singleton, so starting it while its taskbar
+    /// exists only opens a File Explorer window. WSGM's own tray host also creates a
+    /// Shell_TrayWnd, which is why the owner must be the canonical explorer.exe.</remarks>
+    public static bool IsDesktopShellRunning()
+    {
+        nint taskbar = Interop.NativeMethods.FindWindowW("Shell_TrayWnd", null);
+        if (!IsCurrentSessionWindow(taskbar))
+        {
+            return false;
+        }
+        Interop.NativeMethods.GetWindowThreadProcessId(taskbar, out uint owner);
+        try
+        {
+            using Process process = Process.GetProcessById(checked((int)owner));
+            return string.Equals(process.MainModule?.FileName, ExplorerPath, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException
+            or System.ComponentModel.Win32Exception or OverflowException)
+        {
+            return false;
+        }
+    }
+
     private static void StartExplorerCore(bool waitForElevationRepair)
     {
         try
         {
+            if (IsDesktopShellRunning())
+            {
+                Log.Info("Explorer's desktop is already running; not starting another explorer.exe.");
+                return;
+            }
+
             var weAreElevated = ElevationCheck.IsCurrentProcessElevated() == true;
 
             Process.Start(new ProcessStartInfo(ExplorerPath) { UseShellExecute = true });
